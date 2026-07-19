@@ -286,3 +286,4 @@ whole-file-render-then-split round-trips for md, yaml, and frontmatter+md.
    can land first if the harness wants the seam early.
 3. **`Examples/ExtrasDemo`** (§7): lands with whichever of 1–2 finishes
    last; its fixture tree is shared with the unit tests where practical.
+4. CI from swissarmyhammer/workflows like in sibling packages
