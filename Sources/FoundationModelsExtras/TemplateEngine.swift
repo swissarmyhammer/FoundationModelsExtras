@@ -28,9 +28,10 @@ public enum TemplateEngineError: Error, Sendable, CustomStringConvertible {
 
 /// The Stencil wrap every dotfolder document renders through (plan.md §4):
 /// consumers never see a Stencil or PathKit type, only this facade, plain
-/// `String`s, and `TemplateContext`. Today implements only the `trusted`
-/// path with no partial resolution; `partials` non-`nil` and `Trust.untrusted`
-/// are both accepted but their behavior lands in follow-up tasks.
+/// `String`s, and `TemplateContext`. Implements the `trusted` path with
+/// `{% include %}` partial resolution through `partials`, when given, via
+/// `DotfolderLoader`; `Trust.untrusted` is accepted but its restricted
+/// `Environment` lands in a follow-up task.
 public struct TemplateEngine: Sendable {
     /// Which validation path `render` takes.
     public enum Trust: Sendable {
@@ -43,10 +44,11 @@ public struct TemplateEngine: Sendable {
         case untrusted
     }
 
-    /// The partials stack passed at construction. Unused until the
-    /// `DotfolderLoader` follow-up task wires `{% include %}` resolution
-    /// through it; already consulted here for the well-known
-    /// `dotfolder_name` variable, present only when a stack was given.
+    /// The partials stack passed at construction. When non-`nil`, backs a
+    /// `DotfolderLoader` that resolves `{% include %}` through its layered
+    /// `_partials/` directories (plan.md §4); also consulted here for the
+    /// well-known `dotfolder_name` variable, present only when a stack was
+    /// given.
     private let partials: DotfolderStack?
 
     /// The environment dictionary consulted for the precedence ladder's
@@ -56,10 +58,10 @@ public struct TemplateEngine: Sendable {
     /// The well-known system variables backing the ladder's lowest rung.
     private let wellKnownValues: WellKnownValues
 
-    /// Creates an engine. `partials`, when given, seeds the `_partials/`
-    /// loader a later task wires up for `{% include %}`, and makes its
-    /// dotfolder name available as the well-known `dotfolder_name` variable
-    /// (plan.md §4).
+    /// Creates an engine. `partials`, when given, backs the `DotfolderLoader`
+    /// that resolves `{% include %}` through its layered `_partials/`
+    /// directories, and makes its dotfolder name available as the
+    /// well-known `dotfolder_name` variable (plan.md §4).
     public init(partials: DotfolderStack?) {
         self.init(
             partials: partials,
@@ -105,7 +107,8 @@ public struct TemplateEngine: Sendable {
         case .untrusted:
             throw TemplateEngineError.untrustedRenderingNotYetImplemented
         case .trusted:
-            let stencilEnvironment = Environment()
+            let stencilEnvironment =
+                partials.map { Environment(loader: DotfolderLoader(stack: $0)) } ?? Environment()
             do {
                 return try stencilEnvironment.renderTemplate(
                     string: text, context: mergedDictionary(explicit: context))

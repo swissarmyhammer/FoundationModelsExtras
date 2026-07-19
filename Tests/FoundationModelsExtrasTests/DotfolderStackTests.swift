@@ -141,6 +141,22 @@ private func canonicalize(_ url: URL) -> URL {
         #expect(stack.nearest("config.yaml") == nil)
     }
 
+    @Test func contentReturnsTheHighestPrecedenceCopysText() {
+        let fixture = Fixture()
+        fixture.write("defaults", to: "config.yaml", in: fixture.defaultsDirectory)
+        fixture.write("project", to: "config.yaml", in: fixture.projectDirectory)
+        let stack = fixture.makeStack()
+
+        #expect(stack.content("config.yaml") == "project")
+    }
+
+    @Test func contentReturnsNilWhenNoLayerHasTheFile() {
+        let fixture = Fixture()
+        let stack = fixture.makeStack()
+
+        #expect(stack.content("config.yaml") == nil)
+    }
+
     @Test func locateReturnsCopiesLowestToHighest() {
         let fixture = Fixture()
         fixture.write("defaults", to: "config.yaml", in: fixture.defaultsDirectory)

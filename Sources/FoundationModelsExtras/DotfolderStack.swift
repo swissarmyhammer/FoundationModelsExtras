@@ -5,12 +5,13 @@ import Foundation
 /// project's dotfolder, in increasing precedence — `defaults < user
 /// (~/.<name>/) < project (<cwd>/.<name>/)`.
 ///
-/// `DotfolderStack` only **locates** files; it never merges their contents.
-/// Key-level config merging (scalars/arrays replace wholesale, sections merge
-/// by key) is a consumer concern — the harness's codec policy, not this
-/// type's. The stack is the only thing that touches disk, and only when
-/// `nearest`, `locate`, or `enumerate` is called: constructing a stack never
-/// performs file I/O, so consumers stay constructible in tests with none.
+/// `DotfolderStack` only **locates** files (and, via `content`, reads one
+/// verbatim); it never merges their contents. Key-level config merging
+/// (scalars/arrays replace wholesale, sections merge by key) is a consumer
+/// concern — the harness's codec policy, not this type's. The stack is the
+/// only thing that touches disk, and only when `nearest`, `locate`,
+/// `enumerate`, or `content` is called: constructing a stack never performs
+/// file I/O, so consumers stay constructible in tests with none.
 public struct DotfolderStack: Sendable {
     /// Which layer of the stack a location resolved from.
     public enum Source: Sendable, Equatable {
@@ -148,6 +149,23 @@ public struct DotfolderStack: Sendable {
             }
         }
         return nil
+    }
+
+    /// The text content of the highest-precedence existing copy of
+    /// `relativePath` — the read counterpart to `nearest`, so consumers that
+    /// want a file's text (not just its location, e.g. a template partial)
+    /// never need to touch `FileManager` themselves; the stack stays the
+    /// only thing that touches disk.
+    ///
+    /// - Parameter relativePath: A path relative to a layer's root, as
+    ///   accepted by `nearest`. Rejected (returns `nil`) under the same
+    ///   rules `nearest` applies.
+    /// - Returns: The winning layer's file content decoded as UTF-8, or
+    ///   `nil` if no layer has `relativePath` or its content cannot be
+    ///   decoded as UTF-8 text.
+    public func content(_ relativePath: String) -> String? {
+        guard let url = nearest(relativePath) else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
     }
 
     /// Every existing copy of `relativePath` across the stack.
