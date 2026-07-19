@@ -93,6 +93,14 @@ import Testing
 
     /// A conformer whose command set changes mid-session, re-published
     /// through `commandUpdates` — the dynamic provider shape.
+    ///
+    /// `@unchecked Sendable`: `continuation` is written exactly once, inside
+    /// `init`, before the instance is handed to anything else; from that
+    /// point on it is only read, never reassigned. The one caller that
+    /// invokes `publish` and the one caller that awaits `commandUpdates` are
+    /// both the same test task, so there is no concurrent access to
+    /// serialize — the compiler just can't see that a `var` captured by the
+    /// `AsyncStream` build closure settles into effectively-immutable state.
     final class DynamicFakeProvider: SlashCommandProviding, @unchecked Sendable {
         private let continuation: AsyncStream<[SlashCommand]>.Continuation
         let commandUpdates: AsyncStream<[SlashCommand]>?

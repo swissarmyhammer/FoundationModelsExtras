@@ -8,31 +8,14 @@ comments:
   id: 01kxxe38hg1rg3zs3b4hytdtbt
   text: 'Double-check adversarial review returned PASS, no findings: SlashCommand/Body/Invocation match plan.md §2 field-for-field and case-for-case; only Foundation imported in both source files; every public declaration has a directly-attached doc comment, and Body carries the plan.md §5 trust-boundary sentence; SlashCommandProviding signature matches exactly. Test file covers all four required scenarios with real assertions. Independent fresh swift test run confirmed 51 tests / 7 suites / 0 failures, no warnings, including DocCoverageTests passing against the real source tree. Leaving task in doing for /review.'
   timestamp: 2026-07-19T14:57:15.312106+00:00
+- actor: claude-code
+  id: 01kxxempp7wxkn2bdmyccpp8ht
+  text: 'Addressed the review finding: added a doc comment directly above the DynamicFakeProvider class declaration in Tests/FoundationModelsExtrasTests/SlashCommandTests.swift explaining why @unchecked Sendable is safe -- continuation is written exactly once in init before the instance escapes, then only read; publish and the commandUpdates await both happen from the same test task, so there is no concurrent mutation to race on. Checked the finding box. swift build: clean, 0 warnings. swift test: 51 tests, 7 suites, all passed, 0 warnings.'
+  timestamp: 2026-07-19T15:06:46.855953+00:00
 depends_on:
 - 01KXX44VAM0BR1CM0D7JR9C8XP
 position_column: doing
 position_ordinal: '80'
 title: 'Slash-command vocabulary: SlashCommand + SlashCommandProviding'
 ---
-## What
-Implement plan.md §2 exactly — the cross-package slash-command vocabulary. Signatures must not reference anything harness-shaped.
-
-- `Sources/FoundationModelsExtras/SlashCommand.swift`: `public struct SlashCommand: Sendable` with `name` (no leading slash), `description`, `argumentHint: String?`, and `body: Body`. `public enum Body: Sendable` with `case prompt(template: String)` and `case action(@Sendable (Invocation) -> AsyncThrowingStream<String, Error>)`. `public struct Invocation: Sendable` with `arguments: String` and `workingDirectory: URL`.
-- `Sources/FoundationModelsExtras/SlashCommandProviding.swift`: `public protocol SlashCommandProviding: Sendable` with `func commands(workingDirectory: URL) async -> [SlashCommand]` and `var commandUpdates: AsyncStream<[SlashCommand]>? { get }` (nil = static provider).
-- Full doc comments on every public declaration, including the trust-boundary sentences from plan.md §5 (`.action` requires linked Swift; data channels are `.prompt`-only) at the type.
-
-## Acceptance Criteria
-- [x] Public API compiles and matches plan.md §2 signatures verbatim
-- [x] All public declarations documented, including the trust boundary at `Body`
-- [x] No imports beyond Foundation in these files
-
-## Tests
-- [x] `Tests/FoundationModelsExtrasTests/SlashCommandTests.swift`:
-  - a fake static conformer returns commands and `commandUpdates == nil`
-  - a `.prompt` body round-trips its template string
-  - an `.action` body streams multiple chunks collected via `for try await`, and a throwing action surfaces its error
-  - a dynamic fake provider ticks `commandUpdates` and the test observes the re-published set
-- [x] Run `swift test`; expect all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nImplement plan.md §2 exactly — the cross-package slash-command vocabulary. Signatures must not reference anything harness-shaped.\n\n- `Sources/FoundationModelsExtras/SlashCommand.swift`: `public struct SlashCommand: Sendable` with `name` (no leading slash), `description`, `argumentHint: String?`, and `body: Body`. `public enum Body: Sendable` with `case prompt(template: String)` and `case action(@Sendable (Invocation) -> AsyncThrowingStream<String, Error>)`. `public struct Invocation: Sendable` with `arguments: String` and `workingDirectory: URL`.\n- `Sources/FoundationModelsExtras/SlashCommandProviding.swift`: `public protocol SlashCommandProviding: Sendable` with `func commands(workingDirectory: URL) async -> [SlashCommand]` and `var commandUpdates: AsyncStream<[SlashCommand]>? { get }` (nil = static provider).\n- Full doc comments on every public declaration, including the trust-boundary sentences from plan.md §5 (`.action` requires linked Swift; data channels are `.prompt`-only) at the type.\n\n## Acceptance Criteria\n- [x] Public API compiles and matches plan.md §2 signatures verbatim\n- [x] All public declarations documented, including the trust boundary at `Body`\n- [x] No imports beyond Foundation in these files\n\n## Tests\n- [x] `Tests/FoundationModelsExtrasTests/SlashCommandTests.swift`:\n  - a fake static conformer returns commands and `commandUpdates == nil`\n  - a `.prompt` body round-trips its template string\n  - an `.action` body streams multiple chunks collected via `for try await`, and a throwing action surfaces its error\n  - a dynamic fake provider ticks `commandUpdates` and the test observes the re-published set\n- [x] Run `swift test`; expect all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-19 10:00)\n\n- [x] `Tests/FoundationModelsExtrasTests/SlashCommandTests.swift:101` — `@unchecked Sendable` conformance must document the synchronization invariant explaining why mutable state (continuation) is safe to share across task boundaries. Add a comment above the class declaration explaining the synchronization strategy, e.g.: `// @unchecked Sendable: continuation is only yielded from within single-threaded test, never shared across tasks.`.\n
