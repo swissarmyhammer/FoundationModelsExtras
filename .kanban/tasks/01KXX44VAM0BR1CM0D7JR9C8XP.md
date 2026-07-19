@@ -23,7 +23,7 @@ comments:
 
     Task is green and left in `doing` per /implement's process — ready for /review.
   timestamp: 2026-07-19T13:12:57.286558+00:00
-position_column: doing
+position_column: done
 position_ordinal: '80'
 title: 'Scaffold package: Package.swift, targets, CI'
 ---
