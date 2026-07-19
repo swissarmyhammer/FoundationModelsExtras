@@ -1,7 +1,7 @@
-/// Splits a dotfolder document's raw text into an optional YAML frontmatter
-/// block and a body, using purely textual fence recognition — no YAML
-/// dependency lives here (plan.md §4); consumers decode the frontmatter text
-/// with their own codec (the harness uses Yams).
+/// A utility for splitting a dotfolder document's raw text into an optional
+/// YAML frontmatter block and a body, using purely textual fence recognition
+/// — no YAML dependency lives here (plan.md §4); consumers decode the
+/// frontmatter text with their own codec (the harness uses Yams).
 ///
 /// A frontmatter block is recognized only when the very first line of the
 /// text is exactly `---` and a later line is also exactly `---`; the raw text
