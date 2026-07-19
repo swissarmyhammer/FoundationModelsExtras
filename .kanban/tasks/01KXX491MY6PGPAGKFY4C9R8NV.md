@@ -28,8 +28,8 @@ comments:
   timestamp: 2026-07-19T14:44:41.160690+00:00
 depends_on:
 - 01KXX44VAM0BR1CM0D7JR9C8XP
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8380'
 title: 'DocCoverageTests: fail on undocumented public API'
 ---
 ## What
