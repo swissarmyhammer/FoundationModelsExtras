@@ -65,8 +65,8 @@ comments:
   timestamp: 2026-07-19T13:53:25.547152+00:00
 depends_on:
 - 01KXX44VAM0BR1CM0D7JR9C8XP
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8180'
 title: FrontmatterDocument.split + TemplateContext value types
 ---
 ## What
