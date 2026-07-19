@@ -36,6 +36,12 @@ let package = Package(
         // §5 runtime dependency budget (Foundation + Stencil). Mirrors the
         // family's doc-coverage convention (see `FoundationModelsShelltool`).
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "604.0.0-latest"),
+        // The thin ArgumentParser CLI driver for `Examples/ExtrasDemo`'s
+        // `extras-demo` executable (plan.md §7). Declared here so the
+        // example target can link `ArgumentParser` directly, but only that
+        // target depends on it — the library's own dependency budget
+        // (Foundation + Stencil, plan.md §5) is untouched.
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.8.0"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -47,12 +53,36 @@ let package = Package(
             ]
         ),
 
+        // `Examples/ExtrasDemo` (plan.md §7): the living contract test for
+        // all three pillars — a thin ArgumentParser executable with one
+        // subcommand per pillar, run against a checked-in fixture tree so no
+        // demo ever touches the real home directory. Kept as a target of the
+        // root package (not a nested package), mirroring
+        // `FoundationModelsShelltool`'s `shell-demo` example layout.
+        .executableTarget(
+            name: "extras-demo",
+            dependencies: [
+                "FoundationModelsExtras",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Examples/ExtrasDemo/Sources/extras-demo"
+        ),
+
         // Tests for the core library. `@testable` so the tests can reach
         // package-internal types directly.
         .testTarget(
             name: "FoundationModelsExtrasTests",
             dependencies: [
                 "FoundationModelsExtras",
+                // The example integration tests invoke the built
+                // `extras-demo` executable as a subprocess. Declaring the
+                // executable as a dependency makes `swift test` build it
+                // first, so the binary is present next to the test bundle
+                // for the subprocess to launch — no code from the executable
+                // is imported (its `@main` entry point stays the process's,
+                // not the test's). Mirrors `FoundationModelsShelltool`'s
+                // `ShellToolTests` -> `shell-demo` dependency.
+                "extras-demo",
                 // Parse `Sources/FoundationModelsExtras` in `DocCoverageTests`
                 // to fail the build on any undocumented `public` declaration.
                 .product(name: "SwiftSyntax", package: "swift-syntax"),

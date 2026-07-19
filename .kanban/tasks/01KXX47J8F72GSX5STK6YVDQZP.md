@@ -31,8 +31,8 @@ comments:
   timestamp: 2026-07-19T17:13:23.032660+00:00
 depends_on:
 - 01KXX47408MG0KP7BAQWFKZFDW
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8780'
 title: 'Untrusted rendering mode: restricted Environment with limits'
 ---
 ## What
