@@ -28,6 +28,14 @@ let package = Package(
         // current latest release per the dependency budget in plan.md §5:
         // Foundation + Stencil only, no family imports, no Yams.
         .package(url: "https://github.com/stencilproject/Stencil.git", exact: "0.15.1"),
+        // SwiftSyntax powers `DocCoverageTests`' scanner, which parses every
+        // source file in `Sources/FoundationModelsExtras` and fails the build
+        // on any undocumented `public` declaration. Test-only tooling —
+        // declared here so the test target can link `SwiftSyntax`/
+        // `SwiftParser` directly — so it does not count against the plan.md
+        // §5 runtime dependency budget (Foundation + Stencil). Mirrors the
+        // family's doc-coverage convention (see `FoundationModelsShelltool`).
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "604.0.0-latest"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -45,6 +53,10 @@ let package = Package(
             name: "FoundationModelsExtrasTests",
             dependencies: [
                 "FoundationModelsExtras",
+                // Parse `Sources/FoundationModelsExtras` in `DocCoverageTests`
+                // to fail the build on any undocumented `public` declaration.
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
             ]
         ),
     ]
