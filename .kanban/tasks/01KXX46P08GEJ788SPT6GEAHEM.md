@@ -8,34 +8,18 @@ comments:
   id: 01kxxfy33ryp0bctv1r6t5phk7
   text: 'Adversarial double-check (subagent_type: double-check) verdict: REVISE, one finding — the "explicitContextValueBeatsEnvironmentVariableBeatsWellKnownValueForTheSameKey" test set the environment collision on a different key ("shared_key") than the one actually rendered/asserted ("hostname"), so it never proved context beats environment on a genuine same-key collision, only context beats well-known. Fixed: environment now also sets "hostname", making it a true three-way collision on one key. Verified the fix has teeth via red-green-red: temporarily flipped the final merge closure in TemplateEngine.mergedDictionary to make the lower rung win, confirmed the test fails (asserting "from-context", got "from-env"), reverted, confirmed green again. Fresh swift test after the fix: 62/62 pass, 0 warnings. No other findings from the double-check (public API surface, Sendability, doc coverage, error-message usefulness, and DotfolderStack project-layer name derivation all checked out). Task is done and green; leaving in doing for /review.'
   timestamp: 2026-07-19T15:29:23.064028+00:00
+- actor: claude-code
+  id: 01kxxgf1nvqhre7tr9thb68k2q
+  text: 'Addressed the review finding: extracted a private buildContext(from: [String: TemplateValue]) -> TemplateContext helper on TemplateEngine and called it from both sites in mergedDictionary (well-known values, and environment values via .mapValues { .string($0) }), eliminating the duplicated construct-context-and-loop-set pattern. swift build clean, swift test 62/62 pass, 0 warnings. Marked the finding [x] in the description. Adversarial double-check dispatched to confirm no behavior change before handoff.'
+  timestamp: 2026-07-19T15:38:38.651981+00:00
+- actor: claude-code
+  id: 01kxxgj9nzbtsn2t7re09jp674
+  text: 'Adversarial double-check verdict: PASS, no findings. Confirmed duplication eliminated, merge precedence (well-known < environment < explicit context) unchanged, behavior equivalence verified, buildContext stays private with no Stencil/PathKit leak, and independently re-ran swift build (0 warnings) and swift test (62/62 pass). Task is green; leaving in doing for /review.'
+  timestamp: 2026-07-19T15:40:25.151832+00:00
 depends_on:
 - 01KXX465QV10VKCSC793TH2JX8
 position_column: doing
 position_ordinal: '80'
 title: 'TemplateEngine: trusted Stencil rendering + variable precedence ladder'
 ---
-## What
-The Stencil wrap of plan.md §4, trusted path, no partials yet (that's the DotfolderLoader task).
-
-- `Sources/FoundationModelsExtras/TemplateEngine.swift`: `public struct TemplateEngine: Sendable` with `init(partials: DotfolderStack?)` (nil path implemented here; the stack-backed loader lands in the follow-up task), `public enum Trust: Sendable { case trusted, untrusted }`, and `func render(_ text: String, context: TemplateContext, trust: Trust) throws -> String`. `untrusted` may `fatalError`-free stub as "not yet implemented" error until its task lands — pick a thrown error, not a trap.
-- **No Stencil types in any public signature** — the facade is the whole public surface. Errors rethrown as our own error type.
-- Variable precedence ladder (swissarmyhammer's, kept): explicit `TemplateContext` values > environment variables > well-known system variables (dotfolder name if a stack was given, working directory, date, hostname). Build the base dictionary lowest-first and overlay upward.
-- Hermetic-test seam: engine takes an injectable environment dictionary (defaulting to `ProcessInfo.processInfo.environment`) and injectable well-known values (defaulting to real ones) so ladder tests are deterministic — keep these as defaulted parameters or an internal init so the public surface stays plan-shaped.
-
-## Acceptance Criteria
-- [x] `{{ var }}`, `{% if %}`, `{% for %}` render for trusted templates
-- [x] Precedence: explicit context beats env var beats well-known, proven by tests with all three defining the same key
-- [x] No Stencil or PathKit type appears in the public API (grep the public decls)
-- [x] Stencil parse/render failures surface as this package's error type with useful messages
-
-## Tests
-- [x] `Tests/FoundationModelsExtrasTests/TemplateEngineTests.swift`:
-  - variable substitution, `{% if %}` truthiness, `{% for x in xs %}` over an array context value
-  - the three-rung precedence ladder test
-  - well-known variables present when nothing overrides them
-  - malformed template throws the facade error type
-  - whole-file render-then-split round-trip: render a frontmatter+md document (templated YAML value in the frontmatter), then `FrontmatterDocument.split` — one rule, no per-format special cases (plan.md §4)
-- [x] Run `swift test`; expect all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nThe Stencil wrap of plan.md §4, trusted path, no partials yet (that's the DotfolderLoader task).\n\n- `Sources/FoundationModelsExtras/TemplateEngine.swift`: `public struct TemplateEngine: Sendable` with `init(partials: DotfolderStack?)` (nil path implemented here; the stack-backed loader lands in the follow-up task), `public enum Trust: Sendable { case trusted, untrusted }`, and `func render(_ text: String, context: TemplateContext, trust: Trust) throws -> String`. `untrusted` may `fatalError`-free stub as \"not yet implemented\" error until its task lands — pick a thrown error, not a trap.\n- **No Stencil types in any public signature** — the facade is the whole public surface. Errors rethrown as our own error type.\n- Variable precedence ladder (swissarmyhammer's, kept): explicit `TemplateContext` values > environment variables > well-known system variables (dotfolder name if a stack was given, working directory, date, hostname). Build the base dictionary lowest-first and overlay upward.\n- Hermetic-test seam: engine takes an injectable environment dictionary (defaulting to `ProcessInfo.processInfo.environment`) and injectable well-known values (defaulting to real ones) so ladder tests are deterministic — keep these as defaulted parameters or an internal init so the public surface stays plan-shaped.\n\n## Acceptance Criteria\n- [x] `{{ var }}`, `{% if %}`, `{% for %}` render for trusted templates\n- [x] Precedence: explicit context beats env var beats well-known, proven by tests with all three defining the same key\n- [x] No Stencil or PathKit type appears in the public API (grep the public decls)\n- [x] Stencil parse/render failures surface as this package's error type with useful messages\n\n## Tests\n- [x] `Tests/FoundationModelsExtrasTests/TemplateEngineTests.swift`:\n  - variable substitution, `{% if %}` truthiness, `{% for x in xs %}` over an array context value\n  - the three-rung precedence ladder test\n  - well-known variables present when nothing overrides them\n  - malformed template throws the facade error type\n  - whole-file render-then-split round-trip: render a frontmatter+md document (templated YAML value in the frontmatter), then `FrontmatterDocument.split` — one rule, no per-format special cases (plan.md §4)\n- [x] Run `swift test`; expect all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-19 10:32)\n\n- [x] `Sources/FoundationModelsExtras/TemplateEngine.swift:93` — The context-building loop (lines 93–96) duplicates the pattern from lines 88–91. Both create a TemplateContext, iterate over key-value pairs, and call .set() for each pair. If the context-building algorithm changes, the change must be applied in two places. Extract the loop into a helper function: `func buildContext(from pairs: [(String, TemplateValue)]) -> TemplateContext { var context = TemplateContext(); for (key, value) in pairs { context.set(key: key, to: value) }; return context }`. Then call it for both cases: `let wellKnownContext = buildContext(from: Array(wellKnownValues.templateValues))` and `let environmentContext = buildContext(from: environment.map { ($0, .string($1)) })`.\n\nFixed by extracting a `buildContext(from: [String: TemplateValue])` helper on `TemplateEngine` and calling it from both `mergedDictionary` sites (well-known values, and environment values mapped to `.string`). `swift build` and `swift test` both clean, 0 warnings, 62/62 tests pass.

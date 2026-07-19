@@ -120,21 +120,26 @@ public struct TemplateEngine: Sendable {
     /// highest — built lowest-first and overlaid upward, per plan.md §4's
     /// precedence ladder.
     private func mergedDictionary(explicit context: TemplateContext) -> [String: Any] {
-        var wellKnownContext = TemplateContext()
-        for (key, value) in wellKnownValues.templateValues {
-            wellKnownContext.set(key: key, to: value)
-        }
-
-        var environmentContext = TemplateContext()
-        for (key, value) in environment {
-            environmentContext.set(key: key, to: .string(value))
-        }
+        let wellKnownContext = buildContext(from: wellKnownValues.templateValues)
+        let environmentContext = buildContext(from: environment.mapValues { .string($0) })
 
         return
             wellKnownContext
             .stencilDictionary()
             .merging(environmentContext.stencilDictionary()) { _, higherRung in higherRung }
             .merging(context.stencilDictionary()) { _, higherRung in higherRung }
+    }
+
+    /// Builds a `TemplateContext` from a `[String: TemplateValue]` dictionary
+    /// by setting each key/value pair — the shared step both the well-known
+    /// and environment rungs of the precedence ladder need before they can be
+    /// merged (plan.md §4).
+    private func buildContext(from values: [String: TemplateValue]) -> TemplateContext {
+        var context = TemplateContext()
+        for (key, value) in values {
+            context.set(key: key, to: value)
+        }
+        return context
     }
 }
 
