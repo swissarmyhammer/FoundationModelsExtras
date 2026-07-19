@@ -4,3 +4,6 @@
 
 # Shell tool runtime data (auto-created log store)
 .shell/
+
+# Agent loop runtime state (auto-created per session)
+.ralph/
