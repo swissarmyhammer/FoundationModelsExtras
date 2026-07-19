@@ -21,8 +21,8 @@ comments:
 depends_on:
 - 01KXX45SJ1R0X46CBMYF59DN9K
 - 01KXX46P08GEJ788SPT6GEAHEM
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8680'
 title: 'DotfolderLoader: layered _partials/ resolution for includes'
 ---
 ## What

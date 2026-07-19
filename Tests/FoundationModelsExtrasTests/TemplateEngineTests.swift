@@ -5,9 +5,10 @@ import Testing
 
 /// Behavioral tests for `TemplateEngine`: trusted rendering of the Stencil
 /// syntax slice plan.md §4 targets (`{{ var }}`, `{% if %}`, `{% for %}`),
-/// the three-rung variable precedence ladder, well-known variables, the
-/// untrusted-not-yet-implemented stub, facade error surfacing, and the
-/// whole-file render-then-split round trip.
+/// the three-rung variable precedence ladder, well-known variables, facade
+/// error surfacing, and the whole-file render-then-split round trip.
+/// `Trust.untrusted`'s whitelist, limits, and loader confinement have their
+/// own dedicated suite in `UntrustedRenderingTests.swift`.
 @Suite struct TemplateEngineTests {
     /// Deterministic well-known values so tests never depend on real
     /// process state (current directory, real date, real hostname).
@@ -149,12 +150,14 @@ import Testing
         }
     }
 
-    @Test func untrustedRenderingThrowsNotYetImplementedFacadeError() {
+    @Test func untrustedRenderingOfAWhitelistedTemplateSucceeds() throws {
         let engine = Self.makeEngine()
+        var context = TemplateContext()
+        context.set(key: "name", to: .string("world"))
 
-        #expect(throws: TemplateEngineError.self) {
-            _ = try engine.render("{{ name }}", context: TemplateContext(), trust: .untrusted)
-        }
+        let rendered = try engine.render("Hello {{ name }}!", context: context, trust: .untrusted)
+
+        #expect(rendered == "Hello world!")
     }
 
     @Test func rendersAFrontmatterDocumentThenSplitsItRoundTrip() throws {

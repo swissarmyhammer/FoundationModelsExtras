@@ -1,8 +1,31 @@
 ---
+comments:
+- actor: claude-code
+  id: 01kxxkkw91ggmjphf1yv66r0wm
+  text: |-
+    Implemented Trust.untrusted in TemplateEngine.swift: pre-render tag/filter whitelist check over lexed tokens (if/elif/else/endif/for/empty/endfor/include; zero filters), a RestrictedIncludeNode/RestrictedIncludeExtension that shadows Stencil's own include tag to enforce an include-depth limit (8) and re-validate each loaded partial's tokens, a fast literal-range reject for for-loops whose N...M span exceeds the output-size limit, and a whole-render output-size backstop (1 MiB) for cases the literal check can't see statically (e.g. context-provided collections). Path traversal / absolute-path rejection for include confirmed to already be covered by the existing DotfolderStack.isSafeRelativePath safety net (no loader change needed there), verified with dedicated tests.
+
+    Added Tests/FoundationModelsExtrasTests/UntrustedRenderingTests.swift covering every acceptance criterion, and updated the obsolete "throws not yet implemented" test in TemplateEngineTests.swift to a real success-path test.
+
+    swift build: clean, zero warnings. swift test: 86/86 pass in ~0.08s (including doc-coverage). Note: an early version of the output-size defense (post-hoc check only) let a huge literal for-loop range run ~11s before failing; added a static fast-reject for literal integer ranges so that case now fails instantly, keeping the whole-render check only as a backstop for data-driven cases.
+
+    Adversarial double-check agent launched to review before handoff; will report final status once that returns.
+  timestamp: 2026-07-19T16:33:42.689723+00:00
+- actor: claude-code
+  id: 01kxxmvvdxvr2syj8vpsawnnfq
+  text: |-
+    Adversarial double-check (round 1) found two real issues, both fixed:
+    1. Critical: validateForLoopRange computed the literal for-loop range span with plain Int arithmetic, which traps for bounds near Int64 min/max (an attacker-controlled crash). Fixed with Int128 arithmetic; added regression tests at Int.max and Int.min...Int.max bounds.
+    2. Medium: the output-size limit was only checked once, after the whole render finished, so many sibling includes (each individually under the limit) whose sum exceeded it were not caught early. Fixed with a shared, mutable OutputSizeBudget (reference type) stashed once in the Stencil Context and incremented/checked inside RestrictedIncludeNode.render after each include's own render completes.
+
+    Round 2 double-check verified both fixes correct by manual trace of the real Stencil Context push/pop semantics, and flagged that the black-box regression test for finding 2 did not actually discriminate the fix from the pre-existing whole-render backstop (both would pass the same test). Added a white-box test (outputSizeBudgetStopsLoadingFurtherIncludesOnceTheRunningTotalExceedsTheLimit) that counts loadTemplate calls via a custom Loader and asserts fewer than all iterations ran before the throw, proving early bailout rather than eventual-only rejection. This closes the review loop per really-done's bounded-retry rule (one re-check spawned, findings fixed, no third round needed).
+
+    Final state: swift build clean (zero warnings, confirmed on a full clean rebuild), swift test 90/90 passing in ~0.3s total (including DocCoverageTests). Leaving task in doing for /review.
+  timestamp: 2026-07-19T16:55:32.541459+00:00
 depends_on:
 - 01KXX47408MG0KP7BAQWFKZFDW
-position_column: todo
-position_ordinal: '8680'
+position_column: doing
+position_ordinal: '80'
 title: 'Untrusted rendering mode: restricted Environment with limits'
 ---
 ## What
@@ -16,15 +39,15 @@ Implement `Trust.untrusted` (plan.md §4): a restricted Stencil `Environment` fo
 - Trusted mode stays unrestricted (consumer-shipped defaults).
 
 ## Acceptance Criteria
-- [ ] A template using a non-whitelisted tag or filter renders trusted but throws untrusted
-- [ ] `{% include "../secrets.md" %}` and absolute-path includes are rejected untrusted
-- [ ] Include-depth bomb (self-including partial) and output-size bomb (huge `{% for %}` expansion) both terminate with descriptive errors, not hangs
-- [ ] Whitelisted constructs (`if`/`for`/`include`, variable substitution) work untrusted
-- [ ] All limits and the whitelist documented on `Trust`
+- [x] A template using a non-whitelisted tag or filter renders trusted but throws untrusted
+- [x] `{% include "../secrets.md" %}` and absolute-path includes are rejected untrusted
+- [x] Include-depth bomb (self-including partial) and output-size bomb (huge `{% for %}` expansion) both terminate with descriptive errors, not hangs
+- [x] Whitelisted constructs (`if`/`for`/`include`, variable substitution) work untrusted
+- [x] All limits and the whitelist documented on `Trust`
 
 ## Tests
-- [ ] `Tests/FoundationModelsExtrasTests/UntrustedRenderingTests.swift` covering every acceptance criterion above, including the trusted-vs-untrusted contrast on the same template text
-- [ ] Run `swift test`; expect all pass
+- [x] `Tests/FoundationModelsExtrasTests/UntrustedRenderingTests.swift` covering every acceptance criterion above, including the trusted-vs-untrusted contrast on the same template text
+- [x] Run `swift test`; expect all pass
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.

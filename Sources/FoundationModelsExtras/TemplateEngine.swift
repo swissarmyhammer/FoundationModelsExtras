@@ -4,43 +4,112 @@ import Stencil
 /// Errors thrown by `TemplateEngine.render` — the package's own error type;
 /// no Stencil type ever crosses this boundary (plan.md §4).
 public enum TemplateEngineError: Error, Sendable, CustomStringConvertible {
-    /// Stencil failed to parse or render the template. `message` carries
-    /// Stencil's own diagnostic text (location, reason) so consumers get a
-    /// useful message, with no Stencil type retained.
+    /// Stencil failed to parse or render the template, or `Trust.untrusted`
+    /// validation rejected it before or during rendering — a disallowed
+    /// tag/filter, an include-depth bomb, or an output-size bomb (plan.md
+    /// §4). `message` carries the underlying diagnostic text (Stencil's own
+    /// location/reason, or this package's own untrusted-validation
+    /// description) so consumers get a useful message, with no Stencil (or
+    /// other internal) type retained.
     case renderingFailed(message: String)
-    /// `Trust.untrusted` rendering is not implemented yet: the restricted
-    /// `Environment` (whitelisted tags/filters, a loader confined to
-    /// `_partials/`, include-depth and output-size limits) is a follow-up
-    /// task (plan.md §4). Requesting it today throws rather than silently
-    /// falling back to the unrestricted trusted path.
-    case untrustedRenderingNotYetImplemented
 
     /// A human-readable description of the failure.
     public var description: String {
         switch self {
         case .renderingFailed(let message):
             return "template rendering failed: \(message)"
-        case .untrustedRenderingNotYetImplemented:
-            return "untrusted template rendering is not yet implemented"
+        }
+    }
+}
+
+/// `Trust.untrusted`'s own validation and enforcement failures — thrown from
+/// within `TemplateEngine`'s untrusted path (directly by
+/// `TemplateEngine.validateUntrustedSyntax`/`validateUntrustedTokens`, or by
+/// `RestrictedIncludeNode` during rendering) and never surfaced directly (it
+/// is not `public`): a failure raised *during* rendering passes through
+/// Stencil's own node-rendering machinery on its way out, which re-wraps any
+/// non-`TemplateSyntaxError` in a `TemplateSyntaxError` carrying this error's
+/// `description` as its reason — the text survives, only the type is
+/// replaced. Either way, `TemplateEngine.render`'s catch-all re-describes the
+/// failure inside `TemplateEngineError.renderingFailed`, mirroring how
+/// `DotfolderLoaderError` never crosses the facade either (plan.md §4).
+enum UntrustedTemplateError: Error, Sendable, CustomStringConvertible {
+    /// The template used a tag not in `TemplateEngine.untrustedAllowedTags`.
+    case tagNotAllowed(tag: String)
+    /// The template used a filter not in
+    /// `TemplateEngine.untrustedAllowedFilters` (which starts empty).
+    case filterNotAllowed(filter: String)
+    /// `{% include %}` nesting exceeded
+    /// `TemplateEngine.untrustedIncludeDepthLimit`.
+    case includeDepthExceeded(limit: Int)
+    /// The rendered output exceeded
+    /// `TemplateEngine.untrustedOutputSizeLimit` bytes.
+    case outputTooLarge(limit: Int)
+
+    /// A human-readable description naming the rejected construct or
+    /// exceeded limit.
+    var description: String {
+        switch self {
+        case .tagNotAllowed(let tag):
+            return "untrusted rendering does not allow the '\(tag)' tag"
+        case .filterNotAllowed(let filter):
+            return "untrusted rendering does not allow the '\(filter)' filter"
+        case .includeDepthExceeded(let limit):
+            return "untrusted rendering exceeded the maximum include depth (\(limit))"
+        case .outputTooLarge(let limit):
+            return "untrusted rendering exceeded the maximum output size (\(limit) bytes)"
         }
     }
 }
 
 /// The Stencil wrap every dotfolder document renders through (plan.md §4):
 /// consumers never see a Stencil or PathKit type, only this facade, plain
-/// `String`s, and `TemplateContext`. Implements the `trusted` path with
-/// `{% include %}` partial resolution through `partials`, when given, via
-/// `DotfolderLoader`; `Trust.untrusted` is accepted but its restricted
-/// `Environment` lands in a follow-up task.
+/// `String`s, and `TemplateContext`. Implements both the `trusted` path
+/// (full Stencil, no restrictions) and the `untrusted` path (a whitelisted
+/// tag/filter set, an `{% include %}` depth limit, and an output-size
+/// limit); `{% include %}` partial resolution through `partials`, when
+/// given, goes through `DotfolderLoader` on both paths.
 public struct TemplateEngine: Sendable {
     /// Which validation path `render` takes.
     public enum Trust: Sendable {
-        /// Consumer-shipped defaults: full Stencil, no restrictions. The
-        /// only path implemented today.
+        /// Consumer-shipped defaults: full Stencil, no restrictions.
         case trusted
-        /// User/project-layer files: a restricted `Environment` is planned
-        /// (plan.md §4) but not implemented yet — `render` throws
-        /// `TemplateEngineError.untrustedRenderingNotYetImplemented`.
+        /// User/project-layer files: a restricted `Environment` (plan.md
+        /// §4). Stencil has no filesystem/network/exec capability of its
+        /// own, so this restriction *is* the whole enforcement surface:
+        ///
+        /// - **Tag whitelist** — `TemplateEngine.untrustedAllowedTags`
+        ///   (`if`/`for`/`include`, plus the branch and closing keywords
+        ///   those two need: `elif`/`else`/`endif`,
+        ///   `empty`/`endfor`). Any other tag — including Stencil's own
+        ///   `extends`, `block`, `filter`, `now`, `break`, `continue`, and
+        ///   `ifnot` — is rejected before any rendering begins, even inside
+        ///   a branch that would not otherwise execute.
+        /// - **Filter whitelist** — `TemplateEngine.untrustedAllowedFilters`,
+        ///   which starts *empty*: the swissarmyhammer corpus this package
+        ///   ports (plan.md §4) uses zero filters. Any filter use is
+        ///   rejected the same way.
+        /// - **Loader confined to `_partials/`** — `{% include %}` only
+        ///   ever resolves through `DotfolderLoader`'s `_partials/`
+        ///   name-resolution scheme; an absolute path or a name containing
+        ///   a `..` traversal component never resolves to a file (enforced
+        ///   by `DotfolderStack`'s own path-safety check, which every
+        ///   lookup routes through regardless of trust).
+        /// - **Include-depth limit** —
+        ///   `TemplateEngine.untrustedIncludeDepthLimit` (8): a self- or
+        ///   mutually including partial cannot recurse without bound.
+        ///   Every partial loaded through `{% include %}` is also
+        ///   re-validated against the tag/filter whitelist, so a malicious
+        ///   partial cannot smuggle in a disallowed construct just because
+        ///   the top-level template that includes it was clean.
+        /// - **Output-size limit** —
+        ///   `TemplateEngine.untrustedOutputSizeLimit` (1 MiB): guards
+        ///   against an output-size bomb, e.g. a `{% for %}` over a huge
+        ///   collection.
+        ///
+        /// Env vars remain *values in the context*, not an exec capability
+        /// — nothing about the precedence ladder changes between trust
+        /// modes.
         case untrusted
     }
 
@@ -95,26 +164,49 @@ public struct TemplateEngine: Sendable {
     ///     frontmatter included, rendered before `FrontmatterDocument.split`
     ///     ever sees it (plan.md §4's whole-file-render-then-parse rule).
     ///   - context: Explicit values, the ladder's highest rung.
-    ///   - trust: `.trusted` for consumer-shipped defaults, the only path
-    ///     implemented today; `.untrusted` throws
-    ///     `TemplateEngineError.untrustedRenderingNotYetImplemented`.
+    ///   - trust: `.trusted` for consumer-shipped defaults: full Stencil, no
+    ///     restrictions. `.untrusted` for user/project-layer files: validated
+    ///     against the whitelist and limits documented on `Trust.untrusted`
+    ///     before and during rendering.
     /// - Returns: The rendered text.
-    /// - Throws: `TemplateEngineError.untrustedRenderingNotYetImplemented`
-    ///   for `trust: .untrusted`; `TemplateEngineError.renderingFailed` when
-    ///   Stencil fails to parse or render `text`.
+    /// - Throws: `TemplateEngineError.renderingFailed` when Stencil fails to
+    ///   parse or render `text`, or when `trust: .untrusted` validation
+    ///   rejects it (a disallowed tag/filter, an include-depth bomb, or an
+    ///   output-size bomb).
     public func render(_ text: String, context: TemplateContext, trust: Trust) throws -> String {
-        switch trust {
-        case .untrusted:
-            throw TemplateEngineError.untrustedRenderingNotYetImplemented
-        case .trusted:
-            let stencilEnvironment =
-                partials.map { Environment(loader: DotfolderLoader(stack: $0)) } ?? Environment()
-            do {
+        do {
+            switch trust {
+            case .trusted:
+                let stencilEnvironment =
+                    partials.map { Environment(loader: DotfolderLoader(stack: $0)) } ?? Environment()
                 return try stencilEnvironment.renderTemplate(
                     string: text, context: mergedDictionary(explicit: context))
-            } catch {
-                throw TemplateEngineError.renderingFailed(message: String(describing: error))
+            case .untrusted:
+                try Self.validateUntrustedSyntax(text)
+                let stencilEnvironment = Environment(
+                    loader: partials.map { DotfolderLoader(stack: $0) },
+                    extensions: [RestrictedIncludeExtension()]
+                )
+                // The budget object is looked up by reference, not by
+                // value, so every `RestrictedIncludeNode` — no matter how
+                // deeply nested, or how many sibling includes a `{% for %}`
+                // drives through the same tag — shares and mutates this
+                // one instance, catching an amplification bomb (many
+                // includes, each individually small) as soon as their
+                // running total crosses the limit, rather than only after
+                // the whole render finishes.
+                var contextDictionary = mergedDictionary(explicit: context)
+                let outputSizeBudget = OutputSizeBudget()
+                contextDictionary[RestrictedIncludeNode.sizeBudgetContextKey] = outputSizeBudget
+                let rendered = try stencilEnvironment.renderTemplate(
+                    string: text, context: contextDictionary)
+                guard rendered.utf8.count <= Self.untrustedOutputSizeLimit else {
+                    throw UntrustedTemplateError.outputTooLarge(limit: Self.untrustedOutputSizeLimit)
+                }
+                return rendered
             }
+        } catch {
+            throw TemplateEngineError.renderingFailed(message: String(describing: error))
         }
     }
 
@@ -144,6 +236,292 @@ public struct TemplateEngine: Sendable {
         }
         return context
     }
+}
+
+extension TemplateEngine {
+    /// The Stencil tags `Trust.untrusted` permits: `if`/`for`/`include`,
+    /// plus the branch and closing keywords those two control-flow tags
+    /// need. Any other tag — including Stencil's own `extends`, `block`,
+    /// `filter`, `now`, `break`, `continue`, and `ifnot` — fails validation
+    /// before any rendering begins (plan.md §4).
+    static let untrustedAllowedTags: Set<String> = [
+        "if", "elif", "else", "endif",
+        "for", "empty", "endfor",
+        "include",
+    ]
+
+    /// The Stencil filters `Trust.untrusted` permits: none. The
+    /// swissarmyhammer corpus this package ports (plan.md §4) survey found
+    /// zero filters in use, so untrusted validation starts from the
+    /// narrowest possible whitelist; widening it to cover a real consumer
+    /// need is a one-line addition here.
+    static let untrustedAllowedFilters: Set<String> = []
+
+    /// The maximum `{% include %}` nesting depth `Trust.untrusted` permits
+    /// before failing with a descriptive error — the untrusted path's
+    /// defense against a self- or mutually including partial recursing
+    /// without bound (plan.md §4).
+    static let untrustedIncludeDepthLimit = 8
+
+    /// The maximum size, in UTF-8 bytes, a `Trust.untrusted` render's
+    /// output may reach before failing with a descriptive error — the
+    /// untrusted path's defense against an output-size bomb, e.g. a
+    /// `{% for %}` over a huge collection (plan.md §4).
+    static let untrustedOutputSizeLimit = 1 << 20  // 1 MiB
+
+    /// Rejects `text` under `Trust.untrusted`'s whitelist before any
+    /// Stencil rendering begins. Lexes `text` the same way Stencil itself
+    /// would (via a throwaway `Template`, whose tokenizing is independent
+    /// of any `Environment`) and delegates to `validateUntrustedTokens`.
+    ///
+    /// - Throws: `UntrustedTemplateError.tagNotAllowed` or
+    ///   `.filterNotAllowed`.
+    static func validateUntrustedSyntax(_ text: String) throws {
+        try validateUntrustedTokens(Template(templateString: text).tokens)
+    }
+
+    /// The token-level whitelist check both `validateUntrustedSyntax` and
+    /// `RestrictedIncludeNode` (re-validating each loaded partial) call:
+    /// walks `tokens` — the same lexed tokens Stencil itself would parse —
+    /// checking every `{% %}` tag against `untrustedAllowedTags` and every
+    /// `{{ ... | filter }}` filter against `untrustedAllowedFilters`. Runs
+    /// over lexed tokens rather than parsed nodes, so a disallowed
+    /// construct is caught even inside a branch that would not otherwise
+    /// render (e.g. a `{% for %}` body that never executes) (plan.md §4).
+    ///
+    /// - Throws: `UntrustedTemplateError.tagNotAllowed` or
+    ///   `.filterNotAllowed`.
+    static func validateUntrustedTokens(_ tokens: [Token]) throws {
+        for token in tokens {
+            switch token.kind {
+            case .block:
+                let tag = tagName(from: token)
+                guard untrustedAllowedTags.contains(tag) else {
+                    throw UntrustedTemplateError.tagNotAllowed(tag: tag)
+                }
+                if tag == "for" {
+                    try validateForLoopRange(token)
+                }
+            case .variable:
+                for filter in filterNames(from: token) where !untrustedAllowedFilters.contains(filter) {
+                    throw UntrustedTemplateError.filterNotAllowed(filter: filter)
+                }
+            case .text, .comment:
+                continue
+            }
+        }
+    }
+
+    /// Rejects a `{% for %}` tag whose iterable is a *literal* integer range
+    /// (`N...M`) wider than `untrustedOutputSizeLimit` — an attacker who
+    /// controls the template text can otherwise manufacture an arbitrarily
+    /// large iteration count with no data dependency at all (e.g.
+    /// `{% for i in 1...999999999 %}`), which the whole-render output-size
+    /// check alone would only catch *after* actually running the loop to
+    /// completion. A `{% for %}` over a context-provided collection (whose
+    /// size the template author does not control) is unaffected by this
+    /// check — it is caught, if it produces too much text, by the
+    /// whole-render output-size check once rendering completes (plan.md
+    /// §4).
+    ///
+    /// - Throws: `UntrustedTemplateError.outputTooLarge` when a literal
+    ///   range's span exceeds `untrustedOutputSizeLimit`.
+    private static func validateForLoopRange(_ token: Token) throws {
+        guard let iterableComponent = token.components.last(where: { $0.contains("...") }),
+            let separatorRange = iterableComponent.range(of: "..."),
+            let lowerBound = Int(iterableComponent[iterableComponent.startIndex..<separatorRange.lowerBound]),
+            let upperBound = Int(iterableComponent[separatorRange.upperBound...])
+        else {
+            return
+        }
+        // `Int128` arithmetic here is not a style choice: `lowerBound` and
+        // `upperBound` are attacker-controlled `Int` literals, and plain
+        // `Int` subtraction (e.g. `upperBound - lowerBound` near
+        // `Int.max`/`Int.min`) traps — crashing the host process, which is
+        // strictly worse than the slow-render bug this check exists to
+        // close. `Int128` has room for the difference of any two `Int`
+        // values (and its negation) with no overflow, so the span is
+        // always computed exactly.
+        let span = Int128(upperBound) - Int128(lowerBound)
+        let absoluteSpan = span < 0 ? -span : span
+        guard absoluteSpan + 1 <= Int128(untrustedOutputSizeLimit) else {
+            throw UntrustedTemplateError.outputTooLarge(limit: untrustedOutputSizeLimit)
+        }
+    }
+
+    /// The tag name a `.block` token invokes — `token.components.first`,
+    /// except for a labeled loop tag (`{% outer: for ... %}`), where the
+    /// real tag name is the second component and the first is the label
+    /// (mirrors Stencil's own `TokenParser.parse` special case for labeled
+    /// `for` loops).
+    private static func tagName(from token: Token) -> String {
+        let components = token.components
+        guard let first = components.first else { return token.contents }
+        if first.hasSuffix(":") && components.count >= 2 {
+            return components[1]
+        }
+        return first
+    }
+
+    /// The filter names a `.variable` token applies, in left-to-right
+    /// order, e.g. `{{ name|default:"x"|upper }}` → `["default", "upper"]`.
+    /// Empty when the token applies no filters.
+    private static func filterNames(from token: Token) -> [String] {
+        let segments = splitRespectingQuotes(token.contents, separator: "|")
+        return segments.dropFirst().map { segment in
+            let trimmed = segment.trimmingCharacters(in: .whitespaces)
+            guard let colonIndex = trimmed.firstIndex(of: ":") else { return trimmed }
+            return String(trimmed[trimmed.startIndex..<colonIndex])
+        }
+    }
+
+    /// Splits `text` on `separator`, treating single- and double-quoted
+    /// substrings as atomic — mirrors Stencil's own filter-argument
+    /// splitting convention, so a `|` inside a quoted filter argument is
+    /// never mistaken for a filter pipe.
+    private static func splitRespectingQuotes(_ text: String, separator: Character) -> [String] {
+        var result: [String] = []
+        var current = ""
+        var activeQuote: Character?
+        for character in text {
+            if let quote = activeQuote {
+                current.append(character)
+                if character == quote { activeQuote = nil }
+            } else if character == "\"" || character == "'" {
+                activeQuote = character
+                current.append(character)
+            } else if character == separator {
+                result.append(current)
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        result.append(current)
+        return result
+    }
+}
+
+/// `Trust.untrusted`'s sole custom `Extension`: replaces Stencil's own
+/// `include` tag with `RestrictedIncludeNode`, which enforces
+/// `TemplateEngine.untrustedIncludeDepthLimit` and re-validates each loaded
+/// partial's own tags/filters against the untrusted whitelist —
+/// protections Stencil's own `include` implementation (an internal Stencil
+/// type this package cannot subclass or wrap) has no hook for. Registered
+/// ahead of Stencil's `DefaultExtension` (which `Environment.init` always
+/// appends), so `Environment.findTag(name: "include")` resolves to this
+/// implementation first; every other default tag (`if`, `for`, and the
+/// rest) falls through unchanged to `DefaultExtension` — restricted only by
+/// the separate whitelist check `TemplateEngine.render` runs before
+/// rendering ever begins.
+final class RestrictedIncludeExtension: Extension {
+    override init() {
+        super.init()
+        registerTag("include", parser: RestrictedIncludeNode.parse)
+    }
+}
+
+/// `Trust.untrusted`'s replacement for Stencil's own `{% include %}` node:
+/// the same argument syntax and `DotfolderLoader` resolution as the trusted
+/// path, plus two protections the trusted path skips (plan.md §4):
+/// `TemplateEngine.untrustedIncludeDepthLimit` (a self- or mutually
+/// including partial cannot recurse without bound) and re-running the
+/// untrusted tag/filter whitelist over the loaded partial's own tokens (a
+/// malicious partial cannot smuggle in a disallowed construct just because
+/// the top-level template that includes it was clean).
+final class RestrictedIncludeNode: NodeType {
+    /// The `Context` dictionary key this node stashes the current include
+    /// nesting depth under (an `Int`, incremented per nested render).
+    static let depthContextKey = "__foundationModelsExtras_untrustedIncludeDepth__"
+
+    /// The `Context` dictionary key `TemplateEngine.render` stashes the
+    /// shared `OutputSizeBudget` under, once, at the top of the render.
+    static let sizeBudgetContextKey = "__foundationModelsExtras_untrustedOutputSizeBudget__"
+
+    /// The template name to load, resolved from the tag's first argument.
+    let templateName: Variable
+    /// The optional second argument naming a context variable to pass to
+    /// the included template, exactly as Stencil's own `include` supports.
+    let includeContext: String?
+    /// This node's source token, for error attribution.
+    let token: Token?
+
+    /// Parses `{% include "name" %}` / `{% include "name" contextVar %}` —
+    /// identical syntax to Stencil's own `include` tag.
+    static func parse(_ parser: TokenParser, token: Token) throws -> NodeType {
+        let bits = token.components
+        guard bits.count == 2 || bits.count == 3 else {
+            throw TemplateSyntaxError(
+                """
+                'include' tag requires one argument, the template file to be included. \
+                A second optional argument can be used to specify the context that will \
+                be passed to the included file
+                """
+            )
+        }
+        return RestrictedIncludeNode(
+            templateName: Variable(bits[1]), includeContext: bits.count == 3 ? bits[2] : nil, token: token)
+    }
+
+    /// Creates a node for the given parsed arguments.
+    init(templateName: Variable, includeContext: String?, token: Token?) {
+        self.templateName = templateName
+        self.includeContext = includeContext
+        self.token = token
+    }
+
+    /// Loads and renders the included template, enforcing the untrusted
+    /// include-depth limit and re-validating the loaded template's tokens
+    /// against the untrusted whitelist first.
+    func render(_ context: Context) throws -> String {
+        guard let templateName = try self.templateName.resolve(context) as? String else {
+            throw TemplateSyntaxError("'\(self.templateName)' could not be resolved as a string")
+        }
+
+        let currentDepth = (context[Self.depthContextKey] as? Int) ?? 0
+        guard currentDepth < TemplateEngine.untrustedIncludeDepthLimit else {
+            throw UntrustedTemplateError.includeDepthExceeded(limit: TemplateEngine.untrustedIncludeDepthLimit)
+        }
+
+        let template = try context.environment.loadTemplate(name: templateName)
+        try TemplateEngine.validateUntrustedTokens(template.tokens)
+
+        var pushedDictionary = includeContext.flatMap { context[$0] as? [String: Any] } ?? [:]
+        pushedDictionary[Self.depthContextKey] = currentDepth + 1
+
+        let rendered = try context.push(dictionary: pushedDictionary) {
+            try template.render(context)
+        }
+
+        // Checked *after* this include's own render, not before: the
+        // budget tracks bytes already produced, so this call's own
+        // contribution is the one that (potentially) tips it over —
+        // catching a many-small-includes amplification bomb as soon as
+        // the running total crosses the limit, rather than only once the
+        // entire top-level render has finished.
+        if let outputSizeBudget = context[Self.sizeBudgetContextKey] as? OutputSizeBudget {
+            outputSizeBudget.consumedBytes += rendered.utf8.count
+            guard outputSizeBudget.consumedBytes <= TemplateEngine.untrustedOutputSizeLimit else {
+                throw UntrustedTemplateError.outputTooLarge(limit: TemplateEngine.untrustedOutputSizeLimit)
+            }
+        }
+
+        return rendered
+    }
+}
+
+/// A shared, mutable running total of `Trust.untrusted` output bytes
+/// produced so far by `{% include %}` tags across an entire render —
+/// stashed once in the `Context` by `TemplateEngine.render` and found by
+/// every `RestrictedIncludeNode` via reference (not value) semantics, so
+/// sibling includes at the same nesting level (e.g. many `{% include %}`
+/// calls driven by one `{% for %}`) see each other's contribution instead
+/// of each starting a fresh budget — closing the amplification gap a
+/// per-include check alone would miss (plan.md §4).
+final class OutputSizeBudget {
+    /// The number of UTF-8 bytes every include this render has resolved
+    /// has produced so far, summed.
+    var consumedBytes = 0
 }
 
 /// The well-known system variables backing the precedence ladder's lowest
