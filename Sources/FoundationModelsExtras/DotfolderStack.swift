@@ -14,7 +14,7 @@ import Foundation
 /// file I/O, so consumers stay constructible in tests with none.
 public struct DotfolderStack: Sendable {
     /// Which layer of the stack a location resolved from.
-    public enum Source: Sendable, Equatable {
+    public enum Source: Sendable, Hashable {
         /// The consumer-shipped defaults directory — a real directory read
         /// at runtime, never compiled-in content.
         case defaults

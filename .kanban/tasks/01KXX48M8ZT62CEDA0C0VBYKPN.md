@@ -25,6 +25,27 @@ comments:
 
     Leaving this task in doing, ready for /review.
   timestamp: 2026-07-19T17:37:28.043355+00:00
+- actor: claude-code
+  id: 01kxxr7m64y497qdxms4y6wasf
+  text: |-
+    Pulled back into doing to address the 6 review findings, all confined to Examples/ExtrasDemo/Sources/extras-demo/ (plus one small additive library change described below):
+
+    1/2. Extracted DemoCommandProvider.greetCommandName and .streamCommandName as static constants; both SlashCommand definitions and CommandsCommand.swift's `first(where:)` lookups now reference the constants instead of duplicating "greet"/"stream" literals.
+    3. DemoCommandProvider.init() no longer uses an IUO local (`Continuation!`). Changed to `var continuation: Continuation?`, force-unwrapped once at the assignment site with a comment noting AsyncStream's build closure runs synchronously.
+    4/5. StackCommand.swift: added `private static let configFileName = "config.yaml"` and replaced all three literal occurrences (the `nearest(...)` call and both print statements) with it.
+    6. StackCommand.swift: replaced the `label(for:)` switch over DotfolderStack.Source with `private static let sourceLabels: [DotfolderStack.Source: String]`. Since DotfolderStack.Source (in Sources/FoundationModelsExtras/DotfolderStack.swift) was only Equatable (not Hashable), changed its conformance from `Equatable` to `Hashable` (Hashable implies Equatable; enum has no associated values so this is an automatic, additive synthesis with no other call sites affected — verified via grep, Source is used nowhere else in the library beyond its own declaration).
+
+    Verification: clean rebuild (`rm -rf .build && swift build --build-tests`) succeeded with zero warnings; `swift test` -> 95 tests in 11 suites, all passing. Manually reran `swift run extras-demo stack` and `commands` to confirm unchanged runtime behavior.
+
+    Marked all 6 Review Findings checkboxes [x] on this task. Dispatched an adversarial double-check agent for sign-off before leaving in doing.
+  timestamp: 2026-07-19T17:54:24.068110+00:00
+- actor: claude-code
+  id: 01kxxrb3kdbdy67c1k2h5rb8xt
+  text: |-
+    Adversarial double-check agent returned PASS, no findings: confirmed all 6 review findings fixed at the root (grep-verified no remaining "greet"/"stream" name-comparison literals, no remaining "config.yaml" literals outside the new constant, no other switch-over-Source code paths), the Hashable conformance change to DotfolderStack.Source has no other dependents, and swift build (clean rebuild) + swift test (95/95 passing, zero warnings) confirmed independently. No stray refactors found.
+
+    Task description's 6 Review Findings checkboxes are all [x]. Leaving in doing, ready for /review.
+  timestamp: 2026-07-19T17:56:18.157323+00:00
 depends_on:
 - 01KXX4577MZK2WKK2VHTV9H4FM
 - 01KXX45SJ1R0X46CBMYF59DN9K
@@ -59,3 +80,12 @@ Subcommands, one per pillar:
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-19 12:40)
+
+- [x] `Examples/ExtrasDemo/Sources/extras-demo/DemoCommandProvider.swift:13` — The command name 'greet' is hardcoded in DemoCommandProvider.swift and also searched for in CommandsCommand.swift, creating coupling that must be kept in sync. Extract to a shared constant in DemoCommandProvider (e.g., static let greetCommandName = "greet") and reference it from CommandsCommand.
+- [x] `Examples/ExtrasDemo/Sources/extras-demo/DemoCommandProvider.swift:22` — The command name 'stream' is hardcoded in DemoCommandProvider.swift and also searched for in CommandsCommand.swift, creating coupling that must be kept in sync. Extract to a shared constant in DemoCommandProvider (e.g., static let streamCommandName = "stream") and reference it from CommandsCommand.
+- [x] `Examples/ExtrasDemo/Sources/extras-demo/DemoCommandProvider.swift:56` — Implicitly unwrapped optional (`Type!`) used as a local variable — the rule forbids this in non-test code except for `@IBOutlet` and test fixtures set in `setUp()`. Use `var continuation: AsyncStream<[SlashCommand]>.Continuation? = nil` and then force-unwrap at the assignment site only if necessary, or restructure to avoid the IUO pattern.
+- [x] `Examples/ExtrasDemo/Sources/extras-demo/StackCommand.swift:24` — The literal string 'config.yaml' appears again in the print statement on this line, part of the repeated literal already flagged on line 23. Use the same constant extracted for line 23 here and on line 26.
+- [x] `Examples/ExtrasDemo/Sources/extras-demo/StackCommand.swift:26` — The literal string 'config.yaml' appears a third time in the else-branch print statement, part of the repeated literal flagged on line 23. Use the same constant extracted for line 23 here as well.
+- [x] `Examples/ExtrasDemo/Sources/extras-demo/StackCommand.swift:46` — The label() function contains a switch statement over a known enum (DotfolderStack.Source) where each arm returns only a constant string. This is a table that should be expressed as data rather than parallel code paths. Extract to a dictionary: static let sourceLabels: [DotfolderStack.Source: String] = [.defaults: "defaults", .user: "user", .project: "project"].

@@ -22,7 +22,7 @@ struct CommandsCommand: AsyncParsableCommand {
         let workingDirectory = DemoFixtures.projectWorkingDirectory
         let initial = await provider.commands(workingDirectory: workingDirectory)
 
-        guard let greet = initial.first(where: { $0.name == "greet" }),
+        guard let greet = initial.first(where: { $0.name == DemoCommandProvider.greetCommandName }),
             case .prompt(let template) = greet.body
         else {
             throw ExitCode.failure
@@ -32,7 +32,7 @@ struct CommandsCommand: AsyncParsableCommand {
         let rendered = try TemplateEngine(partials: nil).render(template, context: context, trust: .untrusted)
         print("prompt 'greet' rendered: \(rendered)")
 
-        guard let stream = initial.first(where: { $0.name == "stream" }),
+        guard let stream = initial.first(where: { $0.name == DemoCommandProvider.streamCommandName }),
             case .action(let makeStream) = stream.body
         else {
             throw ExitCode.failure

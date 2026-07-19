@@ -14,15 +14,21 @@ struct StackCommand: AsyncParsableCommand {
         abstract: "Resolves config.yaml and enumerates commands/*.md, printing which layer won each item."
     )
 
+    /// The config file resolved and reported by this command, relative to a
+    /// layer's root.
+    private static let configFileName = "config.yaml"
+
     /// Resolves `config.yaml` and enumerates `commands/*.md` over the demo
     /// stack, printing the winning layer for each.
     func run() throws {
         let stack = DemoFixtures.makeStack()
 
-        if let configURL = stack.nearest("config.yaml"), let source = winningSource(of: configURL, in: stack) {
-            print("config.yaml -> \(label(for: source)) (\(configURL.path))")
+        if let configURL = stack.nearest(Self.configFileName),
+            let source = winningSource(of: configURL, in: stack)
+        {
+            print("\(Self.configFileName) -> \(label(for: source)) (\(configURL.path))")
         } else {
-            print("config.yaml -> not found")
+            print("\(Self.configFileName) -> not found")
         }
 
         print("commands:")
@@ -41,12 +47,17 @@ struct StackCommand: AsyncParsableCommand {
         stack.layers.reversed().first { url.path.hasPrefix($0.root.path) }?.source
     }
 
+    /// Short labels for each `DotfolderStack.Source`, matching this
+    /// command's output format — a data table instead of parallel
+    /// switch-case branches, so adding a source needs no new arm here.
+    private static let sourceLabels: [DotfolderStack.Source: String] = [
+        .defaults: "defaults",
+        .user: "user",
+        .project: "project",
+    ]
+
     /// A short label for `source`, matching this command's output format.
     private func label(for source: DotfolderStack.Source) -> String {
-        switch source {
-        case .defaults: return "defaults"
-        case .user: return "user"
-        case .project: return "project"
-        }
+        Self.sourceLabels[source] ?? "unknown"
     }
 }

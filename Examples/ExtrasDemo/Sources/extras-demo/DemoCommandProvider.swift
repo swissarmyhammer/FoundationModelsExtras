@@ -6,11 +6,19 @@ import FoundationModelsExtras
 /// that streams a few lines, and a single `commandUpdates` tick that
 /// republishes the set with a third command added.
 final class DemoCommandProvider: SlashCommandProviding, Sendable {
+    /// `greetCommand`'s name, shared with `CommandsCommand` so the two files
+    /// can't drift out of sync.
+    static let greetCommandName = "greet"
+
+    /// `streamCommand`'s name, shared with `CommandsCommand` so the two
+    /// files can't drift out of sync.
+    static let streamCommandName = "stream"
+
     /// The `.prompt` command: its template is rendered through the
     /// templating pillar before display, exactly as a harness would before
     /// folding it into a model turn.
     static let greetCommand = SlashCommand(
-        name: "greet",
+        name: greetCommandName,
         description: "Greets the caller by name (prompt command)",
         argumentHint: "<name>",
         body: .prompt(template: "Hello {{ name }}!")
@@ -19,7 +27,7 @@ final class DemoCommandProvider: SlashCommandProviding, Sendable {
     /// The `.action` command: runs in-process, streams a few lines, never
     /// touches the model.
     static let streamCommand = SlashCommand(
-        name: "stream",
+        name: streamCommandName,
         description: "Streams a few lines (action command)",
         body: .action { invocation in
             AsyncThrowingStream { continuation in
@@ -46,9 +54,11 @@ final class DemoCommandProvider: SlashCommandProviding, Sendable {
 
     /// Creates a provider with an unconsumed `commandUpdates` stream.
     init() {
-        var continuation: AsyncStream<[SlashCommand]>.Continuation!
+        var continuation: AsyncStream<[SlashCommand]>.Continuation?
         commandUpdates = AsyncStream { continuation = $0 }
-        updatesContinuation = continuation
+        // AsyncStream calls its build closure synchronously, so `continuation`
+        // is always set by this point.
+        updatesContinuation = continuation!
     }
 
     /// This conformer's static command set: `greetCommand` and
