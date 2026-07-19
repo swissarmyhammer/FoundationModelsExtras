@@ -115,12 +115,32 @@ public struct DotfolderStack: Sendable {
         self.layers = layers
     }
 
+    /// Reports whether `path` is safe to join onto a layer root: non-empty,
+    /// not rooted (no leading `/`), and free of `..` traversal components.
+    ///
+    /// Every entry point that joins a caller-supplied path onto a layer's
+    /// root (`nearest`, `locate`, `enumerate`) routes through this check
+    /// first, so none of them can be walked outside the layer root via a
+    /// `"../"` segment or an absolute path.
+    ///
+    /// - Parameter path: The caller-supplied relative path or subdirectory
+    ///   name to validate.
+    /// - Returns: `true` if `path` is safe to join onto a layer root.
+    private static func isSafeRelativePath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/") else { return false }
+        return !path.split(separator: "/", omittingEmptySubsequences: false)
+            .contains("..")
+    }
+
     /// The highest-precedence existing copy of `relativePath`.
     ///
     /// - Parameter relativePath: A path relative to a layer's root, e.g.
-    ///   `"config.yaml"` or `"_partials/header.md"`.
+    ///   `"config.yaml"` or `"_partials/header.md"`. Rejected (returns
+    ///   `nil`) if it is empty, absolute, or contains a `..` component —
+    ///   such paths could otherwise escape the layer root.
     /// - Returns: The winning layer's file URL, or `nil` if no layer has it.
     public func nearest(_ relativePath: String) -> URL? {
+        guard Self.isSafeRelativePath(relativePath) else { return nil }
         for layer in layers.reversed() {
             let candidate = layer.root.appendingPathComponent(relativePath)
             if FileManager.default.fileExists(atPath: candidate.path) {
@@ -133,10 +153,14 @@ public struct DotfolderStack: Sendable {
     /// Every existing copy of `relativePath` across the stack.
     ///
     /// - Parameter relativePath: A path relative to a layer's root.
+    ///   Rejected (returns an empty array) if it is empty, absolute, or
+    ///   contains a `..` component — such paths could otherwise escape the
+    ///   layer root.
     /// - Returns: File URLs for each layer that has `relativePath`, ordered
     ///   lowest to highest precedence.
     public func locate(_ relativePath: String) -> [URL] {
-        layers.compactMap { layer in
+        guard Self.isSafeRelativePath(relativePath) else { return [] }
+        return layers.compactMap { layer in
             let candidate = layer.root.appendingPathComponent(relativePath)
             return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
         }
@@ -148,12 +172,15 @@ public struct DotfolderStack: Sendable {
     ///
     /// - Parameters:
     ///   - subdirectory: A directory relative to a layer's root, e.g.
-    ///     `"commands"`.
+    ///     `"commands"`. Rejected (returns an empty dictionary) if it is
+    ///     empty, absolute, or contains a `..` component — such paths could
+    ///     otherwise escape the layer root.
     ///   - suffix: The filename suffix to match and strip, e.g. `".md"`.
     ///     Files without this suffix are ignored.
     /// - Returns: A dictionary from name (without `suffix`) to the winning
     ///   file's location and the layer that won it.
     public func enumerate(_ subdirectory: String, suffix: String) -> [String: Located] {
+        guard Self.isSafeRelativePath(subdirectory) else { return [:] }
         var results: [String: Located] = [:]
         for layer in layers {
             let directoryURL = layer.root.appendingPathComponent(subdirectory, isDirectory: true)

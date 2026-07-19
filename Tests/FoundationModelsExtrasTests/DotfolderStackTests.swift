@@ -222,6 +222,72 @@ private func canonicalize(_ url: URL) -> URL {
         #expect(stack.enumerate("commands", suffix: ".md").isEmpty)
     }
 
+    @Test func nearestRejectsPathTraversalWithParentDirectorySegments() {
+        let fixture = Fixture()
+        // A file that sits one level above every depth-1 layer root
+        // (`defaultsDirectory`/`userDirectory`, both `fixture.root/<name>`).
+        // Without traversal validation, `"../secret.txt"` resolves from
+        // whichever such layer `nearest` checks first — `userDirectory`,
+        // since it iterates `layers.reversed()` (project, user, defaults) —
+        // to `fixture.root/secret.txt` and would be returned.
+        fixture.write("secret", to: "secret.txt", in: fixture.root)
+        let stack = fixture.makeStack()
+
+        #expect(stack.nearest("../secret.txt") == nil)
+    }
+
+    @Test func nearestRejectsAbsolutePaths() {
+        let fixture = Fixture()
+        let stack = fixture.makeStack()
+
+        #expect(stack.nearest("/etc/passwd") == nil)
+    }
+
+    @Test func locateRejectsPathTraversalWithParentDirectorySegments() {
+        let fixture = Fixture()
+        fixture.write("secret", to: "secret.txt", in: fixture.root)
+        let stack = fixture.makeStack()
+
+        #expect(stack.locate("../secret.txt").isEmpty)
+    }
+
+    @Test func locateRejectsAbsolutePaths() {
+        let fixture = Fixture()
+        let stack = fixture.makeStack()
+
+        #expect(stack.locate("/etc/passwd").isEmpty)
+    }
+
+    @Test func enumerateRejectsPathTraversalInSubdirectory() {
+        let fixture = Fixture()
+        // A directory one level above every layer root, holding a file that
+        // would otherwise be enumerated by escaping the layer root via
+        // `"../escaped"`.
+        let escapedDirectory = fixture.root.appendingPathComponent("escaped", isDirectory: true)
+        try! FileManager.default.createDirectory(at: escapedDirectory, withIntermediateDirectories: true)
+        fixture.write("# escaped help", to: "help.md", in: escapedDirectory)
+        let stack = fixture.makeStack()
+
+        #expect(stack.enumerate("../escaped", suffix: ".md").isEmpty)
+    }
+
+    @Test func enumerateRejectsAbsoluteSubdirectory() {
+        let fixture = Fixture()
+        let stack = fixture.makeStack()
+
+        #expect(stack.enumerate("/etc", suffix: ".conf").isEmpty)
+    }
+
+    @Test func nearestAndLocateAndEnumerateStillResolveLegitimateNestedRelativePaths() {
+        let fixture = Fixture()
+        fixture.write("# help", to: "commands/help.md", in: fixture.defaultsDirectory)
+        let stack = fixture.makeStack()
+
+        #expect(stack.nearest("commands/help.md") == fixture.defaultsDirectory.appendingPathComponent("commands/help.md"))
+        #expect(stack.locate("commands/help.md") == [fixture.defaultsDirectory.appendingPathComponent("commands/help.md")])
+        #expect(stack.enumerate("commands", suffix: ".md")["help"] != nil)
+    }
+
     @Test func constructingAStackPerformsNoFileIO() {
         let fixture = Fixture()
         let missingDefaultsDirectory = fixture.root.appendingPathComponent("brand-new", isDirectory: true)

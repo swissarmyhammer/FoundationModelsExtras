@@ -20,38 +20,30 @@ comments:
 
     Task is green and left in doing for /review.
   timestamp: 2026-07-19T14:14:19.279520+00:00
+- actor: claude-code
+  id: 01kxxcdjsr34xdj48r9gkecc8k
+  text: |-
+    Pulled back from review into doing to address the 2026-07-19 09:18 review findings: path-traversal validation missing on nearest/locate/enumerate.
+
+    Fix: added a private static DotfolderStack.isSafeRelativePath(_:) helper that rejects empty strings, strings starting with "/", and any "/"-split path component equal to "..". All three public methods (nearest, locate, enumerate) now guard on it first and return nil/[]/[:] on rejection, so no entry point can escape the layer root.
+
+    TDD: wrote failing tests first (Tests/FoundationModelsExtrasTests/DotfolderStackTests.swift) placing a real escaping file/directory one level above the fixture root and asserting nearest/locate/enumerate reject "../secret.txt" and "../escaped" traversal attempts; confirmed RED (3 failing assertions) before the fix, GREEN after. Also added absolute-path rejection tests for all three methods (these already passed pre-fix because Foundation's URL.appendingPathComponent doesn't collapse a leading "/" into an absolute path on this platform, so they're defense-in-depth per the reviewer's explicit ask rather than proof of an exploit) and a regression test confirming legitimate nested relative paths like "commands/help.md" still resolve.
+
+    Verified: rm -rf .build && swift build -> clean, zero warnings. swift test -> 31/31 pass across 4 suites. Marked all three review-finding checkboxes [x] in the task description. Adversarial double-check dispatched before handoff.
+  timestamp: 2026-07-19T14:27:56.344261+00:00
+- actor: claude-code
+  id: 01kxxcn16b6ktc3091e85khcsm
+  text: |-
+    Adversarial double-check verdict: REVISE, but the single finding was cosmetic only — a misleading explanatory comment in nearestRejectsPathTraversalWithParentDirectorySegments incorrectly attributed the pre-fix traversal match to the defaultsDirectory layer, when given nearest's reversed (project, user, defaults) iteration order and the fixture's directory depths it would actually come from the userDirectory layer. No functional defect: the double-check agent independently verified swift build (clean) and swift test (31/31) itself, confirmed no other call sites of nearest/locate/enumerate exist outside the test file, confirmed via git show HEAD that the pre-fix code had no guard at all (so the new tests exercise a real prior gap, not a fixture artifact), and confirmed via a standalone swiftc probe that the absolute-path guard is genuinely defense-in-depth on this macOS-only package (URL.appendingPathComponent doesn't collapse a leading "/" into an absolute path here) rather than closing a live escape via that exact join mechanism.
+
+    Fixed the comment to correctly describe the userDirectory code path. Re-verified after the fix: rm -rf .build && swift build succeeds with zero warnings; swift test passes 31/31 across 4 suites (20 in DotfolderStackTests, including the 8 new traversal/absolute-path/regression tests).
+
+    Task is green and left in doing for /review.
+  timestamp: 2026-07-19T14:32:00.459834+00:00
 depends_on:
 - 01KXX44VAM0BR1CM0D7JR9C8XP
 position_column: doing
 position_ordinal: '80'
 title: 'DotfolderStack: layered locations with source tracking'
 ---
-## What
-Implement plan.md §3 in `Sources/FoundationModelsExtras/DotfolderStack.swift` (split into a second file if it grows).
-
-- `public struct DotfolderStack: Sendable` with `init(name:workingDirectory:defaultsDirectory:)` deriving layers in precedence order: defaults < user (`~/.<name>/`) < project (`<cwd>/.<name>/`).
-- `Layer` carries its source kind (`defaults` / `user` / `project`) and root URL; `Located` carries the winning URL plus its source layer — the swissarmyhammer `FileSource` idea.
-- `nearest(_:) -> URL?` (highest-precedence existing copy), `locate(_:) -> [URL]` (all existing copies, lowest → highest), `enumerate(_ subdirectory:suffix:) -> [String: Located]` (name without suffix ⇒ winning URL + layer, higher layers shadowing lower).
-- Dev override: environment variable `<NAME>_DEFAULTS_DIR` (name uppercased, e.g. `MYAGENT_DEFAULTS_DIR`) repoints the defaults layer at runtime. **No compiled-in builtins** — every layer is a real directory read at runtime.
-- Hermetic seam must be **publicly reachable** (the ExtrasDemo executable imports the library normally, with no `@testable` access, and must never touch the real home directory): add trailing defaulted parameters to the public init — `userDirectory: URL? = nil` (nil = derive `~/.<name>/`) and `environment: [String: String]` defaulting to `ProcessInfo.processInfo.environment`. The plan.md §3 call shape `DotfolderStack(name:workingDirectory:defaultsDirectory:)` keeps working unchanged.
-- Layers whose directory does not exist are simply skipped by lookups; construction never touches disk (only `nearest`/`locate`/`enumerate` do), keeping consumers constructible in tests with no file I/O.
-- Merge semantics deliberately absent — the stack locates and enumerates only; document this on the type.
-
-## Acceptance Criteria
-- [x] Public API matches plan.md §3 (the plan's three-argument call compiles as written); all public declarations documented
-- [x] `enumerate` results report which layer won each item
-- [x] `<NAME>_DEFAULTS_DIR` override works without rebuild (proven by test via injected environment dictionary)
-- [x] `userDirectory`/`environment` defaulted parameters are public — usable from a plain `import FoundationModelsExtras`
-- [x] Constructing a stack performs no file I/O
-
-## Tests
-- [x] `Tests/FoundationModelsExtrasTests/DotfolderStackTests.swift` against a fixture tree (temp dirs or `Tests/.../Fixtures/` with `defaults/`, `user/`, `project/` layers):
-  - `nearest` returns the project copy when all three layers hold the file; user copy when project lacks it; defaults when only defaults has it; nil when nowhere
-  - `locate` returns copies lowest → highest
-  - `enumerate("commands", suffix: ".md")` shadows correctly and reports the winning layer per name
-  - defaults-dir env override redirects the lowest layer
-  - missing layer directories are skipped without error
-- [x] Run `swift test`; expect all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nImplement plan.md §3 in `Sources/FoundationModelsExtras/DotfolderStack.swift` (split into a second file if it grows).\n\n- `public struct DotfolderStack: Sendable` with `init(name:workingDirectory:defaultsDirectory:)` deriving layers in precedence order: defaults < user (`~/.<name>/`) < project (`<cwd>/.<name>/`).\n- `Layer` carries its source kind (`defaults` / `user` / `project`) and root URL; `Located` carries the winning URL plus its source layer — the swissarmyhammer `FileSource` idea.\n- `nearest(_:) -> URL?` (highest-precedence existing copy), `locate(_:) -> [URL]` (all existing copies, lowest → highest), `enumerate(_ subdirectory:suffix:) -> [String: Located]` (name without suffix ⇒ winning URL + layer, higher layers shadowing lower).\n- Dev override: environment variable `<NAME>_DEFAULTS_DIR` (name uppercased, e.g. `MYAGENT_DEFAULTS_DIR`) repoints the defaults layer at runtime. **No compiled-in builtins** — every layer is a real directory read at runtime.\n- Hermetic seam must be **publicly reachable** (the ExtrasDemo executable imports the library normally, with no `@testable` access, and must never touch the real home directory): add trailing defaulted parameters to the public init — `userDirectory: URL? = nil` (nil = derive `~/.<name>/`) and `environment: [String: String]` defaulting to `ProcessInfo.processInfo.environment`. The plan.md §3 call shape `DotfolderStack(name:workingDirectory:defaultsDirectory:)` keeps working unchanged.\n- Layers whose directory does not exist are simply skipped by lookups; construction never touches disk (only `nearest`/`locate`/`enumerate` do), keeping consumers constructible in tests with no file I/O.\n- Merge semantics deliberately absent — the stack locates and enumerates only; document this on the type.\n\n## Acceptance Criteria\n- [x] Public API matches plan.md §3 (the plan's three-argument call compiles as written); all public declarations documented\n- [x] `enumerate` results report which layer won each item\n- [x] `<NAME>_DEFAULTS_DIR` override works without rebuild (proven by test via injected environment dictionary)\n- [x] `userDirectory`/`environment` defaulted parameters are public — usable from a plain `import FoundationModelsExtras`\n- [x] Constructing a stack performs no file I/O\n\n## Tests\n- [x] `Tests/FoundationModelsExtrasTests/DotfolderStackTests.swift` against a fixture tree (temp dirs or `Tests/.../Fixtures/` with `defaults/`, `user/`, `project/` layers):\n  - `nearest` returns the project copy when all three layers hold the file; user copy when project lacks it; defaults when only defaults has it; nil when nowhere\n  - `locate` returns copies lowest → highest\n  - `enumerate(\"commands\", suffix: \".md\")` shadows correctly and reports the winning layer per name\n  - defaults-dir env override redirects the lowest layer\n  - missing layer directories are skipped without error\n- [x] Run `swift test`; expect all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-19 09:18)\n\n- [x] `Sources/FoundationModelsExtras/DotfolderStack.swift:115` — Path traversal vulnerability: `relativePath` parameter is not validated for `..` sequences or absolute paths. An attacker or buggy caller could pass `\"../../etc/passwd\"` to read files outside the intended layer root. Validate that `relativePath` does not contain `..`, is not an absolute path, and does not start with `/`. Example: `guard !relativePath.contains(\"..\") && !relativePath.hasPrefix(\"/\") && !relativePath.isEmpty else { return nil }`.\n- [x] `Sources/FoundationModelsExtras/DotfolderStack.swift:129` — Path traversal vulnerability: `relativePath` parameter is not validated for `..` sequences or absolute paths. An attacker or buggy caller could pass `\"../../etc/passwd\"` to read files outside the intended layer root. Validate that `relativePath` does not contain `..`, is not an absolute path, and does not start with `/`.\n- [x] `Sources/FoundationModelsExtras/DotfolderStack.swift:147` — Path traversal vulnerability: `subdirectory` parameter is not validated for `..` sequences or absolute paths. An attacker or buggy caller could pass `\"../etc\"` to enumerate files outside the intended layer root. Validate that `subdirectory` does not contain `..`, is not an absolute path, and does not start with `/`.\n
