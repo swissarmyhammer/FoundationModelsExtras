@@ -1,0 +1,16 @@
+---
+name: function-length
+description: >-
+  Keep functions small and focused; long functions are hard to read, test, and reuse.
+metadata:
+  version: "1.0.0"
+match:
+  files:
+    - "@file_groups/source_code"
+---
+
+# Function Length Validator
+
+Re-homed from the monolithic code-quality set into a focused, one-concern
+validator: over-long functions. It is an **in-file judgment** — it reads the
+diff and needs no engine probe, so it declares none.

@@ -77,8 +77,8 @@ depends_on:
 - 01KXX45SJ1R0X46CBMYF59DN9K
 - 01KXX47408MG0KP7BAQWFKZFDW
 - 01KXX47J8F72GSX5STK6YVDQZP
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8880'
 title: 'Examples/ExtrasDemo: runnable contract test for all three pillars'
 ---
 ## What

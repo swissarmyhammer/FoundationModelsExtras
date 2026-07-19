@@ -87,6 +87,16 @@ let package = Package(
                 // to fail the build on any undocumented `public` declaration.
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            resources: [
+                // `CorpusGoldenTests` reads these directly off disk via
+                // `PackageRootValidation.packageRoot()` (not
+                // `Bundle.module`), so declaring them as resources is purely
+                // to silence SwiftPM's "unhandled files" warning for the
+                // non-`.swift` fixture tree living under this target's own
+                // source path — the corpus, and its checked-in expected
+                // output mirrors (plan.md task 9th0c05).
+                .copy("Fixtures")
             ]
         ),
     ]
