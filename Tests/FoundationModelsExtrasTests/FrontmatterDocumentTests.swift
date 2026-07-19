@@ -10,7 +10,7 @@ import Testing
     @Test func splitsFrontmatterAndBodyPreservingBodyByteForByte() {
         let text = "---\ntitle: Test\n---\n# Body\ncontent\n"
 
-        let result = FrontmatterDocument.split(text)
+        let result = FrontmatterDocument.split(text: text)
 
         #expect(result.frontmatter == "title: Test\n")
         #expect(result.body == "# Body\ncontent\n")
@@ -19,7 +19,7 @@ import Testing
     @Test func noFrontmatterReturnsNilAndWholeText() {
         let text = "# Just a heading\nsome body text\n"
 
-        let result = FrontmatterDocument.split(text)
+        let result = FrontmatterDocument.split(text: text)
 
         #expect(result.frontmatter == nil)
         #expect(result.body == text)
@@ -28,7 +28,7 @@ import Testing
     @Test func emptyFrontmatterBlockReturnsEmptyStringFrontmatter() {
         let text = "---\n---\n"
 
-        let result = FrontmatterDocument.split(text)
+        let result = FrontmatterDocument.split(text: text)
 
         #expect(result.frontmatter == "")
         #expect(result.body == "")
@@ -37,7 +37,7 @@ import Testing
     @Test func laterDashesInBodyAreNotTreatedAsAFence() {
         let text = "Some text\n---\nmore text\n"
 
-        let result = FrontmatterDocument.split(text)
+        let result = FrontmatterDocument.split(text: text)
 
         #expect(result.frontmatter == nil)
         #expect(result.body == text)
@@ -46,7 +46,7 @@ import Testing
     @Test func unterminatedOpeningFenceIsTreatedAsBody() {
         let text = "---\ntitle: Test\nno closing fence here\n"
 
-        let result = FrontmatterDocument.split(text)
+        let result = FrontmatterDocument.split(text: text)
 
         #expect(result.frontmatter == nil)
         #expect(result.body == text)
@@ -55,7 +55,7 @@ import Testing
     @Test func crlfInputIsHandled() {
         let text = "---\r\ntitle: Test\r\n---\r\n# Body\r\ncontent\r\n"
 
-        let result = FrontmatterDocument.split(text)
+        let result = FrontmatterDocument.split(text: text)
 
         #expect(result.frontmatter == "title: Test\r\n")
         #expect(result.body == "# Body\r\ncontent\r\n")

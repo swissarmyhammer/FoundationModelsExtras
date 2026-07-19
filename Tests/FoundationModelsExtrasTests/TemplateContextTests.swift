@@ -8,7 +8,7 @@ import Testing
 @Suite struct TemplateContextTests {
     @Test func setStoresAStringValue() {
         var context = TemplateContext()
-        context.set("name", .string("world"))
+        context.set(key: "name", to: .string("world"))
 
         let exported = context.stencilDictionary()
 
@@ -17,8 +17,8 @@ import Testing
 
     @Test func settingTheSameKeyTwiceOverwritesTheValue() {
         var context = TemplateContext()
-        context.set("name", .string("first"))
-        context.set("name", .string("second"))
+        context.set(key: "name", to: .string("first"))
+        context.set(key: "name", to: .string("second"))
 
         let exported = context.stencilDictionary()
 
@@ -27,8 +27,8 @@ import Testing
 
     @Test func numberAndBoolValuesRoundTripThroughExport() {
         var context = TemplateContext()
-        context.set("count", .number(42))
-        context.set("enabled", .bool(true))
+        context.set(key: "count", to: .number(42))
+        context.set(key: "enabled", to: .bool(true))
 
         let exported = context.stencilDictionary()
 
@@ -38,12 +38,12 @@ import Testing
 
     @Test func nestedArrayAndDictValuesRoundTripThroughExport() {
         var context = TemplateContext()
-        context.set("tags", .array([.string("a"), .number(2), .bool(true)]))
+        context.set(key: "tags", to: .array([.string("a"), .number(2), .bool(true)]))
         context.set(
-            "meta",
-            .dict([
+            key: "meta",
+            to: .dictionary([
                 "count": .number(3),
-                "nested": .dict(["flag": .bool(false)]),
+                "nested": .dictionary(["flag": .bool(false)]),
             ]))
 
         let exported = context.stencilDictionary()

@@ -11,7 +11,7 @@ public enum TemplateValue: Sendable {
     /// An ordered list of values.
     case array([TemplateValue])
     /// A keyed collection of values.
-    case dict([String: TemplateValue])
+    case dictionary([String: TemplateValue])
 
     /// This value, converted to the plain `Any` shape Stencil's own
     /// `Context` consumes (`Stencil.Context(dictionary: [String: Any])`).
@@ -25,7 +25,7 @@ public enum TemplateValue: Sendable {
             return value
         case .array(let values):
             return values.map(\.stencilValue)
-        case .dict(let values):
+        case .dictionary(let values):
             return values.mapValues(\.stencilValue)
         }
     }
@@ -43,7 +43,7 @@ public struct TemplateContext: Sendable {
     public init() {}
 
     /// Sets `key` to `value`, overwriting any existing value for `key`.
-    public mutating func set(_ key: String, _ value: TemplateValue) {
+    public mutating func set(key: String, to value: TemplateValue) {
         values[key] = value
     }
 

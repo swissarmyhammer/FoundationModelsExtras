@@ -15,12 +15,13 @@ public enum FrontmatterDocument {
 
     /// Splits `text` into an optional frontmatter block and a body.
     ///
-    /// - Parameter text: The raw document text, LF or CRLF line endings.
+    /// - Parameter text: The raw document text, LF or CRLF line endings, to
+    ///   split.
     /// - Returns: `frontmatter` is `nil` when no frontmatter block is
     ///   present (including an unterminated opening fence), or the raw text
     ///   between the fences (possibly empty) otherwise. `body` is always the
     ///   remaining text, preserved byte-for-byte.
-    public static func split(_ text: String) -> (frontmatter: String?, body: String) {
+    public static func split(text: String) -> (frontmatter: String?, body: String) {
         let (firstLineEnd, afterFirstLine) = lineBounds(in: text, from: text.startIndex)
         guard text[text.startIndex..<firstLineEnd] == fence else {
             return (nil, text)

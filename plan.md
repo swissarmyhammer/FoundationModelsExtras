@@ -138,7 +138,7 @@ frontmatter — is **a template first, a document second**:
 ```swift
 public struct TemplateContext: Sendable {
     public init()
-    public mutating func set(_ key: String, _ value: TemplateValue)  // string/number/bool/array/dict
+    public mutating func set(key: String, to value: TemplateValue)  // string/number/bool/array/dictionary
 }
 
 public struct TemplateEngine: Sendable {
@@ -157,7 +157,7 @@ public struct TemplateEngine: Sendable {
 /// Textual frontmatter split — no YAML dependency here; consumers decode the
 /// frontmatter text with their own codec (the harness has Yams).
 public enum FrontmatterDocument {
-    public static func split(_ text: String) -> (frontmatter: String?, body: String)
+    public static func split(text: String) -> (frontmatter: String?, body: String)
 }
 ```
 

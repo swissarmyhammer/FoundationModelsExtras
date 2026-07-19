@@ -21,9 +21,35 @@ comments:
   timestamp: 2026-07-19T13:23:36.326133+00:00
 - actor: claude-code
   id: manual-repair-01
-  text: |-
-    Repaired task storage corruption discovered here: the kanban MCP server's own file parser appears to treat any line containing a triple-hyphen substring as a frontmatter delimiter, rather than requiring the whole line to equal exactly three hyphens. Because the two comments above legitimately describe a triple-hyphen fence feature and therefore contained that substring inside longer sentences, re-parsing the file after the second add-comment call mis-split it into three concatenated blocks (title went blank, position_column went blank) instead of one frontmatter block followed by the body. Repaired by rewriting every comment below to avoid the literal triple-hyphen substring entirely, reconstructed from this task's own append-only jsonl log, preserving intent verbatim. This is a latent bug in the kanban tool itself, out of scope for this Swift-package task; flagging for visibility since any future comment or description text containing a literal triple-hyphen substring anywhere in this task's frontmatter risks retriggering it.
+  text: 'Repaired task storage corruption discovered here: the kanban MCP server''s own file parser appears to treat any line containing a triple-hyphen substring as a frontmatter delimiter, rather than requiring the whole line to equal exactly three hyphens. Because the two comments above legitimately describe a triple-hyphen fence feature and therefore contained that substring inside longer sentences, re-parsing the file after the second add-comment call mis-split it into three concatenated blocks (title went blank, position_column went blank) instead of one frontmatter block followed by the body. Repaired by rewriting every comment below to avoid the literal triple-hyphen substring entirely, reconstructed from this task''s own append-only jsonl log, preserving intent verbatim. This is a latent bug in the kanban tool itself, out of scope for this Swift-package task; flagging for visibility since any future comment or description text containing a literal triple-hyphen substring anywhere in this task''s frontmatter risks retriggering it.'
   timestamp: 2026-07-19T13:30:00.000000Z
+- actor: claude-code
+  id: 01kxx9kmqtpybpz1w90engg1vq
+  text: |-
+    Pulled back from review into doing to address the three naming-convention review findings.
+
+    Fixed:
+    - FrontmatterDocument.split(_ text:) -> split(text:) — updated declaration, doc comment param line, and all 6 call sites in FrontmatterDocumentTests.swift.
+    - TemplateValue.dict(...) -> TemplateValue.dictionary(...) — renamed the case and its switch arm in stencilValue; updated all call sites in TemplateContextTests.swift (including the nested .dictionary(...) usage).
+    - TemplateContext.set(_ key:_ value:) -> set(key:to:) — updated declaration and all call sites in TemplateContextTests.swift.
+
+    Verified: `swift build` clean, 0 warnings. `swift test` — 11/11 tests pass. Marked all three findings [x] in the task description.
+
+    Launched double-check agent adversarially to verify no missed call sites and re-confirm build/test green before handoff.
+  timestamp: 2026-07-19T13:38:49.210512+00:00
+- actor: claude-code
+  id: 01kxx9t9279rmzv0yj57f5twde
+  text: |-
+    Adversarial double-check (via really-done) ran a clean rebuild and full call-site sweep of the repo and confirmed the three renames are complete and correct, with 11/11 tests passing and zero warnings — VERDICT: REVISE on one item: plan.md §4 code blocks still showed the pre-rename signatures (`split(_ text:)`, `set(_ key:, _ value:)`, and the abbreviated `array/dict` comment), which is exactly the kind of inconsistency the task's own acceptance criterion ("split matches plan.md §4 signature") was meant to guard against.
+
+    Fixed: updated plan.md's two §4 code snippets to `split(text: String)` and `set(key: String, to value: TemplateValue)` / `array/dictionary`, matching the shipped API. Re-ran `swift build` (clean, 0 warnings) and `swift test` (11/11 pass) after this doc-only change — still green.
+
+    Task is green and staying in `doing` for `/review`.
+  timestamp: 2026-07-19T13:42:26.631381+00:00
+- actor: claude-code
+  id: 01kxx9vbj1sx44j4amxv8g74np
+  text: 'Note: the first description update accidentally wrote literal backslash-n escape sequences instead of real newlines (a copy/paste artifact on my end, not the kanban tool bug flagged in an earlier comment). Corrected with a follow-up update using real newlines and rephrased the "empty frontmatter block" bullet to avoid a literal `---\n---\n` substring, out of caution re: the earlier-reported parser sensitivity to triple-hyphen substrings. Description now renders correctly; progress 1.0, all three findings [x].'
+  timestamp: 2026-07-19T13:43:01.953819+00:00
 depends_on:
 - 01KXX44VAM0BR1CM0D7JR9C8XP
 position_column: doing
@@ -33,8 +59,8 @@ title: FrontmatterDocument.split + TemplateContext value types
 ## What
 The pure value types of pillar 3 (plan.md §4) — no Stencil involvement yet.
 
-- `Sources/FoundationModelsExtras/FrontmatterDocument.swift`: `public enum FrontmatterDocument` with `static func split(_ text: String) -> (frontmatter: String?, body: String)`. Purely textual — recognizes a leading `---` fence line, captures raw text up to the closing `---` fence, returns the rest as body. **No YAML dependency**; consumers decode frontmatter text with their own codec.
-- `Sources/FoundationModelsExtras/TemplateContext.swift`: `public struct TemplateContext: Sendable` with `init()` and `mutating func set(_ key: String, _ value: TemplateValue)`; `public enum TemplateValue: Sendable` covering string / number / bool / array / dict (recursive). Internal accessor to export the values as `[String: Any]` for the Stencil bridge (used by the TemplateEngine task).
+- `Sources/FoundationModelsExtras/FrontmatterDocument.swift`: `public enum FrontmatterDocument` with `static func split(text: String) -> (frontmatter: String?, body: String)`. Purely textual — recognizes a leading `---` fence line, captures raw text up to the closing `---` fence, returns the rest as body. **No YAML dependency**; consumers decode frontmatter text with their own codec.
+- `Sources/FoundationModelsExtras/TemplateContext.swift`: `public struct TemplateContext: Sendable` with `init()` and `mutating func set(key: String, to value: TemplateValue)`; `public enum TemplateValue: Sendable` covering string / number / bool / array / dictionary (recursive). Internal accessor to export the values as `[String: Any]` for the Stencil bridge (used by the TemplateEngine task).
 
 ## Acceptance Criteria
 - [x] `split` matches plan.md §4 signature; handles all edge cases below
@@ -45,7 +71,7 @@ The pure value types of pillar 3 (plan.md §4) — no Stencil involvement yet.
 - [x] `Tests/FoundationModelsExtrasTests/FrontmatterDocumentTests.swift`:
   - frontmatter+md splits into both parts; body preserved byte-for-byte
   - no frontmatter → `(nil, whole text)`
-  - empty frontmatter block (`---\n---\n`) → empty-string frontmatter
+  - empty frontmatter block (`---` on its own line, then another `---`) → empty-string frontmatter
   - `---` appearing later in the body is not a fence; unterminated opening fence → treated as body, not frontmatter
   - CRLF input handled
 - [x] `Tests/FoundationModelsExtrasTests/TemplateContextTests.swift`: set/overwrite semantics, nested array/dict values round-trip through the internal export
@@ -53,3 +79,9 @@ The pure value types of pillar 3 (plan.md §4) — no Stencil involvement yet.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-19 08:31)
+
+- [x] `Sources/FoundationModelsExtras/FrontmatterDocument.swift:23` — The first parameter omits its label with `_`, but the rule states 'Omit the first argument label only for value-preserving conversions.' Splitting a String into a tuple is not a value-preserving conversion, so the parameter must be labeled for call-site clarity. Change `split(_ text: String)` to `split(text: String)`. Fixed: renamed to `split(text:)` and updated all call sites (6 call sites in FrontmatterDocumentTests.swift), plus the plan.md §4 reference signature and its doc comment.
+- [x] `Sources/FoundationModelsExtras/TemplateContext.swift:14` — `dict` is an abbreviation of `dictionary`. The rule states 'Don't abbreviate to save characters — clarity is the goal, small code is not.' The full word should be used. Change `case dict([String: TemplateValue])` to `case dictionary([String: TemplateValue])`. Fixed: renamed the case (and its switch arm) to `.dictionary`, updated all call sites in TemplateContextTests.swift.
+- [x] `Sources/FoundationModelsExtras/TemplateContext.swift:47` — The first parameter omits its label with `_`, but the rule states 'Omit the first argument label only for value-preserving conversions.' Setting a key-value pair in a context is not a value-preserving conversion, so the parameter must be labeled. Change `set(_ key: String, _ value: TemplateValue)` to `set(key: String, to value: TemplateValue)` or similar labeled form to make the call site read as a grammatical phrase. Fixed: renamed to `set(key:to:)` and updated all call sites in TemplateContextTests.swift, plus the plan.md §4 reference signature.
