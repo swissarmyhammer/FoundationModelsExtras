@@ -39,8 +39,8 @@ comments:
 depends_on:
 - 01KXX47408MG0KP7BAQWFKZFDW
 - 01KXX47J8F72GSX5STK6YVDQZP
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8980'
 title: Corpus migration golden tests (render → include)
 ---
 ## What

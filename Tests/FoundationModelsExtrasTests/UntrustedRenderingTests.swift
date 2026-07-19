@@ -322,7 +322,7 @@ private func canonicalize(_ url: URL) -> URL {
 
         let chunk = String(repeating: "x", count: 60_000)
         let loader = CountingLoader(content: chunk)
-        let environment = Environment(loader: loader, extensions: [RestrictedIncludeExtension()])
+        let environment = Environment(loader: loader, extensions: [RestrictedTagsExtension()])
         var dictionary: [String: Any] = ["iterations": Array(repeating: "", count: 30)]
         dictionary[RestrictedIncludeNode.sizeBudgetContextKey] = OutputSizeBudget()
 
@@ -410,5 +410,106 @@ private func canonicalize(_ url: URL) -> URL {
         let rendered = try engine.render(template, context: context, trust: .untrusted)
 
         #expect(rendered == "Hello world!yesabc[partial]")
+    }
+
+    // MARK: - Iteration budget
+
+    @Test func nestedLiteralRangesAreRejectedOnceTotalIterationsExceedTheBudget() {
+        let engine = Fixture().makeEngine()
+        // Each literal range individually passes the pre-render span check
+        // (1000 is far under the limit); only their *product* — which no
+        // per-token check can see — explodes. The shared iteration budget
+        // must stop the render mid-loop, promptly, instead of grinding
+        // through a million-plus iterations (or, with one more nesting
+        // level, effectively hanging the process).
+        let template = "{% for i in 1...1000 %}{% for j in 1...1000 %}{% endfor %}{% endfor %}"
+
+        do {
+            let rendered = try engine.render(template, context: TemplateContext(), trust: .untrusted)
+            Issue.record("expected a throw, got \(rendered.count) rendered characters")
+        } catch let error as TemplateEngineError {
+            #expect("\(error)".contains("iteration"))
+        } catch {
+            Issue.record("expected TemplateEngineError, got \(error)")
+        }
+    }
+
+    @Test func nestedLoopBodiesConsumeTheSharedOutputBudgetMidRender() {
+        let engine = Fixture().makeEngine()
+        // 300 × 300 = 90,000 iterations — under the iteration budget — each
+        // appending 16 bytes: ~1.4 MiB, over the output budget. Loop bodies
+        // must consume the shared output budget as they render; metering
+        // includes alone would let an include-free loop materialize an
+        // arbitrarily large intermediate before the whole-render backstop
+        // ever ran.
+        let template =
+            "{% for i in 1...300 %}{% for j in 1...300 %}0123456789abcdef{% endfor %}{% endfor %}"
+
+        do {
+            let rendered = try engine.render(template, context: TemplateContext(), trust: .untrusted)
+            Issue.record("expected a throw, got \(rendered.count) rendered characters")
+        } catch let error as TemplateEngineError {
+            #expect("\(error)".contains("output size") || "\(error)".contains("bytes"))
+        } catch {
+            Issue.record("expected TemplateEngineError, got \(error)")
+        }
+    }
+
+    @Test func aLoopBodyMixingIncludesAndLiteralsIsNotDoubleCounted() throws {
+        let fixture = Fixture()
+        // The include's bytes are consumed by `RestrictedIncludeNode` as it
+        // renders; the enclosing loop must meter only the bytes *not*
+        // already consumed by nested metered nodes. If it re-counted the
+        // include's contribution, this comfortably-legal render (~720 KiB
+        // actually produced) would falsely exceed the 1 MiB budget.
+        let chunk = String(repeating: "x", count: 60_000)
+        fixture.writePartial(chunk, named: "chunk.md")
+        let engine = fixture.makeEngine()
+        var context = TemplateContext()
+        context.set(key: "iterations", to: .array(Array(repeating: .string(""), count: 12)))
+        let template = "{% for i in iterations %}{% include \"chunk.md\" %}y{% endfor %}"
+
+        let rendered = try engine.render(template, context: context, trust: .untrusted)
+
+        #expect(rendered.utf8.count == 12 * (60_000 + 1))
+    }
+
+    // MARK: - Restricted for-loop parity with Stencil's own
+
+    @Test func forloopMetaVariablesRenderUntrusted() throws {
+        let engine = Fixture().makeEngine()
+
+        let rendered = try engine.render(
+            "{% for i in 1...3 %}{{ forloop.counter }}:{{ forloop.first }}:{{ forloop.last }} {% endfor %}",
+            context: TemplateContext(), trust: .untrusted)
+
+        #expect(rendered == "1:true:false 2:false:false 3:false:true ")
+    }
+
+    @Test func aWhereClauseFiltersUntrustedLoopIterations() throws {
+        let engine = Fixture().makeEngine()
+        var context = TemplateContext()
+        context.set(
+            key: "items", to: .array([.string("a"), .string("skip"), .string("b")]))
+
+        let rendered = try engine.render(
+            "{% for item in items where item != \"skip\" %}{{ item }}{% endfor %}",
+            context: context, trust: .untrusted)
+
+        #expect(rendered == "ab")
+    }
+
+    @Test func dictionaryIterationWithTupleUnpackingRendersUntrusted() throws {
+        let engine = Fixture().makeEngine()
+        var context = TemplateContext()
+        context.set(
+            key: "settings",
+            to: .dictionary(["b": .string("2"), "a": .string("1")]))
+
+        let rendered = try engine.render(
+            "{% for key, value in settings %}{{ key }}={{ value }};{% endfor %}",
+            context: context, trust: .untrusted)
+
+        #expect(rendered == "a=1;b=2;")
     }
 }

@@ -29,6 +29,10 @@ comments:
 
     Fix applied: expanded the doc comment on RestrictedIncludeNode.token to spell out both facts (protocol requirement + which Stencil call site reads it) so a future reader does not re-flag it. No behavior change, no new code. swift build: clean, zero warnings (verified via a from-scratch .build/debug rebuild). swift test: 90/90 pass. Marked the finding checked. Leaving in doing for /review.
   timestamp: 2026-07-19T17:13:23.032660+00:00
+- actor: wballard
+  id: 01kxy1wtt6m9gqd7m0cwdr54z7
+  text: 'Post-done verification (double-check agent) found the output-size-bomb acceptance criterion unmet for nested `{% for %}` loops: the budget was only consumed inside includes, so nested literal ranges (each under the per-range span check) multiplied unmetered — a 500³ nest hung for minutes on the untrusted path. Fixed by replacing the untrusted `for` tag with `RestrictedForNode` (vendored from Stencil''s ForTag, MIT): a shared `IterationBudget` (100k iterations per render, nested loops multiply against it) plus per-iteration consumption of the shared `OutputSizeBudget` (double-count-safe: only bytes not already metered by nested includes/loops are added). Regression tests: nested-range iteration bomb, nested output bomb, include+literal no-double-count, and forloop/where/tuple-unpacking parity.'
+  timestamp: 2026-07-19T20:43:16.166679+00:00
 depends_on:
 - 01KXX47408MG0KP7BAQWFKZFDW
 position_column: done
