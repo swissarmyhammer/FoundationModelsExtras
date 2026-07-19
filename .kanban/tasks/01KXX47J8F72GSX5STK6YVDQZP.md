@@ -22,6 +22,13 @@ comments:
 
     Final state: swift build clean (zero warnings, confirmed on a full clean rebuild), swift test 90/90 passing in ~0.3s total (including DocCoverageTests). Leaving task in doing for /review.
   timestamp: 2026-07-19T16:55:32.541459+00:00
+- actor: claude-code
+  id: 01kxxnwgtrz1zszseqf1bakc2q
+  text: |-
+    Addressed the review finding on RestrictedIncludeNode.token. Investigated first rather than removing outright: Stencil's own NodeType protocol (Stencil/Node.swift) declares `var token: Token? { get }` as a requirement, so the property cannot be removed without breaking protocol conformance and the build. Further, Stencil's own renderNodes(_:_:) (same file), called from Template.render for the top-level node list, reads node.token via error.withToken(node.token) whenever a node's render throws, wrapping the error in a TemplateSyntaxError carrying that token's source location -- exactly the re-wrap mechanism UntrustedTemplateError's existing doc comment already described. So the property is not dead: it is protocol-mandated and genuinely read, just from Stencil's own framework code rather than from a call site in this file, which is what made it look dead on a local read/grep.
+
+    Fix applied: expanded the doc comment on RestrictedIncludeNode.token to spell out both facts (protocol requirement + which Stencil call site reads it) so a future reader does not re-flag it. No behavior change, no new code. swift build: clean, zero warnings (verified via a from-scratch .build/debug rebuild). swift test: 90/90 pass. Marked the finding checked. Leaving in doing for /review.
+  timestamp: 2026-07-19T17:13:23.032660+00:00
 depends_on:
 - 01KXX47408MG0KP7BAQWFKZFDW
 position_column: doing
@@ -51,3 +58,9 @@ Implement `Trust.untrusted` (plan.md §4): a restricted Stencil `Environment` fo
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-19 11:58)
+
+- [x] `Sources/FoundationModelsExtras/TemplateEngine.swift:404` — The `token` property of `RestrictedIncludeNode` is stored in `init` but never read in `render` or any other method, making it dead code that will confuse readers about actual functionality. Either remove the property now and introduce it in the task that actually implements error attribution, or add an explicit forward marker comment like `// TODO: use for error attribution in the follow-up task` to clarify it as work-in-progress scaffolding. The current comment alone does not meet the carve-out standard for forward-staged infrastructure.
+
+_Note: the engine also flagged a duplicate `canonicalize` test helper in `Tests/FoundationModelsExtrasTests/UntrustedRenderingTests.swift:10` vs. `DotfolderLoaderTests`. Dropped per the review skill's blanket test-refactor exception — fixing it requires restructuring the already-existing `DotfolderLoaderTests` helper, which is out of scope._

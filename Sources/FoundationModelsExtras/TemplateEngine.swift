@@ -443,7 +443,16 @@ final class RestrictedIncludeNode: NodeType {
     /// The optional second argument naming a context variable to pass to
     /// the included template, exactly as Stencil's own `include` supports.
     let includeContext: String?
-    /// This node's source token, for error attribution.
+    /// This node's source token. Required by the `NodeType` protocol
+    /// (`var token: Token? { get }`) — not unused scaffolding, even though
+    /// nothing in this file reads `self.token` directly: Stencil's own
+    /// `renderNodes(_:_:)` (`Node.swift`) reads every node's `token` via
+    /// `node.token` whenever that node's `render` throws, and uses it to
+    /// wrap the error in a `TemplateSyntaxError` carrying this token's
+    /// source location. That re-wrap is exactly what `UntrustedTemplateError`'s
+    /// doc comment above describes ("re-wraps any non-`TemplateSyntaxError`
+    /// in a `TemplateSyntaxError`") — this property is the mechanism behind
+    /// it, supplied by protocol conformance rather than by a call site here.
     let token: Token?
 
     /// Parses `{% include "name" %}` / `{% include "name" contextVar %}` —
