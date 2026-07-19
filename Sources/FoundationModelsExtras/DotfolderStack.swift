@@ -69,7 +69,11 @@ public struct DotfolderStack: Sendable {
     ///
     /// - Parameters:
     ///   - name: The dotfolder name, e.g. `"myagent"` for `~/.myagent` and
-    ///     `<workingDirectory>/.myagent`.
+    ///     `<workingDirectory>/.myagent`. Must be non-empty, contain no `/`,
+    ///     and not be `"."` — a precondition failure otherwise, since any of
+    ///     those would let the resulting `.<name>` escape the intended
+    ///     dotfolder hierarchy when appended onto the home or project
+    ///     directory.
     ///   - workingDirectory: The current project directory; the project
     ///     layer roots at `<workingDirectory>/.<name>/`.
     ///   - defaultsDirectory: The lowest layer: a real, consumer-shipped
@@ -93,6 +97,16 @@ public struct DotfolderStack: Sendable {
         userDirectory: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        precondition(
+            Self.isSafeDotfolderName(name),
+            """
+            DotfolderStack: name "\(name)" is not a safe dotfolder name. It must be \
+            non-empty, contain no "/", and not be "." — any of which would let the \
+            resulting ".<name>" escape the intended dotfolder hierarchy when appended \
+            onto the home or project directory.
+            """
+        )
+
         var layers: [Layer] = []
 
         let overrideKey = "\(name.uppercased())_DEFAULTS_DIR"
@@ -114,6 +128,24 @@ public struct DotfolderStack: Sendable {
                 root: workingDirectory.appendingPathComponent(".\(name)", isDirectory: true)))
 
         self.layers = layers
+    }
+
+    /// Reports whether `name` is safe to embed in a dotfolder name (`.<name>`,
+    /// appended onto the home directory for the user layer and onto
+    /// `workingDirectory` for the project layer): non-empty, a single path
+    /// component (contains no `/`), and not `"."`.
+    ///
+    /// A `name` containing `/` could otherwise introduce extra path
+    /// components — including a literal `".."` among them — once prefixed
+    /// with `"."` and joined onto a layer root, walking the resolved
+    /// directory outside the intended hierarchy. A `name` of exactly `"."`
+    /// combines with that same leading `.` to produce `".."`, the
+    /// parent-directory reference, for the same reason.
+    ///
+    /// - Parameter name: The dotfolder name passed to `init(name:...)`.
+    /// - Returns: `true` if `name` is safe to embed in `.<name>`.
+    private static func isSafeDotfolderName(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && name != "."
     }
 
     /// Reports whether `path` is safe to join onto a layer root: non-empty,

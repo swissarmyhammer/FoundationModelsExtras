@@ -46,6 +46,32 @@ comments:
 
     Task description's 6 Review Findings checkboxes are all [x]. Leaving in doing, ready for /review.
   timestamp: 2026-07-19T17:56:18.157323+00:00
+- actor: claude-code
+  id: 01kxxsgzpgj66dnxr4z5vax0km
+  text: |-
+    Pulled back into doing to address the two 2026-07-19 12:59 review findings.
+
+    Fix 1 (DemoCommandProvider.swift force-unwrap): replaced the IUO-local + force-unwrap pattern in init() with AsyncStream.makeStream(of:), which returns the stream and continuation directly as a tuple, so no optional/force-unwrap is needed at all:
+        let (stream, continuation) = AsyncStream.makeStream(of: [SlashCommand].self)
+        commandUpdates = stream
+        updatesContinuation = continuation
+    Behavior is unchanged; the existing commandsShowsPromptExpansionStreamedActionLinesAndTheUpdatedSet integration test (subprocess-driven) continues to exercise init()/commandUpdates/publishStatusCommandAdded() end to end and still passes.
+
+    Fix 2 (DotfolderStack.swift path traversal via `name`): added a private static isSafeDotfolderName(_:) check (non-empty, no "/", not exactly ".") alongside the existing isSafeRelativePath, and a precondition at the top of init() that traps on an unsafe name -- since name combines with a literal "." prefix to form the dotfolder ".<name>", a name containing "/" could inject extra path components (including a literal ".." among them), and name == "." alone becomes "..".
+
+    TDD: wrote 3 new exit tests in DotfolderStackTests.swift first (initTrapsWhenNameContainsAPathSeparator, initTrapsWhenNameIsASingleDot, initTrapsWhenNameIsEmpty) using Swift Testing's `await #expect(processExitsWith: .failure) { ... }`, confirmed RED against the unmodified code (all 3 failed with "expected .failure, got .exitCode(EXIT_SUCCESS)"), then implemented the fix and confirmed GREEN.
+
+    Verification: clean rebuild (`rm -rf .build && swift build --build-tests`) succeeded with zero warnings; `swift test` -> 98 tests in 11 suites, all passing (was 95, +3 new).
+
+    Marked both 2026-07-19 12:59 Review Findings checkboxes [x]. Dispatched an adversarial double-check agent for sign-off before leaving in doing.
+  timestamp: 2026-07-19T18:16:59.344281+00:00
+- actor: claude-code
+  id: 01kxxsmxargpjkx8aaksqavwtc
+  text: |-
+    Adversarial double-check agent returned PASS, no findings: independently confirmed no force-unwraps/IUOs remain in Examples/ExtrasDemo/Sources or Sources/FoundationModelsExtras, confirmed the AsyncStream.makeStream(of:) refactor preserves behavior (ExtrasDemoIntegrationTests.commandsShowsPromptExpansionStreamedActionLinesAndTheUpdatedSet passes, including the commandUpdates republish assertion), confirmed isSafeDotfolderName + precondition in DotfolderStack.init closes the path-traversal vector (name="" -> ".", name="." -> "..", name containing "/" -> injected components, all three covered and no other degenerate case exists for a "/"-free non-"." string), confirmed every existing DotfolderStack(name:...) call site across Sources/Tests/Examples passes a safe literal name, and independently re-ran `swift build --build-tests` (clean) and `swift test` (98/98 passing) to confirm.
+
+    Both 2026-07-19 12:59 Review Findings checkboxes are [x]. Leaving in doing, ready for /review.
+  timestamp: 2026-07-19T18:19:07.992797+00:00
 depends_on:
 - 01KXX4577MZK2WKK2VHTV9H4FM
 - 01KXX45SJ1R0X46CBMYF59DN9K
@@ -89,3 +115,8 @@ Subcommands, one per pillar:
 - [x] `Examples/ExtrasDemo/Sources/extras-demo/StackCommand.swift:24` — The literal string 'config.yaml' appears again in the print statement on this line, part of the repeated literal already flagged on line 23. Use the same constant extracted for line 23 here and on line 26.
 - [x] `Examples/ExtrasDemo/Sources/extras-demo/StackCommand.swift:26` — The literal string 'config.yaml' appears a third time in the else-branch print statement, part of the repeated literal flagged on line 23. Use the same constant extracted for line 23 here as well.
 - [x] `Examples/ExtrasDemo/Sources/extras-demo/StackCommand.swift:46` — The label() function contains a switch statement over a known enum (DotfolderStack.Source) where each arm returns only a constant string. This is a table that should be expressed as data rather than parallel code paths. Extract to a dictionary: static let sourceLabels: [DotfolderStack.Source: String] = [.defaults: "defaults", .user: "user", .project: "project"].
+
+## Review Findings (2026-07-19 12:59)
+
+- [x] `Examples/ExtrasDemo/Sources/extras-demo/DemoCommandProvider.swift:61` — Force unwrap of optional variable is not permitted in non-test code. Although the comment explains the AsyncStream closure is called synchronously, the rule prohibits force unwraps without exceptions. Refactor to avoid the force unwrap. For example, use a guard statement: `guard let continuation = continuation else { fatalError(...) }; self.updatesContinuation = continuation`. Alternatively, if the documented synchronous guarantee is reliable, consider that the pattern may need to be revisited; if it is a known-safe idiom in this codebase, document that exception in the coding guidelines.
+- [x] `Sources/FoundationModelsExtras/DotfolderStack.swift:100` — Path traversal vulnerability: the `name` parameter is appended to the home directory path using `appendingPathComponent` without validation. An attacker could pass `name="../../../etc"` to escape the intended dotfolder hierarchy and access arbitrary files on the filesystem. Validate the `name` parameter in `init()` to reject values containing `..` or `/`. Use a check similar to `isSafeRelativePath()` before constructing layer paths: `guard !name.contains(".") && !name.contains("/") else { fatalError(...) }` or similar.

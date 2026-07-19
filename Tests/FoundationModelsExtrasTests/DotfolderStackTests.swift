@@ -304,6 +304,31 @@ private func canonicalize(_ url: URL) -> URL {
         #expect(stack.enumerate("commands", suffix: ".md")["help"] != nil)
     }
 
+    @Test func initTrapsWhenNameContainsAPathSeparator() async {
+        // A `name` like `"evil/../../etc"` would otherwise be appended as
+        // `.evil/../../etc` onto the home/project directory, walking the
+        // resolved path outside the intended dotfolder hierarchy entirely.
+        await #expect(processExitsWith: .failure) {
+            _ = DotfolderStack(name: "evil/../../etc", workingDirectory: URL(fileURLWithPath: "/tmp"))
+        }
+    }
+
+    @Test func initTrapsWhenNameIsASingleDot() async {
+        // `name == "."` combines with the leading `.` this initializer
+        // prepends to produce `".."`, the parent-directory reference.
+        await #expect(processExitsWith: .failure) {
+            _ = DotfolderStack(name: ".", workingDirectory: URL(fileURLWithPath: "/tmp"))
+        }
+    }
+
+    @Test func initTrapsWhenNameIsEmpty() async {
+        // `name == ""` combines with the leading `.` to produce `"."`, the
+        // current-directory reference.
+        await #expect(processExitsWith: .failure) {
+            _ = DotfolderStack(name: "", workingDirectory: URL(fileURLWithPath: "/tmp"))
+        }
+    }
+
     @Test func constructingAStackPerformsNoFileIO() {
         let fixture = Fixture()
         let missingDefaultsDirectory = fixture.root.appendingPathComponent("brand-new", isDirectory: true)

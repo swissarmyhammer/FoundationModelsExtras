@@ -54,11 +54,9 @@ final class DemoCommandProvider: SlashCommandProviding, Sendable {
 
     /// Creates a provider with an unconsumed `commandUpdates` stream.
     init() {
-        var continuation: AsyncStream<[SlashCommand]>.Continuation?
-        commandUpdates = AsyncStream { continuation = $0 }
-        // AsyncStream calls its build closure synchronously, so `continuation`
-        // is always set by this point.
-        updatesContinuation = continuation!
+        let (stream, continuation) = AsyncStream.makeStream(of: [SlashCommand].self)
+        commandUpdates = stream
+        updatesContinuation = continuation
     }
 
     /// This conformer's static command set: `greetCommand` and
