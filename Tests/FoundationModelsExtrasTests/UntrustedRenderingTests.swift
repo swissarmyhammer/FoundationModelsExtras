@@ -434,6 +434,28 @@ private func canonicalize(_ url: URL) -> URL {
         }
     }
 
+    @Test func anAllFilteringWhereClauseOverALargeRangeStillConsumesTheIterationBudget() {
+        let engine = Fixture().makeEngine()
+        // A `where` clause is evaluated per *candidate* value, before any
+        // body renders — so a range that passes the pre-render span check
+        // with a never-true `where` performs its full candidate count of
+        // expression evaluations while producing zero output and zero
+        // rendered iterations. The iteration budget must be debited per
+        // candidate examined (pre-filter), or this is exactly the
+        // no-output time bomb the budget exists to close, reachable
+        // through `where` instead of an empty body.
+        let template = "{% for i in 1...200000 where i > 300000 %}x{% endfor %}"
+
+        do {
+            let rendered = try engine.render(template, context: TemplateContext(), trust: .untrusted)
+            Issue.record("expected a throw, got \(rendered.count) rendered characters")
+        } catch let error as TemplateEngineError {
+            #expect("\(error)".contains("iteration"))
+        } catch {
+            Issue.record("expected TemplateEngineError, got \(error)")
+        }
+    }
+
     @Test func nestedLoopBodiesConsumeTheSharedOutputBudgetMidRender() {
         let engine = Fixture().makeEngine()
         // 300 × 300 = 90,000 iterations — under the iteration budget — each

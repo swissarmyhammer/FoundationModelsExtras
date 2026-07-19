@@ -125,8 +125,9 @@ public struct TemplateEngine: Sendable {
         ///   `1...1000` literal ranges are a million iterations — past
         ///   anything a per-range pre-render check can see, and an
         ///   empty-bodied nest produces no output for the output limit to
-        ///   catch, so `RestrictedForNode` enforces this per iteration at
-        ///   render time.
+        ///   catch, so `RestrictedForNode` debits the budget at render
+        ///   time, per candidate value examined (before any `where`
+        ///   filter, which itself does per-candidate work).
         ///
         /// Env vars remain *values in the context*, not an exec capability
         /// — nothing about the precedence ladder changes between trust
@@ -296,8 +297,9 @@ extension TemplateEngine {
     /// nested loops *multiply* their counts (two nested `1...1000` literal
     /// ranges are a million iterations), which no per-range pre-render
     /// check (`validateForLoopRange`) can see, and an empty-bodied nest
-    /// produces no output for `untrustedOutputSizeLimit` to catch. Enforced
-    /// per iteration at render time by `RestrictedForNode` (plan.md §4).
+    /// produces no output for `untrustedOutputSizeLimit` to catch. Debited
+    /// by `RestrictedForNode` per candidate value examined (pre-`where`)
+    /// at render time (plan.md §4).
     static let untrustedIterationLimit = 100_000
 
     /// Rejects `text` under `Trust.untrusted`'s whitelist before any
@@ -584,11 +586,14 @@ final class IterationBudget {
 /// and labels have no other observable effect) — plus the two protections
 /// Stencil's own implementation has no hook for (plan.md §4):
 ///
-/// - **Iteration budget** — every iteration of every loop consumes one
-///   unit of the shared `IterationBudget`. Nested loops multiply their
-///   counts past what `validateForLoopRange`'s per-range pre-render check
-///   can see, and an empty body produces no output for the output limit
-///   to catch, so this is enforced mid-render, per iteration.
+/// - **Iteration budget** — every loop debits the shared
+///   `IterationBudget` by its full *candidate* count as soon as its
+///   iterable resolves, before any `where` filter runs. Nested loops
+///   multiply their counts past what `validateForLoopRange`'s per-range
+///   pre-render check can see; an empty body produces no output for the
+///   output limit to catch; and a never-true `where` evaluates its
+///   expression per candidate while rendering nothing — so the debit is
+///   per candidate examined, not per iteration rendered.
 /// - **Output metering** — each iteration's rendered bytes are consumed
 ///   from the same shared `OutputSizeBudget` the include tag meters, so
 ///   an include-free loop body cannot materialize an arbitrarily large
@@ -689,6 +694,23 @@ final class RestrictedForNode: NodeType {
     func render(_ context: Context) throws -> String {
         var values = try resolve(context)
 
+        // Debit the budget for every *candidate* value, before the `where`
+        // filter runs — the filter itself evaluates an expression per
+        // candidate, so a large range with a never-true `where` does its
+        // full candidate count of work while rendering zero iterations and
+        // producing zero output. Metering only rendered iterations would
+        // leave that work unbounded; debiting up front bounds resolve +
+        // filter + render alike, and a candidate filtered out costs the
+        // same budget unit as one rendered.
+        if let iterationBudget = context[Self.iterationBudgetContextKey] as? IterationBudget {
+            iterationBudget.consumedIterations += values.count
+            guard iterationBudget.consumedIterations <= TemplateEngine.untrustedIterationLimit
+            else {
+                throw UntrustedTemplateError.iterationsExceeded(
+                    limit: TemplateEngine.untrustedIterationLimit)
+            }
+        }
+
         if let whereExpression {
             values = try values.filter { item in
                 try push(value: item, context: context) {
@@ -708,20 +730,10 @@ final class RestrictedForNode: NodeType {
         }
 
         let count = values.count
-        let iterationBudget = context[Self.iterationBudgetContextKey] as? IterationBudget
         let outputSizeBudget = context[RestrictedIncludeNode.sizeBudgetContextKey] as? OutputSizeBudget
         var result = ""
 
         for (index, item) in zip(0..., values) {
-            if let iterationBudget {
-                iterationBudget.consumedIterations += 1
-                guard iterationBudget.consumedIterations <= TemplateEngine.untrustedIterationLimit
-                else {
-                    throw UntrustedTemplateError.iterationsExceeded(
-                        limit: TemplateEngine.untrustedIterationLimit)
-                }
-            }
-
             let forContext: [String: Any] = [
                 "first": index == 0,
                 "last": index == (count - 1),
