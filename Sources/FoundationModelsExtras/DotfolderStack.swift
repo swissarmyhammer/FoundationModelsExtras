@@ -1,9 +1,10 @@
 import Foundation
 
 /// The layered dotfolder resolution stack shared across the family (plan.md
-/// §3): shipped defaults, the user's home dotfolder, and the current
+/// §3): shipped defaults, the user's XDG config directory, and the current
 /// project's dotfolder, in increasing precedence — `defaults < user
-/// (~/.<name>/) < project (<cwd>/.<name>/)`.
+/// ($XDG_CONFIG_HOME/<name>/, default ~/.config/<name>/) < project
+/// (<cwd>/.<name>/)`.
 ///
 /// `DotfolderStack` only **locates** files (and, via `content`, reads one
 /// verbatim); it never merges their contents. Key-level config merging
@@ -18,7 +19,8 @@ public struct DotfolderStack: Sendable {
         /// The consumer-shipped defaults directory — a real directory read
         /// at runtime, never compiled-in content.
         case defaults
-        /// The user's home dotfolder, `~/.<name>/`.
+        /// The user's XDG config directory for this name,
+        /// `$XDG_CONFIG_HOME/<name>/` (default `~/.config/<name>/`).
         case user
         /// The current project's dotfolder, `<workingDirectory>/.<name>/`.
         case project
@@ -68,12 +70,12 @@ public struct DotfolderStack: Sendable {
     /// Derives a stack's layers from a bare name.
     ///
     /// - Parameters:
-    ///   - name: The dotfolder name, e.g. `"myagent"` for `~/.myagent` and
-    ///     `<workingDirectory>/.myagent`. Must be non-empty, contain no `/`,
-    ///     and not be `"."` — a precondition failure otherwise, since any of
-    ///     those would let the resulting `.<name>` escape the intended
-    ///     dotfolder hierarchy when appended onto the home or project
-    ///     directory.
+    ///   - name: The dotfolder name, e.g. `"myagent"` for
+    ///     `~/.config/myagent` and `<workingDirectory>/.myagent`. Must be
+    ///     non-empty, contain no `/`, and be neither `"."` nor `".."` — a
+    ///     precondition failure otherwise, since any of those would let the
+    ///     resulting path component escape the intended hierarchy when
+    ///     appended onto the user config or project directory.
     ///   - workingDirectory: The current project directory; the project
     ///     layer roots at `<workingDirectory>/.<name>/`.
     ///   - defaultsDirectory: The lowest layer: a real, consumer-shipped
@@ -82,14 +84,16 @@ public struct DotfolderStack: Sendable {
     ///     variable (`name` uppercased), the dev-override seam that lets
     ///     shipped defaults be repointed at a source checkout with no
     ///     rebuild.
-    ///   - userDirectory: The user layer's root. `nil` derives
-    ///     `~/.<name>/` from the current user's home directory. Callers that
-    ///     must never touch the real home directory (tests, demos) pass an
-    ///     explicit value.
+    ///   - userDirectory: The user layer's root. `nil` derives the XDG
+    ///     location: `$XDG_CONFIG_HOME/<name>/` when `environment` carries a
+    ///     non-empty, absolute `XDG_CONFIG_HOME`, otherwise
+    ///     `~/.config/<name>/` from the current user's home directory.
+    ///     Callers that must never touch the real home directory (tests,
+    ///     demos) pass an explicit value.
     ///   - environment: The environment dictionary consulted for the
-    ///     `<NAME>_DEFAULTS_DIR` override. Defaults to the process
-    ///     environment; tests inject a fake dictionary to prove the override
-    ///     works without depending on real process state.
+    ///     `<NAME>_DEFAULTS_DIR` override and `XDG_CONFIG_HOME`. Defaults to
+    ///     the process environment; tests inject a fake dictionary to prove
+    ///     the overrides work without depending on real process state.
     public init(
         name: String,
         workingDirectory: URL,
@@ -101,9 +105,9 @@ public struct DotfolderStack: Sendable {
             Self.isSafeDotfolderName(name),
             """
             DotfolderStack: name "\(name)" is not a safe dotfolder name. It must be \
-            non-empty, contain no "/", and not be "." — any of which would let the \
-            resulting ".<name>" escape the intended dotfolder hierarchy when appended \
-            onto the home or project directory.
+            non-empty, contain no "/", and be neither "." nor ".." — any of which \
+            would let the resulting path component escape the intended hierarchy \
+            when appended onto the user config or project directory.
             """
         )
 
@@ -117,9 +121,7 @@ public struct DotfolderStack: Sendable {
         }
 
         let resolvedUserDirectory =
-            userDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".\(name)", isDirectory: true)
+            userDirectory ?? Self.xdgUserDirectory(name: name, environment: environment)
         layers.append(Layer(source: .user, root: resolvedUserDirectory))
 
         layers.append(
@@ -130,22 +132,48 @@ public struct DotfolderStack: Sendable {
         self.layers = layers
     }
 
-    /// Reports whether `name` is safe to embed in a dotfolder name (`.<name>`,
-    /// appended onto the home directory for the user layer and onto
-    /// `workingDirectory` for the project layer): non-empty, a single path
-    /// component (contains no `/`), and not `"."`.
+    /// Reports whether `name` is safe to embed in a layer path (bare
+    /// `<name>` appended under the user config directory, `.<name>` appended
+    /// onto `workingDirectory` for the project layer): non-empty, a single
+    /// path component (contains no `/`), and neither `"."` nor `".."`.
     ///
     /// A `name` containing `/` could otherwise introduce extra path
-    /// components — including a literal `".."` among them — once prefixed
-    /// with `"."` and joined onto a layer root, walking the resolved
-    /// directory outside the intended hierarchy. A `name` of exactly `"."`
-    /// combines with that same leading `.` to produce `".."`, the
-    /// parent-directory reference, for the same reason.
+    /// components — including a literal `".."` among them — once joined onto
+    /// a layer root, walking the resolved directory outside the intended
+    /// hierarchy. A `name` of exactly `"."` combines with the leading `.`
+    /// the project layer prepends to produce `".."`, the parent-directory
+    /// reference; a `name` of exactly `".."` is that reference already, and
+    /// bare-joined under the user config directory would resolve to the
+    /// config directory's parent.
     ///
     /// - Parameter name: The dotfolder name passed to `init(name:...)`.
-    /// - Returns: `true` if `name` is safe to embed in `.<name>`.
+    /// - Returns: `true` if `name` is safe to embed in a layer path.
     private static func isSafeDotfolderName(_ name: String) -> Bool {
-        !name.isEmpty && !name.contains("/") && name != "."
+        !name.isEmpty && !name.contains("/") && name != "." && name != ".."
+    }
+
+    /// The user layer's default root per the XDG Base Directory spec:
+    /// `<XDG_CONFIG_HOME>/<name>/` when the injected environment carries a
+    /// non-empty, absolute `XDG_CONFIG_HOME`; otherwise `~/.config/<name>/`.
+    ///
+    /// The spec requires `XDG_CONFIG_HOME` to be an absolute path — a
+    /// relative value is invalid and ignored, falling back to the default.
+    /// Note the bare `<name>` (no leading dot): under a config directory the
+    /// hidden-file convention does not apply.
+    ///
+    /// - Parameters:
+    ///   - name: The dotfolder name passed to `init(name:...)`, already
+    ///     validated by `isSafeDotfolderName`.
+    ///   - environment: The environment dictionary consulted for
+    ///     `XDG_CONFIG_HOME`.
+    /// - Returns: The derived user-layer root directory.
+    private static func xdgUserDirectory(name: String, environment: [String: String]) -> URL {
+        if let configHome = environment["XDG_CONFIG_HOME"], configHome.hasPrefix("/") {
+            return URL(fileURLWithPath: configHome, isDirectory: true)
+                .appendingPathComponent(name, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/\(name)", isDirectory: true)
     }
 
     /// Reports whether `path` is safe to join onto a layer root: non-empty,

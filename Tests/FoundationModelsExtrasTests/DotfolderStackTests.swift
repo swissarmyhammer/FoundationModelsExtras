@@ -321,12 +321,74 @@ private func canonicalize(_ url: URL) -> URL {
         }
     }
 
+    @Test func initTrapsWhenNameIsParentDirectoryReference() async {
+        // `name == ".."` would be bare-joined under the user config
+        // directory, deriving `$XDG_CONFIG_HOME/..` — the parent of the
+        // config directory, escaping the intended hierarchy.
+        await #expect(processExitsWith: .failure) {
+            _ = DotfolderStack(name: "..", workingDirectory: URL(fileURLWithPath: "/tmp"))
+        }
+    }
+
     @Test func initTrapsWhenNameIsEmpty() async {
         // `name == ""` combines with the leading `.` to produce `"."`, the
         // current-directory reference.
         await #expect(processExitsWith: .failure) {
             _ = DotfolderStack(name: "", workingDirectory: URL(fileURLWithPath: "/tmp"))
         }
+    }
+
+    @Test func userLayerRootsAtXDGConfigHomeWhenSetToAnAbsolutePath() {
+        let stack = DotfolderStack(
+            name: "testagent",
+            workingDirectory: URL(fileURLWithPath: "/tmp/workspace"),
+            environment: ["XDG_CONFIG_HOME": "/custom/xdg"]
+        )
+
+        let userRoot = stack.layers.first { $0.source == .user }?.root
+
+        #expect(userRoot?.path == "/custom/xdg/testagent")
+    }
+
+    @Test func userLayerFallsBackToHomeConfigWhenXDGConfigHomeIsUnset() {
+        let stack = DotfolderStack(
+            name: "testagent",
+            workingDirectory: URL(fileURLWithPath: "/tmp/workspace"),
+            environment: [:]
+        )
+
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/testagent", isDirectory: true)
+
+        #expect(stack.layers.first { $0.source == .user }?.root.path == expected.path)
+    }
+
+    @Test func userLayerFallsBackToHomeConfigWhenXDGConfigHomeIsEmpty() {
+        let stack = DotfolderStack(
+            name: "testagent",
+            workingDirectory: URL(fileURLWithPath: "/tmp/workspace"),
+            environment: ["XDG_CONFIG_HOME": ""]
+        )
+
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/testagent", isDirectory: true)
+
+        #expect(stack.layers.first { $0.source == .user }?.root.path == expected.path)
+    }
+
+    @Test func userLayerIgnoresARelativeXDGConfigHome() {
+        // Per the XDG Base Directory spec, a relative XDG_CONFIG_HOME is
+        // invalid and must be ignored in favor of the default.
+        let stack = DotfolderStack(
+            name: "testagent",
+            workingDirectory: URL(fileURLWithPath: "/tmp/workspace"),
+            environment: ["XDG_CONFIG_HOME": "relative/config"]
+        )
+
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/testagent", isDirectory: true)
+
+        #expect(stack.layers.first { $0.source == .user }?.root.path == expected.path)
     }
 
     @Test func constructingAStackPerformsNoFileIO() {

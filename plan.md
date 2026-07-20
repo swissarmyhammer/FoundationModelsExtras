@@ -101,11 +101,11 @@ precedence order:
 
 ```swift
 public struct DotfolderStack: Sendable {
-    public init(name: String,                  // "myagent" → ~/.myagent + <cwd>/.myagent
+    public init(name: String,                  // "myagent" → ~/.config/myagent + <cwd>/.myagent
                 workingDirectory: URL,
                 defaultsDirectory: URL? = nil) // lowest layer: shipped defaults, a REAL directory
 
-    /// defaults < user (~/.<name>/) < project (<cwd>/.<name>/), in precedence order.
+    /// defaults < user ($XDG_CONFIG_HOME/<name>/, default ~/.config/<name>/) < project (<cwd>/.<name>/), in precedence order.
     public var layers: [Layer]
 
     public func nearest(_ relativePath: String) -> URL?        // highest-precedence copy
