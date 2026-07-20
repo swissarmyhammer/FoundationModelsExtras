@@ -15,5 +15,5 @@ import Testing
 /// templating pillars replace this smoke test alongside their implementation
 /// in subsequent tasks.
 @Suite struct SmokeTests {
-    @Test func moduleImportsCleanlyAndTestTargetRuns() {}
+  @Test func moduleImportsCleanlyAndTestTargetRuns() {}
 }

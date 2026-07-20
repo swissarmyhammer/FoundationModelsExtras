@@ -13,8 +13,8 @@ comments:
   id: 01kxznc5ntwkm477p6c7fgcp36
   text: 'double-check verdict: REVISE with one Medium finding — isSafeDotfolderName accepted ".." (harmless under the old ".<name>" prefix, which turned it into "..."), but the new bare-name join derived $XDG_CONFIG_HOME/.. — the config directory''s parent. Fixed via TDD: added initTrapsWhenNameIsParentDirectoryReference (watched it fail), then tightened isSafeDotfolderName to also reject "..", and updated its doc, the init name-param doc, and the precondition message. Full suite: 115 tests in 12 suites, all pass.'
   timestamp: 2026-07-20T11:42:56.186176+00:00
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: 8a80
 title: Make DotfolderStack's user layer XDG-compliant ($XDG_CONFIG_HOME/<name>, default ~/.config/<name>)
 ---
 ## What

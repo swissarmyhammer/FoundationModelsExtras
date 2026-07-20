@@ -14,267 +14,267 @@ import Foundation
 /// `enumerate`, or `content` is called: constructing a stack never performs
 /// file I/O, so consumers stay constructible in tests with none.
 public struct DotfolderStack: Sendable {
-    /// Which layer of the stack a location resolved from.
-    public enum Source: Sendable, Hashable {
-        /// The consumer-shipped defaults directory — a real directory read
-        /// at runtime, never compiled-in content.
-        case defaults
-        /// The user's XDG config directory for this name,
-        /// `$XDG_CONFIG_HOME/<name>/` (default `~/.config/<name>/`).
-        case user
-        /// The current project's dotfolder, `<workingDirectory>/.<name>/`.
-        case project
+  /// Which layer of the stack a location resolved from.
+  public enum Source: Sendable, Hashable {
+    /// The consumer-shipped defaults directory — a real directory read
+    /// at runtime, never compiled-in content.
+    case defaults
+    /// The user's XDG config directory for this name,
+    /// `$XDG_CONFIG_HOME/<name>/` (default `~/.config/<name>/`).
+    case user
+    /// The current project's dotfolder, `<workingDirectory>/.<name>/`.
+    case project
+  }
+
+  /// One layer of the stack: a source kind and the directory it roots.
+  public struct Layer: Sendable {
+    /// Which layer this is.
+    public var source: Source
+    /// The directory this layer roots. May not exist on disk; lookups
+    /// skip layers whose root is missing.
+    public var root: URL
+
+    /// Creates a layer. Exposed publicly so consumers can build fixtures
+    /// and fakes (e.g. for their own tests) with a plain
+    /// `import FoundationModelsExtras`, no `@testable` access required.
+    public init(source: Source, root: URL) {
+      self.source = source
+      self.root = root
+    }
+  }
+
+  /// A resolved location together with the layer that won it — the
+  /// swissarmyhammer `FileSource` idea, so consumers can surface "where did
+  /// this come from" in diagnostics (`/status`, `/memory` headers).
+  public struct Located: Sendable {
+    /// The winning file's URL.
+    public var url: URL
+    /// The layer that won.
+    public var layer: Layer
+
+    /// Creates a located value. Exposed publicly so consumers can build
+    /// fixtures and fakes (e.g. for their own tests) with a plain
+    /// `import FoundationModelsExtras`, no `@testable` access required.
+    public init(url: URL, layer: Layer) {
+      self.url = url
+      self.layer = layer
+    }
+  }
+
+  /// The stack's layers, `defaults < user < project`, lowest to highest
+  /// precedence. Omits the `defaults` layer entirely when the consumer
+  /// supplied no `defaultsDirectory` and no `<NAME>_DEFAULTS_DIR` override
+  /// was set — there is no shipped-defaults directory to root it at.
+  public var layers: [Layer]
+
+  /// Derives a stack's layers from a bare name.
+  ///
+  /// - Parameters:
+  ///   - name: The dotfolder name, e.g. `"myagent"` for
+  ///     `~/.config/myagent` and `<workingDirectory>/.myagent`. Must be
+  ///     non-empty, contain no `/`, and be neither `"."` nor `".."` — a
+  ///     precondition failure otherwise, since any of those would let the
+  ///     resulting path component escape the intended hierarchy when
+  ///     appended onto the user config or project directory.
+  ///   - workingDirectory: The current project directory; the project
+  ///     layer roots at `<workingDirectory>/.<name>/`.
+  ///   - defaultsDirectory: The lowest layer: a real, consumer-shipped
+  ///     directory of shipped defaults. `nil` omits the defaults layer.
+  ///     Overridden at runtime by the `<NAME>_DEFAULTS_DIR` environment
+  ///     variable (`name` uppercased), the dev-override seam that lets
+  ///     shipped defaults be repointed at a source checkout with no
+  ///     rebuild.
+  ///   - userDirectory: The user layer's root. `nil` derives the XDG
+  ///     location: `$XDG_CONFIG_HOME/<name>/` when `environment` carries a
+  ///     non-empty, absolute `XDG_CONFIG_HOME`, otherwise
+  ///     `~/.config/<name>/` from the current user's home directory.
+  ///     Callers that must never touch the real home directory (tests,
+  ///     demos) pass an explicit value.
+  ///   - environment: The environment dictionary consulted for the
+  ///     `<NAME>_DEFAULTS_DIR` override and `XDG_CONFIG_HOME`. Defaults to
+  ///     the process environment; tests inject a fake dictionary to prove
+  ///     the overrides work without depending on real process state.
+  public init(
+    name: String,
+    workingDirectory: URL,
+    defaultsDirectory: URL? = nil,
+    userDirectory: URL? = nil,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) {
+    precondition(
+      Self.isSafeDotfolderName(name),
+      """
+      DotfolderStack: name "\(name)" is not a safe dotfolder name. It must be \
+      non-empty, contain no "/", and be neither "." nor ".." — any of which \
+      would let the resulting path component escape the intended hierarchy \
+      when appended onto the user config or project directory.
+      """
+    )
+
+    var layers: [Layer] = []
+
+    let overrideKey = "\(name.uppercased())_DEFAULTS_DIR"
+    if let overridePath = environment[overrideKey], !overridePath.isEmpty {
+      layers.append(Layer(source: .defaults, root: URL(fileURLWithPath: overridePath)))
+    } else if let defaultsDirectory {
+      layers.append(Layer(source: .defaults, root: defaultsDirectory))
     }
 
-    /// One layer of the stack: a source kind and the directory it roots.
-    public struct Layer: Sendable {
-        /// Which layer this is.
-        public var source: Source
-        /// The directory this layer roots. May not exist on disk; lookups
-        /// skip layers whose root is missing.
-        public var root: URL
+    let resolvedUserDirectory =
+      userDirectory ?? Self.xdgUserDirectory(name: name, environment: environment)
+    layers.append(Layer(source: .user, root: resolvedUserDirectory))
 
-        /// Creates a layer. Exposed publicly so consumers can build fixtures
-        /// and fakes (e.g. for their own tests) with a plain
-        /// `import FoundationModelsExtras`, no `@testable` access required.
-        public init(source: Source, root: URL) {
-            self.source = source
-            self.root = root
-        }
+    layers.append(
+      Layer(
+        source: .project,
+        root: workingDirectory.appendingPathComponent(".\(name)", isDirectory: true)))
+
+    self.layers = layers
+  }
+
+  /// Reports whether `name` is safe to embed in a layer path (bare
+  /// `<name>` appended under the user config directory, `.<name>` appended
+  /// onto `workingDirectory` for the project layer): non-empty, a single
+  /// path component (contains no `/`), and neither `"."` nor `".."`.
+  ///
+  /// A `name` containing `/` could otherwise introduce extra path
+  /// components — including a literal `".."` among them — once joined onto
+  /// a layer root, walking the resolved directory outside the intended
+  /// hierarchy. A `name` of exactly `"."` combines with the leading `.`
+  /// the project layer prepends to produce `".."`, the parent-directory
+  /// reference; a `name` of exactly `".."` is that reference already, and
+  /// bare-joined under the user config directory would resolve to the
+  /// config directory's parent.
+  ///
+  /// - Parameter name: The dotfolder name passed to `init(name:...)`.
+  /// - Returns: `true` if `name` is safe to embed in a layer path.
+  private static func isSafeDotfolderName(_ name: String) -> Bool {
+    !name.isEmpty && !name.contains("/") && name != "." && name != ".."
+  }
+
+  /// The user layer's default root per the XDG Base Directory spec:
+  /// `<XDG_CONFIG_HOME>/<name>/` when the injected environment carries a
+  /// non-empty, absolute `XDG_CONFIG_HOME`; otherwise `~/.config/<name>/`.
+  ///
+  /// The spec requires `XDG_CONFIG_HOME` to be an absolute path — a
+  /// relative value is invalid and ignored, falling back to the default.
+  /// Note the bare `<name>` (no leading dot): under a config directory the
+  /// hidden-file convention does not apply.
+  ///
+  /// - Parameters:
+  ///   - name: The dotfolder name passed to `init(name:...)`, already
+  ///     validated by `isSafeDotfolderName`.
+  ///   - environment: The environment dictionary consulted for
+  ///     `XDG_CONFIG_HOME`.
+  /// - Returns: The derived user-layer root directory.
+  private static func xdgUserDirectory(name: String, environment: [String: String]) -> URL {
+    if let configHome = environment["XDG_CONFIG_HOME"], configHome.hasPrefix("/") {
+      return URL(fileURLWithPath: configHome, isDirectory: true)
+        .appendingPathComponent(name, isDirectory: true)
     }
+    return FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".config/\(name)", isDirectory: true)
+  }
 
-    /// A resolved location together with the layer that won it — the
-    /// swissarmyhammer `FileSource` idea, so consumers can surface "where did
-    /// this come from" in diagnostics (`/status`, `/memory` headers).
-    public struct Located: Sendable {
-        /// The winning file's URL.
-        public var url: URL
-        /// The layer that won.
-        public var layer: Layer
+  /// Reports whether `path` is safe to join onto a layer root: non-empty,
+  /// not rooted (no leading `/`), and free of `..` traversal components.
+  ///
+  /// Every entry point that joins a caller-supplied path onto a layer's
+  /// root (`nearest`, `locate`, `enumerate`) routes through this check
+  /// first, so none of them can be walked outside the layer root via a
+  /// `"../"` segment or an absolute path.
+  ///
+  /// - Parameter path: The caller-supplied relative path or subdirectory
+  ///   name to validate.
+  /// - Returns: `true` if `path` is safe to join onto a layer root.
+  private static func isSafeRelativePath(_ path: String) -> Bool {
+    guard !path.isEmpty, !path.hasPrefix("/") else { return false }
+    return !path.split(separator: "/", omittingEmptySubsequences: false)
+      .contains("..")
+  }
 
-        /// Creates a located value. Exposed publicly so consumers can build
-        /// fixtures and fakes (e.g. for their own tests) with a plain
-        /// `import FoundationModelsExtras`, no `@testable` access required.
-        public init(url: URL, layer: Layer) {
-            self.url = url
-            self.layer = layer
-        }
+  /// The highest-precedence existing copy of `relativePath`.
+  ///
+  /// - Parameter relativePath: A path relative to a layer's root, e.g.
+  ///   `"config.yaml"` or `"_partials/header.md"`. Rejected (returns
+  ///   `nil`) if it is empty, absolute, or contains a `..` component —
+  ///   such paths could otherwise escape the layer root.
+  /// - Returns: The winning layer's file URL, or `nil` if no layer has it.
+  public func nearest(_ relativePath: String) -> URL? {
+    guard Self.isSafeRelativePath(relativePath) else { return nil }
+    for layer in layers.reversed() {
+      let candidate = layer.root.appendingPathComponent(relativePath)
+      if FileManager.default.fileExists(atPath: candidate.path) {
+        return candidate
+      }
     }
+    return nil
+  }
 
-    /// The stack's layers, `defaults < user < project`, lowest to highest
-    /// precedence. Omits the `defaults` layer entirely when the consumer
-    /// supplied no `defaultsDirectory` and no `<NAME>_DEFAULTS_DIR` override
-    /// was set — there is no shipped-defaults directory to root it at.
-    public var layers: [Layer]
+  /// The text content of the highest-precedence existing copy of
+  /// `relativePath` — the read counterpart to `nearest`, so consumers that
+  /// want a file's text (not just its location, e.g. a template partial)
+  /// never need to touch `FileManager` themselves; the stack stays the
+  /// only thing that touches disk.
+  ///
+  /// - Parameter relativePath: A path relative to a layer's root, as
+  ///   accepted by `nearest`. Rejected (returns `nil`) under the same
+  ///   rules `nearest` applies.
+  /// - Returns: The winning layer's file content decoded as UTF-8, or
+  ///   `nil` if no layer has `relativePath` or its content cannot be
+  ///   decoded as UTF-8 text.
+  public func content(_ relativePath: String) -> String? {
+    guard let url = nearest(relativePath) else { return nil }
+    return try? String(contentsOf: url, encoding: .utf8)
+  }
 
-    /// Derives a stack's layers from a bare name.
-    ///
-    /// - Parameters:
-    ///   - name: The dotfolder name, e.g. `"myagent"` for
-    ///     `~/.config/myagent` and `<workingDirectory>/.myagent`. Must be
-    ///     non-empty, contain no `/`, and be neither `"."` nor `".."` — a
-    ///     precondition failure otherwise, since any of those would let the
-    ///     resulting path component escape the intended hierarchy when
-    ///     appended onto the user config or project directory.
-    ///   - workingDirectory: The current project directory; the project
-    ///     layer roots at `<workingDirectory>/.<name>/`.
-    ///   - defaultsDirectory: The lowest layer: a real, consumer-shipped
-    ///     directory of shipped defaults. `nil` omits the defaults layer.
-    ///     Overridden at runtime by the `<NAME>_DEFAULTS_DIR` environment
-    ///     variable (`name` uppercased), the dev-override seam that lets
-    ///     shipped defaults be repointed at a source checkout with no
-    ///     rebuild.
-    ///   - userDirectory: The user layer's root. `nil` derives the XDG
-    ///     location: `$XDG_CONFIG_HOME/<name>/` when `environment` carries a
-    ///     non-empty, absolute `XDG_CONFIG_HOME`, otherwise
-    ///     `~/.config/<name>/` from the current user's home directory.
-    ///     Callers that must never touch the real home directory (tests,
-    ///     demos) pass an explicit value.
-    ///   - environment: The environment dictionary consulted for the
-    ///     `<NAME>_DEFAULTS_DIR` override and `XDG_CONFIG_HOME`. Defaults to
-    ///     the process environment; tests inject a fake dictionary to prove
-    ///     the overrides work without depending on real process state.
-    public init(
-        name: String,
-        workingDirectory: URL,
-        defaultsDirectory: URL? = nil,
-        userDirectory: URL? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) {
-        precondition(
-            Self.isSafeDotfolderName(name),
-            """
-            DotfolderStack: name "\(name)" is not a safe dotfolder name. It must be \
-            non-empty, contain no "/", and be neither "." nor ".." — any of which \
-            would let the resulting path component escape the intended hierarchy \
-            when appended onto the user config or project directory.
-            """
-        )
-
-        var layers: [Layer] = []
-
-        let overrideKey = "\(name.uppercased())_DEFAULTS_DIR"
-        if let overridePath = environment[overrideKey], !overridePath.isEmpty {
-            layers.append(Layer(source: .defaults, root: URL(fileURLWithPath: overridePath)))
-        } else if let defaultsDirectory {
-            layers.append(Layer(source: .defaults, root: defaultsDirectory))
-        }
-
-        let resolvedUserDirectory =
-            userDirectory ?? Self.xdgUserDirectory(name: name, environment: environment)
-        layers.append(Layer(source: .user, root: resolvedUserDirectory))
-
-        layers.append(
-            Layer(
-                source: .project,
-                root: workingDirectory.appendingPathComponent(".\(name)", isDirectory: true)))
-
-        self.layers = layers
+  /// Every existing copy of `relativePath` across the stack.
+  ///
+  /// - Parameter relativePath: A path relative to a layer's root.
+  ///   Rejected (returns an empty array) if it is empty, absolute, or
+  ///   contains a `..` component — such paths could otherwise escape the
+  ///   layer root.
+  /// - Returns: File URLs for each layer that has `relativePath`, ordered
+  ///   lowest to highest precedence.
+  public func locate(_ relativePath: String) -> [URL] {
+    guard Self.isSafeRelativePath(relativePath) else { return [] }
+    return layers.compactMap { layer in
+      let candidate = layer.root.appendingPathComponent(relativePath)
+      return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
     }
+  }
 
-    /// Reports whether `name` is safe to embed in a layer path (bare
-    /// `<name>` appended under the user config directory, `.<name>` appended
-    /// onto `workingDirectory` for the project layer): non-empty, a single
-    /// path component (contains no `/`), and neither `"."` nor `".."`.
-    ///
-    /// A `name` containing `/` could otherwise introduce extra path
-    /// components — including a literal `".."` among them — once joined onto
-    /// a layer root, walking the resolved directory outside the intended
-    /// hierarchy. A `name` of exactly `"."` combines with the leading `.`
-    /// the project layer prepends to produce `".."`, the parent-directory
-    /// reference; a `name` of exactly `".."` is that reference already, and
-    /// bare-joined under the user config directory would resolve to the
-    /// config directory's parent.
-    ///
-    /// - Parameter name: The dotfolder name passed to `init(name:...)`.
-    /// - Returns: `true` if `name` is safe to embed in a layer path.
-    private static func isSafeDotfolderName(_ name: String) -> Bool {
-        !name.isEmpty && !name.contains("/") && name != "." && name != ".."
+  /// Lists every file matching `suffix` under `subdirectory` in each layer,
+  /// keyed by name with `suffix` stripped, with higher layers shadowing
+  /// lower ones by name.
+  ///
+  /// - Parameters:
+  ///   - subdirectory: A directory relative to a layer's root, e.g.
+  ///     `"commands"`. Rejected (returns an empty dictionary) if it is
+  ///     empty, absolute, or contains a `..` component — such paths could
+  ///     otherwise escape the layer root.
+  ///   - suffix: The filename suffix to match and strip, e.g. `".md"`.
+  ///     Files without this suffix are ignored.
+  /// - Returns: A dictionary from name (without `suffix`) to the winning
+  ///   file's location and the layer that won it.
+  public func enumerate(_ subdirectory: String, suffix: String) -> [String: Located] {
+    guard Self.isSafeRelativePath(subdirectory) else { return [:] }
+    var results: [String: Located] = [:]
+    for layer in layers {
+      let directoryURL = layer.root.appendingPathComponent(subdirectory, isDirectory: true)
+      guard
+        let contents = try? FileManager.default.contentsOfDirectory(
+          at: directoryURL, includingPropertiesForKeys: nil)
+      else {
+        continue
+      }
+      for fileURL in contents {
+        let fileName = fileURL.lastPathComponent
+        guard fileName.hasSuffix(suffix) else { continue }
+        let name = String(fileName.dropLast(suffix.count))
+        results[name] = Located(url: fileURL, layer: layer)
+      }
     }
-
-    /// The user layer's default root per the XDG Base Directory spec:
-    /// `<XDG_CONFIG_HOME>/<name>/` when the injected environment carries a
-    /// non-empty, absolute `XDG_CONFIG_HOME`; otherwise `~/.config/<name>/`.
-    ///
-    /// The spec requires `XDG_CONFIG_HOME` to be an absolute path — a
-    /// relative value is invalid and ignored, falling back to the default.
-    /// Note the bare `<name>` (no leading dot): under a config directory the
-    /// hidden-file convention does not apply.
-    ///
-    /// - Parameters:
-    ///   - name: The dotfolder name passed to `init(name:...)`, already
-    ///     validated by `isSafeDotfolderName`.
-    ///   - environment: The environment dictionary consulted for
-    ///     `XDG_CONFIG_HOME`.
-    /// - Returns: The derived user-layer root directory.
-    private static func xdgUserDirectory(name: String, environment: [String: String]) -> URL {
-        if let configHome = environment["XDG_CONFIG_HOME"], configHome.hasPrefix("/") {
-            return URL(fileURLWithPath: configHome, isDirectory: true)
-                .appendingPathComponent(name, isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/\(name)", isDirectory: true)
-    }
-
-    /// Reports whether `path` is safe to join onto a layer root: non-empty,
-    /// not rooted (no leading `/`), and free of `..` traversal components.
-    ///
-    /// Every entry point that joins a caller-supplied path onto a layer's
-    /// root (`nearest`, `locate`, `enumerate`) routes through this check
-    /// first, so none of them can be walked outside the layer root via a
-    /// `"../"` segment or an absolute path.
-    ///
-    /// - Parameter path: The caller-supplied relative path or subdirectory
-    ///   name to validate.
-    /// - Returns: `true` if `path` is safe to join onto a layer root.
-    private static func isSafeRelativePath(_ path: String) -> Bool {
-        guard !path.isEmpty, !path.hasPrefix("/") else { return false }
-        return !path.split(separator: "/", omittingEmptySubsequences: false)
-            .contains("..")
-    }
-
-    /// The highest-precedence existing copy of `relativePath`.
-    ///
-    /// - Parameter relativePath: A path relative to a layer's root, e.g.
-    ///   `"config.yaml"` or `"_partials/header.md"`. Rejected (returns
-    ///   `nil`) if it is empty, absolute, or contains a `..` component —
-    ///   such paths could otherwise escape the layer root.
-    /// - Returns: The winning layer's file URL, or `nil` if no layer has it.
-    public func nearest(_ relativePath: String) -> URL? {
-        guard Self.isSafeRelativePath(relativePath) else { return nil }
-        for layer in layers.reversed() {
-            let candidate = layer.root.appendingPathComponent(relativePath)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return candidate
-            }
-        }
-        return nil
-    }
-
-    /// The text content of the highest-precedence existing copy of
-    /// `relativePath` — the read counterpart to `nearest`, so consumers that
-    /// want a file's text (not just its location, e.g. a template partial)
-    /// never need to touch `FileManager` themselves; the stack stays the
-    /// only thing that touches disk.
-    ///
-    /// - Parameter relativePath: A path relative to a layer's root, as
-    ///   accepted by `nearest`. Rejected (returns `nil`) under the same
-    ///   rules `nearest` applies.
-    /// - Returns: The winning layer's file content decoded as UTF-8, or
-    ///   `nil` if no layer has `relativePath` or its content cannot be
-    ///   decoded as UTF-8 text.
-    public func content(_ relativePath: String) -> String? {
-        guard let url = nearest(relativePath) else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
-    }
-
-    /// Every existing copy of `relativePath` across the stack.
-    ///
-    /// - Parameter relativePath: A path relative to a layer's root.
-    ///   Rejected (returns an empty array) if it is empty, absolute, or
-    ///   contains a `..` component — such paths could otherwise escape the
-    ///   layer root.
-    /// - Returns: File URLs for each layer that has `relativePath`, ordered
-    ///   lowest to highest precedence.
-    public func locate(_ relativePath: String) -> [URL] {
-        guard Self.isSafeRelativePath(relativePath) else { return [] }
-        return layers.compactMap { layer in
-            let candidate = layer.root.appendingPathComponent(relativePath)
-            return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
-        }
-    }
-
-    /// Lists every file matching `suffix` under `subdirectory` in each layer,
-    /// keyed by name with `suffix` stripped, with higher layers shadowing
-    /// lower ones by name.
-    ///
-    /// - Parameters:
-    ///   - subdirectory: A directory relative to a layer's root, e.g.
-    ///     `"commands"`. Rejected (returns an empty dictionary) if it is
-    ///     empty, absolute, or contains a `..` component — such paths could
-    ///     otherwise escape the layer root.
-    ///   - suffix: The filename suffix to match and strip, e.g. `".md"`.
-    ///     Files without this suffix are ignored.
-    /// - Returns: A dictionary from name (without `suffix`) to the winning
-    ///   file's location and the layer that won it.
-    public func enumerate(_ subdirectory: String, suffix: String) -> [String: Located] {
-        guard Self.isSafeRelativePath(subdirectory) else { return [:] }
-        var results: [String: Located] = [:]
-        for layer in layers {
-            let directoryURL = layer.root.appendingPathComponent(subdirectory, isDirectory: true)
-            guard
-                let contents = try? FileManager.default.contentsOfDirectory(
-                    at: directoryURL, includingPropertiesForKeys: nil)
-            else {
-                continue
-            }
-            for fileURL in contents {
-                let fileName = fileURL.lastPathComponent
-                guard fileName.hasSuffix(suffix) else { continue }
-                let name = String(fileName.dropLast(suffix.count))
-                results[name] = Located(url: fileURL, layer: layer)
-            }
-        }
-        return results
-    }
+    return results
+  }
 }

@@ -13,142 +13,147 @@ import Testing
 
 @Suite struct ExtrasDemoIntegrationTests {
 
-    // MARK: - Locating the built binary and fixtures
+  // MARK: - Locating the built binary and fixtures
 
-    /// The built `extras-demo` executable, located next to the running test
-    /// bundle (SwiftPM places both under `.build/<config>/`). Declared as a
-    /// dependency of the test target, so `swift test` builds it first.
-    ///
-    /// Mirrors `FoundationModelsShelltool`'s `ExampleIntegrationTests.shellDemoBinary()`.
-    private static func extrasDemoBinary() throws -> URL {
-        var candidates: [URL] = []
-        for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
-            candidates.append(bundle.bundleURL.deletingLastPathComponent().appendingPathComponent("extras-demo"))
-        }
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-        candidates.append(cwd.appendingPathComponent(".build/debug/extras-demo"))
-        guard let binary = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
-            throw BinaryNotFoundError(candidates: candidates)
-        }
-        return binary
+  /// The built `extras-demo` executable, located next to the running test
+  /// bundle (SwiftPM places both under `.build/<config>/`). Declared as a
+  /// dependency of the test target, so `swift test` builds it first.
+  ///
+  /// Mirrors `FoundationModelsShelltool`'s `ExampleIntegrationTests.shellDemoBinary()`.
+  private static func extrasDemoBinary() throws -> URL {
+    var candidates: [URL] = []
+    for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
+      candidates.append(
+        bundle.bundleURL.deletingLastPathComponent().appendingPathComponent("extras-demo"))
     }
-
-    /// Raised by the subprocess harness itself when no built binary is found.
-    private struct BinaryNotFoundError: Error, CustomStringConvertible {
-        let candidates: [URL]
-        var description: String { "extras-demo binary not found among: \(candidates.map(\.path))" }
+    let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+    candidates.append(cwd.appendingPathComponent(".build/debug/extras-demo"))
+    guard
+      let binary = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }
+      )
+    else {
+      throw BinaryNotFoundError(candidates: candidates)
     }
+    return binary
+  }
 
-    /// The checked-in `Examples/ExtrasDemo/Fixtures/` tree, resolved relative
-    /// to the package root (this test file lives under
-    /// `Tests/FoundationModelsExtrasTests/`, three levels below it).
-    private static let fixturesRoot =
-        PackageRootValidation.packageRoot()
-        .appendingPathComponent("Examples/ExtrasDemo/Fixtures", isDirectory: true)
+  /// Raised by the subprocess harness itself when no built binary is found.
+  private struct BinaryNotFoundError: Error, CustomStringConvertible {
+    let candidates: [URL]
+    var description: String { "extras-demo binary not found among: \(candidates.map(\.path))" }
+  }
 
-    // MARK: - Subprocess harness
+  /// The checked-in `Examples/ExtrasDemo/Fixtures/` tree, resolved relative
+  /// to the package root (this test file lives under
+  /// `Tests/FoundationModelsExtrasTests/`, three levels below it).
+  private static let fixturesRoot =
+    PackageRootValidation.packageRoot()
+    .appendingPathComponent("Examples/ExtrasDemo/Fixtures", isDirectory: true)
 
-    /// The result of running `extras-demo`: its combined output and exit code.
-    private struct RunResult {
-        let output: String
-        let exitCode: Int32
-    }
+  // MARK: - Subprocess harness
 
-    /// Launches the built `extras-demo` executable with `arguments`, in a
-    /// fresh temp working directory (so the run cannot depend on the
-    /// process's cwd, and can never write into the repo), and collects its
-    /// combined output and exit code.
-    private static func run(
-        _ arguments: [String],
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) throws -> RunResult {
-        let workingDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("extrasdemo-test-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+  /// The result of running `extras-demo`: its combined output and exit code.
+  private struct RunResult {
+    let output: String
+    let exitCode: Int32
+  }
 
-        let process = Process()
-        process.executableURL = try extrasDemoBinary()
-        process.arguments = arguments
-        process.currentDirectoryURL = workingDirectory
-        process.environment = environment
+  /// Launches the built `extras-demo` executable with `arguments`, in a
+  /// fresh temp working directory (so the run cannot depend on the
+  /// process's cwd, and can never write into the repo), and collects its
+  /// combined output and exit code.
+  private static func run(
+    _ arguments: [String],
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) throws -> RunResult {
+    let workingDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("extrasdemo-test-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: workingDirectory) }
 
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
+    let process = Process()
+    process.executableURL = try extrasDemoBinary()
+    process.arguments = arguments
+    process.currentDirectoryURL = workingDirectory
+    process.environment = environment
 
-        try process.run()
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+    let outputPipe = Pipe()
+    process.standardOutput = outputPipe
+    process.standardError = outputPipe
 
-        return RunResult(output: String(decoding: data, as: UTF8.self), exitCode: process.terminationStatus)
-    }
+    try process.run()
+    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
 
-    // MARK: - `stack`: source tracking and the EXTRASDEMO_DEFAULTS_DIR override
+    return RunResult(
+      output: String(decoding: data, as: UTF8.self), exitCode: process.terminationStatus)
+  }
 
-    @Test func stackReportsWhichLayerWonEachItem() throws {
-        let result = try Self.run(["stack"])
+  // MARK: - `stack`: source tracking and the EXTRASDEMO_DEFAULTS_DIR override
 
-        #expect(result.exitCode == 0)
-        #expect(result.output.contains("config.yaml -> project"))
-        #expect(result.output.contains("hello -> defaults"))
-        #expect(result.output.contains("status -> user"))
-        #expect(result.output.contains("ps -> project"))
-    }
+  @Test func stackReportsWhichLayerWonEachItem() throws {
+    let result = try Self.run(["stack"])
 
-    @Test func stackAnswersChangeWhenDefaultsDirectoryIsRepointedViaEnvVarWithNoRebuild() throws {
-        var environment = ProcessInfo.processInfo.environment
-        environment["EXTRASDEMO_DEFAULTS_DIR"] = Self.fixturesRoot.appendingPathComponent("user").path
+    #expect(result.exitCode == 0)
+    #expect(result.output.contains("config.yaml -> project"))
+    #expect(result.output.contains("hello -> defaults"))
+    #expect(result.output.contains("status -> user"))
+    #expect(result.output.contains("ps -> project"))
+  }
 
-        let result = try Self.run(["stack"], environment: environment)
+  @Test func stackAnswersChangeWhenDefaultsDirectoryIsRepointedViaEnvVarWithNoRebuild() throws {
+    var environment = ProcessInfo.processInfo.environment
+    environment["EXTRASDEMO_DEFAULTS_DIR"] = Self.fixturesRoot.appendingPathComponent("user").path
 
-        #expect(result.exitCode == 0)
-        // The user fixture (now standing in for defaults too) has no
-        // "hello" command, so it disappears from the enumeration entirely —
-        // the same binary, no rebuild, a different defaults directory.
-        #expect(!result.output.contains("hello"))
-        #expect(result.output.contains("ps -> project"))
-    }
+    let result = try Self.run(["stack"], environment: environment)
 
-    // MARK: - `render`: context variable, env variable, well-known value, partial include
+    #expect(result.exitCode == 0)
+    // The user fixture (now standing in for defaults too) has no
+    // "hello" command, so it disappears from the enumeration entirely —
+    // the same binary, no rebuild, a different defaults directory.
+    #expect(!result.output.contains("hello"))
+    #expect(result.output.contains("ps -> project"))
+  }
 
-    @Test func renderShowsContextVariableEnvVariableWellKnownValueAndLayeredPartialInclude() throws {
-        let goodFixture = Self.fixturesRoot.appendingPathComponent("render/good.md").path
+  // MARK: - `render`: context variable, env variable, well-known value, partial include
 
-        let result = try Self.run(["render", goodFixture, "--set", "name=World"])
+  @Test func renderShowsContextVariableEnvVariableWellKnownValueAndLayeredPartialInclude() throws {
+    let goodFixture = Self.fixturesRoot.appendingPathComponent("render/good.md").path
 
-        #expect(result.exitCode == 0)
-        #expect(result.output.contains("name=World"))
-        #expect(result.output.contains("env_home="))
-        #expect(result.output.contains("working_directory="))
-        // The project fixture's `_partials/header.md` shadows the user
-        // one — nearest-wins across the layered partials.
-        #expect(result.output.contains("project header"))
-    }
+    let result = try Self.run(["render", goodFixture, "--set", "name=World"])
 
-    // MARK: - `render --untrusted`: the trust split
+    #expect(result.exitCode == 0)
+    #expect(result.output.contains("name=World"))
+    #expect(result.output.contains("env_home="))
+    #expect(result.output.contains("working_directory="))
+    // The project fixture's `_partials/header.md` shadows the user
+    // one — nearest-wins across the layered partials.
+    #expect(result.output.contains("project header"))
+  }
 
-    @Test func renderOfTheBadFixtureSucceedsTrustedButIsRejectedUntrusted() throws {
-        let badFixture = Self.fixturesRoot.appendingPathComponent("render/bad.md").path
+  // MARK: - `render --untrusted`: the trust split
 
-        let trusted = try Self.run(["render", badFixture])
-        #expect(trusted.exitCode == 0)
+  @Test func renderOfTheBadFixtureSucceedsTrustedButIsRejectedUntrusted() throws {
+    let badFixture = Self.fixturesRoot.appendingPathComponent("render/bad.md").path
 
-        let untrusted = try Self.run(["render", badFixture, "--untrusted"])
-        #expect(untrusted.exitCode != 0)
-        #expect(untrusted.output.lowercased().contains("now"))
-    }
+    let trusted = try Self.run(["render", badFixture])
+    #expect(trusted.exitCode == 0)
 
-    // MARK: - `commands`: prompt expansion, streamed action lines, commandUpdates
+    let untrusted = try Self.run(["render", badFixture, "--untrusted"])
+    #expect(untrusted.exitCode != 0)
+    #expect(untrusted.output.lowercased().contains("now"))
+  }
 
-    @Test func commandsShowsPromptExpansionStreamedActionLinesAndTheUpdatedSet() throws {
-        let result = try Self.run(["commands"])
+  // MARK: - `commands`: prompt expansion, streamed action lines, commandUpdates
 
-        #expect(result.exitCode == 0)
-        #expect(result.output.contains("prompt 'greet' rendered: Hello World!"))
-        #expect(result.output.contains("action 'stream' line: line 1 for demo-arg"))
-        #expect(result.output.contains("action 'stream' line: line 2 for demo-arg"))
-        #expect(result.output.contains("action 'stream' line: line 3 for demo-arg"))
-        #expect(result.output.contains("commandUpdates republished: greet, stream, status"))
-    }
+  @Test func commandsShowsPromptExpansionStreamedActionLinesAndTheUpdatedSet() throws {
+    let result = try Self.run(["commands"])
+
+    #expect(result.exitCode == 0)
+    #expect(result.output.contains("prompt 'greet' rendered: Hello World!"))
+    #expect(result.output.contains("action 'stream' line: line 1 for demo-arg"))
+    #expect(result.output.contains("action 'stream' line: line 2 for demo-arg"))
+    #expect(result.output.contains("action 'stream' line: line 3 for demo-arg"))
+    #expect(result.output.contains("commandUpdates republished: greet, stream, status"))
+  }
 }

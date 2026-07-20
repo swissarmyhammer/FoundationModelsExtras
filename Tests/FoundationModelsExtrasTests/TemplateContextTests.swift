@@ -6,57 +6,57 @@ import Testing
 /// semantics on the public surface, and a round-trip of nested array/dict
 /// values through the internal Stencil export (plan.md §4).
 @Suite struct TemplateContextTests {
-    @Test func setStoresAStringValue() {
-        var context = TemplateContext()
-        context.set(key: "name", to: .string("world"))
+  @Test func setStoresAStringValue() {
+    var context = TemplateContext()
+    context.set(key: "name", to: .string("world"))
 
-        let exported = context.stencilDictionary()
+    let exported = context.stencilDictionary()
 
-        #expect(exported["name"] as? String == "world")
-    }
+    #expect(exported["name"] as? String == "world")
+  }
 
-    @Test func settingTheSameKeyTwiceOverwritesTheValue() {
-        var context = TemplateContext()
-        context.set(key: "name", to: .string("first"))
-        context.set(key: "name", to: .string("second"))
+  @Test func settingTheSameKeyTwiceOverwritesTheValue() {
+    var context = TemplateContext()
+    context.set(key: "name", to: .string("first"))
+    context.set(key: "name", to: .string("second"))
 
-        let exported = context.stencilDictionary()
+    let exported = context.stencilDictionary()
 
-        #expect(exported["name"] as? String == "second")
-    }
+    #expect(exported["name"] as? String == "second")
+  }
 
-    @Test func numberAndBoolValuesRoundTripThroughExport() {
-        var context = TemplateContext()
-        context.set(key: "count", to: .number(42))
-        context.set(key: "enabled", to: .bool(true))
+  @Test func numberAndBoolValuesRoundTripThroughExport() {
+    var context = TemplateContext()
+    context.set(key: "count", to: .number(42))
+    context.set(key: "enabled", to: .bool(true))
 
-        let exported = context.stencilDictionary()
+    let exported = context.stencilDictionary()
 
-        #expect(exported["count"] as? Double == 42)
-        #expect(exported["enabled"] as? Bool == true)
-    }
+    #expect(exported["count"] as? Double == 42)
+    #expect(exported["enabled"] as? Bool == true)
+  }
 
-    @Test func nestedArrayAndDictValuesRoundTripThroughExport() {
-        var context = TemplateContext()
-        context.set(key: "tags", to: .array([.string("a"), .number(2), .bool(true)]))
-        context.set(
-            key: "meta",
-            to: .dictionary([
-                "count": .number(3),
-                "nested": .dictionary(["flag": .bool(false)]),
-            ]))
+  @Test func nestedArrayAndDictValuesRoundTripThroughExport() {
+    var context = TemplateContext()
+    context.set(key: "tags", to: .array([.string("a"), .number(2), .bool(true)]))
+    context.set(
+      key: "meta",
+      to: .dictionary([
+        "count": .number(3),
+        "nested": .dictionary(["flag": .bool(false)]),
+      ]))
 
-        let exported = context.stencilDictionary()
+    let exported = context.stencilDictionary()
 
-        let tags = exported["tags"] as? [Any]
-        #expect(tags?.count == 3)
-        #expect(tags?[0] as? String == "a")
-        #expect(tags?[1] as? Double == 2)
-        #expect(tags?[2] as? Bool == true)
+    let tags = exported["tags"] as? [Any]
+    #expect(tags?.count == 3)
+    #expect(tags?[0] as? String == "a")
+    #expect(tags?[1] as? Double == 2)
+    #expect(tags?[2] as? Bool == true)
 
-        let meta = exported["meta"] as? [String: Any]
-        #expect(meta?["count"] as? Double == 3)
-        let nested = meta?["nested"] as? [String: Any]
-        #expect(nested?["flag"] as? Bool == false)
-    }
+    let meta = exported["meta"] as? [String: Any]
+    #expect(meta?["count"] as? Double == 3)
+    let nested = meta?["nested"] as? [String: Any]
+    #expect(nested?["flag"] as? Bool == false)
+  }
 }
