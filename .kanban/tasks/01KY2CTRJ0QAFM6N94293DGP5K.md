@@ -23,6 +23,19 @@ comments:
 
     Resolution: added both pinning tests — evenBackslashRunBeforeTrailingSlashIsStillDirectoryOnly and trailingLoneBackslashPreservesPrecedingSpaces. Re-ran swift format (no changes) and the full suite: 152 tests in 13 suites, all passed, zero warnings. Acceptance-criteria checkboxes in the description are all marked done. Task left in doing, ready for /review.
   timestamp: 2026-07-21T14:25:35.243437+00:00
+- actor: claude-code
+  id: 01ky2hhnz8mgnvqqk9dhmrs7rz
+  text: |-
+    Review of checkpoint commit 277b1ca (HEAD~1..HEAD) found 1 finding (iteration 1):
+
+    [ ] Sources/FoundationModelsExtras/IgnoreRule.swift:61 -- init?(line:source:lineNumber:) doc comment is missing a `Returns:` section. Add one, e.g. "Returns: An IgnoreRule instance if parsing succeeds, or nil if the line is blank, a comment, or reduces to an empty pattern."
+
+    Task returned to review column with this finding open; looping back to implement to fix.
+  timestamp: 2026-07-21T14:33:45.704674+00:00
+- actor: claude-code
+  id: 01ky2hjsm7jz41n6cfq8hsw23a
+  text: 'Fixed the review finding: added a formal "- Returns:" doc field to init?(line:source:lineNumber:) in IgnoreRule.swift (the prose already described nil-returning cases, but the formal field was missing). swift format, swift build, and full swift test (152/152, 13 suites) all green. Note: the "implement" and "commit" Skill-tool invocations were intermittently erroring "Unknown skill" this iteration, so this fix and the checkpoint commit were done directly following the implement skill''s already-loaded process rather than re-invoking it.'
+  timestamp: 2026-07-21T14:34:22.215496+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'IgnoreRule: parse a single gitignore line into a rule with provenance'

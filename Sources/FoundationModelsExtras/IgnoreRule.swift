@@ -58,6 +58,8 @@ public struct IgnoreRule: Sendable, Equatable {
   ///     `\r` from CRLF input is tolerated and stripped).
   ///   - source: Display name of the originating file.
   ///   - lineNumber: The 1-based line number of `line` within `source`.
+  /// - Returns: An `IgnoreRule` instance if parsing succeeds, or `nil` if the
+  ///   line is blank, a comment, or reduces to an empty pattern.
   public init?(line: String, source: String, lineNumber: Int) {
     self.source = source
     self.line = lineNumber
