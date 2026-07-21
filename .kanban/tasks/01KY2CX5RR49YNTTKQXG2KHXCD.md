@@ -9,10 +9,17 @@ comments:
 
     Note: accidentally ran `swift format -i -r Sources Tests Examples` (should have been Sources Tests only per project facts) which reformatted several unrelated existing Examples files from 4-space to 2-space indent. Reverted those via `git checkout --` and manually restored main.swift to the original 4-space style with just my intended diff, so the final diff is minimal and scoped to this task.
   timestamp: 2026-07-21T16:47:35.781229+00:00
+- actor: claude-code
+  id: 01ky2vj8bn1v2k49va26933hgq
+  text: |-
+    Review loop complete. Three review-fix iterations against HEAD~1..HEAD, each addressing confirmed doc-comment/naming findings in files this task touched (IgnoreCommand.swift and ExtrasDemoIntegrationTests.swift, including its pre-existing shared harness that sat adjacent to my diff). Final HEAD~1..HEAD and review-working checks are both clean (0 findings). Full swift test: 193 tests, 18 suites, all green. Moving to done.
+
+    Note: I also ran a whole-branch review (1ecdb9a..HEAD) out of extra caution, which surfaced 37 findings — but nearly all are the codebase's pre-existing, repo-wide doc-comment style (multi-line first sentences without a period, used pervasively across Sources/FoundationModelsExtras and unrelated test files) plus two unrelated pre-existing Wildmatch.swift DRY nits. None are regressions from this task and none are in files this task's scope covers; that review op also isn't part of the specified workflow (which calls for HEAD~1..HEAD or review working per iteration). Left those untouched as out of scope.
+  timestamp: 2026-07-21T17:28:50.293719+00:00
 depends_on:
 - 01KY2CWAEKSXR967RZ8A1F6CGQ
-position_column: review
-position_ordinal: '80'
+position_column: done
+position_ordinal: '9080'
 title: extras-demo `ignore` subcommand + integration test
 ---
 ## What
