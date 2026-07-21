@@ -3,11 +3,13 @@
 A small Swift package at the **bottom** of the swissarmyhammer FoundationModels
 family dependency graph. It holds the substrate every consumer shares and no
 consumer should reimplement: the slash-command vocabulary, the layered
-dotfolder stack, and Stencil templating for the content that lives in those
-folders. Everything may import it; it imports almost nothing.
+dotfolder stack, Stencil templating for the content that lives in those
+folders, and `AgentsMd` discovery of agent-instructions files (§10).
+Everything may import it; it imports almost nothing.
 
-**Status:** plan-only · **Target:** Swift 6.2 tools, macOS 27+, Apple Silicon
-· **Updated:** 2026-07-18
+**Status:** pillars 1–3 built and pushed · pillar 4 (`AgentsMd`, §10) planned
+· **Target:** Swift 6.2 tools, macOS 27+, Apple Silicon
+· **Updated:** 2026-07-21
 
 ---
 
@@ -224,10 +226,17 @@ public enum FrontmatterDocument {
 
 | Package | Uses |
 |---|---|
-| FoundationModelsAgentHarness | all three pillars: command registry + `DotfolderStack` for config/commands/memory + rendering every dotfolder document before parse (harness plan §4, §6.1, §6.2) |
+| the coding-agent product layer (`../FoundationModelsAgentHarness/product_plan.md`) | all pillars: command registry + `DotfolderStack` for config/commands + rendering every dotfolder document before parse + `AgentsMd` when assembling session instructions |
+| FoundationModelsAgents (plan-only) | `AgentsMd` (§10) when assembling per-sub-agent instructions, so sub-agents see the repo's agent-instructions files |
 | FoundationModelsSkills (plan-only) | `SlashCommandProviding` conformer; renders SKILL.md through the same engine and `_partials/` |
 | FoundationModelsShelltool | candidate adopter of `DotfolderStack` for its stacked `ShellPolicy` YAML; potential `/ps`-style `.action` commands — illustrative, not committed |
 
+Note the 2026-07-21 re-scope: **FoundationModelsAgentHarness itself no longer
+imports Extras.** The harness became a constructor-fed loop (router, tools,
+instructions, compaction instructions — no file I/O; its only dependency is
+Router), so the Extras-consuming composition moved up to the product layer
+and the agents tool. The diamond in §1 still holds — Extras stays the leaf
+both sides of it share — the top vertex is just the product/agents layer now.
 Tool packages that need none of this never import it.
 
 ## 7. Examples
@@ -287,3 +296,69 @@ whole-file-render-then-split round-trips for md, yaml, and frontmatter+md.
 3. **`Examples/ExtrasDemo`** (§7): lands with whichever of 1–2 finishes
    last; its fixture tree is shared with the unit tests where practical.
 4. CI from swissarmyhammer/workflows like in sibling packages
+5. **`AgentsMd`** (§10): the ancestor walk + alias preference + tests over
+   fixture trees, plus an `extras-demo agents` subcommand. Independent of
+   1–4 (steps 1–4 are done); unblocks instruction assembly in the product
+   layer and FoundationModelsAgents.
+
+## 10. Pillar 4 — `AgentsMd` (agent-instructions discovery)
+
+**What it is.** [agents.md](https://agents.md/) defines `AGENTS.md` as "a
+README for agents: a dedicated, predictable place to provide the context and
+instructions to help AI coding agents work on your project." It is
+**instructions and context — not memory**; nothing in the format remembers
+anything across sessions, so this pillar is deliberately named `AgentsMd`
+after the file, never "memory."
+
+**Why it lives here.** Two consumers assemble session instructions and need
+the identical discovery walk: the product layer (root sessions) and
+FoundationModelsAgents (per-sub-agent instructions — a sub-agent that hasn't
+read the repo's `AGENTS.md` is worse at its job). The harness itself never
+does this — it is constructor-fed and reads no files; callers fold the
+result into the `instructions` value they pass in. One convention, two
+consumers, and Extras is already the family's only disk-toucher: textbook
+pillar.
+
+```swift
+/// Discovery of AGENTS.md agent-instructions files (https://agents.md/).
+public enum AgentsMd {
+    public struct Document: Sendable {
+        public var url: URL        // the file that was read
+        public var directory: URL  // the directory level it governs
+        public var text: String
+    }
+
+    /// Walks from `workingDirectory` up to `root` — default: the enclosing
+    /// git repository root (nearest ancestor containing `.git`; detected by
+    /// directory entry, never by running git), else `workingDirectory`
+    /// itself — reading at each level the first of `AGENTS.md`, `AGENT.md`,
+    /// `CLAUDE.md`. One file per directory. Returned outermost-first, so a
+    /// consumer concatenating in order gives the nearest file the last
+    /// word — the spec's "the closest one takes precedence."
+    public static func documents(
+        from workingDirectory: URL, upTo root: URL? = nil
+    ) throws -> [Document]
+}
+```
+
+- **Names and precedence.** `AGENTS.md` is the format; `AGENT.md` is the
+  spec's own migration alias; `CLAUDE.md` is the ecosystem-compatibility
+  alias (Claude Code). Preference within a directory is that order, first
+  match only. Symlinked aliases (the spec's suggested
+  `ln -s AGENTS.md AGENT.md` migration) must not double-read: dedupe by
+  resolved path.
+- **Discovery only — no policy.** `AgentsMd` returns raw text with
+  provenance. How consumers use it is theirs: concatenate into
+  instructions, render `untrusted` through the `TemplateEngine` first, or
+  filter by directory. A user-level file is *not* part of the spec — a
+  consumer that wants `~/.config/<name>/AGENTS.md` composes it themselves
+  via `DotfolderStack.content("AGENTS.md")` and prepends it (most-general
+  first, so project files still win).
+- **Testing** (hermetic, per §8): fixture trees exercising alias preference
+  per directory, one-file-per-directory, nesting order
+  (outermost-first/nearest-last), `.git` root detection vs explicit
+  `root:`, walk stops at `root`, symlink dedupe, and empty results (no
+  files, cwd == root).
+- **Demo**: `extras-demo agents` walks a fixture tree and prints each
+  discovered document with the directory it governs and which alias
+  matched — provenance made visible, same spirit as `extras-demo stack`.
