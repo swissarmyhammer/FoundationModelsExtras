@@ -68,10 +68,17 @@ comments:
 
     Fixed, `swift format` clean, `swift build` clean, full `swift test` green (180/180), CRLF fixture byte-verified intact (5 `\r` bytes, unchanged). Committing and doing one more review pass.
   timestamp: 2026-07-21T16:30:32.289980+00:00
+- actor: claude-code
+  id: 01ky2res0tjmvt3v7n8y3589fy
+  text: |-
+    Review Findings (iteration 5, mcp__sah__review op=review sha c7c1712..HEAD): clean, 0 findings, 14/14 review tasks attempted and complete.
+
+    Moving to done. Final state: `swift build` clean, full `swift test` green (180/180 tests), `swift format -i -r Sources Tests` clean. Commits on this task: a00b1a4 (corpus + parity tests + IgnoreProcessor CRLF-splitting bugfix), 640d1eb, 5d60817, 7d2776a (review-finding fixups), 2658c53 (final review-finding fixup).
+  timestamp: 2026-07-21T16:34:30.554017+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
-position_column: review
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8e80'
 title: 'Git-parity corpus test: verdicts match `git check-ignore -v`'
 ---
 ## What
