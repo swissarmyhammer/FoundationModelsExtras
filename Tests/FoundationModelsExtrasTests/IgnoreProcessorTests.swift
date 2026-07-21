@@ -318,11 +318,12 @@ import Testing
 
   // MARK: - README example
 
-  /// Mirrored in README.md's IgnoreProcessor section — keep in sync. Loads a
-  /// `.gitignore` and a `.reviewignore` from disk, combines them with `+`,
-  /// and checks the resulting verdict's `description` -- the exact sequence
-  /// of API calls the README's snippet shows, so the docs can't silently
-  /// rot.
+  /// Mirrored in README.md's IgnoreProcessor section — keep in sync.
+  ///
+  /// Loads a `.gitignore` and a `.reviewignore` from disk, combines them
+  /// with `+`, and checks the resulting verdict's `description` -- the
+  /// exact sequence of API calls the README's snippet shows, so the docs
+  /// can't silently rot.
   @Test func readmeGitignoreAndReviewignoreCombinationExample() throws {
     let directory = canonicalize(
       FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
