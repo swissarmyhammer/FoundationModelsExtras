@@ -36,8 +36,12 @@ comments:
   id: 01ky2hjsm7jz41n6cfq8hsw23a
   text: 'Fixed the review finding: added a formal "- Returns:" doc field to init?(line:source:lineNumber:) in IgnoreRule.swift (the prose already described nil-returning cases, but the formal field was missing). swift format, swift build, and full swift test (152/152, 13 suites) all green. Note: the "implement" and "commit" Skill-tool invocations were intermittently erroring "Unknown skill" this iteration, so this fix and the checkpoint commit were done directly following the implement skill''s already-loaded process rather than re-invoking it.'
   timestamp: 2026-07-21T14:34:22.215496+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01ky2hr4jx47wy0fatb95b7na1
+  text: 'Review of checkpoint cb5d7b5 (HEAD~1..HEAD) is clean: 0 findings. Full swift test: 152/152 passed, 13 suites. Moving task to done.'
+  timestamp: 2026-07-21T14:37:17.277753+00:00
+position_column: done
+position_ordinal: 8b80
 title: 'IgnoreRule: parse a single gitignore line into a rule with provenance'
 ---
 ## What
