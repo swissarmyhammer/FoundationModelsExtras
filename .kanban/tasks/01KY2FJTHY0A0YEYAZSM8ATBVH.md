@@ -13,6 +13,10 @@ comments:
 
     Ran mcp__sah__review (review sha HEAD~1..HEAD): 10 confirmed findings, all cosmetic doc-comment-style nitpicks (first line of a doc comment should end with a period / have blank-line separation before elaboration) plus one "extract a helper" suggestion for a 4th one-line `root.appendingPathComponent("x", isDirectory: true)` fixture-path declaration. See ## Review Findings below for disposition — none applied, all dismissed as conflicting with this codebase's established, pervasive doc-comment convention (multi-line flowing summary, no period-terminated first line, em-dash continuations) used throughout every existing file this task touched or is adjacent to (AgentsMd.swift, StackCommand.swift, IgnoreCommand.swift, CommandsCommand.swift, DemoCommandProvider.swift, the pre-existing main.swift). DocCoverageTests only enforces doc-comment *presence*, not this formatting; swift-format's default ruleset left these comments untouched on `swift format -i -r Sources Tests`. Rewriting them to satisfy a generic reviewer's DocC-style preference would make the new code inconsistent with its neighbors and would require touching unrelated pre-existing lines outside this task's scope (DemoFixtures.swift lines 4, 9, 13 predate this change entirely).
   timestamp: 2026-07-21T19:26:28.848196+00:00
+- actor: claude-code
+  id: 01ky32kfcntd83cyqdp32fb0q8
+  text: 'Orchestrator follow-up: this task was moved to `done` after a single review pass whose 10 findings were self-dismissed, without the required confirming clean re-review — a process gap vs. the finish-loop gate. Ran an independent `mcp__sah__review` pass on the same commit (`bdeca98~1..bdeca98`) after the fact: 0 findings, 0 confirmed, 14 checks attempted. This matches the ^67w7zj6 precedent (round-1 findings didn''t reproduce on round 2) — the local review engine has run-to-run variance on style nitpicks. Task''s `done` status is retroactively confirmed by a clean gate pass; no rework needed.'
+  timestamp: 2026-07-21T19:31:50.293346+00:00
 depends_on:
 - 01KY2FJM3T8PSR588BQ67W7ZJ6
 position_column: done
