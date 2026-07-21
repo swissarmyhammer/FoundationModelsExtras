@@ -1,10 +1,18 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01ky2s6qv5k4f6k6mhna6fntye
+  text: |-
+    Implemented TDD-first: added 4 failing integration tests to ExtrasDemoIntegrationTests.swift (single-file, combined-file override, trailing-slash directory probe, unreadable-file error), confirmed red (Unknown option '--file'), then added Examples/ExtrasDemo/Sources/extras-demo/IgnoreCommand.swift + registered it in main.swift, plus fixtures Examples/ExtrasDemo/Fixtures/ignore/.gitignore (`*.log`, `build/`) and review-ignore (`!src/keep.log`, demonstrating override-on-combine). All 4 new tests pass; full `swift test` green (193 tests, 18 suites).
+
+    Note: accidentally ran `swift format -i -r Sources Tests Examples` (should have been Sources Tests only per project facts) which reformatted several unrelated existing Examples files from 4-space to 2-space indent. Reverted those via `git checkout --` and manually restored main.swift to the original 4-space style with just my intended diff, so the final diff is minimal and scoped to this task.
+  timestamp: 2026-07-21T16:47:35.781229+00:00
 depends_on:
 - 01KY2CWAEKSXR967RZ8A1F6CGQ
-position_column: todo
-position_ordinal: '8580'
+position_column: doing
+position_ordinal: '80'
 title: extras-demo `ignore` subcommand + integration test
 ---
 ## What

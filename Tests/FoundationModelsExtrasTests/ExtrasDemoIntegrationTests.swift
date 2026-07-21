@@ -156,4 +156,47 @@ import Testing
     #expect(result.output.contains("action 'stream' line: line 3 for demo-arg"))
     #expect(result.output.contains("commandUpdates republished: greet, stream, status"))
   }
+
+  // MARK: - `ignore`: IgnoreProcessor over the fixture tree, single-file, combined-file
+  // override, trailing-slash directory probe, and the unreadable-file error case
+
+  private static let gitignoreFixture = fixturesRoot.appendingPathComponent("ignore/.gitignore")
+    .path
+  private static let reviewIgnoreFixture = fixturesRoot.appendingPathComponent(
+    "ignore/review-ignore"
+  ).path
+
+  @Test func ignoreReportsVerdictForASingleFile() throws {
+    let result = try Self.run(["ignore", "--file", Self.gitignoreFixture, "a.log"])
+
+    #expect(result.exitCode == 0)
+    #expect(result.output.contains("a.log ignored by \".gitignore\":1 `*.log`"))
+  }
+
+  @Test func ignoreCombinesTwoFilesWithTheLaterFileOverridingTheEarlier() throws {
+    let result = try Self.run([
+      "ignore", "--file", Self.gitignoreFixture, "--file", Self.reviewIgnoreFixture, "src/keep.log",
+    ])
+
+    #expect(result.exitCode == 0)
+    // `*.log` in .gitignore would ignore it, but review-ignore's
+    // `!src/keep.log` is combined after it and wins under last-match-wins.
+    #expect(result.output.contains("src/keep.log included by \"review-ignore\":1 `!src/keep.log`"))
+  }
+
+  @Test func ignoreHonorsTheTrailingSlashDirectoryProbe() throws {
+    let result = try Self.run(["ignore", "--file", Self.gitignoreFixture, "build/"])
+
+    #expect(result.exitCode == 0)
+    #expect(result.output.contains("build/ ignored by \".gitignore\":2 `build/`"))
+  }
+
+  @Test func ignoreExitsNonzeroNamingAnUnreadableIgnoreFile() throws {
+    let missingFixture = Self.fixturesRoot.appendingPathComponent("ignore/does-not-exist").path
+
+    let result = try Self.run(["ignore", "--file", missingFixture, "a.log"])
+
+    #expect(result.exitCode != 0)
+    #expect(result.output.contains(missingFixture))
+  }
 }

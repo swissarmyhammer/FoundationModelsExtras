@@ -10,14 +10,14 @@ import ArgumentParser
 
 /// `extras-demo` — one subcommand per pillar: `stack` (`DotfolderStack`),
 /// `render` (the Stencil-backed `TemplateEngine`), and `commands` (the
-/// slash-command vocabulary).
+/// slash-command vocabulary) — plus `ignore` (`IgnoreProcessor`).
 @main
 struct ExtrasDemo: AsyncParsableCommand {
     /// This tool's command-line configuration: its name, a short summary,
-    /// and its three pillar subcommands.
+    /// and its subcommands.
     static let configuration = CommandConfiguration(
         commandName: "extras-demo",
-        abstract: "Runnable contract test for FoundationModelsExtras' three pillars.",
-        subcommands: [StackCommand.self, RenderCommand.self, CommandsCommand.self]
+        abstract: "Runnable contract test for FoundationModelsExtras' public surface.",
+        subcommands: [StackCommand.self, RenderCommand.self, CommandsCommand.self, IgnoreCommand.self]
     )
 }
