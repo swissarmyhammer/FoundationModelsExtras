@@ -344,11 +344,18 @@ enum Wildmatch {
   private enum PosixClass: String {
     case alnum, alpha, blank, cntrl, digit, graph, lower, print, punct, space, upper, xdigit
 
+    // Named as `spaceByte`/`tabByte`/`deleteByte` (not `space`/`tab`/`delete`)
+    // because `space` already names a case of this very enum — Swift
+    // enum-case and static-property names share one namespace.
+
+    /// ASCII space, the low end of the printable/graphic ranges and a
+    /// `.blank`/`.space` member in its own right.
+    private static let spaceByte: UInt8 = 0x20
     /// ASCII horizontal tab (`\t`), used by `.blank` and `.space`.
-    private static let tab: UInt8 = 0x09
+    private static let tabByte: UInt8 = 0x09
     /// ASCII DEL, the upper bound of the printable/graphic ranges and a
     /// `.cntrl` member in its own right.
-    private static let delete: UInt8 = 0x7F
+    private static let deleteByte: UInt8 = 0x7F
 
     func matches(_ character: Character) -> Bool {
       guard let ascii = character.asciiValue else {
@@ -357,15 +364,15 @@ enum Wildmatch {
       switch self {
       case .alnum: return Self.isAlpha(ascii) || Self.isDigit(ascii)
       case .alpha: return Self.isAlpha(ascii)
-      case .blank: return ascii == 0x20 || ascii == Self.tab
-      case .cntrl: return ascii < 0x20 || ascii == Self.delete
+      case .blank: return ascii == Self.spaceByte || ascii == Self.tabByte
+      case .cntrl: return ascii < Self.spaceByte || ascii == Self.deleteByte
       case .digit: return Self.isDigit(ascii)
-      case .graph: return ascii > 0x20 && ascii < Self.delete
+      case .graph: return ascii > Self.spaceByte && ascii < Self.deleteByte
       case .lower: return ascii >= 0x61 && ascii <= 0x7A
-      case .print: return ascii >= 0x20 && ascii < Self.delete
+      case .print: return ascii >= Self.spaceByte && ascii < Self.deleteByte
       case .punct: return Self.isPunct(ascii)
       case .space:
-        return ascii == 0x20 || (ascii >= Self.tab && ascii <= 0x0D)
+        return ascii == Self.spaceByte || (ascii >= Self.tabByte && ascii <= 0x0D)
       case .upper: return ascii >= 0x41 && ascii <= 0x5A
       case .xdigit:
         return Self.isDigit(ascii) || (ascii >= 0x41 && ascii <= 0x46)
@@ -380,7 +387,7 @@ enum Wildmatch {
       ascii >= 0x30 && ascii <= 0x39
     }
     private static func isPunct(_ ascii: UInt8) -> Bool {
-      (ascii > 0x20 && ascii < delete) && !isAlpha(ascii) && !isDigit(ascii)
+      (ascii > spaceByte && ascii < deleteByte) && !isAlpha(ascii) && !isDigit(ascii)
     }
   }
 
