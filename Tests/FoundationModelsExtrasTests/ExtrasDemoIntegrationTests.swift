@@ -161,6 +161,26 @@ import Testing
     #expect(result.output.contains("commandUpdates republished: greet, stream, status"))
   }
 
+  // MARK: - `agents`: AgentsMd walk over the nested fixture repo tree
+
+  @Test func agentsWalksTheFixtureTreeReportingEachDirectorysGoverningAliasOutermostFirst() throws {
+    let result = try Self.run(arguments: ["agents"])
+
+    #expect(result.exitCode == 0)
+    #expect(result.output.contains(". -> AGENTS.md"))
+    #expect(result.output.contains("service -> AGENT.md"))
+    // The leaf directory holds only the CLAUDE.md alias — no AGENTS.md or
+    // AGENT.md beside it — proving alias-only directories are discovered
+    // too, not just the canonical name.
+    #expect(result.output.contains("service/api -> CLAUDE.md"))
+
+    // Outermost-first ordering: the repo root's AGENTS.md line precedes the
+    // alias-only leaf's CLAUDE.md line.
+    let rootRange = try #require(result.output.range(of: ". -> AGENTS.md"))
+    let leafRange = try #require(result.output.range(of: "service/api -> CLAUDE.md"))
+    #expect(rootRange.lowerBound < leafRange.lowerBound)
+  }
+
   // MARK: - `ignore`: IgnoreProcessor over the fixture tree, single-file, combined-file
   // override, trailing-slash directory probe, and the unreadable-file error case
 

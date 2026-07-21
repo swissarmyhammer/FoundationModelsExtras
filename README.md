@@ -4,10 +4,11 @@
 
 Shared substrate for the swissarmyhammer FoundationModels family: a
 cross-package slash-command vocabulary, a layered `DotfolderStack` for
-locating config across defaults/user/project directories, and a
-Stencil-backed `TemplateEngine` for rendering the content that lives in
-them — with a whitelist-and-budget sandbox for rendering untrusted,
-user-authored templates.
+locating config across defaults/user/project directories, a Stencil-backed
+`TemplateEngine` for rendering the content that lives in them — with a
+whitelist-and-budget sandbox for rendering untrusted, user-authored
+templates — and `AgentsMd`, discovery of `AGENTS.md`/`AGENT.md`/`CLAUDE.md`
+agent-instructions files with directory-level provenance.
 
 ```swift
 import FoundationModelsExtras
@@ -72,7 +73,7 @@ Add the package to `Package.swift`:
 ## Documentation
 
 Design rationale -- the dependency-diamond problem this package solves, all
-three pillars, and the untrusted-template sandbox's threat model -- is in
+four pillars, and the untrusted-template sandbox's threat model -- is in
 [`plan.md`](plan.md).
 
 ## License

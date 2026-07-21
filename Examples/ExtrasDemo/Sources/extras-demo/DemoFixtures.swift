@@ -29,6 +29,22 @@ enum DemoFixtures {
     /// derives automatically from this working directory.
     static let projectWorkingDirectory = root.appendingPathComponent("project", isDirectory: true)
 
+    /// The nested repo-like fixture tree for `extras-demo agents` (plan.md
+    /// §10): an `AGENTS.md` at the root, an `AGENT.md` migration alias one
+    /// level down at `agents/service/`, and a `CLAUDE.md`
+    /// ecosystem-compatibility alias — alone, with neither `AGENTS.md` nor
+    /// `AGENT.md` beside it — at `agents/service/api/`, the alias-only
+    /// directory. `AgentsCommand` passes `agentsRepoRoot` explicitly as
+    /// `AgentsMd.documents(from:upTo:)`'s `upTo:` — git tracks no path
+    /// component literally named `.git`, so this fixture cannot carry a
+    /// real `.git`-detectable marker the way a checked-out repository
+    /// would.
+    static let agentsRepoRoot = root.appendingPathComponent("agents", isDirectory: true)
+    /// The nested leaf directory `extras-demo agents` walks up from —
+    /// `agents/service/api`, the alias-only directory.
+    static let agentsLeafDirectory = agentsRepoRoot.appendingPathComponent(
+        "service/api", isDirectory: true)
+
     /// Builds the demo's `DotfolderStack` over the checked-in fixture tree.
     /// The environment consulted defaults to the real process environment,
     /// so the `EXTRASDEMO_DEFAULTS_DIR` dev-override seam works with no code
