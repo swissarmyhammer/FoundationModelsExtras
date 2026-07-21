@@ -43,6 +43,21 @@ comments:
 
     Fixed all four, `swift format -i -r Sources Tests` clean, `swift build` clean, full `swift test` green (180/180), CRLF fixture byte content re-verified intact (5 `\r` bytes, unchanged). Committing and re-reviewing.
   timestamp: 2026-07-21T16:04:34.715189+00:00
+- actor: claude-code
+  id: 01ky2qqwd5jyafsypwed7d81qx
+  text: |-
+    Review Findings (iteration 3, mcp__sah__review op=review sha HEAD~3..HEAD — first attempt at this range returned "1/14 review tasks failed — INCOMPLETE" with 0 findings; re-ran and got a complete result):
+
+    ## Review Findings
+    - [x] IgnoreProcessor.swift `parentExcluded` case doc — no blank line between summary and elaboration sentence. Fixed (also pre-existing, adjacent to my edits).
+    - [x] IgnoreProcessor.swift `evaluate(_ paths:)` doc — same issue. Fixed (pre-existing).
+    - [x] IgnoreGitParityTests.swift `Probe` type doc — same issue. Fixed.
+    - [x] IgnoreGitParityTests.swift `GitProcessError` doc — same issue. Fixed.
+    - [x] IgnoreGitParityTests.swift `isGitAvailable()` doc — same issue. Fixed.
+    - [x] IgnoreGitParityTests.swift `materialize(_:under:)` doc — same issue. Fixed.
+
+    All six were the "single-sentence summary, blank line, elaboration" doc-comment convention — some in code adjacent to my diff but pre-existing (not introduced by me), fixed anyway since they're low-risk comment-only changes and the reviewer flags them when scanning a touched file. `swift format` clean, `swift build` clean, full `swift test` green (180/180), CRLF fixture byte-verified intact (5 `\r` bytes, unchanged). Committing and re-reviewing. Noting for the stuck-guardrail: each iteration's findings have been distinct (different file:line), not the same finding recurring, so the 3x-repeat guardrail hasn't triggered — but flagging that this style rule is being applied inconsistently across the codebase (many other pre-existing multi-sentence doc paragraphs elsewhere in Sources/ don't get flagged, e.g. IgnoreRule.swift's `isAnchored` doc has the identical shape) — if a 4th iteration surfaces yet another instance of this exact same stylistic pattern, I'll treat it as effectively the same finding class for the stuck guardrail rather than let it whack-a-mole indefinitely.
+  timestamp: 2026-07-21T16:22:00.357595+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
 position_column: review

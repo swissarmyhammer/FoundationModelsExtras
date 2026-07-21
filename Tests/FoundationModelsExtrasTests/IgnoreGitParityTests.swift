@@ -23,9 +23,10 @@ import Testing
   // MARK: - Probe corpus
 
   /// One relative path probed against the corpus fixture, with its
-  /// checked-in expected outcome. `path` follows the same
-  /// trailing-slash-means-directory convention `IgnoreProcessor.evaluate`
-  /// and `git check-ignore` both use.
+  /// checked-in expected outcome.
+  ///
+  /// `path` follows the same trailing-slash-means-directory convention
+  /// `IgnoreProcessor.evaluate` and `git check-ignore` both use.
   struct Probe: Sendable, CustomStringConvertible {
     let path: String
     /// Whether `path` is expected to be ignored.
@@ -216,17 +217,20 @@ enum GitParityHarness {
   }
 
   /// Errors raised by the git subprocess helpers themselves — never by
-  /// `IgnoreProcessor`, which has its own error type. This one is purely
-  /// about driving `git` as an external tool.
+  /// `IgnoreProcessor`, which has its own error type.
+  ///
+  /// This one is purely about driving `git` as an external tool.
   struct GitProcessError: Error, Sendable, CustomStringConvertible {
     let message: String
     var description: String { message }
   }
 
   /// Reports whether a `git` binary is reachable on `PATH`, for gating a
-  /// parity test with a Swift Testing conditional trait. Never throws —
-  /// any failure to even launch the probe process is treated as "git is not
-  /// available" so the caller can skip cleanly instead of failing.
+  /// parity test with a Swift Testing conditional trait.
+  ///
+  /// Never throws — any failure to even launch the probe process is treated
+  /// as "git is not available" so the caller can skip cleanly instead of
+  /// failing.
   static func isGitAvailable() -> Bool {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -271,8 +275,9 @@ enum GitParityHarness {
   }
 
   /// Creates one probe path under `repoRoot`: a directory for a
-  /// trailing-slash path, an empty file otherwise. Intermediate parent
-  /// directories are created either way.
+  /// trailing-slash path, an empty file otherwise.
+  ///
+  /// Intermediate parent directories are created either way.
   private static func materialize(_ probePath: String, under repoRoot: URL) throws {
     let isDirectory = probePath.hasSuffix("/")
     let trimmed = isDirectory ? String(probePath.dropLast()) : probePath

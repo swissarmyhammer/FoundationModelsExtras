@@ -36,9 +36,10 @@ public struct IgnoreVerdict: Sendable, Equatable, CustomStringConvertible {
     /// No rule matched the path itself, but an ancestor directory of the
     /// path evaluated to ignored, and no later rule re-included that
     /// ancestor: the path is ignored, and cannot be re-included by a rule
-    /// naming the path (or any of its ancestors below `ancestor`)
-    /// directly. `ancestor` is the excluded directory's path (relative to
-    /// the ignore file's root); `by` is the rule that excluded it.
+    /// naming the path (or any of its ancestors below `ancestor`) directly.
+    ///
+    /// `ancestor` is the excluded directory's path (relative to the ignore
+    /// file's root); `by` is the rule that excluded it.
     case parentExcluded(ancestor: String, by: IgnoreRule)
     /// No rule matched the path, and no ancestor of it is excluded either:
     /// the path is included by default.
@@ -183,6 +184,7 @@ public struct IgnoreProcessor: Sendable {
 
   /// Evaluates several paths in one call, preserving input order — a
   /// convenience over calling `evaluate(_:isDirectory:)` once per path.
+  ///
   /// Each path applies the same trailing-slash directory-probe convention
   /// individually.
   ///
