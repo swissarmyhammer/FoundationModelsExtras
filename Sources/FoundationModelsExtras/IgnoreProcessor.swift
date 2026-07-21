@@ -89,6 +89,28 @@ public struct IgnoreVerdict: Sendable, Equatable, CustomStringConvertible {
 ///
 /// Immutable after construction and `Sendable`, matching the family's
 /// prevailing style.
+///
+/// ## Combining processors with `+`
+///
+/// Two processors combine with `+` into one whose rule list is the left
+/// operand's rules followed by the right operand's, provenance intact.
+/// Under last-match-wins evaluation this means the right operand's rules
+/// override the left's wherever both match — the same layering git itself
+/// applies to its own ignore sources, where a later, higher-precedence file
+/// wins:
+///
+///     let ignores =
+///       try IgnoreProcessor(contentsOf: gitignoreURL)
+///       + IgnoreProcessor(contentsOf: reviewignoreURL)
+///
+/// `+=` accumulates a right-hand processor's rules onto a `var` in place:
+///
+///     var ignores = try IgnoreProcessor(contentsOf: gitignoreURL)
+///     ignores += try IgnoreProcessor(contentsOf: reviewignoreURL)
+///
+/// Combination is associative — `(a + b) + c` evaluates identically to
+/// `a + (b + c)` — so any number of ignore sources can be layered in a
+/// fixed precedence order regardless of how the combination is grouped.
 public struct IgnoreProcessor: Sendable {
   /// Every rule this processor evaluates against, in file order (the order
   /// `evaluate` applies last-match-wins over).
@@ -134,6 +156,55 @@ public struct IgnoreProcessor: Sendable {
       }
     }
     self.rules = rules
+  }
+
+  /// Assembles a processor directly from an already-parsed rule list —
+  /// used internally by `+`/`+=` to combine two processors without
+  /// re-parsing any text.
+  private init(rules: [IgnoreRule]) {
+    self.rules = rules
+  }
+
+  /// Combines two processors into one whose rule list is `lhs`'s rules
+  /// followed by `rhs`'s rules, with every rule's original source and line
+  /// preserved for verdict explanations.
+  ///
+  /// Under last-match-wins evaluation, appending `rhs`'s rules after
+  /// `lhs`'s means `rhs` overrides `lhs` wherever both match a path — the
+  /// same layering git itself uses across its own ignore sources, where a
+  /// later, higher-precedence file (e.g. `.gitignore`) overrides an
+  /// earlier, lower-precedence one (e.g. `.git/info/exclude`):
+  ///
+  ///     let ignores =
+  ///       try IgnoreProcessor(contentsOf: gitignoreURL)
+  ///       + IgnoreProcessor(contentsOf: reviewignoreURL)
+  ///
+  /// Combination is associative: `(a + b) + c` evaluates identically to
+  /// `a + (b + c)`.
+  ///
+  /// - Parameters:
+  ///   - lhs: The lower-precedence processor.
+  ///   - rhs: The higher-precedence processor, whose rules are appended
+  ///     after `lhs`'s and so win any conflict.
+  /// - Returns: A new processor evaluating `lhs`'s rules followed by
+  ///   `rhs`'s.
+  public static func + (lhs: IgnoreProcessor, rhs: IgnoreProcessor) -> IgnoreProcessor {
+    IgnoreProcessor(rules: lhs.rules + rhs.rules)
+  }
+
+  /// Accumulates `rhs`'s rules onto `lhs` in place — ergonomic sugar for
+  /// `lhs = lhs + rhs`, for building up a combined processor from several
+  /// sources one at a time:
+  ///
+  ///     var ignores = try IgnoreProcessor(contentsOf: gitignoreURL)
+  ///     ignores += try IgnoreProcessor(contentsOf: reviewignoreURL)
+  ///
+  /// - Parameters:
+  ///   - lhs: The processor to accumulate onto; reassigned to the combined
+  ///     result.
+  ///   - rhs: The higher-precedence processor whose rules are appended.
+  public static func += (lhs: inout IgnoreProcessor, rhs: IgnoreProcessor) {
+    lhs = lhs + rhs
   }
 
   /// Evaluates a single path against this processor's rules.

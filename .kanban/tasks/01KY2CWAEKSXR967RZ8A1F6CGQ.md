@@ -1,11 +1,23 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01ky2rpa57ajtejndjebpr099d
+  text: |-
+    Implemented `+`/`+=` on IgnoreProcessor in IgnoreProcessor.swift: added a private `init(rules:)` and the two operators (list concatenation, lhs rules then rhs rules; +=  as sugar for lhs = lhs + rhs). Documented both prominently in the type's doc comment with the gitignore+reviewignore motivating example.
+
+    Tests (TDD, written first then made green):
+    - Tests/FoundationModelsExtrasTests/IgnoreProcessorCombinationTests.swift — override-on-combine (verdict cites winning source+line), reversed-order flips winner, parent exclusion by lhs survives rhs negation on a child, rhs can lift an lhs parent exclusion by re-including the ancestor itself, associativity over a probe set, += accumulation and its equivalence to +.
+    - Tests/FoundationModelsExtrasTests/IgnoreProcessorCombinationGitParityTests.swift — new file reusing GitParityHarness from IgnoreGitParityTests.swift. Materializes a repo via GitParityHarness.materializeRepo, then overwrites .git/info/exclude (git init seeds it with template comments, which would offset line numbers vs our parser) with our own lower-precedence rules, and compares IgnoreProcessor(exclude) + IgnoreProcessor(gitignore) verdicts against `git check-ignore --verbose`. Gated on git availability via the same conditional-skip pattern.
+
+    All green: `swift test --filter IgnoreProcessor` (33 tests), `swift test --filter IgnoreGitParityTests` (2 tests), full `swift test` (189 tests in 18 suites, including "Public API doc coverage").
+  timestamp: 2026-07-21T16:38:37.479605+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
 - 01KY2CWS0NK4QPWZT1VT7FZF63
-position_column: todo
-position_ordinal: '8380'
+position_column: doing
+position_ordinal: '80'
 title: Combine processors with + (e.g. .gitignore + .reviewignore)
 ---
 ## What
