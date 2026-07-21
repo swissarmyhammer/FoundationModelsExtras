@@ -408,14 +408,15 @@ enum Wildmatch {
     _ segment: [Character], openBracket: Int
   ) -> (CharacterClass, Int)? {
     var index = openBracket + 1
-    guard index < segment.count else { return nil }
 
     var negate = false
-    if segment[index] == "!" || segment[index] == "^" {
+    if index < segment.count, segment[index] == "!" || segment[index] == "^" {
       negate = true
       index += 1
-      guard index < segment.count else { return nil }
     }
+    // No bounds check needed here: an out-of-bounds `index` (an unterminated
+    // `[` or `[!`) is caught uniformly by the loop's own guard below, on its
+    // very first iteration.
 
     var members: [ClassMember] = []
     var isFirstMember = true
@@ -430,19 +431,12 @@ enum Wildmatch {
       }
       isFirstMember = false
 
-      // Named POSIX class: `[:name:]`.
       if segment[index] == "[", index + 1 < segment.count, segment[index + 1] == ":" {
-        guard let closeColon = findPosixClassClose(segment, from: index + 2) else {
+        guard let (member, next) = parsePosixClassMember(segment, openBracket: index) else {
           return nil
         }
-        let name = String(segment[(index + 2)..<closeColon])
-        guard let posixClass = PosixClass(rawValue: name) else {
-          // Unknown named class: treat the whole expression as malformed
-          // rather than guessing at its meaning.
-          return nil
-        }
-        members.append(.posix(posixClass))
-        index = closeColon + 2  // past the ":]"
+        members.append(member)
+        index = next
         continue
       }
 
@@ -456,6 +450,27 @@ enum Wildmatch {
         index += 1
       }
     }
+  }
+
+  /// Parses one named POSIX class member, `[:name:]`, starting at
+  /// `segment[openBracket]` (which must be the `[` of `[:`).
+  ///
+  /// - Returns: The parsed member and the index just past its closing
+  ///   `:]`, or `nil` if `:]` never appears, or the name between the colons
+  ///   isn't one of the twelve recognized POSIX classes.
+  private static func parsePosixClassMember(
+    _ segment: [Character], openBracket: Int
+  ) -> (ClassMember, Int)? {
+    guard let closeColon = findPosixClassClose(segment, from: openBracket + 2) else {
+      return nil
+    }
+    let name = String(segment[(openBracket + 2)..<closeColon])
+    guard let posixClass = PosixClass(rawValue: name) else {
+      // Unknown named class: treat the whole expression as malformed rather
+      // than guessing at its meaning.
+      return nil
+    }
+    return (.posix(posixClass), closeColon + 2)  // +2 skips past the ":]"
   }
 
   /// Finds the index of the `:` that opens the closing `:]` of a
