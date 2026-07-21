@@ -4,22 +4,6 @@ import Testing
 
 @testable import FoundationModelsExtras
 
-#if canImport(Darwin)
-  import Darwin
-#endif
-
-/// Resolves `url` to its real, firmlink-free path via POSIX `realpath(3)` —
-/// mirrors `DotfolderLoaderTests`' helper of the same name, for the same
-/// reason (see that file's comment).
-private func canonicalize(_ url: URL) -> URL {
-  var buffer = [Int8](repeating: 0, count: Int(PATH_MAX))
-  guard realpath(url.path, &buffer) != nil else { return url }
-  let nullTerminatorIndex = buffer.firstIndex(of: 0) ?? buffer.count
-  let path = String(
-    decoding: buffer[..<nullTerminatorIndex].map(UInt8.init(bitPattern:)), as: UTF8.self)
-  return URL(fileURLWithPath: path, isDirectory: true)
-}
-
 /// Behavioral tests for `Trust.untrusted` (plan.md §4): the tag/filter
 /// whitelist, the loader's confinement to `_partials/`, the include-depth
 /// limit, and the output-size limit — every acceptance criterion for the

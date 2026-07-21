@@ -3,23 +3,6 @@ import Testing
 
 @testable import FoundationModelsExtras
 
-#if canImport(Darwin)
-  import Darwin
-#endif
-
-/// Resolves `url` to its real, firmlink-free path via POSIX `realpath(3)` —
-/// mirrors `DotfolderLoaderTests`/`DotfolderStackTests`' helper of the same
-/// name, for the same reason: on macOS `/var` (and thus
-/// `FileManager.default.temporaryDirectory`) is a firmlink to `/private/var`.
-private func canonicalize(_ url: URL) -> URL {
-  var buffer = [Int8](repeating: 0, count: Int(PATH_MAX))
-  guard realpath(url.path, &buffer) != nil else { return url }
-  let nullTerminatorIndex = buffer.firstIndex(of: 0) ?? buffer.count
-  let path = String(
-    decoding: buffer[..<nullTerminatorIndex].map(UInt8.init(bitPattern:)), as: UTF8.self)
-  return URL(fileURLWithPath: path)
-}
-
 /// Behavioral tests for `IgnoreProcessor`: construction from a string and
 /// from a file, and `evaluate`'s last-match-wins, anchoring, directory-only,
 /// and parent-exclusion semantics.

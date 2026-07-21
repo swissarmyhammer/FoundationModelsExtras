@@ -1,6 +1,11 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01ky2mc4zcr15fw7d6r8b4xgn4
+  text: Implemented IgnoreProcessor.swift + IgnoreProcessorTests.swift TDD-first (tests written first, all 24 passed on first implementation attempt). Full swift test green (178 tests, 15 suites, incl. DocCoverageTests). Checkpoint commit a7d7524. Now running review.
+  timestamp: 2026-07-21T15:23:10.188828+00:00
 depends_on:
 - 01KY2CTRJ0QAFM6N94293DGP5K
 - 01KY2CV7EX91J6J9AQBVRZRBXC
