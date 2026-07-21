@@ -12,8 +12,12 @@ comments:
 
     No demo subcommand added (extras-demo agents) — not part of this task's stated public-surface/testing scope per the task description; plan.md §10 mentions it but the task text quoted here doesn't require it, so left out to stay in scope.
   timestamp: 2026-07-21T18:55:59.548271+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01ky31ahpxyt9qb4n6hxq8xk3a
+  text: 'Round 2 review (`review sha` HEAD~1..HEAD, and HEAD~2..HEAD covering the full task delta): 0 findings, clean. Moving to done.'
+  timestamp: 2026-07-21T19:09:29.181323+00:00
+position_column: done
+position_ordinal: '9280'
 title: 'AgentsMd: agent-instructions discovery (plan §10)'
 ---
 Implement Pillar 4 per plan.md §10. Public surface: enum AgentsMd with struct Document { url, directory, text } and static func documents(from workingDirectory: URL, upTo root: URL? = nil) throws -> [Document]. Behavior: walk cwd up to root (default: nearest ancestor containing a .git entry, detected by directory entry — never by running git — else workingDirectory itself); at each level read the FIRST of AGENTS.md > AGENT.md > CLAUDE.md (AGENTS.md is the format per https://agents.md/, AGENT.md is the spec's migration alias, CLAUDE.md the ecosystem-compatibility alias); one file per directory; return outermost-first so nearest-last = the spec's closest-wins when consumers concatenate; dedupe symlinked aliases by resolved path (the spec suggests ln -s AGENTS.md AGENT.md). Discovery only, no policy: raw text with provenance; no templating, no user-level layer (consumers compose DotfolderStack.content("AGENTS.md") themselves). NOT named memory — this is agent instructions/context. Hermetic swift-testing per §10: alias preference per directory, one-per-directory, ordering, .git root detection vs explicit root:, walk stops at root, symlink dedupe, empty results (no files; cwd == root). Full doc coverage (DocCoverageTests will enforce).
