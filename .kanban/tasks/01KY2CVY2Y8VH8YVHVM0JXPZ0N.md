@@ -4,8 +4,8 @@ assignees:
 depends_on:
 - 01KY2CTRJ0QAFM6N94293DGP5K
 - 01KY2CV7EX91J6J9AQBVRZRBXC
-position_column: todo
-position_ordinal: '8280'
+position_column: doing
+position_ordinal: '80'
 title: 'IgnoreProcessor: load ignore files, evaluate paths with verdict + why'
 ---
 ## What
