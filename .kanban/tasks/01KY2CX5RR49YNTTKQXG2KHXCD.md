@@ -27,13 +27,22 @@ Surface the feature through the repo's living-contract-test convention (the `ext
 3. Integration test in `Tests/FoundationModelsExtrasTests/ExtrasDemoIntegrationTests.swift` following the existing subprocess conventions: run the subcommand against the fixtures, assert on stdout verdict lines including the why text, the combined-override case, and a trailing-slash directory probe
 
 ## Acceptance Criteria
-- [ ] `swift run extras-demo ignore --file <fixture> a.log src/keep.log build/` prints per-path verdicts with source:line reasons, honoring the trailing-slash directory probe
-- [ ] Two `--file` flags demonstrate `+` combination with the later file overriding
-- [ ] Unreadable ignore file exits nonzero with the path in the message
+- [x] `swift run extras-demo ignore --file <fixture> a.log src/keep.log build/` prints per-path verdicts with source:line reasons, honoring the trailing-slash directory probe
+- [x] Two `--file` flags demonstrate `+` combination with the later file overriding
+- [x] Unreadable ignore file exits nonzero with the path in the message
 
 ## Tests
-- [ ] Integration test in `ExtrasDemoIntegrationTests.swift` asserting stdout for single-file, combined-file, directory-probe, and error cases
-- [ ] Full `swift test` green (builds the demo via the existing testTarget dependency)
+- [x] Integration test in `ExtrasDemoIntegrationTests.swift` asserting stdout for single-file, combined-file, directory-probe, and error cases
+- [x] Full `swift test` green (builds the demo via the existing testTarget dependency)
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings
+First review pass (mcp__sah__review, HEAD~1..HEAD) found 4 doc-comment style findings, all fixed:
+- [x] IgnoreCommand.swift struct doc comment: first line now ends in a period instead of an em-dash
+- [x] IgnoreCommand.swift `files` property doc comment: first line now a standalone sentence ending in a period
+- [x] IgnoreCommand.swift `paths` property doc comment: first line now a standalone sentence ending in a period
+- [x] ExtrasDemoIntegrationTests.swift `run(_:environment:)` doc comment: first line now a standalone sentence ending in a period
+
+Also caught and fixed during this pass: an accidental `swift format -i -r Sources Tests Examples` run (should have been `Sources Tests` only) reformatted unrelated tracked Examples files to 2-space indent; reverted via `git checkout --`. The new untracked IgnoreCommand.swift file was not reverted by that (git checkout doesn't touch untracked files) and was left 2-space indented; rewritten to match the existing 4-space convention used by StackCommand.swift/RenderCommand.swift.

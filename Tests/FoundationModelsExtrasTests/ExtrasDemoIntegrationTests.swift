@@ -58,10 +58,11 @@ import Testing
     let exitCode: Int32
   }
 
-  /// Launches the built `extras-demo` executable with `arguments`, in a
-  /// fresh temp working directory (so the run cannot depend on the
-  /// process's cwd, and can never write into the repo), and collects its
-  /// combined output and exit code.
+  /// Launches the built `extras-demo` executable with `arguments`.
+  ///
+  /// Runs in a fresh temp working directory (so the run cannot depend on
+  /// the process's cwd, and can never write into the repo), and collects
+  /// its combined output and exit code.
   private static func run(
     _ arguments: [String],
     environment: [String: String] = ProcessInfo.processInfo.environment
