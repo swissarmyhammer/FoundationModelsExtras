@@ -13,11 +13,18 @@ comments:
 
     All green: `swift test --filter IgnoreProcessor` (33 tests), `swift test --filter IgnoreGitParityTests` (2 tests), full `swift test` (189 tests in 18 suites, including "Public API doc coverage").
   timestamp: 2026-07-21T16:38:37.479605+00:00
+- actor: claude-code
+  id: 01ky2ryb856vw9t70wa23zxvdp
+  text: |-
+    ## Review Findings
+
+    Ran `mcp__sah__review` (`review sha HEAD~1..HEAD`) against commit 9c31b46. Result: 0 findings, 14 checks attempted, 0 failed. Clean — moving to done.
+  timestamp: 2026-07-21T16:43:00.741838+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
 - 01KY2CWS0NK4QPWZT1VT7FZF63
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: 8f80
 title: Combine processors with + (e.g. .gitignore + .reviewignore)
 ---
 ## What
