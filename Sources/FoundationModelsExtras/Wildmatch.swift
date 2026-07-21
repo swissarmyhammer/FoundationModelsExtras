@@ -190,40 +190,45 @@ enum Wildmatch {
     }
 
     for i in 1...patternCount {
-      let segment = patternSegments[i - 1]
-      switch segment {
+      switch patternSegments[i - 1] {
       case .doubleStar:
         let isTrailing = (i == patternCount) && (patternCount > 1)
-        if isTrailing {
-          // "One or more": ** must consume at least the last path segment.
-          dp[i][0] = false
-          if pathCount > 0 {
-            for j in 1...pathCount {
-              dp[i][j] = dp[i - 1][j - 1] || dp[i][j - 1]
-            }
-          }
-        } else {
-          // "Zero or more": ** may consume nothing.
-          dp[i][0] = dp[i - 1][0]
-          if pathCount > 0 {
-            for j in 1...pathCount {
-              dp[i][j] = dp[i - 1][j] || dp[i][j - 1]
-            }
-          }
-        }
+        fillDoubleStarRow(&dp, at: i, pathCount: pathCount, requiresAtLeastOne: isTrailing)
       case .literal(let tokens):
-        // A literal segment always consumes exactly one path segment.
-        dp[i][0] = false
-        if pathCount > 0 {
-          for j in 1...pathCount {
-            dp[i][j] =
-              dp[i - 1][j - 1] && matchWithinSegment(tokens, Array(pathSegments[j - 1]))
-          }
-        }
+        fillLiteralRow(&dp, at: i, pathCount: pathCount, tokens: tokens, pathSegments: pathSegments)
       }
     }
 
     return dp[patternCount][pathCount]
+  }
+
+  /// Fills DP row `i` for a `.doubleStar` pattern segment.
+  ///
+  /// - Parameter requiresAtLeastOne: `true` for a genuinely trailing `**`
+  ///   ("one or more" path segments — see `matches(_:_:)`'s doc comment);
+  ///   `false` for every other position ("zero or more").
+  private static func fillDoubleStarRow(
+    _ dp: inout [[Bool]], at i: Int, pathCount: Int, requiresAtLeastOne: Bool
+  ) {
+    dp[i][0] = requiresAtLeastOne ? false : dp[i - 1][0]
+    guard pathCount > 0 else { return }
+    for j in 1...pathCount {
+      let consumesFromHere = requiresAtLeastOne ? dp[i - 1][j - 1] : dp[i - 1][j]
+      dp[i][j] = consumesFromHere || dp[i][j - 1]
+    }
+  }
+
+  /// Fills DP row `i` for a `.literal` pattern segment, which always
+  /// consumes exactly one path segment (so `dp[i][0]` is always `false`).
+  private static func fillLiteralRow(
+    _ dp: inout [[Bool]], at i: Int, pathCount: Int, tokens: [PatternToken],
+    pathSegments: [String]
+  ) {
+    dp[i][0] = false
+    guard pathCount > 0 else { return }
+    for j in 1...pathCount {
+      dp[i][j] = dp[i - 1][j - 1] && matchWithinSegment(tokens, Array(pathSegments[j - 1]))
+    }
   }
 
   /// Matches a tokenized pattern segment (no `/`) against one path
@@ -339,6 +344,12 @@ enum Wildmatch {
   private enum PosixClass: String {
     case alnum, alpha, blank, cntrl, digit, graph, lower, print, punct, space, upper, xdigit
 
+    /// ASCII horizontal tab (`\t`), used by `.blank` and `.space`.
+    private static let tab: UInt8 = 0x09
+    /// ASCII DEL, the upper bound of the printable/graphic ranges and a
+    /// `.cntrl` member in its own right.
+    private static let delete: UInt8 = 0x7F
+
     func matches(_ character: Character) -> Bool {
       guard let ascii = character.asciiValue else {
         return false
@@ -346,15 +357,15 @@ enum Wildmatch {
       switch self {
       case .alnum: return Self.isAlpha(ascii) || Self.isDigit(ascii)
       case .alpha: return Self.isAlpha(ascii)
-      case .blank: return ascii == 0x20 || ascii == 0x09
-      case .cntrl: return ascii < 0x20 || ascii == 0x7F
+      case .blank: return ascii == 0x20 || ascii == Self.tab
+      case .cntrl: return ascii < 0x20 || ascii == Self.delete
       case .digit: return Self.isDigit(ascii)
-      case .graph: return ascii > 0x20 && ascii < 0x7F
+      case .graph: return ascii > 0x20 && ascii < Self.delete
       case .lower: return ascii >= 0x61 && ascii <= 0x7A
-      case .print: return ascii >= 0x20 && ascii < 0x7F
+      case .print: return ascii >= 0x20 && ascii < Self.delete
       case .punct: return Self.isPunct(ascii)
       case .space:
-        return ascii == 0x20 || (ascii >= 0x09 && ascii <= 0x0D)
+        return ascii == 0x20 || (ascii >= Self.tab && ascii <= 0x0D)
       case .upper: return ascii >= 0x41 && ascii <= 0x5A
       case .xdigit:
         return Self.isDigit(ascii) || (ascii >= 0x41 && ascii <= 0x46)
@@ -369,7 +380,7 @@ enum Wildmatch {
       ascii >= 0x30 && ascii <= 0x39
     }
     private static func isPunct(_ ascii: UInt8) -> Bool {
-      (ascii > 0x20 && ascii < 0x7F) && !isAlpha(ascii) && !isDigit(ascii)
+      (ascii > 0x20 && ascii < delete) && !isAlpha(ascii) && !isDigit(ascii)
     }
   }
 

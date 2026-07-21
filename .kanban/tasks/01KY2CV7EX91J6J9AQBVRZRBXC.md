@@ -1,6 +1,19 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01ky2j9ngvfeve7gbtp50v1wwg
+  text: |-
+    Implemented Wildmatch.swift (internal enum) + WildmatchTests.swift (84 table-driven cases + pathological-pattern timing test). swift test --filter WildmatchTests and full swift test both green (154 tests total). Checkpoint commit 4a87706.
+
+    Design notes:
+    - Pattern split into `/`-delimited segments; a segment is `.doubleStar` iff its raw (unescaped) text is exactly "**" — anything else (e.g. "a**b") tokenizes to two star tokens, which naturally degrades to single-* behavior, satisfying "any other ** behaves like *".
+    - Segment composition uses a DP table dp[i][j] over segment counts (not characters) so multiple ** components stay polynomial, not exponential.
+    - Chose "zero or more" semantics for leading/interior/sole ** (so **/foo matches foo, a/**/b matches a/b) and "one or more" for a genuinely trailing ** (abc/** does NOT match bare "abc", only abc/x, abc/x/y, ...) per gitignore(5)'s literal "matches everything inside" wording. This is a judgment call where I couldn't fully verify byte-for-byte against git's actual t3070-wildmatch.sh (no git source checked out here) — flagging in case a future task surfaces a conflicting real-world case.
+    - Within-segment matching uses the classic iterative two-pointer backtrack-with-rewind algorithm (star index + resumable match index) rather than recursion, which is what makes the pathological a*a*a*...*b vs long-run-of-a's case O(n*m) instead of exponential.
+    - Malformed brackets (unterminated [, unterminated [:name:) return nil through the whole parse chain, so wildmatch() returns false without throwing/crashing.
+  timestamp: 2026-07-21T14:46:51.675806+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'Wildmatch: gitignore glob matching engine (*, ?, [...], **)'
