@@ -1,6 +1,26 @@
 ---
-position_column: todo
-position_ordinal: '8780'
+comments:
+- actor: claude-code
+  id: 01ky33ftrqfa8dg5b91nhpt98p
+  text: |-
+    Implemented LayeredYAMLDocument (plan.md §11): Yams added to Package.swift (exact: 6.2.2, matching Stencil's exact-pin style), stale "no Yams" comment updated with the fight-its-way-in rationale.
+
+    New types: YAMLValue.swift (indirect enum, Yams.Node never leaks into public API; decoded(as:) round-trips via an in-memory Yams Node + YAMLDecoder.decode(_:from:Node) — simpler than a hand-rolled Decoder, documented as the chosen tradeoff) and LayeredYAMLDocument.swift (root, source(of:), static load(_:from:engine:context:)).
+
+    Merge rule implemented as specified: scalars/arrays replace wholesale, dictionaries merge by key recursively, per-key-path source tracking via a [[String]: DotfolderStack.Source] map built during the merge fold. Malformed layer is a hard error naming file+line (YamlError's Mark surfaced via a small case-matching helper covering scanner/parser/composer/duplicatedKeysInMapping). Trust mapping: defaults=trusted, user/project=untrusted, matching the established convention.
+
+    Gotcha hit: Yams' Tag.name property is NOT public (only Tag's Equatable conformance is) despite looking public in the source at a glance -- switching on node.tag.name fails to compile with "inaccessible due to internal protection level". Fixed by comparing whole Tag values (tag == Tag(.bool) etc.) instead.
+
+    Gotcha hit: constructing a Yams Node for YAMLValue.null with default Scalar.Style (.any) fails NSNull.construct's decodeNil() check, which requires .plain style specifically. Fixed by passing style: .plain explicitly for the null case.
+
+    Tests: LayeredYAMLDocumentTests.swift (12 tests: scalar/array replace, dict merge-by-key, source tracking incl. freshly-introduced sections, missing layers absent, malformed hard error with file+line, templated per-layer values via {{ HOME }}, trust split, Codable round-trip) + YAMLValueTests.swift (5 tests: direct decode round-trip incl. null-as-Optional, decode failure error type). extras-demo config subcommand added (ConfigCommand.swift, registered in main.swift) printing the merged fixture tree annotated per key with winning layer; integration test added to ExtrasDemoIntegrationTests.swift. Fixture config.yaml files (defaults/user/project) extended with richer content (scalars, arrays, nested dict, templated value) while keeping their first line intact so the existing stack-command test is unaffected.
+
+    Process note: ran `swift format -i -r Sources Tests Examples` once by mistake (task instructions specify `Sources Tests` only) -- it silently reformatted the pre-existing Examples/ExtrasDemo/Sources/extras-demo/*.swift files from 4-space to 2-space indentation, a large unrelated collateral diff. Caught it before committing, reverted the untouched files via git checkout, and reapplied only the intended one-line edits by hand (main.swift's subcommand registration) plus wrote ConfigCommand.swift directly in the sibling files' existing 4-space style. Final `swift format -i -r Sources Tests` (correct scope) produced no further changes.
+
+    swift build: clean. swift test: 226/226 passing, doc coverage included.
+  timestamp: 2026-07-21T19:47:19.447282+00:00
+position_column: doing
+position_ordinal: '80'
 title: 'LayeredYAMLDocument: the family''s one layered-merge rule (plan §11)'
 ---
 Implement Pillar 5 per plan.md §11. Bring Yams into the dependency budget (pinned — §5 records the fight-its-way-in rationale: three consumers need identical layered merge — FoundationModelsACP's AgentConfiguration, Shelltool's ShellPolicy, future Skills). Public surface: struct LayeredYAMLDocument { root: YAMLValue; func source(of keyPath: [String]) -> DotfolderStack.Source?; static func load(_ relativePath: String, from: DotfolderStack, engine: TemplateEngine, context: TemplateContext) throws }. Behavior: locate every layer's copy via the stack; render each through the engine under its layer's trust (trusted defaults, untrusted user/project) BEFORE parsing (§4's render-then-parse rule — templated values like MCP env {{ env.TOKEN }} resolve per layer); parse with Yams; merge with the family's one rule: scalars and ARRAYS replace wholesale, dictionaries merge by key; per-key source tracking. Extras merges trees, consumers decode: YAMLValue re-encodes into any Codable via a YAMLValue decoder. Errors: present-but-malformed layer is a hard error naming file+line; missing layers absent. Hermetic tests per §11 (replacement vs merge across three fixture layers, source tracking, malformed hard error, templated values, Codable round-trip) + extras-demo 'config' subcommand printing the merged tree annotated with winning layers + doc coverage.

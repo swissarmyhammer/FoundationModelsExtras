@@ -223,4 +223,30 @@ import Testing
     #expect(result.exitCode != 0)
     #expect(result.output.contains(missingFixture))
   }
+
+  // MARK: - `config`: LayeredYAMLDocument merge across the fixture stack
+
+  @Test func configPrintsTheMergedTreeAnnotatedWithWinningLayers() throws {
+    let result = try Self.run(arguments: ["config"])
+
+    #expect(result.exitCode == 0)
+    // `source`, `profile`: scalars replaced wholesale, project wins (both
+    // defaults and project define them, user doesn't touch `source` on its
+    // own... project is present and highest-precedence for both).
+    #expect(result.output.contains("source: project ← project"))
+    #expect(result.output.contains("profile: pro ← project"))
+    // `tags`: arrays replace wholesale — the user layer's single-element
+    // array wins outright, never concatenated with the defaults layer's
+    // `[alpha, beta]`.
+    #expect(result.output.contains("tags: [gamma] ← user"))
+    // `settings`: a dictionary section merged by key across all three
+    // layers — `timeout` from project, `retries` from user.
+    #expect(result.output.contains("settings.timeout: 60 ← project"))
+    #expect(result.output.contains("settings.retries: 5 ← user"))
+    // `token`: the user layer's value is templated (`{{ HOME }}`),
+    // rendered per layer before parsing — proving the render-then-parse
+    // rule runs per layer, not once over the merged tree.
+    let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
+    #expect(result.output.contains("token: \(home) ← user"))
+  }
 }

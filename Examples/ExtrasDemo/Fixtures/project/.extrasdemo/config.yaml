@@ -1,1 +1,4 @@
 source: project
+profile: pro
+settings:
+  timeout: 60

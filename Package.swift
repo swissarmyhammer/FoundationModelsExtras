@@ -26,8 +26,17 @@ let package = Package(
         // Templating engine for Pillar 3 (plan.md §4). PathKit rides along
         // transitively as Stencil's own dependency. Pinned `exact:` to the
         // current latest release per the dependency budget in plan.md §5:
-        // Foundation + Stencil only, no family imports, no Yams.
+        // Foundation + Stencil + Yams, pinned — no family imports ever.
         .package(url: "https://github.com/stencilproject/Stencil.git", exact: "0.15.1"),
+        // YAML parsing for Pillar 5's `LayeredYAMLDocument` (plan.md §11).
+        // Yams fought its way into the dependency budget (plan.md §5) on
+        // 2026-07-21: three consumers need the identical layered-YAML
+        // merge — FoundationModelsACP's `AgentConfiguration`, Shelltool's
+        // `ShellPolicy`, and future Skills aggregation. No transitive
+        // dependencies of its own (`CYaml` is a bundled system-library
+        // target, not an external package). Pinned `exact:`, matching
+        // Stencil's own pinning above.
+        .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2"),
         // SwiftSyntax powers `DocCoverageTests`' scanner, which parses every
         // source file in `Sources/FoundationModelsExtras` and fails the build
         // on any undocumented `public` declaration. Test-only tooling —
@@ -50,6 +59,7 @@ let package = Package(
             name: "FoundationModelsExtras",
             dependencies: [
                 "Stencil",
+                .product(name: "Yams", package: "Yams"),
             ]
         ),
 

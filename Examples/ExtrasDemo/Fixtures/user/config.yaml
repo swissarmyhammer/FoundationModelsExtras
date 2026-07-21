@@ -1,1 +1,6 @@
 source: user
+tags:
+  - gamma
+settings:
+  retries: 5
+token: "{{ HOME }}"
