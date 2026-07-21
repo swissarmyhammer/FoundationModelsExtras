@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8180'
+position_column: doing
+position_ordinal: '80'
 title: 'Wildmatch: gitignore glob matching engine (*, ?, [...], **)'
 ---
 ## What
