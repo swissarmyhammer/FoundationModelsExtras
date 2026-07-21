@@ -43,8 +43,9 @@ import Testing
     var description: String { "extras-demo binary not found among: \(candidates.map(\.path))" }
   }
 
-  /// The checked-in `Examples/ExtrasDemo/Fixtures/` tree, resolved relative
-  /// to the package root (this test file lives under
+  /// The checked-in `Examples/ExtrasDemo/Fixtures/` tree.
+  ///
+  /// Resolved relative to the package root (this test file lives under
   /// `Tests/FoundationModelsExtrasTests/`, three levels below it).
   private static let fixturesRoot =
     PackageRootValidation.packageRoot()

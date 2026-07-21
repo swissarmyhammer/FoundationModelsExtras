@@ -11,7 +11,7 @@ comments:
   timestamp: 2026-07-21T16:47:35.781229+00:00
 depends_on:
 - 01KY2CWAEKSXR967RZ8A1F6CGQ
-position_column: doing
+position_column: review
 position_ordinal: '80'
 title: extras-demo `ignore` subcommand + integration test
 ---
