@@ -9,6 +9,10 @@ folders. Everything may import it; it imports almost nothing.
 **Status:** plan-only · **Target:** Swift 6.2 tools, macOS 27+, Apple Silicon
 · **Updated:** 2026-07-18
 
+**Scope extension:** `IgnoreProcessor` (gitignore-semantics ignore-file
+matching and combination, documented in [`README.md`](README.md)) has since
+landed as an addition beyond this plan's original three pillars.
+
 ---
 
 ## 1. Why this package exists

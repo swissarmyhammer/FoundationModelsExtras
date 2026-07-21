@@ -315,4 +315,33 @@ import Testing
     #expect(plain.isIgnored == dotSlash.isIgnored)
     #expect(dotSlash.isIgnored == true)
   }
+
+  // MARK: - README example
+
+  /// Mirrored in README.md's IgnoreProcessor section — keep in sync. Loads a
+  /// `.gitignore` and a `.reviewignore` from disk, combines them with `+`,
+  /// and checks the resulting verdict's `description` -- the exact sequence
+  /// of API calls the README's snippet shows, so the docs can't silently
+  /// rot.
+  @Test func readmeGitignoreAndReviewignoreCombinationExample() throws {
+    let directory = canonicalize(
+      FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let gitignoreURL = directory.appendingPathComponent(".gitignore")
+    try "*.log\n".write(to: gitignoreURL, atomically: true, encoding: .utf8)
+
+    let reviewignoreURL = directory.appendingPathComponent(".reviewignore")
+    try "!important.log\n".write(to: reviewignoreURL, atomically: true, encoding: .utf8)
+
+    let ignores =
+      try IgnoreProcessor(contentsOf: gitignoreURL)
+      + IgnoreProcessor(contentsOf: reviewignoreURL)
+
+    let verdict = ignores.evaluate("debug.log")
+
+    #expect(verdict.isIgnored == true)
+    #expect(verdict.description == "ignored by \".gitignore\":1 `*.log`")
+  }
 }

@@ -34,6 +34,33 @@ let greeting = try engine.render(
 // greeting == "Hello world! Config lives under .myagent/."
 ```
 
+## Ignoring files: `IgnoreProcessor`
+
+`IgnoreProcessor` implements `gitignore(5)` matching semantics -- last-match-
+wins, negation, anchoring, directory-only rules, and parent-directory
+exclusion -- and loads rules from any file name, not just `.gitignore`.
+Combine several sources with `+` (or accumulate with `+=`): the right
+operand's rules are appended after the left's, so under last-match-wins
+evaluation the right operand overrides the left wherever both match, the
+same layering git itself applies across its own ignore sources. Every
+`evaluate` call returns an `IgnoreVerdict` whose `description` explains
+itself in one line, citing the deciding rule's source file and line:
+
+```swift
+let ignores =
+    try IgnoreProcessor(contentsOf: gitignoreURL)
+    + IgnoreProcessor(contentsOf: reviewignoreURL)
+
+let verdict = ignores.evaluate("debug.log")
+// verdict.isIgnored == true
+// verdict.description == "ignored by \".gitignore\":1 `*.log`"
+```
+
+This exact sequence of calls is mirrored in
+`readmeGitignoreAndReviewignoreCombinationExample` in
+`Tests/FoundationModelsExtrasTests/IgnoreProcessorTests.swift`, kept green by
+`swift test --filter IgnoreProcessorTests`.
+
 ## Install
 
 Add the package to `Package.swift`:
