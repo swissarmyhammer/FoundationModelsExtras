@@ -58,6 +58,16 @@ comments:
 
     All six were the "single-sentence summary, blank line, elaboration" doc-comment convention — some in code adjacent to my diff but pre-existing (not introduced by me), fixed anyway since they're low-risk comment-only changes and the reviewer flags them when scanning a touched file. `swift format` clean, `swift build` clean, full `swift test` green (180/180), CRLF fixture byte-verified intact (5 `\r` bytes, unchanged). Committing and re-reviewing. Noting for the stuck-guardrail: each iteration's findings have been distinct (different file:line), not the same finding recurring, so the 3x-repeat guardrail hasn't triggered — but flagging that this style rule is being applied inconsistently across the codebase (many other pre-existing multi-sentence doc paragraphs elsewhere in Sources/ don't get flagged, e.g. IgnoreRule.swift's `isAnchored` doc has the identical shape) — if a 4th iteration surfaces yet another instance of this exact same stylistic pattern, I'll treat it as effectively the same finding class for the stuck guardrail rather than let it whack-a-mole indefinitely.
   timestamp: 2026-07-21T16:22:00.357595+00:00
+- actor: claude-code
+  id: 01ky2r7gb1bz87bfe8dcrjjbhh
+  text: |-
+    Review Findings (iteration 4, mcp__sah__review op=review sha c7c1712..HEAD, full cumulative diff since before this task started):
+
+    ## Review Findings
+    - [x] IgnoreGitParityTests.swift `materialize(_:under:)` — first argument label omitted on a side-effecting (non-value-preserving) function; per the fluent-usage rule this should be labeled. Renamed to `materialize(probePath:under:)` and updated the one call site.
+
+    Fixed, `swift format` clean, `swift build` clean, full `swift test` green (180/180), CRLF fixture byte-verified intact (5 `\r` bytes, unchanged). Committing and doing one more review pass.
+  timestamp: 2026-07-21T16:30:32.289980+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
 position_column: review

@@ -268,7 +268,7 @@ enum GitParityHarness {
     try gitignoreContents.write(to: gitignoreURL, atomically: true, encoding: .utf8)
 
     for probePath in probePaths {
-      try materialize(probePath, under: repoURL)
+      try materialize(probePath: probePath, under: repoURL)
     }
 
     return repoURL
@@ -278,7 +278,7 @@ enum GitParityHarness {
   /// trailing-slash path, an empty file otherwise.
   ///
   /// Intermediate parent directories are created either way.
-  private static func materialize(_ probePath: String, under repoRoot: URL) throws {
+  private static func materialize(probePath: String, under repoRoot: URL) throws {
     let isDirectory = probePath.hasSuffix("/")
     let trimmed = isDirectory ? String(probePath.dropLast()) : probePath
     guard !trimmed.isEmpty else { return }
