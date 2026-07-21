@@ -36,8 +36,12 @@ comments:
 
     Rebuilt, reran full suite (226/226 green), re-committing before the next review pass.
   timestamp: 2026-07-21T19:59:54.073672+00:00
-position_column: review
-position_ordinal: '80'
+- actor: claude-code
+  id: 01ky34gf1yq9txyp7x7csxne2z
+  text: Confirming review pass (mcp__sah__review, review sha HEAD~3..HEAD) came back with 0 findings. Working tree clean, full suite green (226/226). Moving to done.
+  timestamp: 2026-07-21T20:05:08.798622+00:00
+position_column: done
+position_ordinal: '9480'
 title: 'LayeredYAMLDocument: the family''s one layered-merge rule (plan §11)'
 ---
 Implement Pillar 5 per plan.md §11. Bring Yams into the dependency budget (pinned — §5 records the fight-its-way-in rationale: three consumers need identical layered merge — FoundationModelsACP's AgentConfiguration, Shelltool's ShellPolicy, future Skills). Public surface: struct LayeredYAMLDocument { root: YAMLValue; func source(of keyPath: [String]) -> DotfolderStack.Source?; static func load(_ relativePath: String, from: DotfolderStack, engine: TemplateEngine, context: TemplateContext) throws }. Behavior: locate every layer's copy via the stack; render each through the engine under its layer's trust (trusted defaults, untrusted user/project) BEFORE parsing (§4's render-then-parse rule — templated values like MCP env {{ env.TOKEN }} resolve per layer); parse with Yams; merge with the family's one rule: scalars and ARRAYS replace wholesale, dictionaries merge by key; per-key source tracking. Extras merges trees, consumers decode: YAMLValue re-encodes into any Codable via a YAMLValue decoder. Errors: present-but-malformed layer is a hard error naming file+line; missing layers absent. Hermetic tests per §11 (replacement vs merge across three fixture layers, source tracking, malformed hard error, templated values, Codable round-trip) + extras-demo 'config' subcommand printing the merged tree annotated with winning layers + doc coverage.
