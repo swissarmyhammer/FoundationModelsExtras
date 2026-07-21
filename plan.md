@@ -218,7 +218,7 @@ public enum FrontmatterDocument {
 - **Dependency budget: Foundation + Stencil + Yams (PathKit rides along
   transitively), pinned.** No family imports ever; anything else fights its
   way in. (Yams fought its way in 2026-07-21 for `LayeredYAMLDocument` §11 —
-  three consumers needed the same layered merge: ACP's `AgentConfiguration`,
+  three consumers needed the same layered merge: ACPAgent's `AgentConfiguration`,
   Shelltool's `ShellPolicy`, future Skills. Frontmatter *splitting* remains
   textual; full-document *decoding* stays the consumer's — Extras merges
   trees, consumers decode `Codable`.)
@@ -235,7 +235,7 @@ public enum FrontmatterDocument {
 
 | Package | Uses |
 |---|---|
-| FoundationModelsACP (`../FoundationModelsACP/plan.md` — the composition layer: config + commands + wire over harness and Router) | all pillars: `SlashCommand` vocabulary for its registry, `DotfolderStack` + `LayeredYAMLDocument` (§11) for `AgentConfiguration`, rendering every dotfolder document before parse, `AgentsMd` when assembling session instructions |
+| FoundationModelsACPAgent (`../FoundationModelsACPAgent/plan.md` — the composition layer: config + commands + the ACP conformance over harness and Router; the wire itself is the zero-dep FoundationModelsACP, not an Extras consumer) | all pillars: `SlashCommand` vocabulary for its registry, `DotfolderStack` + `LayeredYAMLDocument` (§11) for `AgentConfiguration`, rendering every dotfolder document before parse, `AgentsMd` when assembling session instructions |
 | FoundationModelsAgents (plan-only) | `AgentsMd` (§10) when assembling per-sub-agent instructions, so sub-agents see the repo's agent-instructions files |
 | FoundationModelsSkills (plan-only) | `SlashCommandProviding` conformer; renders SKILL.md through the same engine and `_partials/` |
 | FoundationModelsShelltool | candidate adopter of `DotfolderStack` for its stacked `ShellPolicy` YAML; potential `/ps`-style `.action` commands — illustrative, not committed |
@@ -308,9 +308,9 @@ whole-file-render-then-split round-trips for md, yaml, and frontmatter+md.
 5. **`AgentsMd`** (§10): the ancestor walk + alias preference + tests over
    fixture trees, plus an `extras-demo agents` subcommand. Independent of
    1–4 (steps 1–4 are done); unblocks instruction assembly in
-   FoundationModelsACP and FoundationModelsAgents.
+   FoundationModelsACPAgent and FoundationModelsAgents.
 6. **`LayeredYAMLDocument`** (§11): Yams in, `YAMLValue` + merge + per-key
-   source tracking + `extras-demo config`. Independent of 5; unblocks ACP's
+   source tracking + `extras-demo config`. Independent of 5; unblocks ACPAgent's
    `AgentConfiguration` and Shelltool's `ShellPolicy` migration.
 
 ## 10. Pillar 4 — `AgentsMd` (agent-instructions discovery)
@@ -377,8 +377,8 @@ public enum AgentsMd {
 
 ## 11. Pillar 5 — `LayeredYAMLDocument` (the family's one merge rule)
 
-**Why (decision 2026-07-21, with FoundationModelsACP).** Three consumers
-need the identical layered-YAML behavior over the stack: ACP's
+**Why (decision 2026-07-21, with FoundationModelsACPAgent).** Three consumers
+need the identical layered-YAML behavior over the stack: ACPAgent's
 `AgentConfiguration` (models, tools, MCP servers), Shelltool's stacked
 `ShellPolicy`, and future Skills aggregation. Merge semantics belong with
 the thing that defines the layers, written once — this is the change that
