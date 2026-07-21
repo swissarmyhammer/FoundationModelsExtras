@@ -26,6 +26,16 @@ comments:
 
     - [x] ConfigCommand.swift line ~64 — force unwrap of dictionary subscript in non-test code (`dictionary[key]!`) flagged even though the key is provably present (drawn from the dictionary's own keys). Fixed: replaced with `guard let child = dictionary[key] else { return [] }`. Rebuilt, reran full suite (226/226 green), re-committing before the next review pass.
   timestamp: 2026-07-21T19:54:03.859989+00:00
+- actor: claude-code
+  id: 01ky346vpsnrawccd7wv1k0xpp
+  text: |-
+    ## Review Findings (iteration 2)
+
+    - [x] ConfigCommand.swift — reviewer flipped from "never force unwrap" (iteration 1) to "the guard-let's else branch is unreachable, force unwrap or restructure instead". Resolved by restructuring: `dictionary.sorted(by: { $0.key < $1.key }).flatMap { key, child in ... }` iterates entries directly, needing no subscript (force-unwrapped or guarded) at all -- satisfies both rounds' concerns simultaneously.
+    - [x] LayeredYAMLDocumentError.description — the "layered YAML document: " prefix was repeated across three of the description's return statements. Extracted to a private static descriptionPrefix constant, referenced via string interpolation in each case.
+
+    Rebuilt, reran full suite (226/226 green), re-committing before the next review pass.
+  timestamp: 2026-07-21T19:59:54.073672+00:00
 position_column: review
 position_ordinal: '80'
 title: 'LayeredYAMLDocument: the family''s one layered-merge rule (plan §11)'

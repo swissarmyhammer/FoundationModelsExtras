@@ -25,19 +25,23 @@ public enum LayeredYAMLDocumentError: Error, Sendable, CustomStringConvertible {
   /// unresolved YAML alias.
   case malformed(path: String, line: Int?, message: String)
 
+  /// The shared prefix every case's `description` starts with, named once
+  /// so it changes in exactly one place.
+  private static let descriptionPrefix = "layered YAML document: "
+
   /// A human-readable description naming the offending file (and line,
   /// when known).
   public var description: String {
     switch self {
     case .fileNotReadable(let path):
-      return "layered YAML document: file not found or unreadable: \(path)"
+      return "\(Self.descriptionPrefix)file not found or unreadable: \(path)"
     case .renderingFailed(let path, let message):
-      return "layered YAML document: rendering failed for \(path): \(message)"
+      return "\(Self.descriptionPrefix)rendering failed for \(path): \(message)"
     case .malformed(let path, let line, let message):
       if let line {
-        return "layered YAML document: malformed YAML at \(path):\(line): \(message)"
+        return "\(Self.descriptionPrefix)malformed YAML at \(path):\(line): \(message)"
       }
-      return "layered YAML document: malformed YAML at \(path): \(message)"
+      return "\(Self.descriptionPrefix)malformed YAML at \(path): \(message)"
     }
   }
 }

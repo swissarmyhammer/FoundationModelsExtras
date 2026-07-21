@@ -59,9 +59,8 @@ struct ConfigCommand: AsyncParsableCommand {
             let source = document.source(of: keyPath).map(Self.label(for:)) ?? "unknown"
             return ["\(path): \(describe(value)) ← \(source)"]
         }
-        return dictionary.keys.sorted().flatMap { key -> [String] in
-            guard let child = dictionary[key] else { return [] }
-            return lines(for: child, keyPath: keyPath + [key], document: document)
+        return dictionary.sorted(by: { $0.key < $1.key }).flatMap { key, child in
+            lines(for: child, keyPath: keyPath + [key], document: document)
         }
     }
 
