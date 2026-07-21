@@ -181,6 +181,21 @@ public enum AgentsMd {
     }
   }
 
+  /// Resolves `path` via POSIX `realpath(3)`, the shared primitive behind
+  /// both `realPath(of:)` and `canonicalize(_:)`: allocates a `PATH_MAX`
+  /// buffer, invokes `realpath(3)`, and decodes the result as UTF-8.
+  ///
+  /// - Parameter path: The filesystem path to resolve.
+  /// - Returns: The resolved, symlink- and firmlink-free path, or `nil` if
+  ///   `realpath(3)` fails (e.g. nothing exists at `path`).
+  private static func resolvedPath(_ path: String) -> String? {
+    var buffer = [Int8](repeating: 0, count: Int(PATH_MAX))
+    guard realpath(path, &buffer) != nil else { return nil }
+    let nullTerminatorIndex = buffer.firstIndex(of: 0) ?? buffer.count
+    return String(
+      decoding: buffer[..<nullTerminatorIndex].map(UInt8.init(bitPattern:)), as: UTF8.self)
+  }
+
   /// Resolves `url` to its real, symlink- and firmlink-free path via POSIX
   /// `realpath(3)` — the dedupe key `documents(from:upTo:)` uses to detect
   /// two alias files (possibly at different directory levels, possibly via
@@ -192,11 +207,7 @@ public enum AgentsMd {
   ///   `realpath(3)` fails (e.g. the file was removed between the
   ///   existence check and this call).
   private static func realPath(of url: URL) -> String {
-    var buffer = [Int8](repeating: 0, count: Int(PATH_MAX))
-    guard realpath(url.path, &buffer) != nil else { return url.path }
-    let nullTerminatorIndex = buffer.firstIndex(of: 0) ?? buffer.count
-    return String(
-      decoding: buffer[..<nullTerminatorIndex].map(UInt8.init(bitPattern:)), as: UTF8.self)
+    resolvedPath(url.path) ?? url.path
   }
 
   /// Resolves `url` to its real, firmlink-free directory path via POSIX
@@ -209,11 +220,7 @@ public enum AgentsMd {
   /// - Parameter url: The directory URL to resolve.
   /// - Returns: The resolved directory URL.
   private static func canonicalize(_ url: URL) -> URL {
-    var buffer = [Int8](repeating: 0, count: Int(PATH_MAX))
-    guard realpath(url.path, &buffer) != nil else { return url }
-    let nullTerminatorIndex = buffer.firstIndex(of: 0) ?? buffer.count
-    let path = String(
-      decoding: buffer[..<nullTerminatorIndex].map(UInt8.init(bitPattern:)), as: UTF8.self)
+    guard let path = resolvedPath(url.path) else { return url }
     return URL(fileURLWithPath: path, isDirectory: true)
   }
 }
