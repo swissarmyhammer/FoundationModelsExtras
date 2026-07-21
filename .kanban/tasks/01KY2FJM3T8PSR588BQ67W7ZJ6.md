@@ -1,5 +1,18 @@
 ---
-position_column: todo
+comments:
+- actor: claude-code
+  id: 01ky30hv1wcsd1nrtjcanbh2xs
+  text: |-
+    Implemented AgentsMd (Sources/FoundationModelsExtras/AgentsMd.swift) + AgentsMdError, TDD-first with 13 hermetic swift-testing cases in Tests/FoundationModelsExtrasTests/AgentsMdTests.swift covering: alias preference per directory (AGENTS.md > AGENT.md > CLAUDE.md), no-alias directories contributing no document, outermost-first/nearest-last ordering, .git root detection (directory-entry existence check only, never running git), explicit root: overriding detection and walking past a nearer .git, walk stopping at root, same-directory symlink alias (naturally never read since first-match wins), cross-directory symlink dedup by realpath(3)-resolved path, empty results (cwd==root, and multi-level with no files), and a fileNotReadable error on invalid UTF-8.
+
+    Design notes:
+    - Root/workingDirectory canonicalized once via realpath(3) (mirrors TestSupport.canonicalize's firmlink-safe approach already used by DotfolderStackTests) so the walk's stopping comparison and .git detection are robust to /var vs /private/var-style firmlinks.
+    - Symlink dedupe tracks realpath(3) of each chosen alias file across the whole walk (nearest-to-outermost internally, reversed for output); the nearest occurrence of a given physical file wins, later (further-out) duplicates are dropped.
+    - All 13 AgentsMd tests pass on first implementation; full `swift test` is green at 207/207 tests. `swift format -i -r Sources Tests` made no changes.
+
+    No demo subcommand added (extras-demo agents) — not part of this task's stated public-surface/testing scope per the task description; plan.md §10 mentions it but the task text quoted here doesn't require it, so left out to stay in scope.
+  timestamp: 2026-07-21T18:55:59.548271+00:00
+position_column: doing
 position_ordinal: '80'
 title: 'AgentsMd: agent-instructions discovery (plan §10)'
 ---
