@@ -19,7 +19,14 @@ comments:
 
     swift build: clean. swift test: 226/226 passing, doc coverage included.
   timestamp: 2026-07-21T19:47:19.447282+00:00
-position_column: doing
+- actor: claude-code
+  id: 01ky33w5pke1wn7tf1xqqw5n8d
+  text: |-
+    ## Review Findings (iteration 1)
+
+    - [x] ConfigCommand.swift line ~64 — force unwrap of dictionary subscript in non-test code (`dictionary[key]!`) flagged even though the key is provably present (drawn from the dictionary's own keys). Fixed: replaced with `guard let child = dictionary[key] else { return [] }`. Rebuilt, reran full suite (226/226 green), re-committing before the next review pass.
+  timestamp: 2026-07-21T19:54:03.859989+00:00
+position_column: review
 position_ordinal: '80'
 title: 'LayeredYAMLDocument: the family''s one layered-merge rule (plan §11)'
 ---
