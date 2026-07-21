@@ -115,9 +115,19 @@ public struct IgnoreProcessor: Sendable {
   ///     `.gitignore`), used in verdict explanations.
   public init(string: String, source: String) {
     var rules: [IgnoreRule] = []
-    let lines = string.split(separator: "\n", omittingEmptySubsequences: false)
-    for (index, line) in lines.enumerated() {
-      if let rule = IgnoreRule(line: String(line), source: source, lineNumber: index + 1) {
+    // Splits on Unicode scalars, not `Character`s: Swift's `Character` treats
+    // a CRLF pair as a single extended grapheme cluster, so a
+    // `Character`-based `split(separator: "\n")` fails to split at a CRLF
+    // line boundary at all (it only matches a lone `"\n"`), silently
+    // merging that line with the next and corrupting every subsequent
+    // line's 1-based number. `Unicode.Scalar` has no such clustering, so
+    // `\r` and `\n` are always distinct scalars here — each line still
+    // carries its own trailing `\r`, stripped by `IgnoreRule` itself.
+    let lineScalars = string.unicodeScalars.split(
+      separator: "\n", omittingEmptySubsequences: false)
+    for (index, scalars) in lineScalars.enumerated() {
+      let line = String(String.UnicodeScalarView(scalars))
+      if let rule = IgnoreRule(line: line, source: source, lineNumber: index + 1) {
         rules.append(rule)
       }
     }

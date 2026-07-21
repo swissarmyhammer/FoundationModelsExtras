@@ -1,10 +1,28 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01ky2nvs26t32bx8xgbn7mh7mf
+  text: |-
+    Implemented in one pass (TDD-ish, verified against real git before committing to expectations):
+
+    - Fixture: `Tests/FoundationModelsExtrasTests/Fixtures/ignore-corpus/gitignore.txt` — 40-probe corpus covering comments, escapes (`\#`, `\!`, escaped trailing space), CRLF lines (lines 14-16 and 47-48 deliberately CRLF-terminated), negation, anchoring, dir-only rules, `*`/`?`, `[!...]`/`[^...]` classes, a named POSIX class, all three `**` forms, and parent-exclusion (including the "negating the ancestor lifts exclusion" case).
+    - `Tests/FoundationModelsExtrasTests/IgnoreGitParityTests.swift`: Test 1 (table-driven, always runs) + Test 2 (git-gated via `.enabled(if: GitParityHarness.isGitAvailable())`), plus a reusable (internal, not private) `GitParityHarness` enum with `isGitAvailable()`, `materializeRepo(gitignoreContents:probePaths:)`, and `runCheckIgnore(probePaths:repoURL:)` for a later task to reuse.
+
+    Two real bugs/gotchas found and worked around/fixed while authoring the corpus against actual `git check-ignore -v` output (git 2.55.0):
+
+    1. **Git CLI bug, not ours**: a `.gitignore` file with a CRLF-terminated *blank* line (anywhere in the file, not just at EOF) makes `git check-ignore -v` misattribute every directory probe with no real match to that blank line's line number, as if it were a catch-all. Confirmed via minimal repro (`foo\r\n\r\n` + probing an unrelated `bar/`). Worked around by only CRLF-terminating non-blank lines in the fixture (blank-line separators stay LF) — re-verified full 40-probe parity is byte-identical to the pure-LF baseline after this change.
+    2. **Real bug in our code, fixed**: `IgnoreProcessor.init(string:source:)` used `string.split(separator: "\n")` (`Character`-based). Swift's `Character` treats a CRLF pair as a single extended grapheme cluster, so that split silently fails to break at CRLF line boundaries, merging lines and corrupting every subsequent line number in a multi-line CRLF ignore file. Fixed by splitting on `string.unicodeScalars` instead (scalars aren't grapheme-clustered, so `\r`/`\n` are always distinct). This is a real, previously-undetected bug in the already-"done" `IgnoreProcessor.swift` — none of the existing `IgnoreProcessorTests` exercised a multi-line CRLF file through the `string:` initializer, only single-line CRLF stripping via `IgnoreRule` directly.
+
+    Also dropped two probe candidates that would have baked in git CLI quirks rather than real gitignore semantics: a bare-directory probe against a trailing-`**` rule (`logs/`), and a bare-directory probe against a *negated* dir-only ancestor rule (`lifted/`) — both showed asymmetric/quirky `git check-ignore` behavior specific to trailing-slash-vs-not queries that isn't reflective of general gitignore matching semantics, and neither is required to hit every semantics bullet (both are covered elsewhere in the corpus via non-directory probes).
+
+    Result: `swift test --filter IgnoreGitParityTests` green (40/40 table cases + git-parity test), full `swift test` green (180/180). `swift build` and `swift format -i -r Sources Tests` clean.
+  timestamp: 2026-07-21T15:49:10.854674+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
-position_column: todo
-position_ordinal: '8480'
+position_column: doing
+position_ordinal: '80'
 title: 'Git-parity corpus test: verdicts match `git check-ignore -v`'
 ---
 ## What

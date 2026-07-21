@@ -1,0 +1,54 @@
+# Corpus gitignore fixture: exercises comments, escapes, negation,
+# anchoring, dir-only rules, wildcards, character classes, POSIX
+# classes, all three ** forms, and parent-exclusion interactions.
+
+# escaped leading '#' is a literal character, not a comment marker
+\#hashfile.txt
+
+# escaped leading '!' is a literal character, not negation
+\!bangfile.txt
+
+# escaped trailing space is preserved; unescaped trailing spaces trim
+escapedspace\ 
+
+# basic wildcard with a negated re-include
+*.log
+!keep.log
+
+# anchored pattern: only matches at the ignore file's root
+/anchored.txt
+
+# directory-only rule feeding the parent-exclusion tests below
+build/
+
+# single-character wildcard
+file?.txt
+
+# negated bracket character class ([!...] spelling)
+[!a-c]bracket.txt
+
+# negated bracket character class ([^...] spelling)
+[^x-z]caret.txt
+
+# named POSIX character class
+digit[[:digit:]].txt
+
+# leading ** matches the same basename at any depth, including the root
+**/deep.tmp
+
+# interior ** matches zero or more path segments
+mid/**/inner.txt
+
+# trailing ** means "everything inside", one or more segments
+logs/**
+
+# parent exclusion: excluding a directory blocks its descendants even
+# when a later rule tries to name one directly
+blocked/
+!blocked/reachable.txt
+
+# parent exclusion lifted: re-including the ancestor lifts the
+# exclusion, so a later rule can reach its descendants again
+lifted/
+!lifted/
+*.scratch
