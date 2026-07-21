@@ -19,9 +19,20 @@ comments:
 
     Result: `swift test --filter IgnoreGitParityTests` green (40/40 table cases + git-parity test), full `swift test` green (180/180). `swift build` and `swift format -i -r Sources Tests` clean.
   timestamp: 2026-07-21T15:49:10.854674+00:00
+- actor: claude-code
+  id: 01ky2p8zxwgqnnmmymzq9p9t9c
+  text: |-
+    Review Findings (iteration 1, mcp__sah__review op=review sha HEAD~1..HEAD):
+
+    ## Review Findings
+    - [x] IgnoreGitParityTests.swift:123 — `static let processor` lacked a doc comment. Added one.
+    - [x] IgnoreGitParityTests.swift:175 — `GitProcessError` lacked `Sendable` conformance. Added it.
+
+    Both fixed, `swift format -i -r Sources Tests` clean, `swift build` clean, full `swift test` green (180/180). Committing fixes now and re-reviewing.
+  timestamp: 2026-07-21T15:56:23.868689+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
-position_column: doing
+position_column: review
 position_ordinal: '80'
 title: 'Git-parity corpus test: verdicts match `git check-ignore -v`'
 ---

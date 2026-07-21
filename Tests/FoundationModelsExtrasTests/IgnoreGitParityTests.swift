@@ -120,6 +120,8 @@ import Testing
     .appendingPathComponent(
       "Tests/FoundationModelsExtrasTests/Fixtures/ignore-corpus/gitignore.txt")
 
+  /// The corpus fixture, parsed once and reused by every probe in both
+  /// tests below.
   static let processor: IgnoreProcessor = {
     guard let processor = try? IgnoreProcessor(contentsOf: fixtureURL) else {
       fatalError("failed to load ignore-corpus fixture at \(fixtureURL.path)")
@@ -211,7 +213,7 @@ enum GitParityHarness {
   /// Errors raised by the git subprocess helpers themselves — never by
   /// `IgnoreProcessor`, which has its own error type. This one is purely
   /// about driving `git` as an external tool.
-  struct GitProcessError: Error, CustomStringConvertible {
+  struct GitProcessError: Error, Sendable, CustomStringConvertible {
     let message: String
     var description: String { message }
   }
