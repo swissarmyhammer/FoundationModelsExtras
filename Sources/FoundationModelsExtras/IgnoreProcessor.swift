@@ -61,9 +61,10 @@ public struct IgnoreVerdict: Sendable, Equatable, CustomStringConvertible {
     }
   }
 
-  /// Reconstructs `rule`'s effective line text — its negation marker and
-  /// directory-only marker restored around its bare `pattern` — for use in
-  /// explanations. Not necessarily byte-identical to `rule.originalText`
+  /// Reconstructs `rule`'s effective line text for use in explanations.
+  ///
+  /// Its negation marker and directory-only marker are restored around its
+  /// bare `pattern`. Not necessarily byte-identical to `rule.originalText`
   /// (which may carry trailing whitespace or a CRLF `\r`); this is the
   /// pattern's normalized, display-friendly form.
   private static func ruleText(_ rule: IgnoreRule) -> String {

@@ -30,6 +30,19 @@ comments:
 
     Both fixed, `swift format -i -r Sources Tests` clean, `swift build` clean, full `swift test` green (180/180). Committing fixes now and re-reviewing.
   timestamp: 2026-07-21T15:56:23.868689+00:00
+- actor: claude-code
+  id: 01ky2pqz8v1xtay2yg7jqfjjg3
+  text: |-
+    Review Findings (iteration 2, mcp__sah__review op=review sha HEAD~2..HEAD):
+
+    ## Review Findings
+    - [x] IgnoreProcessor.swift ~97 (`ruleText` doc comment) — summary sentence ran directly into elaboration with no blank line. Split into a one-sentence summary + blank line + elaboration.
+    - [x] IgnoreGitParityTests.swift Probe.isIgnored — added doc comment.
+    - [x] IgnoreGitParityTests.swift GitVerdict.source — added doc comment.
+    - [x] IgnoreGitParityTests.swift GitVerdict.pattern — added doc comment.
+
+    Fixed all four, `swift format -i -r Sources Tests` clean, `swift build` clean, full `swift test` green (180/180), CRLF fixture byte content re-verified intact (5 `\r` bytes, unchanged). Committing and re-reviewing.
+  timestamp: 2026-07-21T16:04:34.715189+00:00
 depends_on:
 - 01KY2CVY2Y8VH8YVHVM0JXPZ0N
 position_column: review

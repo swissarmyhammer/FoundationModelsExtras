@@ -28,6 +28,7 @@ import Testing
   /// and `git check-ignore` both use.
   struct Probe: Sendable, CustomStringConvertible {
     let path: String
+    /// Whether `path` is expected to be ignored.
     let isIgnored: Bool
     /// The 1-based line in `gitignore.txt` whose rule decides this probe's
     /// verdict, or `nil` when no rule matches (default include).
@@ -201,7 +202,11 @@ enum GitParityHarness {
     /// The deciding pattern's 1-based line number in the ignore file, or
     /// `nil` when git reports no matching pattern at all (`::`).
     let line: Int?
+    /// The source file git attributes the deciding pattern to (e.g.
+    /// `.gitignore`), or `nil` when no rule matched.
     let source: String?
+    /// The deciding pattern's raw text, including any `!` negation prefix,
+    /// or `nil` when no rule matched.
     let pattern: String?
 
     var description: String {
