@@ -5,7 +5,7 @@ import Testing
 
 /// Behavioral tests for `SlashCommand` and `SlashCommandProviding`: the
 /// static and streaming provider shapes conformers use to contribute
-/// commands to a harness session (plan.md §2).
+/// commands to an agent session (plan.md §2).
 @Suite struct SlashCommandTests {
   /// A conformer with a fixed set of commands and no `commandUpdates`
   /// re-publication — the static provider shape.

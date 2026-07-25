@@ -6,7 +6,7 @@ import FoundationModelsExtras
 /// `SlashCommandProviding` with one `.prompt` command (rendered through the
 /// templating pillar before display) and one `.action` command (streams a
 /// few lines), invokes both, then ticks `commandUpdates` and prints the
-/// re-published set — the exact consumption pattern the harness's command
+/// re-published set — the exact consumption pattern a command
 /// registry uses.
 struct CommandsCommand: AsyncParsableCommand {
     /// This subcommand's command-line configuration.

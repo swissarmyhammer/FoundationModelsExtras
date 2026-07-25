@@ -15,7 +15,7 @@ final class DemoCommandProvider: SlashCommandProviding, Sendable {
     static let streamCommandName = "stream"
 
     /// The `.prompt` command: its template is rendered through the
-    /// templating pillar before display, exactly as a harness would before
+    /// templating pillar before display, exactly as a consumer would before
     /// folding it into a model turn.
     static let greetCommand = SlashCommand(
         name: greetCommandName,

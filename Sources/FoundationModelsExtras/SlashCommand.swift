@@ -1,10 +1,10 @@
 import Foundation
 
-/// A user-invocable `/name` command contributed to a harness session
+/// A user-invocable `/name` command contributed to an agent session
 /// (plan.md §2).
 ///
-/// Nothing harness-shaped appears in this type or its neighbors — this
-/// package sits below the harness in the family's dependency diamond, and
+/// Nothing consumer-shaped appears in this type or its neighbors — this
+/// package sits below every consumer in the family's dependency diamond, and
 /// that constraint keeps command handlers honest.
 public struct SlashCommand: Sendable {
   /// The command's bare name, surfaced as `/name` — no leading slash.

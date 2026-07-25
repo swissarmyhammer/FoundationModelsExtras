@@ -9,7 +9,7 @@ import Foundation
 /// `DotfolderStack` only **locates** files (and, via `content`, reads one
 /// verbatim); it never merges their contents. Key-level config merging
 /// (scalars/arrays replace wholesale, sections merge by key) is a consumer
-/// concern — the harness's codec policy, not this type's. The stack is the
+/// concern — the consumer's codec policy, not this type's. The stack is the
 /// only thing that touches disk, and only when `nearest`, `locate`,
 /// `enumerate`, or `content` is called: constructing a stack never performs
 /// file I/O, so consumers stay constructible in tests with none.
