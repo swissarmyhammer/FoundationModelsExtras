@@ -24,14 +24,14 @@ landed as an addition beyond this plan's original three pillars.
 Two forces meet here:
 
 **The dependency diamond.** The family's dependency law says arrows only point
-downward — the harness imports tool packages, never the reverse. Anything tool
-packages and the harness must both name (a protocol tools conform to, a type
-they exchange) therefore needs a home *below* both. A shared leaf: tool
-packages depend on it downward when they choose to, the harness depends on
-everything and adapts.
+downward — the composition layer imports tool packages, never the reverse.
+Anything tool packages and the composition must both name (a protocol tools
+conform to, a type they exchange) therefore needs a home *below* both. A
+shared leaf: tool packages depend on it downward when they choose to, the
+composition depends on everything and adapts.
 
 ```
-                FoundationModelsAgentHarness        (sole adapter at the top)
+    FoundationModelsACPAgent · FoundationModelsAgents   (composition, top)
                /            |              \
    FoundationModelsFileTool | FoundationModelsSkills …
                \            |              /
@@ -61,7 +61,7 @@ mistake it deliberately drops:
 ## 2. Pillar 1 — Slash commands (the cross-package vocabulary)
 
 ```swift
-/// A user-invocable `/name` command contributed to a harness session.
+/// A user-invocable `/name` command contributed to an agent session.
 public struct SlashCommand: Sendable {
     public var name: String          // "ps" → surfaced as /ps (no leading slash)
     public var description: String   // one line, shown in pickers and /help
@@ -97,12 +97,12 @@ public protocol SlashCommandProviding: Sendable {
 }
 ```
 
-Nothing harness-shaped can appear in these signatures — this package sits
-below the harness, and that constraint keeps command handlers honest.
+Nothing composition-shaped can appear in these signatures — this package
+sits below every consumer, and that constraint keeps command handlers honest.
 
-## 3. Pillar 2 — `DotfolderStack` (moved here from the harness)
+## 3. Pillar 2 — `DotfolderStack`
 
-The layered-locations type the harness plan §4 describes, now shared family
+The family's layered-locations type (consumed by the ACPAgent plan §4), shared
 infrastructure (Shelltool's stacked `ShellPolicy` YAML is the obvious second
 adopter). A consumer passes a bare name; the stack derives the layers in
 precedence order:
@@ -134,7 +134,7 @@ public struct DotfolderStack: Sendable {
   from" in diagnostics (`/status`, `/memory` headers).
 - **Merge semantics stay with consumers.** The stack locates and enumerates;
   key-level config merging (scalars/arrays replace wholesale, sections merge
-  by key) is the harness's codec policy, not the stack's. The stack is the
+  by key) is the consumer's codec policy, not the stack's. The stack is the
   only thing that touches disk; consumers stay constructible in tests with
   no file I/O.
 
@@ -163,7 +163,7 @@ public struct TemplateEngine: Sendable {
 }
 
 /// Textual frontmatter split — no YAML dependency here; consumers decode the
-/// frontmatter text with their own codec (the harness has Yams).
+/// frontmatter text with their own codec (or `LayeredYAMLDocument`, §11).
 public enum FrontmatterDocument {
     public static func split(text: String) -> (frontmatter: String?, body: String)
 }
@@ -203,7 +203,7 @@ public enum FrontmatterDocument {
 - **Variable precedence** (swissarmyhammer's ladder, kept): explicit
   `TemplateContext` values > environment variables > well-known system
   variables (dotfolder name, working directory, date, hostname). Consumers
-  may extend the context (the harness adds session-shaped values; Skills
+  may extend the context (consumers add session-shaped values; Skills
   adds skill arguments).
 - **Trust split, kept**: `trusted` for consumer-shipped defaults, `untrusted`
   for user/project-layer files — untrusted rendering is validated and
@@ -225,8 +225,8 @@ public enum FrontmatterDocument {
 - **Scope fights its way in.** The bar for a new type is a demonstrated
   consumer on both sides of the diamond. Deliberately deferred: status
   contributions, config-schema fragments.
-- **Coordination point.** Changes ripple to all conformers and the harness
-  adapter at once — additive evolution, breaking changes are a family event.
+- **Coordination point.** Changes ripple to all conformers and adapters at
+  once — additive evolution, breaking changes are a family event.
 - **Trust boundary documented at the type.** `.action` bodies require linked
   Swift; data channels are `.prompt`-only; untrusted templates render under
   validation. These three sentences are the security story.
@@ -235,24 +235,22 @@ public enum FrontmatterDocument {
 
 | Package | Uses |
 |---|---|
-| FoundationModelsACPAgent (`../FoundationModelsACPAgent/plan.md` — the composition layer: config + commands + the ACP conformance over harness and Router; the wire itself is the zero-dep FoundationModelsACP, not an Extras consumer) | all pillars: `SlashCommand` vocabulary for its registry, `DotfolderStack` + `LayeredYAMLDocument` (§11) for `AgentConfiguration`, rendering every dotfolder document before parse, `AgentsMd` when assembling session instructions |
+| FoundationModelsACPAgent (`../FoundationModelsACPAgent/plan.md` — the composition layer: config + commands + the ACP conformance over Router; the wire itself is the zero-dep FoundationModelsACP, not an Extras consumer) | all pillars: `SlashCommand` vocabulary for its registry, `DotfolderStack` + `LayeredYAMLDocument` (§11) for `AgentConfiguration`, rendering every dotfolder document before parse, `AgentsMd` when assembling session instructions |
 | FoundationModelsAgents (plan-only) | `AgentsMd` (§10) when assembling per-sub-agent instructions, so sub-agents see the repo's agent-instructions files |
 | FoundationModelsSkills (plan-only) | `SlashCommandProviding` conformer; renders SKILL.md through the same engine and `_partials/` |
 | FoundationModelsShelltool | candidate adopter of `DotfolderStack` for its stacked `ShellPolicy` YAML; potential `/ps`-style `.action` commands — illustrative, not committed |
 
-Note the 2026-07-21 re-scope: **FoundationModelsAgentHarness itself no longer
-imports Extras.** The harness became a constructor-fed loop (router, tools,
-instructions, compaction instructions — no file I/O; its only dependency is
-Router), so the Extras-consuming composition moved up to the product layer
-and the agents tool. The diamond in §1 still holds — Extras stays the leaf
-both sides of it share — the top vertex is just the product/agents layer now.
-Tool packages that need none of this never import it.
+Router — the family runtime — deliberately consumes nothing here: its
+sessions are constructor-fed (tools, instructions, budgets arrive as
+values; no file I/O), so all Extras consumption lives in the composition
+layer and the agents tool. Tool packages that need none of this never
+import it.
 
 ## 7. Examples
 
 Family convention: an example is the living contract test — a small runnable
 that proves the public surface end-to-end, kept compiling forever
-(`Examples/HarnessDemo` plays this role for the harness). Extras ships one:
+(Router's `CompactionDemo` plays this role for the runtime). Extras ships one:
 
 **`Examples/ExtrasDemo`** — a thin ArgumentParser executable with one
 subcommand per pillar, run against a fixture dotfolder tree checked in beside
@@ -276,8 +274,8 @@ layers so no demo ever touches the real home directory):
 - `extras-demo commands` — registers a demo `SlashCommandProviding` with one
   `.prompt` command (template rendered before display) and one `.action`
   command (streams a few lines), invokes both, then ticks `commandUpdates`
-  to show a re-published set — the exact consumption pattern the harness's
-  registry uses (harness plan §6.2).
+  to show a re-published set — the exact consumption pattern the ACPAgent
+  registry uses (ACPAgent plan §6.2).
 
 The demo doubles as the copy-paste onboarding for the two audiences this
 package serves: tool authors see the conformer side (`commands`), consumers
@@ -298,10 +296,10 @@ whole-file-render-then-split round-trips for md, yaml, and frontmatter+md.
 1. **Stack + engine**: `DotfolderStack`, the Stencil wrap (`TemplateEngine`
    facade, `DotfolderLoader`, restricted untrusted `Environment`), the
    one-time corpus migration (`render`→`include`) with its golden fixtures —
-   this is the long pole and unblocks harness build-order step 3
-   (Configuration).
+   this is the long pole and unblocks ACPAgent's configuration work
+   (its task esq54zr).
 2. **Slash-command vocabulary**: the two types + provider tests — trivial,
-   can land first if the harness wants the seam early.
+   can land first if a consumer wants the seam early.
 3. **`Examples/ExtrasDemo`** (§7): lands with whichever of 1–2 finishes
    last; its fixture tree is shared with the unit tests where practical.
 4. CI from swissarmyhammer/workflows like in sibling packages
@@ -325,9 +323,9 @@ after the file, never "memory."
 **Why it lives here.** Two consumers assemble session instructions and need
 the identical discovery walk: the product layer (root sessions) and
 FoundationModelsAgents (per-sub-agent instructions — a sub-agent that hasn't
-read the repo's `AGENTS.md` is worse at its job). The harness itself never
-does this — it is constructor-fed and reads no files; callers fold the
-result into the `instructions` value they pass in. One convention, two
+read the repo's `AGENTS.md` is worse at its job). Router's runtime never
+does this — sessions are constructor-fed and read no files; callers fold
+the result into the `instructions` value they pass to `makeSession`. One convention, two
 consumers, and Extras is already the family's only disk-toucher: textbook
 pillar.
 
