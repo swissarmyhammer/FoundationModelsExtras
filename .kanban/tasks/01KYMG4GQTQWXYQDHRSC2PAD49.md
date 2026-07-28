@@ -31,8 +31,8 @@ comments:
 
     Leaving task in `doing` for `/review` to pick up.
   timestamp: 2026-07-28T14:26:06.439040+00:00
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '9580'
 title: 'SlashCommand.Body: a provider-rendered prompt case'
 ---
 ## What
