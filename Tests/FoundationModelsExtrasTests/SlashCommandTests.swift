@@ -91,6 +91,66 @@ import Testing
     }
   }
 
+  @Test func renderedBodyProducesThePromptStringTheDispatcherWouldTreatAsTheTurnsInput()
+    async throws
+  {
+    let command = SlashCommand(
+      name: "skill", description: "Runs a skill", argumentHint: "<name>",
+      body: .rendered { invocation in
+        "Rendered for \(invocation.arguments) in \(invocation.workingDirectory.path)"
+      })
+
+    guard case .rendered(let render) = command.body else {
+      Issue.record("expected a .rendered body")
+      return
+    }
+    let invocation = SlashCommand.Invocation(
+      arguments: "deploy prod", workingDirectory: URL(fileURLWithPath: "/tmp/project"))
+
+    let prompt = try await render(invocation)
+
+    #expect(prompt == "Rendered for deploy prod in /tmp/project")
+  }
+
+  @Test func renderedBodyReceivesTheInvocationsArgumentsAndWorkingDirectory() async throws {
+    let command = SlashCommand(
+      name: "skill", description: "Runs a skill", argumentHint: nil,
+      body: .rendered { invocation in
+        "\(invocation.arguments)|\(invocation.workingDirectory.path)"
+      })
+
+    guard case .rendered(let render) = command.body else {
+      Issue.record("expected a .rendered body")
+      return
+    }
+    let invocation = SlashCommand.Invocation(
+      arguments: "42", workingDirectory: URL(fileURLWithPath: "/tmp/other"))
+
+    let prompt = try await render(invocation)
+
+    #expect(prompt == "42|/tmp/other")
+  }
+
+  @Test func renderedBodyThrowingSurfacesAsADiagnosableErrorRatherThanAnEmptyPrompt() async {
+    struct SampleRenderError: Error, Equatable {}
+    let command = SlashCommand(
+      name: "skill", description: "Runs a skill", argumentHint: nil,
+      body: .rendered { _ in
+        throw SampleRenderError()
+      })
+
+    guard case .rendered(let render) = command.body else {
+      Issue.record("expected a .rendered body")
+      return
+    }
+    let invocation = SlashCommand.Invocation(
+      arguments: "", workingDirectory: URL(fileURLWithPath: "/tmp"))
+
+    await #expect(throws: SampleRenderError.self) {
+      _ = try await render(invocation)
+    }
+  }
+
   /// A conformer whose command set changes mid-session, re-published
   /// through `commandUpdates` — the dynamic provider shape.
   ///

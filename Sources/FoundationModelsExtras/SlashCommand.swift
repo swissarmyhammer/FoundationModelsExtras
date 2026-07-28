@@ -33,11 +33,20 @@ public struct SlashCommand: Sendable {
 
   /// What running a `SlashCommand` does.
   ///
-  /// This is the package's whole security story for slash commands:
-  /// `.action` bodies require linked Swift — only a conformer already
-  /// compiled into the process can construct one, so the code is trusted
-  /// because it is already in-process — while data channels (template
-  /// files, MCP prompts) may only ever produce `.prompt` bodies.
+  /// This is the package's whole security story for slash commands, and it
+  /// tiers by producer:
+  ///
+  /// - **Data sources** (template files, MCP prompts) may only ever produce
+  ///   `.prompt` — untrusted text stays confined to the templating pillar's
+  ///   rendering rules.
+  /// - **Linked Swift conformers** — already trusted because they are
+  ///   compiled into the process — may additionally produce `.action`
+  ///   (streams text, never touches the model) or `.rendered` (renders a
+  ///   prompt with the conformer's own pipeline, then takes a normal model
+  ///   turn). Neither closure-based case can be constructed by untrusted
+  ///   data, so this adds no new authority: anything a conformer could put
+  ///   in a `.rendered` string it could equally have put in a `.prompt`
+  ///   template.
   public enum Body: Sendable {
     /// Expands into an ordinary model turn: the template (rendered by
     /// Pillar 3, untrusted) plus the user's arguments become the turn's
@@ -46,6 +55,17 @@ public struct SlashCommand: Sendable {
     /// Runs code, streams text output, never touches the model. Only
     /// linked Swift conformers can construct this.
     case action(@Sendable (Invocation) -> AsyncThrowingStream<String, Error>)
+    /// Renders a prompt with the conformer's own pipeline, then feeds the
+    /// result to the model exactly as the dispatcher would a `.prompt`'s
+    /// rendered template. For providers — skills-style commands foremost
+    /// among them — whose substitution model, partials, or trust tiering
+    /// don't match Extras' Stencil engine, so they cannot render through
+    /// `.prompt(template:)` without producing silently wrong prompt text.
+    /// A throwing render propagates the thrown error to the caller instead
+    /// of resolving to an empty or partial prompt, so a broken render
+    /// surfaces as a diagnosable error rather than silently wrong model
+    /// input. Only linked Swift conformers can construct this.
+    case rendered(@Sendable (Invocation) async throws -> String)
   }
 
   /// The context a `.action` body runs with: the arguments the user typed
