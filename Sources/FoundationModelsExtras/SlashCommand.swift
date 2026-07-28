@@ -68,8 +68,9 @@ public struct SlashCommand: Sendable {
     case rendered(@Sendable (Invocation) async throws -> String)
   }
 
-  /// The context a `.action` body runs with: the arguments the user typed
-  /// after the command's name, and the session's working directory.
+  /// The context an `.action` or `.rendered` body runs with: the arguments
+  /// the user typed after the command's name, and the session's working
+  /// directory.
   public struct Invocation: Sendable {
     /// The raw text after `"/name "` — whatever the user typed, unparsed.
     public var arguments: String

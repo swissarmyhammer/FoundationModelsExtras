@@ -20,6 +20,17 @@ comments:
 
     Leaving task in `doing` per /implement workflow — ready for /review.
   timestamp: 2026-07-28T14:16:36.166059+00:00
+- actor: claude-code
+  id: 01kymhwpf7w4tgee722x5fkm6f
+  text: |-
+    Fixed the one open review finding: updated the `Invocation` doc comment in Sources/FoundationModelsExtras/SlashCommand.swift to say "The context an `.action` or `.rendered` body runs with..." (was `.action`-only). Scanned the rest of the file for the same staleness class — no other doc comment there mentions `.action` in a way that omits `.rendered`; the `.action` case's own comment describes only that case's semantics, which is fine. Checked repo-wide for other doc comments on the shared `Invocation` type — none found outside SlashCommand.swift (plan.md is historical, Examples/ demo comments are local to `.action`, not about `Invocation`).
+
+    Checkbox marked `- [x]` in the description's Review Findings section.
+
+    Verification: `swift build` clean (no warnings/errors), `swift test` 229/229 passing. really-done double-check agent returned PASS with no findings.
+
+    Leaving task in `doing` for `/review` to pick up.
+  timestamp: 2026-07-28T14:26:06.439040+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'SlashCommand.Body: a provider-rendered prompt case'
@@ -86,3 +97,7 @@ Should `.prompt(template:)` stay? Once `.rendered` exists, a conformer could pre
 ## Workflow
 
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-28 09:19)
+
+- [x] `Sources/FoundationModelsExtras/SlashCommand.swift:65` — The doc comment for `Invocation` states it is 'The context a `.action` body runs with', but `Invocation` is now also used by the newly added `.rendered` case, making the documentation incomplete and misleading. Update the documentation to reflect both use cases: 'The context an `.action` or `.rendered` body runs with: the arguments the user typed after the command's name, and the session's working directory.'.
