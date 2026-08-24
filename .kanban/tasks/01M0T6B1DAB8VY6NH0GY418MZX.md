@@ -43,8 +43,24 @@ comments:
     - evidence: 3 files — /Users/wballard/github/swissarmyhammer/FoundationModelsExtras/Sources/FoundationModelsExtras/ProcessRegistry.swift (new), /Users/wballard/github/swissarmyhammer/FoundationModelsExtras/Tests/FoundationModelsExtrasTests/ProcessRegistryTests.swift (new), /Users/wballard/github/swissarmyhammer/FoundationModelsExtras/plan.md (§5 record). `swift test` → 219 tests in 20 suites passed, 0 failures, 0 warnings. All 12 checkboxes on the card are checked against the diff.
     - next: /review
   timestamp: 2026-08-24T16:32:58.104369+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m0ta1a2vkh8ngqtna7gb2kn7
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 090e38a) — 0 findings, 0 confirmed, 0 refuted, 7 validator passes attempted, 0 failed. 2 files reviewed; 2 `.kanban/` files excluded by `.reviewignore`.
+    - next: task moved to `done`. No findings section appended.
+  timestamp: 2026-08-24T16:35:39.227150+00:00
+- actor: claude-code
+  id: 01m0ta1p1vcqtxk77x082nczjq
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files: Sources/FoundationModelsExtras/ProcessRegistry.swift, Tests/FoundationModelsExtrasTests/ProcessRegistryTests.swift, plan.md
+    - test: green — swift build 0 warnings, swift test 219 passed in 20 suites, 0 failed, 0 skipped
+    - commit: 090e38a
+    - review: clean — 0 findings, 2 files reviewed in HEAD~1..HEAD
+  timestamp: 2026-08-24T16:35:51.483812+00:00
+position_column: done
+position_ordinal: '9780'
 title: 'Add public ProcessRegistry: one home for the family''s process-group backstop'
 ---
 ## What
