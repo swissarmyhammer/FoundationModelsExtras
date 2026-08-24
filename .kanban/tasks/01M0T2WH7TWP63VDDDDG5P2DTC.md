@@ -43,8 +43,24 @@ comments:
     - evidence: 5 files — Package.swift, Tests/FoundationModelsExtrasTests/DocCoverageTests.swift (deleted), Tests/FoundationModelsExtrasTests/DocCoverageScannerTests.swift (deleted), Tests/FoundationModelsExtrasTests/PackageRootValidation.swift, Tests/FoundationModelsExtrasTests/ExtrasDemoIntegrationTests.swift. 12 insertions, 464 deletions. `swift build` exit 0 with zero warnings; `swift test` 214/214 pass in 19 suites.
     - next: /review
   timestamp: 2026-08-24T14:54:45.248253+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m0t4dvjgf9kjj16fkdt6rgvp
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` — 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed. 5 files reviewed; 2 `.kanban/` files excluded by `.reviewignore`.
+    - next: task moved to `done`. No open findings.
+  timestamp: 2026-08-24T14:57:38.896832+00:00
+- actor: claude-code
+  id: 01m0t4eax4jrp8dmpwcmcxt444
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files, 12 insertions, 464 deletions
+    - test: green — swift build 0 warnings, swift test 214 passed in 19 suites, 0 failed, 0 skipped
+    - commit: 5195da4
+    - review: clean — 0 findings, 5 files reviewed in HEAD~1..HEAD
+  timestamp: 2026-08-24T14:57:54.596132+00:00
+position_column: done
+position_ordinal: '9680'
 title: Remove doc-coverage lint tests, drop swift-syntax, target macOS 27
 ---
 ## What
