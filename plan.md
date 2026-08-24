@@ -224,7 +224,15 @@ public enum FrontmatterDocument {
   trees, consumers decode `Codable`.)
 - **Scope fights its way in.** The bar for a new type is a demonstrated
   consumer on both sides of the diamond. Deliberately deferred: status
-  contributions, config-schema fragments.
+  contributions, config-schema fragments. (`ProcessRegistry` fought its way in
+  2026-08-24 — four packages already carried the same lock-based pid registry,
+  the same parameterized `sweep(_:)`, and the same `atexit`-installed
+  normal-exit-only sweep: FoundationModelsShelltool, FoundationModelsMCP,
+  FoundationModelsACPClient and FoundationModelsMultitool. Every copy is
+  `internal`, so no package could use another's, and a correction to the kill
+  path had to land in four files. The dependency budget above does not move:
+  the type needs Foundation and `Synchronization`, and `Synchronization` is a
+  standard-library module, not a package.)
 - **Coordination point.** Changes ripple to all conformers and adapters at
   once — additive evolution, breaking changes are a family event.
 - **Trust boundary documented at the type.** `.action` bodies require linked
