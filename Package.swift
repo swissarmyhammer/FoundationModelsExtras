@@ -8,12 +8,11 @@ let package = Package(
     // macOS only, per plan.md: the family's leaf package targets macOS 27+ /
     // Apple Silicon exclusively — no iOS surface is planned for any of the
     // three pillars (slash commands, `DotfolderStack`, Stencil templating).
-    // `.v27` requires `PackageDescription` 6.4 (this manifest declares tools
-    // 6.2, matching the sibling packages), so this falls back to `.v26` —
-    // same as `FoundationModelsShelltool`'s `Package.swift` — pending a
-    // tools-version bump.
+    // The `.v27` enumeration case needs `PackageDescription` 6.4, and this
+    // manifest declares tools 6.2, so the deployment target is written in the
+    // string form, which states macOS 27 under tools 6.2.
     platforms: [
-        .macOS(.v26),
+        .macOS("27.0"),
     ],
     products: [
         // The single library product: slash-command vocabulary,
@@ -37,14 +36,6 @@ let package = Package(
         // target, not an external package). Pinned `exact:`, matching
         // Stencil's own pinning above.
         .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2"),
-        // SwiftSyntax powers `DocCoverageTests`' scanner, which parses every
-        // source file in `Sources/FoundationModelsExtras` and fails the build
-        // on any undocumented `public` declaration. Test-only tooling —
-        // declared here so the test target can link `SwiftSyntax`/
-        // `SwiftParser` directly — so it does not count against the plan.md
-        // §5 runtime dependency budget (Foundation + Stencil). Mirrors the
-        // family's doc-coverage convention (see `FoundationModelsShelltool`).
-        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "604.0.0-latest"),
         // The thin ArgumentParser CLI driver for `Examples/ExtrasDemo`'s
         // `extras-demo` executable (plan.md §7). Declared here so the
         // example target can link `ArgumentParser` directly, but only that
@@ -67,8 +58,8 @@ let package = Package(
         // all three pillars — a thin ArgumentParser executable with one
         // subcommand per pillar, run against a checked-in fixture tree so no
         // demo ever touches the real home directory. Kept as a target of the
-        // root package (not a nested package), mirroring
-        // `FoundationModelsShelltool`'s `shell-demo` example layout.
+        // root package rather than a nested package, so one `swift build`
+        // builds the demo beside the library it demonstrates.
         .executableTarget(
             name: "extras-demo",
             dependencies: [
@@ -90,13 +81,8 @@ let package = Package(
                 // first, so the binary is present next to the test bundle
                 // for the subprocess to launch — no code from the executable
                 // is imported (its `@main` entry point stays the process's,
-                // not the test's). Mirrors `FoundationModelsShelltool`'s
-                // `ShellToolTests` -> `shell-demo` dependency.
+                // not the test's).
                 "extras-demo",
-                // Parse `Sources/FoundationModelsExtras` in `DocCoverageTests`
-                // to fail the build on any undocumented `public` declaration.
-                .product(name: "SwiftSyntax", package: "swift-syntax"),
-                .product(name: "SwiftParser", package: "swift-syntax"),
             ],
             resources: [
                 // `CorpusGoldenTests` reads these directly off disk via

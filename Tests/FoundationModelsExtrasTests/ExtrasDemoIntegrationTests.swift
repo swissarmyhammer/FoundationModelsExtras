@@ -1,7 +1,6 @@
 // `ExtrasDemoIntegrationTests` — the living contract test for
 // `Examples/ExtrasDemo` (plan.md §7): launches the built `extras-demo`
-// executable as a subprocess (mirrors `FoundationModelsShelltool`'s
-// `ExampleIntegrationTests`) and asserts on its stdout/exit codes for every
+// executable as a subprocess and asserts on its stdout/exit codes for every
 // acceptance criterion on the `Examples/ExtrasDemo` kanban task.
 //
 // Deliberately a plain `import FoundationModelsExtras` with no `@testable`:
@@ -19,8 +18,6 @@ import Testing
   ///
   /// SwiftPM places both under `.build/<config>/`. Declared as a dependency
   /// of the test target, so `swift test` builds it first.
-  ///
-  /// Mirrors `FoundationModelsShelltool`'s `ExampleIntegrationTests.shellDemoBinary()`.
   private static func extrasDemoBinary() throws -> URL {
     var candidates: [URL] = []
     for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
