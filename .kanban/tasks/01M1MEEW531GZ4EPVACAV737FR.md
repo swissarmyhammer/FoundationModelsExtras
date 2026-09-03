@@ -25,8 +25,25 @@ comments:
     - evidence: 3 files — Sources/FoundationModelsExtras/Doctor/HealthCheck.swift, Sources/FoundationModelsExtras/Doctor/Doctorable.swift, Tests/FoundationModelsExtrasTests/DoctorableTests.swift. `swift build` complete, 0 warnings. `swift test --filter Doctor` = 10 tests in 1 suite, all pass. `swift test` = 229 tests in 21 suites, all pass, 0 warnings.
     - next: /review
   timestamp: 2026-09-03T20:39:57.753223+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m1mgabhvzcwpef0nsbrrjg3w
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit b044d69) — 0 findings, 0 confirmed, 0 refuted, 7 validator passes attempted, 0 failed. 3 files reviewed; 2 `.kanban/` files excluded by `.reviewignore`.
+    - next: task moved to `done`. No findings to record.
+  timestamp: 2026-09-03T20:45:42.331394+00:00
+- actor: claude-code
+  id: 01m1mgarjn3v6t83q2n3rmjw4c
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files (Doctor/HealthCheck.swift, Doctor/Doctorable.swift, DoctorableTests.swift)
+    - test: green — `swift package clean && swift test`, 229 tests, 21 suites, 0 failed, 0 warnings
+    - commit: b044d69 feat(doctor): add HealthStatus, HealthCheck, and Doctorable protocol
+    - review: clean — 0 findings, 7 validator passes
+    - next: task is in done; loop moves to ^y0e0057
+  timestamp: 2026-09-03T20:45:55.669100+00:00
+position_column: done
+position_ordinal: '9880'
 title: Add HealthStatus, HealthCheck, and the Doctorable protocol
 ---
 ## What
