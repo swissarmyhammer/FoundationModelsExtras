@@ -1,13 +1,14 @@
 // `ExtrasDemoIntegrationTests` — the living contract test for
 // `Examples/ExtrasDemo` (plan.md §7): launches the built `extras-demo`
-// executable as a subprocess and asserts on its stdout/exit codes for every
-// acceptance criterion on the `Examples/ExtrasDemo` kanban task.
+// executable as a subprocess and asserts on its output streams and exit codes
+// for every acceptance criterion on the `Examples/ExtrasDemo` kanban task.
 //
 // Deliberately a plain `import FoundationModelsExtras` with no `@testable`:
 // the point of this suite is to prove the example's own construction path —
 // a consumer with only the public surface — round-trips end to end.
 
 import Foundation
+import Synchronization
 import Testing
 
 @Suite struct ExtrasDemoIntegrationTests {
@@ -52,17 +53,97 @@ import Testing
 
   // MARK: - Subprocess harness
 
-  /// The result of running `extras-demo`: its combined output and exit code.
+  /// The result of running `extras-demo`: its two output streams, kept
+  /// apart, and its exit code.
   private struct RunResult {
-    let output: String
+    /// Everything the run wrote to its standard output.
+    let stdout: String
+    /// Everything the run wrote to its standard error.
+    let stderr: String
+    /// The status the run exited with.
     let exitCode: Int32
+
+    /// Both streams joined, standard output first — what a test that does
+    /// not care which stream carried a line asserts against.
+    var output: String { stdout + stderr }
+  }
+
+  /// The bytes one stream drain collects, behind a lock so the drain's own
+  /// queue and the waiting caller never touch them at the same time.
+  ///
+  /// Lock-based rather than an `actor` for the same reason
+  /// `FoundationModelsExtras.ProcessRegistry` is: every caller here is
+  /// synchronous and cannot `await`. `readChunk(from:endingWith:)` runs
+  /// inside a `readabilityHandler`, and `data` is read by `run(arguments:)`
+  /// after a `DispatchGroup.wait()`. An `actor` would force both to `await`,
+  /// and so would force `run(arguments:)` to become `async`.
+  ///
+  /// A `final class` around the `Mutex` because `Mutex` is non-copyable, so
+  /// it cannot itself be captured by the escaping read handler.
+  private final class StreamBuffer: Sendable {
+    /// The bytes read so far.
+    private let bytes = Mutex<Data>(Data())
+
+    /// Reads one chunk from `handle`, and closes the drain out when that
+    /// read signals end of file.
+    ///
+    /// An empty read is end of file. Clearing the handler there both stops
+    /// the dispatch source and balances the `enter` that started the drain.
+    ///
+    /// - Parameters:
+    ///   - handle: The read end being drained, as the handler supplies it.
+    ///   - group: The group that tracks this drain to its end of file.
+    func readChunk(from handle: FileHandle, endingWith group: DispatchGroup) {
+      let chunk = handle.availableData
+      guard !chunk.isEmpty else {
+        handle.readabilityHandler = nil
+        group.leave()
+        return
+      }
+      bytes.withLock { $0.append(chunk) }
+    }
+
+    /// A snapshot of the bytes collected so far.
+    var data: Data {
+      bytes.withLock { $0 }
+    }
+  }
+
+  /// Starts draining `pipe` into `buffer`, and registers that drain with
+  /// `group` so a caller can wait for its end of file.
+  ///
+  /// Reading through `readabilityHandler` puts the drain on Dispatch's own
+  /// queue instead of the calling thread, which is what lets the two streams
+  /// drain at the same time.
+  ///
+  /// - Parameters:
+  ///   - pipe: The pipe whose read end gets drained.
+  ///   - buffer: Where the bytes are collected.
+  ///   - group: The group that tracks this drain to its end of file.
+  private static func drain(
+    _ pipe: Pipe, into buffer: StreamBuffer, notifying group: DispatchGroup
+  ) {
+    group.enter()
+    pipe.fileHandleForReading.readabilityHandler = { handle in
+      buffer.readChunk(from: handle, endingWith: group)
+    }
   }
 
   /// Launches the built `extras-demo` executable with `arguments`.
   ///
   /// Runs in a fresh temp working directory (so the run cannot depend on
   /// the process's cwd, and can never write into the repo), and collects
-  /// its combined output and exit code.
+  /// each output stream and the exit code.
+  ///
+  /// **The two pipes must drain at the same time — do not make this
+  /// sequential again.** A pipe holds about 64 KB before it blocks its
+  /// writer. Reading standard output to its end first, and standard error
+  /// only after that, deadlocks the moment the run writes more than that
+  /// buffer to standard error: the child blocks on a full standard-error
+  /// pipe and never closes standard output, so the read that is under way
+  /// never reaches end of file and `waitUntilExit()` is never called. Both
+  /// drains therefore start before the wait, each on its own Dispatch
+  /// queue, and the wait is on the group that tracks both.
   private static func run(
     arguments: [String],
     environment: [String: String] = ProcessInfo.processInfo.environment
@@ -79,15 +160,24 @@ import Testing
     process.environment = environment
 
     let outputPipe = Pipe()
+    let errorPipe = Pipe()
     process.standardOutput = outputPipe
-    process.standardError = outputPipe
+    process.standardError = errorPipe
 
     try process.run()
-    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+
+    let outputBuffer = StreamBuffer()
+    let errorBuffer = StreamBuffer()
+    let drained = DispatchGroup()
+    drain(outputPipe, into: outputBuffer, notifying: drained)
+    drain(errorPipe, into: errorBuffer, notifying: drained)
+    drained.wait()
     process.waitUntilExit()
 
     return RunResult(
-      output: String(decoding: data, as: UTF8.self), exitCode: process.terminationStatus)
+      stdout: String(decoding: outputBuffer.data, as: UTF8.self),
+      stderr: String(decoding: errorBuffer.data, as: UTF8.self),
+      exitCode: process.terminationStatus)
   }
 
   // MARK: - `stack`: source tracking and the EXTRASDEMO_DEFAULTS_DIR override
@@ -218,7 +308,12 @@ import Testing
     let result = try Self.run(arguments: ["ignore", "--file", missingFixture, "a.log"])
 
     #expect(result.exitCode != 0)
-    #expect(result.output.contains(missingFixture))
+    // The diagnostic belongs on standard error, and on standard error
+    // alone — the stream a caller redirects away from the run's real
+    // answer. Pinning it to the exact stream is what the two-pipe harness
+    // makes possible.
+    #expect(result.stderr.contains(missingFixture))
+    #expect(!result.stdout.contains(missingFixture))
   }
 
   // MARK: - `config`: LayeredYAMLDocument merge across the fixture stack
@@ -245,5 +340,23 @@ import Testing
     // rule runs per layer, not once over the merged tree.
     let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
     #expect(result.output.contains("token: \(home) ← user"))
+  }
+
+  // MARK: - The harness keeps the two streams apart
+
+  @Test func stackReportsOnStandardOutputWithNoPartOfItOnStandardError() throws {
+    let result = try Self.run(arguments: ["stack"])
+
+    #expect(result.exitCode == 0)
+    #expect(!result.stdout.isEmpty)
+    #expect(result.stdout.contains("config.yaml -> project"))
+
+    // Every line of the report reaches standard output alone. None of them
+    // also shows up on standard error — which is what a test asserting on
+    // one exact stream depends on, and what the single-pipe harness could
+    // never prove.
+    for line in result.stdout.split(separator: "\n") {
+      #expect(!result.stderr.contains(line))
+    }
   }
 }
