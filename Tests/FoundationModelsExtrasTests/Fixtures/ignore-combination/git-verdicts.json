@@ -1,0 +1,31 @@
+{
+  "recordedOn" : "2026-09-03",
+  "recordedWith" : "git version 2.55.0",
+  "verdicts" : [
+    {
+      "isIgnored" : true,
+      "line" : 2,
+      "path" : "build\/x.o",
+      "pattern" : "build\/",
+      "source" : ".git\/info\/exclude"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 1,
+      "path" : "debug.log",
+      "pattern" : "*.log",
+      "source" : ".git\/info\/exclude"
+    },
+    {
+      "isIgnored" : false,
+      "line" : 1,
+      "path" : "important.log",
+      "pattern" : "!important.log",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "readme.md"
+    }
+  ]
+}

@@ -30,10 +30,27 @@ comments:
     - evidence: 1 file — /Users/wballard/github/swissarmyhammer/FoundationModelsExtras/README.md. New `## Health checks: Doctorable` section before `## Install`, naming `Doctorable`, `HealthCheck`, `DoctorRunner`, `DoctorReport` and `PlainTextDoctorRenderer`, with the 0/1/5 exit-code table, the stderr/stdout split of doctor-plan.md §6, and `swift run extras-demo doctor --scenario mixed`. Verified: that command exits `1`; the README Swift block builds and runs (`readme doctor block ok`); `swift build` exit 0; `swift test` 258 tests in 23 suites passed, 0 failures, 0 compiler warnings.
     - next: /review
   timestamp: 2026-09-03T22:01:01.069603+00:00
+- actor: claude-code
+  id: 01m1mmst2t10rjsnta8gvd2pva
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (dcbeda0) — 0 findings, 0 confirmed, 0 refuted. 4 `.kanban/` files excluded by `.reviewignore`; `README.md` matched no validator.
+    - next: task moved to `done`.
+  timestamp: 2026-09-03T22:04:03.034692+00:00
+- actor: claude-code
+  id: 01m1mmt8rg9kzpeqfrxqmvyqbg
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 1 file (README.md); the Swift block was compiled and run in a scratch package, not eyeballed; `swift run extras-demo doctor --scenario mixed` exits 1 as the section states
+    - test: green — `swift package clean && swift test`, 258 tests, 23 suites, 0 failed, 0 warnings
+    - commit: dcbeda0 docs(readme): document Doctorable health checks
+    - review: clean — 0 findings (README matches no validator, so no code analysis ran on this range)
+    - next: task is in done; the six-task batch is complete
+  timestamp: 2026-09-03T22:04:18.064605+00:00
 depends_on:
 - 01M1MEGMGC421AP2VD3H7W4N8R
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: 9d80
 title: Document Doctorable in README
 ---
 ## What

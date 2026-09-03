@@ -1,6 +1,11 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m1mncy90yqsjc19014zhnrrp
+  text: The user states no preference on the exit codes (2026-09-03). The codes stay as built — 0, 1, 5 — and no doc comment repeats the claim of doctor-plan.md §5 about a usage-exit code. Archived without work.
+  timestamp: 2026-09-03T22:14:29.920203+00:00
 position_column: todo
 position_ordinal: '8680'
 title: Correct the wrong usage-exit-code claim in doctor-plan.md §5

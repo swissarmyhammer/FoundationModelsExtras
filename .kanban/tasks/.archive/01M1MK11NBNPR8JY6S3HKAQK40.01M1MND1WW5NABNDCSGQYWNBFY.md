@@ -1,6 +1,11 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m1mncvwtfhj8yrqtp95s7118
+  text: Superseded by ^ps8ytcs, which deletes `GitParityHarness` in full. There is no sequential read left to correct when the harness does not exist. Archived, not done.
+  timestamp: 2026-09-03T22:14:27.482214+00:00
 position_column: todo
 position_ordinal: '8780'
 title: Drain both pipes at the same time in IgnoreGitParityTests' git harness

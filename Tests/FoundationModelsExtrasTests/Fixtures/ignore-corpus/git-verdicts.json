@@ -1,0 +1,244 @@
+{
+  "recordedOn" : "2026-09-03",
+  "recordedWith" : "git version 2.55.0",
+  "verdicts" : [
+    {
+      "isIgnored" : true,
+      "line" : 9,
+      "path" : "!bangfile.txt",
+      "pattern" : "\\!bangfile.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 6,
+      "path" : "#hashfile.txt",
+      "pattern" : "\\#hashfile.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "README.md"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "a\/"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 37,
+      "path" : "a\/b\/deep.tmp",
+      "pattern" : "**\/deep.tmp",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "abracket.txt"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 31,
+      "path" : "acaret.txt",
+      "pattern" : "[^x-z]caret.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 19,
+      "path" : "anchored.txt",
+      "pattern" : "\/anchored.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 47,
+      "path" : "blocked\/",
+      "pattern" : "blocked\/",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 47,
+      "path" : "blocked\/other.txt",
+      "pattern" : "blocked\/",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 47,
+      "path" : "blocked\/reachable.txt",
+      "pattern" : "blocked\/",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 22,
+      "path" : "build\/",
+      "pattern" : "build\/",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 22,
+      "path" : "build\/output.bin",
+      "pattern" : "build\/",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 37,
+      "path" : "deep.tmp",
+      "pattern" : "**\/deep.tmp",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "deep\/nested\/"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 15,
+      "path" : "deep\/nested\/other.log",
+      "pattern" : "*.log",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "digit10.txt"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 34,
+      "path" : "digit5.txt",
+      "pattern" : "digit[[:digit:]].txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "digitA.txt"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "escapedspace"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 12,
+      "path" : "escapedspace ",
+      "pattern" : "escapedspace\\ ",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 25,
+      "path" : "fileA.txt",
+      "pattern" : "file?.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "fileAB.txt"
+    },
+    {
+      "isIgnored" : false,
+      "line" : 16,
+      "path" : "keep.log",
+      "pattern" : "!keep.log",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "lifted\/other.txt"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 54,
+      "path" : "lifted\/thing.scratch",
+      "pattern" : "*.scratch",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 43,
+      "path" : "logs\/a.txt",
+      "pattern" : "logs\/**",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 40,
+      "path" : "mid\/inner.txt",
+      "pattern" : "mid\/**\/inner.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 40,
+      "path" : "mid\/x\/inner.txt",
+      "pattern" : "mid\/**\/inner.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 40,
+      "path" : "mid\/x\/y\/inner.txt",
+      "pattern" : "mid\/**\/inner.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "line" : 16,
+      "path" : "nested\/keep.log",
+      "pattern" : "!keep.log",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "notbuild.txt"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 15,
+      "path" : "other.log",
+      "pattern" : "*.log",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "src\/main.swift"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "sub\/"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "sub\/anchored.txt"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 22,
+      "path" : "sub\/build\/",
+      "pattern" : "build\/",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 22,
+      "path" : "sub\/build\/x.bin",
+      "pattern" : "build\/",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : true,
+      "line" : 28,
+      "path" : "xbracket.txt",
+      "pattern" : "[!a-c]bracket.txt",
+      "source" : ".gitignore"
+    },
+    {
+      "isIgnored" : false,
+      "path" : "xcaret.txt"
+    }
+  ]
+}
