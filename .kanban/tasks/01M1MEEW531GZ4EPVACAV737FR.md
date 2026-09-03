@@ -1,7 +1,31 @@
 ---
 assignees:
 - claude-code
-position_column: todo
+comments:
+- actor: claude-code
+  id: 01m1mfzp8yw48dh1tw541n95j1
+  text: |-
+    Research notes, for the next agent.
+
+    - `doctor-plan.md` §4 states the surface, §2 the fix rule, §7 the ownership split, and §8 the test rows. The card carries all of them.
+    - Style: the package is mixed. `OperationEvents/` (the sibling directory of the new `Doctor/`) is 4-space; `ProcessRegistry.swift` is 2-space. The three new files use 4-space, which is the plurality across `Sources/` and `Tests/`.
+    - The synthesized `Codable` conformance does write an absent key, not `null`, for a `nil` optional. `swift test` proves it: the encoded `.ok` object holds exactly `name`, `status`, `message` and `category`.
+    - Swift Testing selects on the type name, not the suite display name, so `swift test --filter Doctor` still finds `DoctorableTests`.
+
+    Local gates run against the three new files before review, with the same rule sets and options the tool rules state:
+    - swiftlint (`missing_docs`, `no_magic_numbers`, the force rules, `function_body_length`, `closure_body_length`): 0 findings, exit 0.
+    - swiftformat `--lint` (the 27-rule idioms roster): 0 findings.
+
+    One deviation from the card's wording, and why. swiftformat's `redundantSwiftTestingSuite` rule reports a bare `@Suite` attribute: "Remove redundant @Suite attribute with no arguments." The card asks for a swift-testing `@Suite`. Both hold together with a display name, so the suite is written `@Suite("Doctor health-check vocabulary") struct DoctorableTests`. The attribute the card names stays, and the tool rule is silent. `ProcessRegistryTests.swift` carries the bare form and was not touched: it is code that already existed.
+  timestamp: 2026-09-03T20:39:52.862230+00:00
+- actor: claude-code
+  id: 01m1mfzv1swv1exe048n0njay4
+  text: |-
+    ### implement — changed
+    - evidence: 3 files — Sources/FoundationModelsExtras/Doctor/HealthCheck.swift, Sources/FoundationModelsExtras/Doctor/Doctorable.swift, Tests/FoundationModelsExtrasTests/DoctorableTests.swift. `swift build` complete, 0 warnings. `swift test --filter Doctor` = 10 tests in 1 suite, all pass. `swift test` = 229 tests in 21 suites, all pass, 0 warnings.
+    - next: /review
+  timestamp: 2026-09-03T20:39:57.753223+00:00
+position_column: doing
 position_ordinal: '80'
 title: Add HealthStatus, HealthCheck, and the Doctorable protocol
 ---
