@@ -81,10 +81,27 @@ comments:
     - evidence: 3 files — /Users/wballard/github/swissarmyhammer/FoundationModelsExtras/Sources/FoundationModelsExtras/Doctor/DoctorReport.swift, /Users/wballard/github/swissarmyhammer/FoundationModelsExtras/Sources/FoundationModelsExtras/Doctor/DoctorRunner.swift, /Users/wballard/github/swissarmyhammer/FoundationModelsExtras/Tests/FoundationModelsExtrasTests/DoctorRunnerTests.swift. `swift build` clean, no warning. `swift test --filter Doctor`: 19 tests in 2 suites passed in 0.21 s, run ended. `swift test`: 238 + 94 + 44 + 34 + 22 passed, 0 failures, 0 warnings. swiftlint and swiftformat clean on all 3 files.
     - next: `/review`
   timestamp: 2026-09-03T21:03:46.823473+00:00
+- actor: claude-code
+  id: 01m1mhnhnyt708d1e72pvz6ypa
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (checkpoint aae3b89) — 0 findings, 0 confirmed, 0 refuted, 7 validators attempted, 0 failed. 3 files reviewed: Sources/FoundationModelsExtras/Doctor/DoctorReport.swift, Sources/FoundationModelsExtras/Doctor/DoctorRunner.swift, Tests/FoundationModelsExtrasTests/DoctorRunnerTests.swift. 6 .kanban/ files excluded by .reviewignore.
+    - next: no findings to record. Task moved from review to done.
+  timestamp: 2026-09-03T21:09:17.630947+00:00
+- actor: claude-code
+  id: 01m1mhnxs5tbnbv3hh1x5m8pmr
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files (Doctor/DoctorReport.swift, Doctor/DoctorRunner.swift, DoctorRunnerTests.swift); concurrency and ordering tests each proved against a deliberately broken runner
+    - test: green — `swift test`, 238 tests, 22 suites, 0 failed, 0 warnings, no hang
+    - commit: aae3b89 feat(doctor): add DoctorRunner and DoctorReport with concurrent checks
+    - review: clean — 0 findings, 7 validator passes
+    - next: task is in done; loop moves to ^s97bkxf
+  timestamp: 2026-09-03T21:09:30.021234+00:00
 depends_on:
 - 01M1MEEW531GZ4EPVACAV737FR
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '9980'
 title: 'Add DoctorRunner and DoctorReport: concurrent run, stable order, exit codes'
 ---
 ## What
