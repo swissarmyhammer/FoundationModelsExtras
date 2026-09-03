@@ -41,11 +41,28 @@ comments:
     - evidence: 3 files — Examples/ExtrasDemo/Sources/extras-demo/DoctorCommand.swift (new), Examples/ExtrasDemo/Sources/extras-demo/main.swift, Tests/FoundationModelsExtrasTests/ExtrasDemoIntegrationTests.swift. `swift build --build-tests` 0 warnings; `swift test --filter ExtrasDemoIntegrationTests` 19/19 passed; `swift test` 258 tests in 23 suites passed.
     - next: ready for /review
   timestamp: 2026-09-03T21:51:30.489110+00:00
+- actor: claude-code
+  id: 01m1mmeqxqzfrqew7fky9bfy5f
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit e814610) — 0 findings, 0 confirmed, 0 refuted, 7 validator passes attempted, 0 failed. 3 files reviewed; 4 `.kanban/` files excluded by `.reviewignore`.
+    - next: task moved to `done`. No findings to record.
+  timestamp: 2026-09-03T21:58:00.375058+00:00
+- actor: claude-code
+  id: 01m1mmf73zyh673sdeb1h3jxnm
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files (DoctorCommand.swift, main.swift, ExtrasDemoIntegrationTests.swift); README split out to ^2gm8kpg and left untouched
+    - test: green — `swift test`, 452 tests across 5 targets, 0 failed, 0 warnings, 0 skipped
+    - commit: e814610 feat(extras-demo): add doctor subcommand for the Doctorable health-check surface
+    - review: clean — 0 findings, 7 validator passes
+    - next: task is in done; loop moves to ^2gm8kpg, the last of the six
+  timestamp: 2026-09-03T21:58:15.935360+00:00
 depends_on:
 - 01M1MEG1C1X1NA0Y59XS97BKXF
 - 01M1MEVHZNW7ZF0EQVFVXJ3X17
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: 9c80
 title: extras-demo doctor subcommand + integration test
 ---
 ## What

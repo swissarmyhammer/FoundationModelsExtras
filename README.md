@@ -62,6 +62,59 @@ This exact sequence of calls is mirrored in
 `Tests/FoundationModelsExtrasTests/IgnoreProcessorTests.swift`, kept green by
 `swift test --filter IgnoreProcessorTests`.
 
+## Health checks: `Doctorable`
+
+A CLI needs one command that answers one question: will this configuration
+work? `Doctorable` is how each component answers for itself, because it is
+the only part that knows its own subject. A component reports a list of
+named `HealthCheck` findings, each with a status, a message, and -- when
+something is wrong -- the command that fixes it. `DoctorRunner` asks every
+applicable component at the same time and gathers the findings into one
+`DoctorReport`, in registration order, so two runs of the same
+configuration read the same way:
+
+```swift
+struct TranscriptStore: Doctorable {
+    let doctorName = "transcripts"
+    let doctorCategory = "storage"
+
+    func runHealthChecks() async -> [HealthCheck] {
+        [
+            .error(
+                name: "transcripts directory",
+                message: "~/.myagent/transcripts is not there",
+                fix: "myagent init",
+                category: doctorCategory)
+        ]
+    }
+}
+
+let runner = DoctorRunner(components: [TranscriptStore()])
+let report = await runner.run()
+// report.worstStatus == .error
+// report.exitCode == 1
+```
+
+`report.exitCode` is what a script reads:
+
+| Code | Meaning |
+|---|---|
+| 0 | Every check is `.ok` |
+| 1 | At least one `.error` |
+| 5 | At least one `.warning`, and no `.error` |
+
+The two outputs go to different places: `PlainTextDoctorRenderer` writes
+the table to stderr, because a report is a diagnostic, and `--json` writes
+`DoctorReport.jsonData()` to stdout, because a script reads it. This
+package declares no terminal dependency -- it is a library that also runs
+inside a Mac app -- so a CLI that wants a decorated table renders the
+`DoctorReport` itself.
+
+Run the whole surface, exit code included, with
+`swift run extras-demo doctor --scenario mixed`. That scenario reports one
+finding of each status, so its worst finding is an `.error` and it exits
+`1`.
+
 ## Install
 
 Add the package to `Package.swift`:
