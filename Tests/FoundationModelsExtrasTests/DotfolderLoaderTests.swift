@@ -1,3 +1,4 @@
+import FixtureSupport
 import Foundation
 import Testing
 
@@ -21,7 +22,7 @@ import Testing
         .appendingPathComponent("DotfolderLoaderTests-\(UUID().uuidString)", isDirectory: true)
       try! FileManager.default.createDirectory(
         at: uncanonicalRoot, withIntermediateDirectories: true)
-      let root = canonicalize(uncanonicalRoot)
+      let root = uncanonicalRoot.canonicalDirectory
       workingDirectory = root.appendingPathComponent("workspace", isDirectory: true)
       defaultsDirectory = root.appendingPathComponent("defaults", isDirectory: true)
       userDirectory = root.appendingPathComponent("user", isDirectory: true)

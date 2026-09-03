@@ -1,3 +1,4 @@
+import FixtureSupport
 import Foundation
 import Testing
 
@@ -32,8 +33,8 @@ import Testing
   }
 
   @Test func fileInitLoadsRulesFromDisk() throws {
-    let directory = canonicalize(
-      FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString).canonicalDirectory
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -47,8 +48,8 @@ import Testing
   }
 
   @Test func fileInitUsesFileNameAsSourceForAnyFileName() throws {
-    let directory = canonicalize(
-      FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString).canonicalDirectory
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -325,8 +326,8 @@ import Testing
   /// exact sequence of API calls the README's snippet shows, so the docs
   /// can't silently rot.
   @Test func readmeGitignoreAndReviewignoreCombinationExample() throws {
-    let directory = canonicalize(
-      FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString).canonicalDirectory
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 

@@ -1,3 +1,4 @@
+import FixtureSupport
 import Foundation
 import Testing
 
@@ -26,7 +27,7 @@ import Testing
         .appendingPathComponent("LayeredYAMLDocumentTests-\(UUID().uuidString)", isDirectory: true)
       try! FileManager.default.createDirectory(
         at: uncanonicalRoot, withIntermediateDirectories: true)
-      root = canonicalize(uncanonicalRoot)
+      root = uncanonicalRoot.canonicalDirectory
       workingDirectory = root.appendingPathComponent("workspace", isDirectory: true)
       defaultsDirectory = root.appendingPathComponent("defaults", isDirectory: true)
       userDirectory = root.appendingPathComponent("user", isDirectory: true)

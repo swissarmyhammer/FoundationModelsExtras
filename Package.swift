@@ -81,6 +81,12 @@ let package = Package(
             name: "FoundationModelsExtrasTests",
             dependencies: [
                 "FoundationModelsExtras",
+                // The ignore-parity suites read the checked-in fixtures and
+                // the recorded `git check-ignore` snapshots through this
+                // module, which `record-git-parity-snapshots` writes them
+                // with. One module owns the fixture format, so the test and
+                // the recorder cannot drift.
+                "FixtureSupport",
                 // The example integration tests invoke the built
                 // `extras-demo` executable as a subprocess. Declaring the
                 // executable as a dependency makes `swift test` build it
@@ -199,6 +205,29 @@ let package = Package(
         .target(
             name: "TestSupport",
             path: "Tests/TestSupport"
+        ),
+
+        // Fixture support shared between a test target and a tool, which is
+        // why it is a plain library target rather than test-target code: a
+        // SwiftPM executable cannot import a test target, and a standalone
+        // `swift <file>.swift` script cannot import any target at all. It
+        // owns the one copy of `URL.canonicalDirectory`, the checked-in
+        // fixture reader, the recorded git-verdict format, and the
+        // `IgnoreParitySuite` table that names every probe.
+        .target(
+            name: "FixtureSupport",
+            path: "Tests/FixtureSupport"
+        ),
+
+        // Records the ignore-parity snapshots the test suite compares
+        // against. Run it with `swift run record-git-parity-snapshots` after
+        // a git upgrade, and read the diff. It is the only place in the
+        // project that starts a `git` process for ignore parity; `swift test`
+        // starts none.
+        .executableTarget(
+            name: "record-git-parity-snapshots",
+            dependencies: ["FixtureSupport"],
+            path: "Scripts/RecordGitParitySnapshots"
         ),
     ]
 )

@@ -1,3 +1,4 @@
+import FixtureSupport
 import Foundation
 import Testing
 
@@ -32,7 +33,7 @@ import Testing
       // crosses but `URL.resolvingSymlinksInPath()` does not. Building
       // every fixture path from the canonical root keeps later URL
       // equality checks matching what directory enumeration returns.
-      root = canonicalize(uncanonicalRoot)
+      root = uncanonicalRoot.canonicalDirectory
       workingDirectory = root.appendingPathComponent("workspace", isDirectory: true)
       defaultsDirectory = root.appendingPathComponent("defaults", isDirectory: true)
       userDirectory = root.appendingPathComponent("user", isDirectory: true)

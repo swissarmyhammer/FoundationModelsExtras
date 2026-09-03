@@ -1,3 +1,4 @@
+import FixtureSupport
 import Foundation
 import Testing
 
@@ -12,8 +13,8 @@ import Testing
 /// `.git` repository above the fixture.
 @Suite struct AgentsMdTests {
   /// A throwaway directory tree, cleaned up when the OS reclaims the temp
-  /// directory. Canonicalized once at creation (see `TestSupport.swift`'s
-  /// `canonicalize`) so later URL/path equality checks match what
+  /// directory. Canonicalized once at creation (see `FixtureSupport`'s
+  /// `URL.canonicalDirectory`) so later URL/path equality checks match what
   /// `AgentsMd`'s own `realpath(3)`-based canonicalization returns.
   struct Fixture {
     let root: URL
@@ -23,7 +24,7 @@ import Testing
         .appendingPathComponent("AgentsMdTests-\(UUID().uuidString)", isDirectory: true)
       try! FileManager.default.createDirectory(
         at: uncanonicalRoot, withIntermediateDirectories: true)
-      root = canonicalize(uncanonicalRoot)
+      root = uncanonicalRoot.canonicalDirectory
     }
 
     /// Creates `relativePath` (and any intermediate directories) under the
