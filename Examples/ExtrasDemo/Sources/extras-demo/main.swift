@@ -11,7 +11,8 @@ import ArgumentParser
 /// `extras-demo` — one subcommand per pillar: `stack` (`DotfolderStack`),
 /// `render` (the Stencil-backed `TemplateEngine`), `commands` (the
 /// slash-command vocabulary), `agents` (`AgentsMd` discovery), and `config`
-/// (`LayeredYAMLDocument`) — plus `ignore` (`IgnoreProcessor`).
+/// (`LayeredYAMLDocument`) — plus `ignore` (`IgnoreProcessor`) and `doctor`
+/// (the `Doctorable` health-check surface).
 @main
 struct ExtrasDemo: AsyncParsableCommand {
     /// This tool's command-line configuration: its name, a short summary,
@@ -21,7 +22,7 @@ struct ExtrasDemo: AsyncParsableCommand {
         abstract: "Runnable contract test for FoundationModelsExtras' public surface.",
         subcommands: [
             StackCommand.self, RenderCommand.self, CommandsCommand.self, IgnoreCommand.self,
-            AgentsCommand.self, ConfigCommand.self,
+            AgentsCommand.self, ConfigCommand.self, DoctorCommand.self,
         ]
     )
 }

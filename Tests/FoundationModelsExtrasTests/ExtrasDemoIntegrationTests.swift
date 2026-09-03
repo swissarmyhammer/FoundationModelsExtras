@@ -342,6 +342,105 @@ import Testing
     #expect(result.output.contains("token: \(home) ← user"))
   }
 
+  // MARK: - `doctor`: the three exit codes, the stream split, the pipe's plain
+  // text, and the `--json` array — each read end to end from a real process
+
+  /// The fix text `error-component` states, which the `error` scenario's report
+  /// carries under the row it belongs to.
+  private static let doctorErrorFix = "run extras-demo doctor --help"
+
+  /// The fix text `warning-component` states, which is its own and not the
+  /// error component's.
+  private static let doctorWarningFix = "run extras-demo doctor --scenario ok"
+
+  /// What opens a fix line of the plain-text report — the indent and the label
+  /// together, which no JSON encoding of the same findings writes.
+  private static let doctorTableFixLine = "    fix: "
+
+  /// The escape character every ANSI sequence opens with.
+  private static let ansiEscape = "\u{001B}"
+
+  @Test func doctorExitsZeroWhenEveryCheckPasses() throws {
+    let result = try Self.run(arguments: ["doctor", "--scenario", "ok"])
+
+    #expect(result.exitCode == 0)
+    #expect(result.stderr.contains("ok-component"))
+  }
+
+  @Test func doctorExitsFiveWhenTheWorstFindingIsAWarning() throws {
+    let result = try Self.run(arguments: ["doctor", "--scenario", "warning"])
+
+    #expect(result.exitCode == 5)
+    #expect(result.stderr.contains("warning-component"))
+    #expect(result.stderr.contains(Self.doctorWarningFix))
+  }
+
+  @Test func doctorExitsOneWhenAFindingIsAnErrorNamingThatComponentAndItsFix() throws {
+    let result = try Self.run(arguments: ["doctor", "--scenario", "error"])
+
+    #expect(result.exitCode == 1)
+    // The code alone proves nothing here. ArgumentParser turns every error it
+    // does not recognise into exit 1 as well, so a command that crashed on its
+    // first line would satisfy `exitCode == 1`. The report's own words are
+    // what tell a doctor error from a broken subcommand.
+    #expect(result.stderr.contains("error-component"))
+    #expect(result.stderr.contains(Self.doctorErrorFix))
+  }
+
+  @Test func doctorWritesItsTableToStandardErrorLeavingStandardOutputEmpty() throws {
+    let result = try Self.run(arguments: ["doctor", "--scenario", "mixed"])
+
+    // A doctor report is a diagnostic, so every line of it belongs on standard
+    // error and standard output stays free for a script's own answer.
+    #expect(result.stdout.isEmpty)
+    #expect(result.stderr.contains("error-component"))
+    #expect(result.stderr.contains(Self.doctorTableFixLine))
+  }
+
+  @Test func doctorWritesNoAnsiEscapeWhenItsDestinationIsAPipe() throws {
+    let result = try Self.run(arguments: ["doctor", "--scenario", "mixed"])
+
+    // The report was drawn. Without this, the absence below would also hold
+    // for a run that wrote nothing at all, and the test would prove nothing.
+    #expect(result.stderr.contains("error-component"))
+    // The harness gives the run a `Pipe` and never a terminal, so the report
+    // reaches it as plain text — the rule read from the far end of a real
+    // process rather than from the renderer's own parameter.
+    #expect(!result.output.contains(Self.ansiEscape))
+  }
+
+  @Test func doctorJsonWritesTheFindingArrayToStandardOutput() throws {
+    let result = try Self.run(arguments: ["doctor", "--scenario", "mixed", "--json"])
+
+    #expect(result.exitCode == 1)
+    let parsed = try JSONSerialization.jsonObject(with: Data(result.stdout.utf8))
+    let findings = try #require(parsed as? [[String: Any]])
+    #expect(!findings.isEmpty)
+    for finding in findings {
+      #expect(finding["name"] != nil)
+      #expect(finding["status"] != nil)
+      #expect(finding["message"] != nil)
+      #expect(finding["category"] != nil)
+    }
+    // The table and the JSON never share a stream: `--json` writes the array
+    // and nothing else, so no fix line of the rendering reaches it.
+    #expect(!result.stdout.contains(Self.doctorTableFixLine))
+  }
+
+  @Test func doctorNeverReportsTheComponentThatDoesNotApply() throws {
+    let table = try Self.run(arguments: ["doctor", "--scenario", "mixed"])
+    // Each run reported the components that DO apply. Without that, a run
+    // that reported nothing would satisfy every absence below.
+    #expect(table.stderr.contains("ok-component"))
+    #expect(!table.stdout.contains("disabled-component"))
+    #expect(!table.stderr.contains("disabled-component"))
+
+    let json = try Self.run(arguments: ["doctor", "--scenario", "mixed", "--json"])
+    #expect(json.stdout.contains("ok-component"))
+    #expect(!json.stdout.contains("disabled-component"))
+    #expect(!json.stderr.contains("disabled-component"))
+  }
+
   // MARK: - The harness keeps the two streams apart
 
   @Test func stackReportsOnStandardOutputWithNoPartOfItOnStandardError() throws {

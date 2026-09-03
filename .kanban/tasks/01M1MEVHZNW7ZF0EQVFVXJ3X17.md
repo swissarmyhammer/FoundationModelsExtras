@@ -79,8 +79,25 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/ExtrasDemoIntegrationTests.swift. `swift test --filter ExtrasDemoIntegrationTests` 12 tests passed (8 repeat runs, no hang). `swift test` 251 tests in 23 suites passed, 3.5 s. `swift build --build-tests` zero warnings, zero errors. Out-of-band drain proof: 2 MB on each stream drained whole in 0.28-0.36 s; the same load read sequentially still blocked after 25 s.
     - next: /review
   timestamp: 2026-09-03T21:38:55.682112+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m1mkkkkvsj50bc10g66sjakz
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (checkpoint 75addea) — 0 findings, 0 confirmed, 0 refuted, 7 validator passes attempted, 0 failed. 1 file reviewed; 6 `.kanban/` files excluded by `.reviewignore`.
+    - next: task moved to `done`.
+  timestamp: 2026-09-03T21:43:11.227133+00:00
+- actor: claude-code
+  id: 01m1mkm0t347syzf1xhqjjzskg
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 1 file (ExtrasDemoIntegrationTests.swift); drain proved by measurement — 2 MB per stream concurrent 0.28-0.36s, sequential still blocked at 25s
+    - test: green — `swift package reset && swift test`, 251 tests, 23 suites, 0 failed, 0 warnings, no hang
+    - commit: 75addea fix(tests): drain both extras-demo output pipes at the same time
+    - review: clean — 0 findings, 7 validator passes
+    - next: task is in done; loop moves to ^h7w4n8r
+  timestamp: 2026-09-03T21:43:24.739543+00:00
+position_column: done
+position_ordinal: 9b80
 title: Split stdout and stderr in the extras-demo test harness
 ---
 ## What
