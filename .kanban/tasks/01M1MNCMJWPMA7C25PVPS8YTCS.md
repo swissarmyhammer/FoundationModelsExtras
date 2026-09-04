@@ -146,8 +146,25 @@ comments:
     - evidence: 17 files — new Tests/FixtureSupport/{URL+CanonicalDirectory,FixtureFile,GitVerdictSnapshot,IgnoreParitySuite}.swift; new Scripts/RecordGitParitySnapshots/{RecordGitParitySnapshots,Subprocess,ScratchRepository,GitCheckIgnore}.swift; deleted Scripts/record-git-parity-snapshots.swift and Tests/FoundationModelsExtrasTests/TestSupport.swift; changed Package.swift, Tests/FoundationModelsExtrasTests/{IgnoreParityFixture,IgnoreGitParityTests,IgnoreProcessorCombinationGitParityTests,AgentsMdTests,DotfolderLoaderTests,DotfolderStackTests,IgnoreProcessorTests,LayeredYAMLDocumentTests,UntrustedRenderingTests}.swift. All 8 findings checked. `swift build`: 0 warnings. `swift test --filter Ignore`: 77 tests, 0 skipped. `swift test` on a cleaned tree: 453 tests, 0 failures, 0 warnings, 0 skipped. Recorder re-run twice: both JSON snapshots byte-identical (SHA-256 unchanged).
     - next: /review
   timestamp: 2026-09-03T23:00:14.279251+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m1mrq6yg8xwd46da2dtxf8xx
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` — 0 findings (0 confirmed, 4 refuted, 14 attempted). 20 files reviewed, 2 skipped by `.reviewignore`. All 8 items of the 2026-09-03 17:29 section are checked and verified resolved: one `URL.canonicalDirectory` in Tests/FixtureSupport/URL+CanonicalDirectory.swift, one `GitVerdict` and one `GitVerdictSnapshot` in Tests/FixtureSupport/GitVerdictSnapshot.swift, one `FixtureError` in Tests/FixtureSupport/FixtureFile.swift, and no print/debugPrint/dump under Scripts/.
+    - next: task moved to done.
+  timestamp: 2026-09-03T23:12:32.208085+00:00
+- actor: claude-code
+  id: 01m1mrqq2nprcrvf9b0kg0absj
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 17 files; all 8 findings fixed at the cause. The recorder became the SwiftPM executable target `record-git-parity-snapshots`, and Tests/FixtureSupport holds one copy of URL.canonicalDirectory, FixtureFile, FixtureError, GitVerdict, GitVerdictSnapshot, and the probe table
+    - test: green — `swift test`, 453 tests across 5 targets, 0 failed, 0 warnings, 0 skipped; `swift run record-git-parity-snapshots` leaves both snapshots byte-identical
+    - commit: 719b634 refactor(tests): make git-parity recorder a real SwiftPM target
+    - review: clean — 0 findings; each of the 8 earlier items verified resolved at the cause
+    - next: task is in done; the board is clear
+  timestamp: 2026-09-03T23:12:48.725515+00:00
+position_column: done
+position_ordinal: '9e80'
 title: Snapshot the git parity verdicts; stop running git in the test suite
 ---
 ## What
