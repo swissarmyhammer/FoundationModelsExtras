@@ -105,10 +105,12 @@ let report = await runner.run()
 
 The two outputs go to different places: `PlainTextDoctorRenderer` writes
 the table to stderr, because a report is a diagnostic, and `--json` writes
-`DoctorReport.jsonData()` to stdout, because a script reads it. This
-package declares no terminal dependency -- it is a library that also runs
-inside a Mac app -- so a CLI that wants a decorated table renders the
-`DoctorReport` itself.
+`DoctorReport.jsonData()` to stdout, because a script reads it. The plain
+renderer never writes an escape sequence, so a pipe and a file get stable
+text. `HealthCheck` and `DoctorReport` are `Codable`, and the report encodes
+as the one JSON array of its checks. This package declares no terminal
+dependency -- it is a library that also runs inside a Mac app -- so a CLI
+that wants a decorated table renders the `DoctorReport` itself.
 
 Run the whole surface, exit code included, with
 `swift run extras-demo doctor --scenario mixed`. That scenario reports one

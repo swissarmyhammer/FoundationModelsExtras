@@ -1,43 +1,16 @@
 import Foundation
 
-#if canImport(Darwin)
-    import Darwin
-#endif
-
-/// The escape sequences the colored doctor output writes, named for what each
-/// one says about a finding rather than for the color it paints.
-///
-/// These are ANSI select-graphic-rendition sequences, which every terminal
-/// emulator reads and no file or pipe should ever receive. Each one opens with
-/// the escape character `0x1B`, which is the byte a test counts to tell a
-/// colored rendering from a plain one.
-///
-/// The sequences are written out here rather than pulled from a terminal
-/// package, because `doctor-plan.md` §6 states that this package must stay free
-/// of a terminal dependency: it is a library that also runs inside a Mac app. A
-/// command-line tool that wants a decorated table renders the ``DoctorReport``
-/// itself.
-private enum TerminalStyle {
-    /// Returns the terminal to its default appearance.
-    static let reset = "\u{001B}[0m"
-
-    /// Green, for a finding whose subject works.
-    static let passing = "\u{001B}[32m"
-
-    /// Yellow, for a finding that needs attention.
-    static let attention = "\u{001B}[33m"
-
-    /// Red, for a finding whose subject does not work.
-    static let broken = "\u{001B}[31m"
-}
-
 /// Draws a ``DoctorReport`` as plain text a person reads: one aligned row for
 /// each finding, and a fix line under each finding that reports a problem
 /// (doctor-plan.md §6).
 ///
 /// The rendering is ASCII only. It holds no box-drawing character, and it holds
-/// an ANSI escape only when ``useColor`` is `true`, so the text a pipe receives
-/// is stable and a test can compare it byte for byte.
+/// no terminal escape sequence, ever, so the text a pipe or a file receives is
+/// stable and a test can compare it byte for byte. This is the renderer a piped
+/// `doctor` uses. A decorated table is the concern of the command-line tool
+/// that wants one: `doctor-plan.md` §6 states that this package must stay free
+/// of a terminal dependency, because it is a library that also runs inside a
+/// Mac app, so such a tool renders the ``DoctorReport`` itself.
 ///
 /// This renderer draws the whole report. Where that report goes is the caller's
 /// decision, not this type's: `doctor-plan.md` §6 sends the report to standard
@@ -46,21 +19,8 @@ private enum TerminalStyle {
 /// script reads it. ``write(_:to:)`` therefore takes the destination as a
 /// parameter.
 public struct PlainTextDoctorRenderer: Sendable {
-    /// Whether ``render(_:)`` wraps each status word in an ANSI color escape.
-    ///
-    /// ``write(_:to:)`` does not read this property. It reads the destination
-    /// instead, because only the destination knows whether anything can display
-    /// a color.
-    public let useColor: Bool
-
     /// Creates a renderer.
-    ///
-    /// - Parameter useColor: Whether ``render(_:)`` writes ANSI color escapes.
-    ///   The default is `false`, which is the form a file, a pipe and a test
-    ///   each want.
-    public init(useColor: Bool = false) {
-        self.useColor = useColor
-    }
+    public init() {}
 
     /// Draws the whole report.
     ///
@@ -80,13 +40,11 @@ public struct PlainTextDoctorRenderer: Sendable {
         return lines.map { "\($0)\n" }.joined()
     }
 
-    /// Draws the report and writes it to a destination, in color only when that
-    /// destination is a terminal.
+    /// Draws the report and writes it to a destination.
     ///
-    /// The color decision is made here rather than by the caller, so the
-    /// terminal test lives in this library once instead of in each command-line
-    /// tool. ``useColor`` is not consulted: a pipe gets plain text however this
-    /// renderer was built.
+    /// The bytes are the plain text ``render(_:)`` returns, whatever the
+    /// destination is. A terminal, a pipe and a file each receive the same
+    /// rendering, so this renderer reads nothing about the handle.
     ///
     /// - Parameters:
     ///   - report: The findings to draw.
@@ -98,15 +56,10 @@ public struct PlainTextDoctorRenderer: Sendable {
     ///   reports the same failures by raising an Objective-C exception, which
     ///   Swift cannot catch.
     public func write(_ report: DoctorReport, to handle: FileHandle) throws {
-        let destinationIsTerminal = isatty(handle.fileDescriptor) == Self.isattyTrue
-        let rendering = PlainTextDoctorRenderer(useColor: destinationIsTerminal).render(report)
-        try handle.write(contentsOf: Data(rendering.utf8))
+        try handle.write(contentsOf: Data(render(report).utf8))
     }
 
     // MARK: - The words and the widths the rendering carries
-
-    /// What `isatty` answers for a file descriptor that is a terminal.
-    private static let isattyTrue: Int32 = 1
 
     /// What stands in front of a fix line, so the line reads as belonging to
     /// the row above it.
@@ -170,17 +123,12 @@ public struct PlainTextDoctorRenderer: Sendable {
 
     /// Draws the row of one finding: the status, the name, and the message.
     ///
-    /// The status is padded before it is colored, so the escape sequences never
-    /// enter the width the padding counts and the columns line up in both
-    /// renderings.
-    ///
     /// - Parameters:
     ///   - check: The finding to draw.
     ///   - widths: How wide the padded columns of this rendering stand.
     /// - Returns: The row, with no closing newline.
     private func row(for check: HealthCheck, widths: ColumnWidths) -> String {
-        let status = colored(
-            Self.padded(check.status.rawValue, to: widths.status), for: check.status)
+        let status = Self.padded(check.status.rawValue, to: widths.status)
         let name = Self.padded(check.name, to: widths.name)
         return [status, name, check.message].joined(separator: Self.columnSeparator)
     }
@@ -197,30 +145,6 @@ public struct PlainTextDoctorRenderer: Sendable {
             []
         case .warning, .error:
             ["\(Self.fixIndent)\(Self.fixLabel)\(check.fix ?? Self.missingFixText)"]
-        }
-    }
-
-    /// Wraps text in the color of a status, when this renderer writes color.
-    ///
-    /// - Parameters:
-    ///   - text: The text to wrap.
-    ///   - status: The status whose color to use.
-    /// - Returns: The text unchanged when ``useColor`` is `false`, and the text
-    ///   between the status color and the reset sequence when it is `true`.
-    private func colored(_ text: String, for status: HealthStatus) -> String {
-        guard useColor else { return text }
-        return "\(Self.style(for: status))\(text)\(TerminalStyle.reset)"
-    }
-
-    /// The escape sequence that paints a status.
-    ///
-    /// - Parameter status: The status to paint.
-    /// - Returns: The opening sequence of that status's color.
-    private static func style(for status: HealthStatus) -> String {
-        switch status {
-        case .ok: TerminalStyle.passing
-        case .warning: TerminalStyle.attention
-        case .error: TerminalStyle.broken
         }
     }
 
@@ -247,9 +171,10 @@ extension DoctorReport {
     /// all, because that type's encoder is synthesized; the key is absent rather
     /// than `null`.
     ///
-    /// The report itself is not encoded — only ``checks`` is — because the array
-    /// is what a script reads, and ``worstStatus`` and ``exitCode`` are each
-    /// derived from it.
+    /// The report encodes itself as the array of ``checks`` (see
+    /// ``encode(to:)``), because the array is what a script reads, and
+    /// ``worstStatus`` and ``exitCode`` are each derived from it. The bytes
+    /// decode back to an equal ``DoctorReport``, and to the same `[HealthCheck]`.
     ///
     /// - Parameter prettyPrinted: Whether to spread the array over several lines
     ///   for a person to read. The default is `false`, which is the compact form
@@ -259,6 +184,6 @@ extension DoctorReport {
     public func jsonData(prettyPrinted: Bool = false) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = prettyPrinted ? [.sortedKeys, .prettyPrinted] : [.sortedKeys]
-        return try encoder.encode(checks)
+        return try encoder.encode(self)
     }
 }

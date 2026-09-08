@@ -2,14 +2,14 @@ import Foundation
 import FoundationModelsExtras
 import Testing
 
-/// Behavioral tests for the doctor renderer of `doctor-plan.md` §6: the plain
-/// table a person reads, the color the renderer writes only when the
-/// destination is a terminal, and the JSON array a script reads.
+/// Behavioral tests for the plain doctor renderer of `doctor-plan.md` §6: the
+/// plain table a person reads, the rule that no rendering ever holds an escape
+/// sequence, and the JSON array a script reads.
 ///
 /// The suite imports the module plainly rather than with `@testable`, so it
 /// exercises the same surface a consumer package sees — the tests fail to
 /// compile if any of this API stops being `public`.
-@Suite("Doctor renderer") struct DoctorRendererTests {
+@Suite("Plain doctor renderer") struct PlainRendererTests {
 
     // MARK: - The words the stand-in findings carry
 
@@ -45,12 +45,9 @@ import Testing
 
     // MARK: - The bytes and the words the assertions read
 
-    /// The ANSI escape character, `0x1B`, which opens every color sequence a
-    /// terminal reads.
-    ///
-    /// The plain output must hold none of these, and the colored output must
-    /// hold one or more. Both halves are pinned, because a renderer that
-    /// ignored `useColor` altogether would pass the first half alone.
+    /// The ANSI escape character, which opens every color sequence a terminal
+    /// reads. No rendering may hold one, and no source file of the module may
+    /// spell one.
     private static let ansiEscape = "\u{001B}"
 
     /// What the renderer writes in place of a fix for a finding that carries
@@ -63,6 +60,44 @@ import Testing
     /// The one message the alignment test gives to two findings of different
     /// name lengths, so the offset of this text is the only thing that moves.
     private static let sharedMessage = "the check ran"
+
+    // MARK: - The source files of the module
+
+    /// Where the doctor module stands, relative to the package root.
+    private static let doctorModulePath = "Sources/FoundationModelsExtras/Doctor"
+
+    /// The one import a doctor source file may state. Foundation gives the
+    /// renderer `Data`, `FileHandle` and the JSON coder, and nothing about a
+    /// terminal or a color.
+    private static let permittedImport = "import Foundation"
+
+    /// The spellings of the escape character a Swift source file could carry,
+    /// read in lower case: the two Unicode escape forms, and the hex byte.
+    private static let escapeSpellings = ["u{001b}", "u{1b}", "x1b"]
+
+    /// The source files of the doctor module, read whole.
+    ///
+    /// - Returns: The text of each `.swift` file, keyed by the file name.
+    /// - Throws: Whatever listing the directory or reading a file throws.
+    private static func doctorModuleSources() throws -> [String: String] {
+        let directory = PackageRootValidation.packageRoot().appending(path: doctorModulePath)
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasSuffix(".swift") }
+        let entries = try names.map { name in
+            (name, try String(contentsOf: directory.appending(path: name), encoding: .utf8))
+        }
+        return Dictionary(uniqueKeysWithValues: entries)
+    }
+
+    /// The `import` lines of one source file, with their indentation removed.
+    ///
+    /// - Parameter source: The text of the file.
+    /// - Returns: Each line that opens with `import`.
+    private static func importLines(of source: String) -> [String] {
+        source.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("import ") }
+    }
 
     // MARK: - Building a report
 
@@ -99,10 +134,10 @@ import Testing
         lines(of: PlainTextDoctorRenderer().render(report))
     }
 
-    // MARK: - The color rule of doctor-plan.md §6
+    // MARK: - The rule of doctor-plan.md §6: no escape sequence, ever
 
-    @Test func thePlainOutputOfEveryStatusHoldsNoAnsiEscape() {
-        let text = PlainTextDoctorRenderer(useColor: false).render(Self.threeStatusReport())
+    @Test func `the output of every status holds no ansi escape`() {
+        let text = PlainTextDoctorRenderer().render(Self.threeStatusReport())
 
         // `allSatisfy` is `rethrows`, and the `#expect` macro takes a call it
         // decomposes apart as one that can throw, so the reading is made here
@@ -113,22 +148,37 @@ import Testing
         #expect(everyScalarIsAscii)
     }
 
-    /// The other half of the §6 rule, named row by row: a renderer that ignored
-    /// `useColor` altogether would pass the plain test above on its own.
-    @Test func theColoredWarningAndErrorRowsEachHoldAnAnsiEscape() throws {
-        let text = PlainTextDoctorRenderer(useColor: true).render(Self.threeStatusReport())
-        let rows = Self.lines(of: text)
+    /// The renderer cannot write an escape sequence it never spells. This holds
+    /// the module's source to that, so a color option cannot come back under
+    /// any name.
+    @Test func `no doctor source file spells the escape character`() throws {
+        let sources = try Self.doctorModuleSources()
 
-        let attentionRow = try #require(rows.first { $0.contains(Self.attentionName) })
-        let brokenRow = try #require(rows.first { $0.contains(Self.brokenName) })
+        #expect(!sources.isEmpty)
+        for (name, text) in sources {
+            let lowered = text.lowercased()
+            #expect(!lowered.contains(Self.ansiEscape), "\(name) holds the escape character")
+            for spelling in Self.escapeSpellings {
+                #expect(!lowered.contains(spelling), "\(name) spells \(spelling)")
+            }
+        }
+    }
 
-        #expect(attentionRow.contains(Self.ansiEscape))
-        #expect(brokenRow.contains(Self.ansiEscape))
+    /// This package is a library that also runs inside a Mac app, so no file of
+    /// the module imports a terminal or a color library (doctor-plan.md §6).
+    @Test func `no doctor source file imports a terminal or color library`() throws {
+        let sources = try Self.doctorModuleSources()
+
+        #expect(!sources.isEmpty)
+        for (name, text) in sources {
+            let imports = Self.importLines(of: text)
+            #expect(imports.allSatisfy { $0 == Self.permittedImport }, "\(name) imports \(imports)")
+        }
     }
 
     // MARK: - The fix line under a row that reports a problem
 
-    @Test func aWarningRowIsFollowedByItsFixLine() throws {
+    @Test func `a warning row is followed by its fix line`() throws {
         let lines = Self.plainLines(of: Self.threeStatusReport())
 
         let row = try #require(lines.firstIndex { $0.contains(Self.attentionName) })
@@ -136,7 +186,7 @@ import Testing
         #expect(lines[row + Self.fixLineOffset].contains(Self.attentionFix))
     }
 
-    @Test func anErrorRowIsFollowedByItsFixLine() throws {
+    @Test func `an error row is followed by its fix line`() throws {
         let lines = Self.plainLines(of: Self.threeStatusReport())
 
         let row = try #require(lines.firstIndex { $0.contains(Self.brokenName) })
@@ -144,7 +194,7 @@ import Testing
         #expect(lines[row + Self.fixLineOffset].contains(Self.brokenFix))
     }
 
-    @Test func anOkRowIsFollowedByNoFixLine() throws {
+    @Test func `an ok row is followed by no fix line`() throws {
         let lines = Self.plainLines(of: Self.threeStatusReport())
 
         let row = try #require(lines.firstIndex { $0.contains(Self.passingName) })
@@ -152,7 +202,7 @@ import Testing
         #expect(lines[row + Self.fixLineOffset].contains(Self.attentionName))
     }
 
-    @Test func anErrorCarryingNoFixIsFollowedByTheLineThatSaysSo() throws {
+    @Test func `an error carrying no fix is followed by the line that says so`() throws {
         let report = DoctorReport(checks: [
             HealthCheck(
                 name: Self.brokenName, status: .error, message: Self.brokenMessage, fix: nil,
@@ -179,7 +229,7 @@ import Testing
 
     /// Two findings that carry the same message under names of different
     /// lengths: the padding is what has to put the two messages at one offset.
-    @Test func theMessageColumnStartsAtTheSameOffsetWhateverTheNameLength() throws {
+    @Test func `the message column starts at the same offset whatever the name length`() throws {
         let report = DoctorReport(checks: [
             .ok(name: Self.brokenName, message: Self.sharedMessage, category: Self.findingCategory),
             .ok(
@@ -199,7 +249,7 @@ import Testing
 
     // MARK: - The order of the rows
 
-    @Test func theRowsKeepTheOrderOfTheReportChecks() throws {
+    @Test func `the rows keep the order of the report checks`() throws {
         let lines = Self.plainLines(of: Self.threeStatusReport())
 
         let passing = try #require(lines.firstIndex { $0.contains(Self.passingName) })
@@ -212,7 +262,7 @@ import Testing
 
     // MARK: - The JSON a script reads
 
-    @Test func jsonDataDecodesBackToTheChecksOfTheReport() throws {
+    @Test func `json data decodes back to the checks of the report`() throws {
         let report = Self.threeStatusReport()
 
         let decoded = try JSONDecoder().decode([HealthCheck].self, from: report.jsonData())
@@ -220,7 +270,7 @@ import Testing
         #expect(decoded == report.checks)
     }
 
-    @Test func jsonDataOfOneCheckWritesItsKeysInSortedOrder() throws {
+    @Test func `json data of one check writes its keys in sorted order`() throws {
         let report = DoctorReport(checks: [
             .ok(
                 name: Self.passingName, message: Self.passingMessage,
@@ -235,7 +285,7 @@ import Testing
         )
     }
 
-    @Test func prettyPrintedJsonDataDecodesBackToTheChecksOfTheReport() throws {
+    @Test func `pretty printed json data decodes back to the checks of the report`() throws {
         let report = Self.threeStatusReport()
 
         let data = try report.jsonData(prettyPrinted: true)
@@ -244,25 +294,25 @@ import Testing
         #expect(try JSONDecoder().decode([HealthCheck].self, from: data) == report.checks)
     }
 
-    // MARK: - Writing to a destination that is not a terminal
+    // MARK: - Writing to a destination
 
-    /// A pipe is not a terminal, so `write(_:to:)` must write plain text even
-    /// though this renderer was built with `useColor: true`.
+    /// `write(_:to:)` writes the same plain text `render(_:)` returns, and it
+    /// reads nothing about the destination.
     ///
     /// The write handle is closed BEFORE the read. A read to end with the write
     /// handle still open never returns, and the test would hang in place of
     /// failing.
-    @Test func writingToAPipeHoldsNoAnsiEscape() throws {
+    @Test func `writing to a handle writes the rendering unchanged`() throws {
         let pipe = Pipe()
+        let report = Self.threeStatusReport()
 
-        try PlainTextDoctorRenderer(useColor: true)
-            .write(Self.threeStatusReport(), to: pipe.fileHandleForWriting)
+        try PlainTextDoctorRenderer().write(report, to: pipe.fileHandleForWriting)
         try pipe.fileHandleForWriting.close()
 
         let text = String(
             decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
+        #expect(text == PlainTextDoctorRenderer().render(report))
         #expect(!text.contains(Self.ansiEscape))
-        #expect(text.contains(Self.brokenName))
     }
 }

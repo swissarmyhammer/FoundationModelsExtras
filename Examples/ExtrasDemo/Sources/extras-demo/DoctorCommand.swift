@@ -13,9 +13,9 @@ import FoundationModelsExtras
 /// - **The exit code a script reads.** `0`, `1` and `5` reach a caller only
 ///   through a real process, so `--scenario` selects a set of components whose
 ///   worst finding is each of the three in turn.
-/// - **The rule that a pipe gets no ANSI.** ``PlainTextDoctorRenderer`` reads
-///   the destination itself, so only a run whose standard error IS a pipe
-///   proves the plain text a pipe receives.
+/// - **The rule that a pipe gets no ANSI.** ``PlainTextDoctorRenderer`` writes
+///   no escape sequence, ever, and only a run whose standard error IS a pipe
+///   proves that rule from the far end of a real process.
 ///
 /// The report goes to standard error and the `--json` array goes to standard
 /// output, which is the split of `doctor-plan.md` §6: a report is a diagnostic,

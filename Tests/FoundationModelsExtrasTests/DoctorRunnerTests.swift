@@ -1,44 +1,14 @@
 import FoundationModelsExtras
 import Testing
 
-/// Behavioral tests for the doctor runner and the doctor report of
-/// `doctor-plan.md` §4 and §5: the concurrent collection of the checks of every
-/// applicable component, the stable registration order of the result, and the
-/// exit code a script reads.
+/// Behavioral tests for the doctor runner of `doctor-plan.md` §4: the
+/// concurrent collection of the checks of every applicable component, and the
+/// stable registration order of the result.
 ///
 /// The suite imports the module plainly rather than with `@testable`, so it
 /// exercises the same surface a consumer package sees — the tests fail to
 /// compile if any of this API stops being `public`.
-@Suite("Doctor runner and report") struct DoctorRunnerTests {
-
-    // MARK: - The words the stand-in findings carry
-
-    /// What a stand-in finding states, because these tests read the name and
-    /// the status of a finding and never its prose.
-    private static let findingMessage = "the stand-in component reported"
-
-    /// The action a stand-in `.warning` or `.error` carries, because the two
-    /// factory functions require one.
-    private static let findingFix = "run the stand-in fix"
-
-    /// The group every stand-in finding belongs to.
-    private static let findingCategory = "probe"
-
-    // MARK: - The exit codes doctor-plan.md §5 states
-
-    /// The code §5 gives a run in which every check passed.
-    private static let passingExitCode: Int32 = 0
-
-    /// The code §5 gives a run that holds one broken check or more.
-    private static let brokenExitCode: Int32 = 1
-
-    /// The code §5 gives a run that holds one check or more that needs
-    /// attention, and nothing broken.
-    ///
-    /// The three codes are written out here rather than read off the report,
-    /// so a change to the production constants fails these tests in place of
-    /// travelling through them unseen.
-    private static let attentionExitCode: Int32 = 5
+@Suite("Doctor runner") struct DoctorRunnerTests {
 
     // MARK: - The timings the concurrency tests spend
 
@@ -51,28 +21,21 @@ import Testing
     /// longer than a concurrent runner needs, so a slow machine never fires it.
     private static let watchdogPatience: Duration = .seconds(5)
 
-    // MARK: - Building a finding
+    /// How long each component of the timing test sleeps.
+    private static let componentDelay: Duration = .milliseconds(100)
 
-    /// Builds one finding at `status`, carrying a fix whenever the status
-    /// requires one.
-    ///
-    /// The stand-in component and the report tests share this one factory, so
-    /// a finding reads the same way wherever this file makes one.
-    ///
-    /// - Parameters:
-    ///   - status: The level the finding reports.
-    ///   - name: What was checked.
-    /// - Returns: A finding at `status`, in the group ``findingCategory``.
-    private static func finding(_ status: HealthStatus, name: String) -> HealthCheck {
-        switch status {
-        case .ok:
-            .ok(name: name, message: findingMessage, category: findingCategory)
-        case .warning:
-            .warning(name: name, message: findingMessage, fix: findingFix, category: findingCategory)
-        case .error:
-            .error(name: name, message: findingMessage, fix: findingFix, category: findingCategory)
-        }
-    }
+    /// How many sleeping components the timing test registers.
+    private static let sleepingComponentCount = 10
+
+    /// What the serial time is divided by to get the time a concurrent run
+    /// must stay under. A concurrent run takes about one ``componentDelay``,
+    /// so half of the serial time is a wide margin on a slow machine.
+    private static let serialTimeFraction = 2
+
+    /// The longest a run of ``sleepingComponentCount`` components may take
+    /// before the test reads the runner as serial.
+    private static let concurrentRunLimit: Duration =
+        componentDelay * sleepingComponentCount / serialTimeFraction
 
     // MARK: - The handoff between two components
 
@@ -161,7 +124,7 @@ import Testing
         let doctorName: String
 
         /// Which group its finding belongs to.
-        var doctorCategory = DoctorRunnerTests.findingCategory
+        var doctorCategory = DoctorTestSupport.findingCategory
 
         /// Whether the runner reads this component at all.
         var isApplicable = true
@@ -178,55 +141,22 @@ import Testing
         /// - Returns: One finding named ``doctorName``.
         func runHealthChecks() async -> [HealthCheck] {
             await behavior.perform()
-            return [DoctorRunnerTests.finding(status, name: doctorName)]
+            return [DoctorTestSupport.finding(status, name: doctorName)]
         }
     }
 
-    // MARK: - The exit codes of doctor-plan.md §5
+    // MARK: - An empty run
 
-    @Test func anEmptyRunGivesAnEmptyReportThatExitsZero() async {
+    @Test func `an empty run gives an empty report that exits zero`() async {
         let report = await DoctorRunner(components: []).run()
         #expect(report.checks.isEmpty)
         #expect(report.worstStatus == .ok)
-        #expect(report.exitCode == Self.passingExitCode)
-    }
-
-    @Test func aReportOfOnlyPassingChecksExitsZero() {
-        let report = DoctorReport(checks: [Self.finding(.ok, name: "configuration")])
-        #expect(report.worstStatus == .ok)
-        #expect(report.exitCode == Self.passingExitCode)
-    }
-
-    @Test func aReportHoldingAnErrorExitsOne() {
-        let report = DoctorReport(checks: [
-            Self.finding(.ok, name: "configuration"),
-            Self.finding(.error, name: "model"),
-        ])
-        #expect(report.worstStatus == .error)
-        #expect(report.exitCode == Self.brokenExitCode)
-    }
-
-    @Test func anErrorOutranksAWarning() {
-        let report = DoctorReport(checks: [
-            Self.finding(.warning, name: "transcripts"),
-            Self.finding(.error, name: "model"),
-        ])
-        #expect(report.worstStatus == .error)
-        #expect(report.exitCode == Self.brokenExitCode)
-    }
-
-    @Test func aReportHoldingOnlyAWarningExitsFive() {
-        let report = DoctorReport(checks: [
-            Self.finding(.ok, name: "configuration"),
-            Self.finding(.warning, name: "transcripts"),
-        ])
-        #expect(report.worstStatus == .warning)
-        #expect(report.exitCode == Self.attentionExitCode)
+        #expect(report.exitCode == DoctorTestSupport.passingExitCode)
     }
 
     // MARK: - A component that does not apply
 
-    @Test func aComponentThatDoesNotApplyReportsNothingAndStaysRegistered() async {
+    @Test func `a component that does not apply reports nothing and stays registered`() async {
         let runner = DoctorRunner(components: [
             StandInComponent(doctorName: "off", isApplicable: false),
             StandInComponent(doctorName: "on"),
@@ -236,12 +166,12 @@ import Testing
 
         #expect(runner.components.map(\.doctorName) == ["off", "on"])
         #expect(report.checks.map(\.name) == ["on"])
-        #expect(report.exitCode == Self.passingExitCode)
+        #expect(report.exitCode == DoctorTestSupport.passingExitCode)
     }
 
     // MARK: - The order of the report
 
-    @Test func theReportKeepsTheRegistrationOrderWhenTheFirstComponentIsSlow() async {
+    @Test func `the report keeps the registration order when the first component is slow`() async {
         let runner = DoctorRunner(components: [
             StandInComponent(doctorName: "slow", behavior: .sleeps(Self.orderingDelay)),
             StandInComponent(doctorName: "fast"),
@@ -254,7 +184,7 @@ import Testing
 
     // MARK: - One broken component does not stop the others
 
-    @Test func aComponentThatReportsOnlyErrorsDoesNotStopTheOtherComponents() async {
+    @Test func `a component that reports only errors does not stop the other components`() async {
         let runner = DoctorRunner(components: [
             StandInComponent(doctorName: "broken", status: .error),
             StandInComponent(doctorName: "healthy"),
@@ -264,7 +194,7 @@ import Testing
 
         #expect(report.checks.map(\.name) == ["broken", "healthy"])
         #expect(report.checks.map(\.status) == [.error, .ok])
-        #expect(report.exitCode == Self.brokenExitCode)
+        #expect(report.exitCode == DoctorTestSupport.brokenExitCode)
     }
 
     // MARK: - The components run at the same time
@@ -280,7 +210,7 @@ import Testing
     /// signal, so the flag already stands when the deadlocked run resumes, and
     /// awaiting `watchdog.value` makes the reading deterministic in both cases.
     @Test(.timeLimit(.minutes(1)))
-    func oneSlowComponentDoesNotHoldBackTheOthers() async {
+    func `one slow component does not hold back the others`() async {
         let signal = Signal()
         let watchdogFlag = WatchdogFlag()
         let runner = DoctorRunner(components: [
@@ -305,5 +235,23 @@ import Testing
         let didFire = await watchdogFlag.didFire
         #expect(didFire == false)
         #expect(report.checks.map(\.name) == ["waiting", "signalling"])
+    }
+
+    /// N components that each wait ``componentDelay`` finish in well under
+    /// N times that wait, because the runner asks them all at the same time.
+    @Test(.timeLimit(.minutes(1)))
+    func `components that each wait finish in well under the sum of their waits`() async {
+        let components = (1...Self.sleepingComponentCount).map { position in
+            StandInComponent(doctorName: "sleeper-\(position)", behavior: .sleeps(Self.componentDelay))
+        }
+        let runner = DoctorRunner(components: components)
+        let clock = ContinuousClock()
+
+        let start = clock.now
+        let report = await runner.run()
+        let elapsed = clock.now - start
+
+        #expect(report.checks.count == Self.sleepingComponentCount)
+        #expect(elapsed < Self.concurrentRunLimit)
     }
 }

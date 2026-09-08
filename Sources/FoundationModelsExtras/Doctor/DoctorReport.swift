@@ -7,7 +7,13 @@
 /// of `doctor-plan.md` §5. ``DoctorRunner`` makes one; this initializer is
 /// public so a renderer test, or a caller that already holds its findings, can
 /// make one too.
-public struct DoctorReport: Sendable, Equatable {
+///
+/// The report is `Codable`, and its JSON form is the one array of findings the
+/// `--json` output of `doctor-plan.md` §6 writes. ``worstStatus`` and
+/// ``exitCode`` are each derived from ``checks``, so the array is the whole
+/// report and no object wraps it. A report that goes through JSON comes back
+/// equal.
+public struct DoctorReport: Sendable, Equatable, Codable {
     /// Every finding of the run, in the registration order of the components
     /// that reported them.
     public let checks: [HealthCheck]
@@ -18,6 +24,24 @@ public struct DoctorReport: Sendable, Equatable {
     ///   be reported.
     public init(checks: [HealthCheck]) {
         self.checks = checks
+    }
+
+    /// Reads a report back from the JSON array ``encode(to:)`` writes.
+    ///
+    /// - Parameter decoder: The decoder that holds the array of findings.
+    /// - Throws: Whatever the decoder throws for a value that is not an array
+    ///   of ``HealthCheck``.
+    public init(from decoder: any Decoder) throws {
+        checks = try decoder.singleValueContainer().decode([HealthCheck].self)
+    }
+
+    /// Writes the report as one JSON array of its findings.
+    ///
+    /// - Parameter encoder: The encoder that receives the array of findings.
+    /// - Throws: Whatever the encoder throws.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(checks)
     }
 
     /// The most serious level any finding reports.
