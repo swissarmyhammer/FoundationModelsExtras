@@ -50,8 +50,33 @@ comments:
     - no code changes were needed. No commit was made.
     - next: ready for review.
   timestamp: 2026-09-08T22:49:42.772832+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m21ke8tqvtfvbtgxhy868kfy
+  text: |-
+    ### commit — changed
+    - evidence: f80146f, 10 files changed
+    - next: send the task for review.
+  timestamp: 2026-09-08T22:50:23.959134+00:00
+- actor: claude-code
+  id: 01m21kxrr0b8r4vtvhae4zvwjb
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit f80146f), backend local. Counts: 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed. 8 files reviewed. Not reviewed: 2 files in `.kanban/` (ignore rule), `README.md` (no validator).
+    - note: five `code-hygiene` rules declined the old path `Tests/FoundationModelsExtrasTests/DoctorRendererTests.swift`. The commit renamed that file to `PlainRendererTests.swift`, so the old path does not exist. This is not a finding.
+    - next: no review finding is open. The task moved from `doing` to `review` to `done`.
+  timestamp: 2026-09-08T22:58:51.776497+00:00
+- actor: claude-code
+  id: 01m21kyg9y97exkqxzz9ykjax2
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files
+    - test: green — swift test, 264 tests, 24 suites, 0 failed, 0 warnings
+    - commit: f80146f
+    - review: clean — 0 findings, 8 files reviewed
+    - column: done
+  timestamp: 2026-09-08T22:59:15.902378+00:00
+position_column: done
+position_ordinal: 9f80
 title: 'Doctorable module: D1 to D3'
 ---
 ## What
