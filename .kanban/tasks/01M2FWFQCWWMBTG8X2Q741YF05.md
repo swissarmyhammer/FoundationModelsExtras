@@ -74,8 +74,24 @@ comments:
     - note: `swiftformat --lint` found format issues in 110 of 125 files across the repo. This is old debt. It is not part of this diff. It is out of scope for this test step.
     - next: send the task to review.
   timestamp: 2026-09-14T12:28:53.914068+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2fybe37b02qz8egwnpc8q8n
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (aaee0fe) gave 0 findings (7 attempted, 0 failed). All prior findings are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-09-14T12:30:27.431558+00:00
+- actor: claude-code
+  id: 01m2fybqmhkckr0769nj7z5thr
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (Sources/Operations/OperationError.swift)
+    - test: green — swift test, 264 passed, 0 failed, 0 skipped
+    - commit: aaee0fe
+    - review: clean — 0 findings
+  timestamp: 2026-09-14T12:30:37.201020+00:00
+position_column: done
+position_ordinal: a080
 title: A thrown operation loses its cause, so every failure reads 'This operation failed while executing.'
 ---
 ## The problem
