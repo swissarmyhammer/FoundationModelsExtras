@@ -45,13 +45,13 @@ extension OperationError: Equatable {
     /// - Returns: `true` when the two errors are equal.
     public static func == (lhs: OperationError, rhs: OperationError) -> Bool {
         switch (lhs, rhs) {
-        case let (.unknownOperation(lhsValid), .unknownOperation(rhsValid)):
+        case (.unknownOperation(let lhsValid), .unknownOperation(let rhsValid)):
             return lhsValid == rhsValid
-        case let (.missingRequired(lhsNames), .missingRequired(rhsNames)):
+        case (.missingRequired(let lhsNames), .missingRequired(let rhsNames)):
             return lhsNames == rhsNames
         case (.decodingFailed, .decodingFailed), (.encodingFailed, .encodingFailed):
             return true
-        case let (.executionFailed(lhsCause), .executionFailed(rhsCause)):
+        case (.executionFailed(let lhsCause), .executionFailed(let rhsCause)):
             return type(of: lhsCause) == type(of: rhsCause)
                 && String(describing: lhsCause) == String(describing: rhsCause)
         case (.unknownOperation, _), (.missingRequired, _), (.decodingFailed, _),
@@ -75,15 +75,15 @@ extension OperationError: CustomStringConvertible {
     /// fixed sentence and then gives the text of its cause.
     public var description: String {
         switch self {
-        case let .unknownOperation(valid):
+        case .unknownOperation(let valid):
             return "Unknown operation. Valid operations: \(valid.joined(separator: ", "))."
-        case let .missingRequired(names):
+        case .missingRequired(let names):
             return "Missing required parameter(s): \(names.joined(separator: ", "))."
         case .decodingFailed:
             return "Could not parse the given parameter values for this operation."
         case .encodingFailed:
             return "Could not encode this operation's result."
-        case let .executionFailed(cause):
+        case .executionFailed(let cause):
             return "This operation failed while executing. Cause: \(cause)"
         }
     }

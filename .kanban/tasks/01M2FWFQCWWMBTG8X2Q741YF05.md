@@ -33,6 +33,47 @@ comments:
     - evidence: `swift test` — 264 tests, 24 suites, 0 fail, 0 skip. `swift build` — clean, 0 warnings.
     - next: ready for review.
   timestamp: 2026-09-14T12:21:09.705010+00:00
+- actor: claude-code
+  id: 01m2fy20583cpxzk4n5x2ns7g2
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD — 4 findings (4 confirmed, 1 refuted) — Sources/Operations/OperationError.swift:48, Sources/Operations/OperationError.swift:50, Sources/Operations/OperationError.swift:54, Sources/Operations/OperationError.swift:86
+    - next: implement — put `let` before each bound variable in each `case` pattern in Sources/Operations/OperationError.swift, then test, commit, and review again.
+  timestamp: 2026-09-14T12:25:18.248538+00:00
+- actor: claude-code
+  id: 01m2fy2bhq3gawm8a387k4q967
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 6 files
+    - test: green — swift test, 264 passed, 0 failed, 0 skipped
+    - commit: acb8c17
+    - review: findings — Sources/Operations/OperationError.swift:48, Sources/Operations/OperationError.swift:50, Sources/Operations/OperationError.swift:54, Sources/Operations/OperationError.swift:86
+  timestamp: 2026-09-14T12:25:29.911816+00:00
+- actor: claude-code
+  id: 01m2fy4gbemy60chd7wt5t5943
+  text: |-
+    Review findings fixed.
+    - `Sources/Operations/OperationError.swift`: all six `case let` patterns now put `let` before each bound variable. This includes the four reported patterns and the two that were not reported (`.unknownOperation(let valid)` and `.missingRequired(let names)` in `description`). The file has no `case let` now.
+    - The other files of commit acb8c17 (`AnyOperation.swift`, `OperationTool.swift`, `CoreTypesTests.swift`, `OperationToolTests.swift`, `NotesIntegrationTests.swift`) have no `case let` patterns. No change was necessary there.
+    - Other `case let` patterns are in files outside this change (`SchemaFusion.swift`, `OperationResolver.swift`, `CLIRegistryBuilder.swift`, `OperationOutcome.swift`, `ProcessRegistryTests.swift`). This task did not change them.
+    - `swift test`: exit 0, 264 tests in 24 suites passed, 0 failures, 0 warnings.
+  timestamp: 2026-09-14T12:26:40.366223+00:00
+- actor: claude-code
+  id: 01m2fy4hpdnsaa8qvkeqvttqc8
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Sources/Operations/OperationError.swift; `swift test` exit 0, 264 passed, 0 failed, 0 warnings
+    - next: test, commit, review
+  timestamp: 2026-09-14T12:26:41.741768+00:00
+- actor: claude-code
+  id: 01m2fy8jrtxn3nmn8r37n4q8db
+  text: |-
+    ### test — green
+    - evidence: `swift build` — build complete, 0 warnings. `swift test` — 264 tests passed, 0 failed, 0 skipped, in 24 suites.
+    - check: `swiftlint` reported 0 issues.
+    - note: `swiftformat --lint` found format issues in 110 of 125 files across the repo. This is old debt. It is not part of this diff. It is out of scope for this test step.
+    - next: send the task to review.
+  timestamp: 2026-09-14T12:28:53.914068+00:00
 position_column: doing
 position_ordinal: '80'
 title: A thrown operation loses its cause, so every failure reads 'This operation failed while executing.'
@@ -100,3 +141,15 @@ it. Add the cause after it.
   `OperationError`.
 - A person who reads the transcript of a failed tool call can say what went
   wrong, with no need to read the source of another package.
+
+## Review Findings (2026-09-14 07:21)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/Operations/OperationError.swift:48` `code-hygiene/idioms-swift` — UseLetInEveryBoundCaseVariable: move this 'let' keyword inside the 'case' pattern, before each of the bound variables.
+- [x] `Sources/Operations/OperationError.swift:50` `code-hygiene/idioms-swift` — UseLetInEveryBoundCaseVariable: move this 'let' keyword inside the 'case' pattern, before each of the bound variables.
+- [x] `Sources/Operations/OperationError.swift:54` `code-hygiene/idioms-swift` — UseLetInEveryBoundCaseVariable: move this 'let' keyword inside the 'case' pattern, before each of the bound variables.
+- [x] `Sources/Operations/OperationError.swift:86` `code-hygiene/idioms-swift` — UseLetInEveryBoundCaseVariable: move this 'let' keyword inside the 'case' pattern, before each of the bound variables.
