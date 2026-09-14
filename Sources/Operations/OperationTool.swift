@@ -166,10 +166,11 @@ public struct OperationTool<Context: Sendable>: Tool {
     ///   parameters, or unparseable values) — or, once `retryCap`
     ///   consecutive corrective messages have already been returned, the
     ///   terminal message instead of another one.
-    /// - Throws: Rethrows `OperationError.executionFailed` or
+    /// - Throws: Rethrows `OperationError.executionFailed(cause:)` or
     ///   `.encodingFailed` from the dispatched operation: failures in the
     ///   operation's own logic or output, not the resolver, which the host
-    ///   app must handle.
+    ///   app must handle. The description of `.executionFailed(cause:)`
+    ///   names the error that the operation threw.
     public func call(arguments: GeneratedContent) async throws -> String {
         guard let operation = matchOperation(for: arguments) else {
             return await recordCorrective(OperationError.unknownOperation(valid: operations.map(\.opString)).description)

@@ -137,6 +137,58 @@ private struct DecodingFailureToolFixture: OperationDefinition, Sendable {
     }
 }
 
+/// JSON-encodable result produced by `ExecutionFailureToolFixture.execute(in:)`.
+/// The operation never gives one, because `execute(in:)` always throws, but
+/// `OperationDefinition.Output` requires the type.
+private struct ExecutionFailureOutput: Encodable, Sendable, Equatable {
+    let title: String
+}
+
+/// Thrown unconditionally by `ExecutionFailureToolFixture.execute(in:)`. It
+/// stands in for a failure deep in the logic of an operation, such as a JSON
+/// decode that a dependency did.
+private struct FixtureExecutionError: Error, CustomStringConvertible {
+    /// The text a test finds again in the description of the thrown
+    /// `OperationError`.
+    var description: String {
+        "The catalog answer was not valid JSON."
+    }
+}
+
+/// `fail execute` fixture: a required `title` the resolver can always find,
+/// and an `init(_:)` that always decodes, but an `execute(in:)` that always
+/// throws. It exercises the `OperationError.executionFailed` path of
+/// `OperationTool.call`.
+private struct ExecutionFailureToolFixture: OperationDefinition, Sendable {
+    typealias Context = ToolFixtureContext
+    typealias Output = ExecutionFailureOutput
+
+    var title: String
+
+    static let verb = "fail"
+    static let noun = "execute"
+    static let operationDescription = "Always fails while it executes"
+    static let parameterMetadata: [ParamMeta] = [
+        ParamMeta(name: "title", type: .string, required: true, description: "Present but never used")
+    ]
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(type: ExecutionFailureToolFixture.self, description: operationDescription, properties: [])
+    }
+
+    init(_ content: GeneratedContent) throws {
+        title = try content.value(String.self, forProperty: "title")
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: ["title": title])
+    }
+
+    func execute(in context: ToolFixtureContext) async throws -> ExecutionFailureOutput {
+        throw FixtureExecutionError()
+    }
+}
+
 @Suite struct OperationToolTests {
 
     private func makeTool(
@@ -282,6 +334,27 @@ private struct DecodingFailureToolFixture: OperationDefinition, Sendable {
         let message = try await tool.call(arguments: arguments)
 
         #expect(message == OperationError.decodingFailed.description)
+    }
+
+    // MARK: - executionFailed: thrown, with its cause
+
+    @Test func executionFailedFromOperationExecuteThrowsAnErrorThatNamesTheCause() async throws {
+        let tool = try OperationTool(
+            name: "notes",
+            description: "Note operations",
+            context: ToolFixtureContext(),
+            operations: [AnyOperation(ExecutionFailureToolFixture.self)]
+        )
+        let arguments = GeneratedContent(properties: ["op": "fail execute", "title": "Groceries"])
+
+        do {
+            _ = try await tool.call(arguments: arguments)
+            Issue.record("expected OperationError.executionFailed to be thrown")
+        } catch let error as OperationError {
+            #expect(error.description == "This operation failed while executing. Cause: The catalog answer was not valid JSON.")
+        } catch {
+            Issue.record("unexpected error type: \(error)")
+        }
     }
 
     // MARK: - Key-alias normalization

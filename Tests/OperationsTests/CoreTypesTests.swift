@@ -18,7 +18,28 @@ private struct FixtureOutput: Encodable, Sendable, Equatable {
 }
 
 /// Error thrown by `FixtureOperation.execute(in:)` when `FixtureContext.shouldFail` is set.
-private struct FixtureExecutionError: Error {}
+///
+/// The error has a known text, so a test can find that text again in the
+/// description of the `OperationError` that wraps it.
+private struct FixtureExecutionError: Error, CustomStringConvertible {
+    /// The text this error gives as its description.
+    var message = "The fixture store is offline."
+
+    /// The text of `message`.
+    var description: String {
+        message
+    }
+}
+
+/// An error of a different type from `FixtureExecutionError`, with the same
+/// text, so a test can prove that the equality of
+/// `OperationError.executionFailed` also compares the type of the cause.
+private struct OtherFixtureExecutionError: Error, CustomStringConvertible {
+    /// The same text as the default `FixtureExecutionError.message`.
+    var description: String {
+        FixtureExecutionError().message
+    }
+}
 
 /// Error thrown by `FailingEncodeOutput.encode(to:)`, always.
 private struct FixtureEncodingError: Error {}
@@ -187,7 +208,22 @@ private struct FixtureOperation: OperationDefinition {
             _ = try await anyOp.run(content, context)
             Issue.record("expected OperationError.executionFailed to be thrown")
         } catch let error as OperationError {
-            #expect(error == .executionFailed)
+            #expect(error == .executionFailed(cause: FixtureExecutionError()))
+        } catch {
+            Issue.record("unexpected error type: \(error)")
+        }
+    }
+
+    @Test func anyOperationRunExecuteThrowsPutsTheCauseInTheErrorDescription() async throws {
+        let anyOp = AnyOperation(FixtureOperation.self)
+        let content = GeneratedContent(properties: ["message": "hi"])
+        let context = FixtureContext(shouldFail: true)
+
+        do {
+            _ = try await anyOp.run(content, context)
+            Issue.record("expected OperationError.executionFailed to be thrown")
+        } catch let error as OperationError {
+            #expect(error.description == "This operation failed while executing. Cause: The fixture store is offline.")
         } catch {
             Issue.record("unexpected error type: \(error)")
         }
@@ -235,7 +271,49 @@ private struct FixtureOperation: OperationDefinition {
         #expect(OperationError.encodingFailed.description == "Could not encode this operation's result.")
     }
 
-    @Test func operationErrorExecutionFailedDescriptionReturnsExecutionFailureMessage() {
-        #expect(OperationError.executionFailed.description == "This operation failed while executing.")
+    @Test func operationErrorExecutionFailedDescriptionReturnsExecutionFailureMessageAndCause() {
+        let error = OperationError.executionFailed(cause: FixtureExecutionError(message: "The disk is full."))
+
+        #expect(error.description == "This operation failed while executing. Cause: The disk is full.")
+    }
+
+    // MARK: - OperationError equality
+
+    @Test func operationErrorExecutionFailedIsEqualWhenTheCausesHaveTheSameTypeAndText() {
+        let lhs = OperationError.executionFailed(cause: FixtureExecutionError())
+        let rhs = OperationError.executionFailed(cause: FixtureExecutionError())
+
+        #expect(lhs == rhs)
+    }
+
+    @Test func operationErrorExecutionFailedIsNotEqualWhenTheCausesHaveDifferentText() {
+        let lhs = OperationError.executionFailed(cause: FixtureExecutionError(message: "The disk is full."))
+        let rhs = OperationError.executionFailed(cause: FixtureExecutionError(message: "The network is down."))
+
+        #expect(lhs != rhs)
+    }
+
+    @Test func operationErrorExecutionFailedIsNotEqualWhenTheCausesHaveDifferentTypes() {
+        let lhs = OperationError.executionFailed(cause: FixtureExecutionError())
+        let rhs = OperationError.executionFailed(cause: OtherFixtureExecutionError())
+
+        #expect(lhs != rhs)
+    }
+
+    @Test func operationErrorExecutionFailedIsNotEqualToADifferentCase() {
+        #expect(OperationError.executionFailed(cause: FixtureExecutionError()) != .encodingFailed)
+    }
+
+    @Test func operationErrorCasesWithTheSameValuesAreEqual() {
+        #expect(OperationError.unknownOperation(valid: ["add note"]) == .unknownOperation(valid: ["add note"]))
+        #expect(OperationError.missingRequired(["title"]) == .missingRequired(["title"]))
+        #expect(OperationError.decodingFailed == .decodingFailed)
+        #expect(OperationError.encodingFailed == .encodingFailed)
+    }
+
+    @Test func operationErrorCasesWithDifferentValuesAreNotEqual() {
+        #expect(OperationError.unknownOperation(valid: ["add note"]) != .unknownOperation(valid: ["delete note"]))
+        #expect(OperationError.missingRequired(["title"]) != .missingRequired(["id"]))
+        #expect(OperationError.decodingFailed != .encodingFailed)
     }
 }

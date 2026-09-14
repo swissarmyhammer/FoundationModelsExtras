@@ -52,8 +52,9 @@ public struct AnyOperation<Context: Sendable>: Sendable {
     /// against `context`, and returns the JSON-encoded result.
     ///
     /// Throws `OperationError.decodingFailed` if the concrete operation's
-    /// `init(_:)` throws; throws `OperationError.executionFailed` if
-    /// `execute(in:)` throws; throws `OperationError.encodingFailed` if
+    /// `init(_:)` throws; throws `OperationError.executionFailed(cause:)`,
+    /// with the error that `execute(in:)` threw, if `execute(in:)` throws;
+    /// throws `OperationError.encodingFailed` if
     /// JSON-encoding its `Output` throws, or if the encoded JSON isn't valid
     /// UTF-8.
     internal let run: @Sendable (GeneratedContent, Context) async throws -> String
@@ -78,7 +79,7 @@ public struct AnyOperation<Context: Sendable>: Sendable {
             do {
                 output = try await operation.execute(in: context)
             } catch {
-                throw OperationError.executionFailed
+                throw OperationError.executionFailed(cause: error)
             }
 
             let encoder = JSONEncoder()

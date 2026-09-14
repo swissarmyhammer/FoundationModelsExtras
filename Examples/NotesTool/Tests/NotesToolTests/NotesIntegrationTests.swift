@@ -72,7 +72,7 @@ import Testing
             _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "get note", "id": "missing"]))
             Issue.record("expected OperationError.executionFailed to be thrown")
         } catch let error as OperationError {
-            #expect(error == .executionFailed)
+            #expect(error == .executionFailed(cause: NotesError.notFound(id: "missing")))
         } catch {
             Issue.record("unexpected error type: \(error)")
         }
@@ -96,7 +96,7 @@ import Testing
             _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "delete note", "id": "missing"]))
             Issue.record("expected OperationError.executionFailed to be thrown")
         } catch let error as OperationError {
-            #expect(error == .executionFailed)
+            #expect(error == .executionFailed(cause: NotesError.notFound(id: "missing")))
         } catch {
             Issue.record("unexpected error type: \(error)")
         }
@@ -122,7 +122,7 @@ import Testing
             _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "tag note", "id": "missing", "tags": ["urgent"]]))
             Issue.record("expected OperationError.executionFailed to be thrown")
         } catch let error as OperationError {
-            #expect(error == .executionFailed)
+            #expect(error == .executionFailed(cause: NotesError.notFound(id: "missing")))
         } catch {
             Issue.record("unexpected error type: \(error)")
         }
