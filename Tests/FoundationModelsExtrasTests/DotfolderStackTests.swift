@@ -76,6 +76,23 @@ import Testing
     #expect(stack.layers.map(\.source) == [.user, .project])
   }
 
+  @Test func defaultInitNeverDerivesAMarketplaceLayer() {
+    let workingDirectory = FileManager.default.temporaryDirectory
+    let bareStack = DotfolderStack(name: "testagent", workingDirectory: workingDirectory)
+    let overriddenStack = DotfolderStack(
+      name: "testagent",
+      workingDirectory: workingDirectory,
+      environment: [
+        "TESTAGENT_DEFAULTS_DIR": "/tmp/defaults",
+        "XDG_CONFIG_HOME": "/tmp/config",
+      ]
+    )
+
+    #expect(!bareStack.layers.contains { $0.source == .marketplace })
+    #expect(!overriddenStack.layers.contains { $0.source == .marketplace })
+    #expect(overriddenStack.layers.map(\.source) == [.defaults, .user, .project])
+  }
+
   @Test func layersAreOrderedDefaultsThenUserThenProject() {
     let fixture = Fixture()
     let stack = fixture.makeStack()

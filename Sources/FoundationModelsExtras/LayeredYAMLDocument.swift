@@ -51,7 +51,7 @@ public enum LayeredYAMLDocumentError: Error, Sendable, CustomStringConvertible {
 ///
 /// `load` locates every layer's copy of a relative path, renders each
 /// through `TemplateEngine` under its layer's trust (`.trusted` for the
-/// `defaults` layer, `.untrusted` for `user`/`project` — plan.md §4's
+/// `defaults` layer, `.untrusted` for `user`/`project`/`marketplace` — plan.md §4's
 /// render-then-parse rule, so a templated value like an MCP server's
 /// `env: { TOKEN: "{{ HOME }}" }` resolves per layer before parsing ever
 /// sees it), parses each rendered layer with Yams, and merges the results
@@ -127,7 +127,7 @@ public struct LayeredYAMLDocument: Sendable {
   ///   - stack: The layered stack to resolve `relativePath` against.
   ///   - engine: The engine every layer's text renders through before
   ///     parsing — `.trusted` for the `defaults` layer, `.untrusted` for
-  ///     `user`/`project` (plan.md §4).
+  ///     `user`/`project`/`marketplace` (plan.md §4).
   ///   - context: Explicit template values passed to every layer's render.
   /// - Returns: The merged document.
   /// - Throws: `LayeredYAMLDocumentError.fileNotReadable` if a located
@@ -182,7 +182,8 @@ public struct LayeredYAMLDocument: Sendable {
   // MARK: - Trust mapping
 
   /// `.trusted` for the `defaults` layer (consumer-shipped, no
-  /// restriction — plan.md §4); `.untrusted` for `user`/`project` layers.
+  /// restriction — plan.md §4); `.untrusted` for `user`/`project`/
+  /// `marketplace` layers.
   private static func trust(for source: DotfolderStack.Source) -> TemplateEngine.Trust {
     source == .defaults ? .trusted : .untrusted
   }

@@ -24,6 +24,11 @@ public struct DotfolderStack: Sendable {
     case user
     /// The current project's dotfolder, `<workingDirectory>/.<name>/`.
     case project
+    /// A cached remote skill marketplace layer. A host adds this layer
+    /// itself, below the local `defaults < user < project` layers.
+    /// It is never trusted. `init(name:workingDirectory:...)` never
+    /// derives it.
+    case marketplace
   }
 
   /// One layer of the stack: a source kind and the directory it roots.
