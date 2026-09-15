@@ -51,8 +51,9 @@ enum (every operation's `"verb noun"` string) plus the union of every operation'
 all declared optional, deduplicated by name across operations. Per-operation
 requiredness and value constraints are enforced at dispatch instead of by the schema (see
 [`OPERATIONS_DESIGN_NOTES.md`](OPERATIONS_DESIGN_NOTES.md) for why). `OperationTool.call(arguments:)`
-forgivingly resolves a payload's `op` and parameter keys (case, `_`/`-` separators,
-`"noun verb"` reordering, verb aliases, camelCase/snake_case key aliasing) to the
+forgivingly resolves a payload's `op` and parameter keys (case, `_`/`-`/space separators
+or none in a multi-word verb or noun, `"noun verb"` reordering, verb aliases, noun
+aliases, camelCase/snake_case key aliasing) to the
 matching operation and dispatches to it:
 
 <!-- doc-snippet source="Examples/NotesTool/Sources/NotesToolCore/NotesTool.swift" -->

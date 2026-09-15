@@ -145,3 +145,28 @@ at dispatch time) both need an identical definition of "the same name, ignoring 
 `_`/`-` separators" — originally duplicated as a private implementation detail of
 `SchemaFusion.swift`. Extracted to `Sources/Operations/OperationKeys.swift` once a second
 call site needed it, so the two layers can't drift apart on what counts as a collision.
+
+### Separator-free `op` matching and `nounAliases`
+
+`plan.md` specifies `op` matching that accepts `_`/`-` separators and "noun verb" order.
+The first implementation matched a verb and a noun only when the `op` string had exactly
+two tokens. Thus, for the noun `type_definition`, `get typedefinition` and
+`type_definition get` did not match. Also, `get call_graph` did not match the noun
+`callgraph`. Tools with multi-word nouns (for example, `FoundationModelsCodeContext`)
+must accept these forms.
+
+`OperationResolver.matchOpString` keeps the two exact paths. If they find no match, a
+fallback runs. The fallback tries each split point in the tokens. It joins the tokens on
+each side of the split into one word, with no separator. It tries the two words as
+(verb, noun), and then as (noun, verb). A candidate matches when its verb and noun, in
+lowercase and with no `_`, `-`, or space, are equal to the two words. The first
+registered candidate that matches wins.
+
+`plan.md` specifies only a verb-alias table. `OperationResolver` now also has a
+`nounAliases` table, set per tool through `init(verbAliases:nounAliases:inferOp:)`. There
+is no default noun table, because nouns are specific to each tool. The two-token path and
+the fallback both use `nounAliases`. The fallback compacts alias keys in the same way as
+the words, so `type_def`, `type-def`, and `typedef` find the same entry.
+
+`ParamMeta.aliases` does not change. It applies to parameter keys at dispatch only, and
+it does not go into the fused schema.

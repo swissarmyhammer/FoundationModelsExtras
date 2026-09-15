@@ -4,13 +4,14 @@ import FoundationModels
 /// registered operation and its canonically-keyed parameters.
 ///
 /// Layered per plan.md's "Forgiving input": an explicit `op` value tolerant
-/// of case, `_`/`-` separators, and "noun verb" reordering; a shared
-/// verb-alias table (`create`/`new` → `add`, …) callers can extend per tool;
-/// parameter key resolution from `ParamMeta.aliases` plus camelCase/
-/// snake_case normalization, never overriding an explicitly present
-/// canonical key; and an optional per-tool inference closure for payloads
-/// that omit `op` entirely. `OperationTool` owns one resolver instance and
-/// consults it on every `call(arguments:)`.
+/// of case, `_`/`-`/space separators (or no separators in a multi-word
+/// verb or noun), and "noun verb" reordering; a shared verb-alias table
+/// (`create`/`new` → `add`, …) callers can extend per tool; an optional
+/// per-tool noun-alias table; parameter key resolution from
+/// `ParamMeta.aliases` plus camelCase/snake_case normalization, never
+/// overriding an explicitly present canonical key; and an optional per-tool
+/// inference closure for payloads that omit `op` entirely. `OperationTool`
+/// owns one resolver instance and consults it on every `call(arguments:)`.
 public struct OperationResolver: Sendable {
     /// Inspects an op-less payload and proposes an op string to resolve, or
     /// `nil` if it can't infer one.
@@ -35,10 +36,22 @@ public struct OperationResolver: Sendable {
     /// top (an entry with the same key overrides the default).
     public let verbAliases: [String: String]
 
+    /// The noun-alias table this resolver matches against, for example
+    /// `reference` → `references`. There is no default table: noun
+    /// vocabulary is specific to each tool.
+    public let nounAliases: [String: String]
+
     /// Consulted when the payload has no usable `op` value, to propose one
     /// from the payload's other fields. `nil` by default — inference is
     /// opt-in per tool.
     public let inferOp: InferenceHook?
+
+    /// `verbAliases` with each key compacted (see `compacted(_:)`), so that
+    /// `Find_Symbol` and `findsymbol` find the same entry.
+    private let compactVerbAliases: [String: String]
+
+    /// `nounAliases` with each key compacted (see `compacted(_:)`).
+    private let compactNounAliases: [String: String]
 
     /// Creates a resolver.
     ///
@@ -46,14 +59,31 @@ public struct OperationResolver: Sendable {
     ///   - verbAliases: Verb aliases merged on top of `Self
     ///     .defaultVerbAliases` (overriding a default with the same key).
     ///     Defaults to no additions.
+    ///   - nounAliases: Noun aliases, keyed by the alias, with the
+    ///     canonical noun as the value. Defaults to no aliases.
     ///   - inferOp: An optional per-tool op-inference hook, consulted when
     ///     the payload has no usable `op` value. Defaults to `nil`.
     public init(
         verbAliases: [String: String] = [:],
+        nounAliases: [String: String] = [:],
         inferOp: InferenceHook? = nil
     ) {
         self.verbAliases = OperationResolver.defaultVerbAliases.merging(verbAliases) { _, override in override }
+        self.nounAliases = nounAliases
         self.inferOp = inferOp
+        self.compactVerbAliases = Self.compactingKeys(of: self.verbAliases)
+        self.compactNounAliases = Self.compactingKeys(of: nounAliases)
+    }
+
+    /// Returns `table` with each key compacted. When two keys compact to
+    /// the same value, the entry with the lesser original key wins, so the
+    /// result does not depend on dictionary order.
+    private static func compactingKeys(of table: [String: String]) -> [String: String] {
+        var compact: [String: String] = [:]
+        for key in table.keys.sorted() where compact[compacted(key)] == nil {
+            compact[compacted(key)] = table[key]
+        }
+        return compact
     }
 }
 
@@ -82,8 +112,13 @@ extension OperationResolver {
         return inferOp?(content)
     }
 
-    /// Matches `opString` against `candidates`, tolerant of case, `_`/`-`
-    /// separators, "noun verb" reordering, and `verbAliases`.
+    /// Matches `opString` against `candidates`, tolerant of case, `_`/`-`/
+    /// space separators (or none in a multi-word verb or noun), "noun verb"
+    /// reordering, `verbAliases`, and `nounAliases`.
+    ///
+    /// The exact paths run first: a two-token verb/noun match, or else a
+    /// compare of the joined tokens with each candidate's `opString`. If
+    /// they find no match, `compactMatch(_:against:)` runs as a fallback.
     ///
     /// - Parameters:
     ///   - opString: The candidate op string, e.g. from `extractedOpString`.
@@ -92,18 +127,59 @@ extension OperationResolver {
     ///   none match.
     internal func matchOpString(_ opString: String, against candidates: [OpCandidate]) -> String? {
         let tokens = Self.spaceSeparatedTokens(opString)
-        guard tokens.count == 2 else {
+        if tokens.count == 2 {
+            for (verbToken, nounToken) in [(tokens[0], tokens[1]), (tokens[1], tokens[0])] {
+                let verb = verbAliases[verbToken] ?? verbToken
+                let noun = compactNounAliases[nounToken] ?? nounToken
+                if let match = candidates.first(where: { $0.verb == verb && $0.noun == noun }) {
+                    return match.opString
+                }
+            }
+        } else {
             let joined = tokens.joined(separator: " ")
-            return candidates.first { Self.spaceSeparatedTokens($0.opString).joined(separator: " ") == joined }?.opString
-        }
-
-        for (verbToken, nounToken) in [(tokens[0], tokens[1]), (tokens[1], tokens[0])] {
-            let verb = verbAliases[verbToken] ?? verbToken
-            if let match = candidates.first(where: { $0.verb == verb && $0.noun == nounToken }) {
+            if let match = candidates.first(where: { Self.spaceSeparatedTokens($0.opString).joined(separator: " ") == joined }) {
                 return match.opString
             }
         }
+        return compactMatch(tokens, against: candidates)
+    }
+
+    /// The separator-free fallback for `matchOpString(_:against:)`.
+    ///
+    /// For each split point in `tokens`, the tokens to the left join into
+    /// one word and the tokens to the right join into one word. The two
+    /// words are tried as (verb, noun) and then as (noun, verb). The verb
+    /// goes through `verbAliases` and the noun goes through `nounAliases`.
+    /// A candidate matches when its compacted verb and noun are equal to
+    /// the two words, so `get typedefinition`, `type_definition get`, and
+    /// `get call_graph` find `get type_definition` and `get callgraph`.
+    ///
+    /// - Parameters:
+    ///   - tokens: The op string, as `spaceSeparatedTokens(_:)` gives it.
+    ///   - candidates: Every registered operation's `verb`/`noun`/`opString`.
+    /// - Returns: The first registered matching candidate's `opString` for
+    ///   the first split and order that matches, or `nil` if none match.
+    private func compactMatch(_ tokens: [String], against candidates: [OpCandidate]) -> String? {
+        guard tokens.count >= 2 else { return nil }
+        for split in 1..<tokens.count {
+            let left = tokens[..<split].joined()
+            let right = tokens[split...].joined()
+            for (verbWord, nounWord) in [(left, right), (right, left)] {
+                let verb = Self.compacted(compactVerbAliases[verbWord] ?? verbWord)
+                let noun = Self.compacted(compactNounAliases[nounWord] ?? nounWord)
+                if let match = candidates.first(where: { Self.compacted($0.verb) == verb && Self.compacted($0.noun) == noun }) {
+                    return match.opString
+                }
+            }
+        }
         return nil
+    }
+
+    /// Lowercases `text` and removes each `_`, `-`, and whitespace
+    /// separator, so `"type_definition"`, `"Type-Definition"`, and
+    /// `"type definition"` all compact to `"typedefinition"`.
+    private static func compacted(_ text: String) -> String {
+        spaceSeparatedTokens(text).joined()
     }
 
     /// Lowercases `text` and splits it into whitespace-separated tokens,
