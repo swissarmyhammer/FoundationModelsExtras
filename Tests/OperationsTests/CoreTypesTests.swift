@@ -7,12 +7,15 @@ import Testing
 ///
 /// `shouldFail` lets a single test fixture exercise both the happy path and
 /// the execution-throws path without needing two operation types.
-private struct FixtureContext: Sendable {
+///
+/// This context and the fixture operations that use it are `internal`, not
+/// `private`, because `OperationDescribingConformanceTests` also uses them.
+struct FixtureContext: Sendable {
     var shouldFail: Bool = false
 }
 
 /// JSON-encodable result produced by `FixtureOperation.execute(in:)`.
-private struct FixtureOutput: Encodable, Sendable, Equatable {
+struct FixtureOutput: Encodable, Sendable, Equatable {
     let echoed: String
     let length: Int
 }
@@ -46,7 +49,7 @@ private struct FixtureEncodingError: Error {}
 
 /// `Encodable` conformance that always throws, to exercise `AnyOperation.run`'s
 /// output-encoding failure path.
-private struct FailingEncodeOutput: Encodable, Sendable {
+struct FailingEncodeOutput: Encodable, Sendable {
     func encode(to encoder: Encoder) throws {
         throw FixtureEncodingError()
     }
@@ -56,7 +59,7 @@ private struct FailingEncodeOutput: Encodable, Sendable {
 /// JSON-encode, proving `AnyOperation.run` surfaces
 /// `OperationError.encodingFailed` (not `.decodingFailed`) for that failure
 /// mode.
-private struct FailingEncodeOperation: OperationDefinition {
+struct FailingEncodeOperation: OperationDefinition {
     typealias Context = FixtureContext
     typealias Output = FailingEncodeOutput
 
@@ -84,7 +87,7 @@ private struct FailingEncodeOperation: OperationDefinition {
 /// involved — proving the manual escape hatch plan.md calls out: conforming
 /// directly to `OperationDefinition` (and, in turn, `Generable`) is always
 /// possible without macro sugar.
-private struct FixtureOperation: OperationDefinition {
+struct FixtureOperation: OperationDefinition {
     typealias Context = FixtureContext
     typealias Output = FixtureOutput
 

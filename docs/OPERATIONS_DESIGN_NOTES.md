@@ -170,3 +170,23 @@ the words, so `type_def`, `type-def`, and `typedef` find the same entry.
 
 `ParamMeta.aliases` does not change. It applies to parameter keys at dispatch only, and
 it does not go into the fused schema.
+
+### `OperationDescribing.perform` throws a refusal that `call` returns
+
+`plan.md` specifies one dispatch path, `call(arguments:)`, and its rule "return, don't
+throw". That rule is correct for a `LanguageModelSession`. When `Tool.call` throws, the
+session does not show the error to the model. The session rethrows the error and stops the
+turn.
+
+A host such as FoundationModelsMultitool is different. It runs the tool in a code sandbox.
+There, a thrown error becomes a promise rejection, and the model sees that rejection. The
+rule of `call` does not apply. Also, a refusal that comes back as text is hard for the
+sandbox code to tell apart from a result. For this host, `OperationTool` conforms to
+`OperationDescribing`. `operationDescriptors` gives the operations as type-erased values.
+`perform(_:)` dispatches one operation and throws `OperationError.unknownOperation`,
+`.missingRequired` or `.decodingFailed`.
+
+`call` and `perform` use one private resolve step in `OperationTool`, so the two paths
+cannot resolve a payload in different ways. Only `call` uses the retry cap. `perform` does
+not read or change the retry state, because a thrown refusal is not a corrective message.
+The behavior of `call` does not change.

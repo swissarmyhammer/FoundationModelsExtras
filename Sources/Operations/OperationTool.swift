@@ -1,4 +1,5 @@
 import FoundationModels
+import FoundationModelsExtras
 
 /// Fuses a set of operations sharing a `Context` into one FoundationModels
 /// `Tool`: `parameters` is the flat-union schema `SchemaFusion` builds, and
@@ -14,6 +15,11 @@ import FoundationModels
 /// turn — and `throw` is reserved for genuinely fatal conditions (the
 /// dispatched operation's own execution or output-encoding failure) the
 /// host app must handle.
+///
+/// `perform(_:)` from `OperationDescribing` is the one exception. It uses
+/// the same resolve step as `call(arguments:)`, but it throws each refusal,
+/// for a host that shows a thrown error to the model. See
+/// `docs/OPERATIONS_DESIGN_NOTES.md`.
 ///
 /// **Retry cap.** Corrective feedback can send an on-device model into
 /// retry loops, and every retry still costs context. `call(arguments:)`
@@ -172,22 +178,49 @@ public struct OperationTool<Context: Sendable>: Tool {
     ///   app must handle. The description of `.executionFailed(cause:)`
     ///   names the error that the operation threw.
     public func call(arguments: GeneratedContent) async throws -> String {
-        guard let operation = matchOperation(for: arguments) else {
-            return await recordCorrective(OperationError.unknownOperation(valid: operations.map(\.opString)).description)
-        }
-
-        let resolution = resolver.resolveParameters(arguments, matching: operation.parameters)
-        guard resolution.missingRequired.isEmpty else {
-            return await recordCorrective(OperationError.missingRequired(resolution.missingRequired).description)
+        let resolved: ResolvedOperation
+        do {
+            resolved = try resolve(arguments)
+        } catch {
+            return await recordCorrective(error.description)
         }
 
         do {
-            let json = try await operation.run(resolution.content, context)
+            let json = try await resolved.operation.run(resolved.content, context)
             await retryState.reset()
             return json
         } catch OperationError.decodingFailed {
             return await recordCorrective(OperationError.decodingFailed.description)
         }
+    }
+
+    /// An operation that `resolve(_:)` found for a payload, with the
+    /// payload content that the operation decodes.
+    private typealias ResolvedOperation = (operation: AnyOperation<Context>, content: GeneratedContent)
+
+    /// Finds the operation for `arguments` and resolves its parameters.
+    ///
+    /// `call(arguments:)` and `perform(_:)` both use this function, so the
+    /// two paths resolve a payload in the same way. This function does not
+    /// read or change the retry state.
+    ///
+    /// - Parameter arguments: The payload with the `op` key and the fields of
+    ///   one operation.
+    /// - Returns: The matched operation and the content with its canonical
+    ///   parameter keys.
+    /// - Throws: `OperationError.unknownOperation(valid:)` when no operation
+    ///   matches, or `OperationError.missingRequired(_:)` when the payload
+    ///   does not have a required parameter.
+    private func resolve(_ arguments: GeneratedContent) throws(OperationError) -> ResolvedOperation {
+        guard let operation = matchOperation(for: arguments) else {
+            throw .unknownOperation(valid: operations.map(\.opString))
+        }
+
+        let resolution = resolver.resolveParameters(arguments, matching: operation.parameters)
+        guard resolution.missingRequired.isEmpty else {
+            throw .missingRequired(resolution.missingRequired)
+        }
+        return (operation, resolution.content)
     }
 
     /// Extracts and matches `arguments`' op string against `operations`, via
@@ -248,6 +281,93 @@ extension OperationTool: ForkableTool {
     public func forked() -> any Tool {
         let forkedContext = (context as? any ForkableContext)?.forked() as? Context
         return copy(context: forkedContext ?? context)
+    }
+}
+
+/// `OperationTool` conforms to `OperationDescribing` for every `Context`. A
+/// host that holds only `any Tool` can get the operations of the tool as
+/// descriptors, and can dispatch one operation with `perform(_:)`.
+extension OperationTool: OperationDescribing {
+    /// One descriptor for each operation in `operations`, in the same order.
+    public var operationDescriptors: [OperationDescriptor] {
+        operations.map(OperationDescriptor.init)
+    }
+
+    /// Dispatches one operation and returns its JSON-encoded output.
+    ///
+    /// This method resolves the payload in the same way as
+    /// `call(arguments:)`. It is different in two ways. It throws a refusal
+    /// and does not return the refusal as text. It does not read or change
+    /// the retry state, so it has no effect on the retry cap of
+    /// `call(arguments:)`.
+    ///
+    /// - Parameter arguments: The payload with the `op` key and the fields of
+    ///   one operation.
+    /// - Returns: The JSON-encoded output of the operation.
+    /// - Throws: `OperationError.unknownOperation(valid:)` when no operation
+    ///   matches, `OperationError.missingRequired(_:)` when a required
+    ///   parameter is absent, `OperationError.decodingFailed` when the
+    ///   operation cannot decode the payload, and
+    ///   `OperationError.executionFailed(cause:)` or
+    ///   `OperationError.encodingFailed` from the operation.
+    public func perform(_ arguments: GeneratedContent) async throws -> String {
+        let resolved = try resolve(arguments)
+        return try await resolved.operation.run(resolved.content, context)
+    }
+}
+
+extension OperationDescriptor {
+    /// Makes the descriptor of `operation`. The descriptor copies the verb,
+    /// the noun, the op string, the description and the parameters.
+    ///
+    /// - Parameter operation: The operation to describe.
+    internal init<Context>(_ operation: AnyOperation<Context>) {
+        self.init(
+            verb: operation.verb,
+            noun: operation.noun,
+            opString: operation.opString,
+            description: operation.description,
+            parameters: operation.parameters.map(OperationParameterDescriptor.init)
+        )
+    }
+}
+
+extension OperationParameterDescriptor {
+    /// Makes the descriptor of the parameter that `meta` describes.
+    ///
+    /// The descriptor does not copy `ParamMeta.short`, because only the CLI
+    /// uses the short flag.
+    ///
+    /// - Parameter meta: The metadata of the parameter.
+    internal init(_ meta: ParamMeta) {
+        self.init(
+            name: meta.name,
+            type: OperationParameterType(meta.type),
+            required: meta.required,
+            description: meta.description,
+            aliases: meta.aliases,
+            allowedValues: meta.allowedValues
+        )
+    }
+}
+
+extension OperationParameterType {
+    /// Makes the parameter type that is equal to `paramType`.
+    ///
+    /// - Parameter paramType: The type from the parameter metadata.
+    internal init(_ paramType: ParamType) {
+        switch paramType {
+        case .string:
+            self = .string
+        case .integer:
+            self = .integer
+        case .number:
+            self = .number
+        case .boolean:
+            self = .boolean
+        case .array(let element):
+            self = .array(of: OperationParameterType(element))
+        }
     }
 }
 

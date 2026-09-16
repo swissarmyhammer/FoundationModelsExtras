@@ -41,8 +41,24 @@ comments:
     - evidence: Tests/FoundationModelsExtrasTests/OperationDescribingTests.swift. The file had one `@Suite` with no arguments. It is removed. `swift build` passes. `swift test`: 271 tests in 25 suites pass, 0 warnings.
     - next: review. The push criterion stays open for the orchestrator.
   timestamp: 2026-09-16T14:16:45.700238+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2n9jy9r4y3zdsy7t4859wy3
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit de59fef) found 0 findings (7 validators attempted, 0 failed). The prior finding at `Tests/FoundationModelsExtrasTests/OperationDescribingTests.swift:103` is checked and fixed.
+    - next: The orchestrator pushes to origin/main one time after ^rmmv6qv and ^3jpfqa3 are done. Then it writes the full commit SHA as a comment on this card. The user decided this, so the push criterion does not keep this task out of done.
+  timestamp: 2026-09-16T14:22:59.896658+00:00
+- actor: claude-code
+  id: 01m2n9k9pc6z427xccf236b566
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — OperationDescribingTests.swift (removed the @Suite with no arguments)
+    - test: green — swift build 0 warnings; swift test 271 tests in 25 suites, 0 failed
+    - commit: de59fef
+    - review: clean — 0 findings; task in done. The push to origin/main and the SHA comment come after ^3jpfqa3 is done.
+  timestamp: 2026-09-16T14:23:11.564128+00:00
+position_column: done
+position_ordinal: a180
 title: Add the OperationDescribing protocol and its descriptor types
 ---
 ## What

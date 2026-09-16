@@ -1,4 +1,5 @@
 import FoundationModels
+import FoundationModelsExtras
 import Operations
 import OperationsCLI
 import Testing
@@ -126,6 +127,55 @@ import Testing
         } catch {
             Issue.record("unexpected error type: \(error)")
         }
+    }
+}
+
+/// Exercises the `OperationDescribing` conformance of the real notes tool, as
+/// a host that holds only `any Tool` sees it.
+@Suite struct NotesOperationDescribingTests {
+
+    private func makeDescribingTool() throws -> any OperationDescribing {
+        let tool: any Tool = try NotesTool.make()
+        return try #require(tool as? any OperationDescribing)
+    }
+
+    @Test func notesToolListsItsFiveOperationDescriptors() throws {
+        let tool = try makeDescribingTool()
+
+        #expect(tool.operationDescriptors.map(\.opString) == ["add note", "get note", "list note", "delete note", "tag note"])
+    }
+
+    @Test func addNoteDescriptorMarksOnlyTitleAsRequired() throws {
+        let tool = try makeDescribingTool()
+
+        let addNote = try #require(tool.operationDescriptors.first { $0.opString == "add note" })
+        let requiredByName = Dictionary(uniqueKeysWithValues: addNote.parameters.map { ($0.name, $0.required) })
+
+        #expect(requiredByName == ["title": true, "body": false, "tags": false])
+    }
+
+    @Test func tagNoteDescriptorMarksTagsAsRequired() throws {
+        let tool = try makeDescribingTool()
+
+        let tagNote = try #require(tool.operationDescriptors.first { $0.opString == "tag note" })
+        let tags = try #require(tagNote.parameters.first { $0.name == "tags" })
+
+        #expect(tags.required)
+    }
+
+    @Test func performTagNoteGivesTheSameJSONAsCall() async throws {
+        let addNote = GeneratedContent(properties: ["op": "add note", "title": "Groceries"])
+        let tagNote = GeneratedContent(properties: ["op": "tag note", "id": "note-1", "tags": ["a"]])
+        let performingTool = try NotesTool.make()
+        let callingTool = try NotesTool.make()
+        _ = try await performingTool.perform(addNote)
+        _ = try await callingTool.call(arguments: addNote)
+
+        let performed = try await performingTool.perform(tagNote)
+        let called = try await callingTool.call(arguments: tagNote)
+
+        #expect(performed == called)
+        #expect(performed.contains("\"tags\":[\"a\"]"))
     }
 }
 

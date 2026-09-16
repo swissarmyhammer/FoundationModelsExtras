@@ -1,10 +1,35 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m2n9rc76j28ctba9800rs30g
+  text: |-
+    Research done.
+    - `OperationDescribing` and the descriptor types are in the core module `FoundationModelsExtras` (`Sources/FoundationModelsExtras/OperationEvents/OperationDescribing.swift`). `Operations` already imports that module. The card does not ask for `Operations` typealiases, so the tests use `import FoundationModelsExtras`.
+    - `call(arguments:)` today does the resolve step in two places: the private `matchOperation(for:)` and a `resolver.resolveParameters` call. Plan: one private function `resolve(_:)` with typed throws `OperationError` that gives the operation and the resolved content. `call` catches the error and returns `recordCorrective(error.description)`. `perform` lets the error go out. Only `call` touches `RetryState`.
+    - The fixture operations in `CoreTypesTests.swift` are `private`. The new test file cannot see them. Plan: remove `private` from `FixtureContext`, `FixtureOutput`, `FixtureOperation`, `FailingEncodeOutput` and `FailingEncodeOperation`. No other test file declares these names.
+    - `Tests/OperationsTests` cannot import `NotesToolCore`, so the `tag note` payload cases use a local `tag note` fixture there, and `NotesIntegrationTests.swift` also checks `perform` against `call` on the real notes tool.
+  timestamp: 2026-09-16T14:25:57.990386+00:00
+- actor: claude-code
+  id: 01m2nabp0mk4whvn8g8qcznr2s
+  text: |-
+    ### implement — changed
+    - TDD: RED was a compile failure of the new tests ("value of type 'OperationTool<FixtureContext>' has no member 'perform'" and "... 'operationDescriptors'"). GREEN after the change.
+    - `Sources/Operations/OperationTool.swift`: a new private `resolve(_:) throws(OperationError)` holds the shared resolve step. `call(arguments:)` catches its error and returns `recordCorrective(error.description)`, so the text and the retry cap behavior do not change. A new extension conforms `OperationTool` to `OperationDescribing`. `perform(_:)` does not touch `RetryState`. Internal conversion initializers map `AnyOperation` to `OperationDescriptor`, `ParamMeta` to `OperationParameterDescriptor` (no `short`), and `ParamType` to `OperationParameterType` (exhaustive `switch`, recursive for `.array`).
+    - `Tests/OperationsTests/CoreTypesTests.swift`: `FixtureContext`, `FixtureOutput`, `FixtureOperation`, `FailingEncodeOutput`, `FailingEncodeOperation` are now `internal`, so the new test file can use them.
+    - `Tests/OperationsTests/OperationDescribingConformanceTests.swift` (new): 13 tests. Descriptor mapping, each `ParamType` case with aliases and allowed values, cast from `any Tool`, `perform` success parity with `call`, `.unknownOperation`, `.missingRequired`, `.decodingFailed`, `.executionFailed`, and two retry-cap tests (refusals of `perform` do not count; a success of `perform` does not reset).
+    - `Examples/NotesTool/Tests/NotesToolTests/NotesIntegrationTests.swift`: new suite `NotesOperationDescribingTests` with 4 tests (five descriptors, `AddNote` and `TagNote` required flags, `tag note` parity of `perform` and `call`).
+    - `docs/OPERATIONS_DESIGN_NOTES.md`: new section on why `perform` throws.
+    - `Sources/OperationsCLI/AnyOperationTool.swift` has no change. The tests import `FoundationModelsExtras` directly; `Operations` has no typealias for `OperationDescribing` (the card does not ask for one).
+    - evidence: `swift build --build-tests` has 0 errors and 0 warnings. `swift test` exit 0: 271 tests in 25 suites passed, plus 125, 44, 34 and 26 in the other test runs. "Public API doc coverage" passed.
+    - Not done in this step (by instruction): commit, push, and the SHA comment. That criterion stays unchecked for the orchestrator.
+    - next: /review
+  timestamp: 2026-09-16T14:36:30.612587+00:00
 depends_on:
 - 01M2N2AH0WDTKYBC7BMRMMV6QV
-position_column: todo
-position_ordinal: '8180'
+position_column: doing
+position_ordinal: '80'
 title: Conform OperationTool to OperationDescribing with a throwing perform
 ---
 Depends on ^rmmv6qv (the OperationDescribing protocol and its descriptor types).
@@ -19,18 +44,18 @@ In `Sources/Operations/OperationTool.swift`, make `OperationTool<Context>` confo
 Source: request from the FoundationModelsMultitool planning session. Multitool's first card will update `Package.resolved` to the Extras revision that has this change after it is on `main`.
 
 ## Acceptance Criteria
-- [ ] `NotesTool.make()` from `Examples/NotesTool` casts to `any OperationDescribing` and gives five descriptors with the op strings `add note`, `get note`, `list note`, `delete note`, `tag note`.
-- [ ] The `AddNote` descriptor marks `title` as required, and `body` and `tags` as optional. The `TagNote` descriptor marks `tags` as required.
-- [ ] `perform` with `{"op": "tag note", "id": "note-1", "tags": ["a"]}` gives the same JSON text as `call` for the same payload.
-- [ ] `perform` with an unknown op throws `OperationError.unknownOperation`. `call` still returns the corrective text for the same payload.
-- [ ] `perform` with a missing required field throws `OperationError.missingRequired`, and the retry cap has no effect on a later `call`.
-- [ ] The full `swift test` passes, including `DocCoverageTests`.
+- [x] `NotesTool.make()` from `Examples/NotesTool` casts to `any OperationDescribing` and gives five descriptors with the op strings `add note`, `get note`, `list note`, `delete note`, `tag note`.
+- [x] The `AddNote` descriptor marks `title` as required, and `body` and `tags` as optional. The `TagNote` descriptor marks `tags` as required.
+- [x] `perform` with `{"op": "tag note", "id": "note-1", "tags": ["a"]}` gives the same JSON text as `call` for the same payload.
+- [x] `perform` with an unknown op throws `OperationError.unknownOperation`. `call` still returns the corrective text for the same payload.
+- [x] `perform` with a missing required field throws `OperationError.missingRequired`, and the retry cap has no effect on a later `call`.
+- [x] The full `swift test` passes, including `DocCoverageTests`.
 - [ ] The change is pushed to `origin/main`, and a comment on this card names the final revision (the full commit SHA). FoundationModelsMultitool gets Extras by URL and branch `main`, not by path, so `swift package update` cannot get a local commit. The Multitool card pins `Package.resolved` to this revision.
 
 ## Tests
-- [ ] `Tests/OperationsTests/OperationDescribingConformanceTests.swift`: the descriptor mapping for the `CoreTypesTests` fixture operations, each `ParamType` case, and the five `perform` cases above.
-- [ ] `Examples/NotesTool/Tests/NotesToolTests/NotesIntegrationTests.swift`: one test that lists the five descriptors of the real notes tool.
-- [ ] The full `swift test` passes.
+- [x] `Tests/OperationsTests/OperationDescribingConformanceTests.swift`: the descriptor mapping for the `CoreTypesTests` fixture operations, each `ParamType` case, and the five `perform` cases above.
+- [x] `Examples/NotesTool/Tests/NotesToolTests/NotesIntegrationTests.swift`: one test that lists the five descriptors of the real notes tool.
+- [x] The full `swift test` passes.
 
 ## Workflow
 - Use `/tdd`. #operation-tools #multitool-ask
