@@ -100,7 +100,7 @@ private struct PlainToolFixture: Tool {
 }
 
 /// Tests for `OperationDescribing` and its type-erased descriptor types.
-@Suite struct OperationDescribingTests {
+struct OperationDescribingTests {
     @Test func castFromAnyToolFindsADescribingTool() throws {
         let tool: any Tool = try DescribingToolFixture()
 

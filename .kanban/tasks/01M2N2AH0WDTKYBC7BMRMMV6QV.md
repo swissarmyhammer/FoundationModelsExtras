@@ -18,6 +18,29 @@ comments:
     - evidence: 2 files — Sources/FoundationModelsExtras/OperationEvents/OperationDescribing.swift (new), Tests/FoundationModelsExtrasTests/OperationDescribingTests.swift (new). `swift build`: 0 warnings, 0 errors. `swift test --filter OperationDescribingTests`: 6 tests pass. Full `swift test`: 271 + 111 + 44 + 34 + 22 tests pass, 0 failures.
     - next: review. The orchestrator commits, pushes after ^3jpfqa3, and adds the SHA comment.
   timestamp: 2026-09-16T14:03:31.094609+00:00
+- actor: claude-code
+  id: 01m2n8zk72dwxw2snnrn7dh337
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (commit 1a62f5f): 1 finding, 1 confirmed, 0 refuted. Tests/FoundationModelsExtrasTests/OperationDescribingTests.swift:103 (code-hygiene/idioms-swift, redundantSwiftTestingSuite).
+    - next: Remove each @Suite attribute that has no arguments from OperationDescribingTests.swift. Then commit and review again. The push to origin/main is not a review finding. The orchestrator does the push after ^rmmv6qv and ^3jpfqa3 are done.
+  timestamp: 2026-09-16T14:12:25.954182+00:00
+- actor: claude-code
+  id: 01m2n90314nkw0ssggtzypvngj
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — OperationDescribing.swift, OperationDescribingTests.swift
+    - test: green — swift build 0 warnings; swift test 271 tests in 25 suites, 0 failed
+    - commit: 1a62f5f
+    - review: findings — Tests/FoundationModelsExtrasTests/OperationDescribingTests.swift:103
+  timestamp: 2026-09-16T14:12:42.148265+00:00
+- actor: claude-code
+  id: 01m2n97gw42y24h9cjaz7gv8h9
+  text: |-
+    ### implement — changed
+    - evidence: Tests/FoundationModelsExtrasTests/OperationDescribingTests.swift. The file had one `@Suite` with no arguments. It is removed. `swift build` passes. `swift test`: 271 tests in 25 suites pass, 0 warnings.
+    - next: review. The push criterion stays open for the orchestrator.
+  timestamp: 2026-09-16T14:16:45.700238+00:00
 position_column: doing
 position_ordinal: '80'
 title: Add the OperationDescribing protocol and its descriptor types
@@ -50,3 +73,12 @@ Source: request from the FoundationModelsMultitool planning session. Multitool w
 
 ## Workflow
 - Use `/tdd`. #operation-tools #multitool-ask
+
+## Review Findings (2026-09-16 09:05)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 2 file(s) reviewed, 8 not reviewed.
+
+> 8 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 8 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/OperationDescribingTests.swift:103` `code-hygiene/idioms-swift` — redundantSwiftTestingSuite: Remove redundant @Suite attribute with no arguments.
