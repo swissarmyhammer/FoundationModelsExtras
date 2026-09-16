@@ -21,21 +21,8 @@ import Testing
     /// longer than a concurrent runner needs, so a slow machine never fires it.
     private static let watchdogPatience: Duration = .seconds(5)
 
-    /// How long each component of the timing test sleeps.
-    private static let componentDelay: Duration = .milliseconds(100)
-
-    /// How many sleeping components the timing test registers.
-    private static let sleepingComponentCount = 10
-
-    /// What the serial time is divided by to get the time a concurrent run
-    /// must stay under. A concurrent run takes about one ``componentDelay``,
-    /// so half of the serial time is a wide margin on a slow machine.
-    private static let serialTimeFraction = 2
-
-    /// The longest a run of ``sleepingComponentCount`` components may take
-    /// before the test reads the runner as serial.
-    private static let concurrentRunLimit: Duration =
-        componentDelay * sleepingComponentCount / serialTimeFraction
+    /// How many components the barrier test registers.
+    private static let barrierPartyCount = 10
 
     // MARK: - The handoff between two components
 
@@ -82,6 +69,54 @@ import Testing
         }
     }
 
+    /// A rendezvous point where a fixed number of parties suspend in
+    /// ``arrive()`` until every one of them has arrived, then all resume
+    /// together.
+    ///
+    /// A serial runner can never fill the barrier: the first party's
+    /// ``arrive()`` never resumes, because the runner never starts the
+    /// second party while the first is still suspended. That makes the
+    /// barrier a proof of concurrency that needs no wall-clock reading, only
+    /// the watchdog to break the deadlock a serial runner leaves behind.
+    private actor Barrier {
+        /// How many parties this barrier waits for.
+        private let partyCount: Int
+
+        /// How many parties have arrived so far.
+        private var arrivedCount = 0
+
+        /// The parties still suspended in ``arrive()``.
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        init(partyCount: Int) {
+            self.partyCount = partyCount
+        }
+
+        /// Suspends until every party has called ``arrive()``, then resumes
+        /// every one of them.
+        func arrive() async {
+            arrivedCount += 1
+            if arrivedCount >= partyCount {
+                release()
+                return
+            }
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+
+        /// Resumes every suspended party at once, whether or not the full
+        /// count arrived. The watchdog calls this to break a deadlock left
+        /// by a serial runner.
+        func release() {
+            let pending = waiters
+            waiters = []
+            for waiter in pending {
+                waiter.resume()
+            }
+        }
+    }
+
     // MARK: - The stand-in component
 
     /// What a ``StandInComponent`` does before it reports its finding.
@@ -98,6 +133,9 @@ import Testing
         /// Sets the signal, then reports.
         case sets(Signal)
 
+        /// Arrives at the barrier, then reports.
+        case arrivesAt(Barrier)
+
         /// Performs the wait this behavior states.
         func perform() async {
             switch self {
@@ -109,6 +147,8 @@ import Testing
                 await signal.wait()
             case .sets(let signal):
                 await signal.signal()
+            case .arrivesAt(let barrier):
+                await barrier.arrive()
             }
         }
     }
@@ -237,21 +277,39 @@ import Testing
         #expect(report.checks.map(\.name) == ["waiting", "signalling"])
     }
 
-    /// N components that each wait ``componentDelay`` finish in well under
-    /// N times that wait, because the runner asks them all at the same time.
+    /// N components finish only when the runner starts every one of them at
+    /// the same time: each blocks in a shared ``Barrier`` until all N have
+    /// arrived, so a serial runner — which never starts component 2 before
+    /// component 1 returns — deadlocks instead of finishing.
+    ///
+    /// The watchdog breaks that deadlock the same way it does in ``one slow
+    /// component does not hold back the others``, so a serial runner fails
+    /// this test instead of hanging.
     @Test(.timeLimit(.minutes(1)))
-    func `components that each wait finish in well under the sum of their waits`() async {
-        let components = (1...Self.sleepingComponentCount).map { position in
-            StandInComponent(doctorName: "sleeper-\(position)", behavior: .sleeps(Self.componentDelay))
+    func `components that each wait for the others finish only when the runner starts them all at once`() async {
+        let barrier = Barrier(partyCount: Self.barrierPartyCount)
+        let watchdogFlag = WatchdogFlag()
+        let components = (1...Self.barrierPartyCount).map { position in
+            StandInComponent(doctorName: "sleeper-\(position)", behavior: .arrivesAt(barrier))
         }
         let runner = DoctorRunner(components: components)
-        let clock = ContinuousClock()
 
-        let start = clock.now
+        let watchdog = Task {
+            do {
+                try await Task.sleep(for: Self.watchdogPatience)
+            } catch {
+                return
+            }
+            await watchdogFlag.fire()
+            await barrier.release()
+        }
+
         let report = await runner.run()
-        let elapsed = clock.now - start
+        watchdog.cancel()
+        await watchdog.value
 
-        #expect(report.checks.count == Self.sleepingComponentCount)
-        #expect(elapsed < Self.concurrentRunLimit)
+        let didFire = await watchdogFlag.didFire
+        #expect(didFire == false)
+        #expect(report.checks.count == Self.barrierPartyCount)
     }
 }
