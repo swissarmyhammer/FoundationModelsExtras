@@ -54,10 +54,26 @@ comments:
     - The push criterion stays unchecked for the orchestrator. The task stays in `doing`.
     - next: /review
   timestamp: 2026-09-16T14:56:34.516995+00:00
+- actor: claude-code
+  id: 01m2nbs0v94n0zmcy58d2m5cfh
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit aad86fe). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. The two prior findings are checked.
+    - next: The orchestrator pushes to origin/main after ^rmmv6qv and ^3jpfqa3 are done, and then writes the full commit SHA as a comment on this card.
+  timestamp: 2026-09-16T15:01:16.265285+00:00
+- actor: claude-code
+  id: 01m2nbsa7zbe93qfn104fk86nk
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — NotesIntegrationTests.swift, OperationDescribingConformanceTests.swift (removed 5 @Suite attributes with no arguments)
+    - test: green — clean rebuild 0 warnings; swift test 271 tests in 25 suites, 0 failed, 0 skipped
+    - commit: aad86fe
+    - review: clean — 0 findings; task in done. Next: push main to origin and add the SHA comment.
+  timestamp: 2026-09-16T15:01:25.887718+00:00
 depends_on:
 - 01M2N2AH0WDTKYBC7BMRMMV6QV
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: a280
 title: Conform OperationTool to OperationDescribing with a throwing perform
 ---
 Depends on ^rmmv6qv (the OperationDescribing protocol and its descriptor types).
