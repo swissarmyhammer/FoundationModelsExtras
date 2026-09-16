@@ -26,6 +26,34 @@ comments:
     - Not done in this step (by instruction): commit, push, and the SHA comment. That criterion stays unchecked for the orchestrator.
     - next: /review
   timestamp: 2026-09-16T14:36:30.612587+00:00
+- actor: claude-code
+  id: 01m2nb7fr4jp6ghq3b444ebct6
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~2..HEAD, 2 findings (2 confirmed, 0 refuted). Examples/NotesTool/Tests/NotesToolTests/NotesIntegrationTests.swift:135, Tests/OperationsTests/OperationDescribingConformanceTests.swift:94. Rule: code-hygiene/idioms-swift redundantSwiftTestingSuite.
+    - next: Remove each @Suite attribute that has no arguments from the two files. Then run the tests and review again. The push to origin/main and the SHA comment are not findings. The orchestrator does them after this task is done.
+  timestamp: 2026-09-16T14:51:41.700094+00:00
+- actor: claude-code
+  id: 01m2nb820rkrh2tkvve79rggqn
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — OperationTool.swift, OperationDescribingConformanceTests.swift (new), CoreTypesTests.swift, NotesIntegrationTests.swift, OPERATIONS_DESIGN_NOTES.md
+    - test: green — swift build 0 warnings; swift test 125 + 34 + 44 + 26 + 271 tests, 0 failed, 5 runs. The test step also made the DoctorRunnerTests timing test deterministic.
+    - commit: 684a617, 1c703ee
+    - review: findings — Examples/NotesTool/Tests/NotesToolTests/NotesIntegrationTests.swift:135, Tests/OperationsTests/OperationDescribingConformanceTests.swift:94
+  timestamp: 2026-09-16T14:52:00.408820+00:00
+- actor: claude-code
+  id: 01m2nbgdpmcbqfc87amftm6tb6
+  text: |-
+    ### implement — changed
+    - Fixed finding: `code-hygiene/idioms-swift` redundantSwiftTestingSuite: "Remove redundant @Suite attribute with no arguments."
+    - `Examples/NotesTool/Tests/NotesToolTests/NotesIntegrationTests.swift`: removed all 4 `@Suite` attributes with no arguments (NotesDispatchIntegrationTests, NotesOperationDescribingTests, NotesErrorTests, NotesCLIIntegrationTests).
+    - `Tests/OperationsTests/OperationDescribingConformanceTests.swift`: removed the 1 `@Suite` attribute with no arguments (OperationDescribingConformanceTests).
+    - Note: the `files` tool with `replace_all` changed only one match. Each match needed a separate edit.
+    - evidence: `rg '@Suite'` in the two files finds nothing. `swift build` and `swift test` exit 0, 0 warnings, 271 tests in 25 suites passed.
+    - The push criterion stays unchecked for the orchestrator. The task stays in `doing`.
+    - next: /review
+  timestamp: 2026-09-16T14:56:34.516995+00:00
 depends_on:
 - 01M2N2AH0WDTKYBC7BMRMMV6QV
 position_column: doing
@@ -59,3 +87,16 @@ Source: request from the FoundationModelsMultitool planning session. Multitool's
 
 ## Workflow
 - Use `/tdd`. #operation-tools #multitool-ask
+
+## Review Findings (2026-09-16 09:47)
+
+> Scope: `review sha HEAD~2..HEAD` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `docs/OPERATIONS_DESIGN_NOTES.md` — no validator matches this file
+
+- [x] `Examples/NotesTool/Tests/NotesToolTests/NotesIntegrationTests.swift:135` `code-hygiene/idioms-swift` — redundantSwiftTestingSuite: Remove redundant @Suite attribute with no arguments.
+- [x] `Tests/OperationsTests/OperationDescribingConformanceTests.swift:94` `code-hygiene/idioms-swift` — redundantSwiftTestingSuite: Remove redundant @Suite attribute with no arguments.

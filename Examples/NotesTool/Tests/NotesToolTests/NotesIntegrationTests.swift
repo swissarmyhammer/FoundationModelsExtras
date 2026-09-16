@@ -11,7 +11,7 @@ import Testing
 /// a later call observes state an earlier call left behind — proving the ops
 /// actually mutate the shared `NotesStore` `NotesTool.make()` wires up, not
 /// just that each call individually returns plausible JSON.
-@Suite struct NotesDispatchIntegrationTests {
+struct NotesDispatchIntegrationTests {
 
     @Test func addNoteDispatchesThroughAnyOperationAndReturnsTheStoredFields() async throws {
         let tool = try NotesTool.make()
@@ -132,7 +132,7 @@ import Testing
 
 /// Exercises the `OperationDescribing` conformance of the real notes tool, as
 /// a host that holds only `any Tool` sees it.
-@Suite struct NotesOperationDescribingTests {
+struct NotesOperationDescribingTests {
 
     private func makeDescribingTool() throws -> any OperationDescribing {
         let tool: any Tool = try NotesTool.make()
@@ -183,7 +183,7 @@ import Testing
 /// `NotesDispatchIntegrationTests` "unknown id" tests above only assert the
 /// error surfaces as `OperationError.executionFailed`, never reading
 /// `NotesError`'s own `CustomStringConvertible.description`.
-@Suite struct NotesErrorTests {
+struct NotesErrorTests {
 
     @Test func notFoundDescriptionNamesTheMissingID() {
         let error = NotesError.notFound(id: "abc")
@@ -195,7 +195,7 @@ import Testing
 /// Exercises every notes operation through `OperationCLIDriver`, proving the
 /// macro-generated `Command` leaves converge on the identical dispatch path
 /// the model-facing tests above exercise directly.
-@Suite struct NotesCLIIntegrationTests {
+struct NotesCLIIntegrationTests {
 
     private func makeDriver() throws -> OperationCLIDriver {
         try OperationCLIDriver(tool: try NotesTool.make(), executableName: "notes")

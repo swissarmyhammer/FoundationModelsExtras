@@ -91,7 +91,7 @@ private struct TagNoteFixture: OperationDefinition {
     }
 }
 
-@Suite struct OperationDescribingConformanceTests {
+struct OperationDescribingConformanceTests {
 
     /// The op strings of `makeTool`, in registration order.
     private static let registeredOpStrings = ["echo message", "boom encode", "configure widget", "tag note"]
