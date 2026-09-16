@@ -1,0 +1,1 @@
+{"id":"01M2N2AH0XAYNSFTXK3V4WF1HP","timestamp":"2026-09-16T12:16:04.125913Z","op":"create","item_id":"01M2N2AH0XNCZP2VHV0GQRSGAT","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: e4e669\n+tag_name: multitool-ask\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: e4e669\n-tag_name: multitool-ask\n","transaction_id":null}
