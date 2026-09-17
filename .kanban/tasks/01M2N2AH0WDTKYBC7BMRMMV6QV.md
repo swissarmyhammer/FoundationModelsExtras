@@ -57,6 +57,14 @@ comments:
     - commit: de59fef
     - review: clean — 0 findings; task in done. The push to origin/main and the SHA comment come after ^3jpfqa3 is done.
   timestamp: 2026-09-16T14:23:11.564128+00:00
+- actor: claude-code
+  id: 01m2nbsv08vnxyf5d9tk4vqha5
+  text: |-
+    ### push — done
+    - The change is on origin/main. Final revision: c98ae6ba956f82e0d75bcb7583b28e5c88304d23
+    - This card's commits: 1a62f5f, de59fef. The revision also has ^3jpfqa3 (684a617, 1c703ee, aad86fe).
+    - FoundationModelsMultitool can pin Package.resolved to this revision.
+  timestamp: 2026-09-16T15:01:43.048001+00:00
 position_column: done
 position_ordinal: a180
 title: Add the OperationDescribing protocol and its descriptor types
