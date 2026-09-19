@@ -1,0 +1,1 @@
+{"id":"01M2X3QNX24D3TW5MSDN0ESYTY","timestamp":"2026-09-19T15:14:39.138844Z","op":"create","item_id":"01M2X3QNX25A1Q0JH5WR1EYM74","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: b60205\n+tag_name: process-safety\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: b60205\n-tag_name: process-safety\n","transaction_id":null}

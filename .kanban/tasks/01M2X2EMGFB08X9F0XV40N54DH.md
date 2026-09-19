@@ -28,8 +28,31 @@ comments:
     - evidence: swift build --build-tests (clean, 0 warnings) then swift test — 284 passed, 0 failed, 0 skipped
     - next: ready for review
   timestamp: 2026-09-19T15:05:26.992251+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2x37qhsama6wk1z357mqq1s
+  text: |-
+    ### commit — changed
+    - evidence: 41f7890 feat(dotfolder-stack): merge layer trees into one directory view
+    - next: Send the task to review.
+  timestamp: 2026-09-19T15:05:56.537781+00:00
+- actor: claude-code
+  id: 01m2x3dqt58vyadyjghc7vr2ta
+  text: |-
+    ### review — clean
+    - evidence: 0 findings — `review sha HEAD~1..HEAD` (commit 41f7890), 2 files reviewed, 7 checks attempted, 0 confirmed, 1 refuted
+    - next: the task is in `done`. No open finding. No more work on this task.
+  timestamp: 2026-09-19T15:09:13.413661+00:00
+- actor: claude-code
+  id: 01m2x3e66hjyrfe64c0t2ctyse
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 284 passed, 0 failed, 0 skipped
+    - commit: 41f7890
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T15:09:28.145819+00:00
+position_column: done
+position_ordinal: a380
 title: 'Make DotfolderStack directory-shaped: one combined view of the layer trees'
 ---
 ## What

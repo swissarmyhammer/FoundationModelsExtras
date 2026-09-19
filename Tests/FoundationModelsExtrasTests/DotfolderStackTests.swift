@@ -48,10 +48,24 @@ import Testing
     /// Writes `contents` to `relativePath` under `directory`, creating any
     /// intermediate subdirectories.
     func write(_ contents: String, to relativePath: String, in directory: URL) {
+      write(Data(contents.utf8), to: relativePath, in: directory)
+    }
+
+    /// Writes the bytes of `contents` to `relativePath` under `directory`,
+    /// creating any intermediate subdirectories.
+    func write(_ contents: Data, to relativePath: String, in directory: URL) {
       let fileURL = directory.appendingPathComponent(relativePath)
       try! FileManager.default.createDirectory(
         at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-      try! contents.write(to: fileURL, atomically: true, encoding: .utf8)
+      try! contents.write(to: fileURL, options: .atomic)
+    }
+
+    /// Creates a symbolic link at `relativePath` under `directory` that
+    /// points to `destination`.
+    func link(_ relativePath: String, in directory: URL, to destination: URL) {
+      try! FileManager.default.createSymbolicLink(
+        atPath: directory.appendingPathComponent(relativePath).path,
+        withDestinationPath: destination.path)
     }
 
     func makeStack(environment: [String: String] = [:]) -> DotfolderStack {
@@ -549,8 +563,7 @@ import Testing
     let fixture = Fixture()
     fixture.write("linked skill", to: "review/SKILL.md", in: fixture.defaultsDirectory)
     let linkURL = fixture.root.appendingPathComponent("defaults-link", isDirectory: true)
-    try! FileManager.default.createSymbolicLink(
-      atPath: linkURL.path, withDestinationPath: fixture.defaultsDirectory.path)
+    fixture.link("defaults-link", in: fixture.root, to: fixture.defaultsDirectory)
     let stack = fixture.makeStack(defaultsDirectory: linkURL)
 
     let view = stack.tree("review")
