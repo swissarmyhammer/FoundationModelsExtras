@@ -64,28 +64,8 @@ import Foundation
 /// variables of that call.
 public struct StenciledDotfolderStack: DotfolderStacking {
   /// One render failure: the file that failed, the layer that holds it,
-  /// and the text of the failure.
-  public struct Diagnostic: Sendable {
-    /// The URL of the file whose render failed.
-    public var url: URL
-    /// The layer that holds the file.
-    public var layer: DotfolderStack.Layer
-    /// The text of the failure, as `TemplateEngineError` describes it.
-    public var message: String
-
-    /// Creates a diagnostic. Exposed publicly so that a consumer can build
-    /// fixtures and fakes with a plain `import FoundationModelsExtras`.
-    ///
-    /// - Parameters:
-    ///   - url: The URL of the file whose render failed.
-    ///   - layer: The layer that holds the file.
-    ///   - message: The text of the failure.
-    public init(url: URL, layer: DotfolderStack.Layer, message: String) {
-      self.url = url
-      self.layer = layer
-      self.message = message
-    }
-  }
+  /// and the text of the failure, as `TemplateEngineError` describes it.
+  public typealias Diagnostic = DotfolderStack.Diagnostic
 
   /// The hook that receives each render failure.
   public typealias DiagnosticHandler = @Sendable (Diagnostic) -> Void

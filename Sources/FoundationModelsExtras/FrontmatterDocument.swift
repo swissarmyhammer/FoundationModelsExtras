@@ -1,17 +1,44 @@
-/// A utility for splitting a dotfolder document's raw text into an optional
-/// YAML frontmatter block and a body, using purely textual fence recognition
-/// — no YAML dependency lives here (plan.md §4); consumers decode the
-/// frontmatter text with their own codec (or `LayeredYAMLDocument`).
+/// A dotfolder document split into its frontmatter and its body: the item
+/// that `FrontmatterDocumentStack` gives back for one file.
 ///
+/// `Metadata` is what the consumer decodes the frontmatter text into. The
+/// split holds no knowledge of YAML (plan.md §4): the consumer gives the
+/// decode, and Extras gives a default decode into `YAMLValue`.
+///
+/// The split itself is `split(text:)`, a purely textual fence recognition.
 /// A frontmatter block is recognized only when the very first line of the
 /// text is exactly `---` and a later line is also exactly `---`; the raw text
 /// between those two fence lines (including any trailing line terminator) is
 /// the frontmatter, and everything after the closing fence's line terminator
 /// is the body. Any other shape — no leading fence, or a leading fence with
 /// no closing fence — yields the entire input back as the body.
-public enum FrontmatterDocument {
+public struct FrontmatterDocument<Metadata: Sendable>: Sendable {
+  /// The decoded frontmatter, or `nil` when the text holds no frontmatter
+  /// block or the decode failed.
+  public var metadata: Metadata?
+
+  /// The text after the closing fence, byte for byte. The full text when
+  /// there is no frontmatter block.
+  public var content: String
+
+  /// Creates a document. Exposed publicly so that a consumer can build
+  /// fixtures and fakes with a plain `import FoundationModelsExtras`.
+  ///
+  /// - Parameters:
+  ///   - metadata: The decoded frontmatter, or `nil`.
+  ///   - content: The text after the closing fence.
+  public init(metadata: Metadata?, content: String) {
+    self.metadata = metadata
+    self.content = content
+  }
+}
+
+/// The textual split. It needs no metadata type, thus it is placed on
+/// `FrontmatterDocument<Never>` so that a caller writes
+/// `FrontmatterDocument.split(text:)` with no generic argument.
+extension FrontmatterDocument where Metadata == Never {
   /// The literal fence line that opens and closes a frontmatter block.
-  private static let fence: Substring = "---"
+  private static var fence: Substring { "---" }
 
   /// Splits `text` into an optional frontmatter block and a body.
   ///

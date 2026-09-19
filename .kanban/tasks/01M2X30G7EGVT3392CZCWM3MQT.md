@@ -54,10 +54,33 @@ comments:
     - evidence: swift build --build-tests (clean rebuild) — 0 warnings, build OK; swift test — 340 tests in 28 suites, 0 failed, 0 skipped
     - next: ready for review
   timestamp: 2026-09-19T16:13:07.920948+00:00
+- actor: claude-code
+  id: 01m2x73vy517pw8rq5s9z8wp5m
+  text: |-
+    ### commit — changed
+    - evidence: 4c1bb03 feat(dotfolder-stack): add StenciledDotfolderStack with partial locations and variables
+    - next: ready for review
+  timestamp: 2026-09-19T16:13:44.261907+00:00
+- actor: claude-code
+  id: 01m2x799en0vxyxk7xpttxsnfh
+  text: |-
+    ### review — clean
+    - evidence: 0 findings — `review sha HEAD~1..HEAD` (commit 4c1bb03), 5 files reviewed, 7 validator passes attempted, 0 failed
+    - next: none — the task is in `done`
+  timestamp: 2026-09-19T16:16:41.941135+00:00
+- actor: claude-code
+  id: 01m2x79s45vpt3js7qsnthy8nd
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 340 passed, 0 failed, 0 skipped
+    - commit: 4c1bb03
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T16:16:57.989265+00:00
 depends_on:
 - 01M2X30BQKPD2MKA5EJQPFYMZM
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: a780
 title: 'Add StenciledDotfolderStack: the same interface, with partial locations and variables'
 ---
 ## What

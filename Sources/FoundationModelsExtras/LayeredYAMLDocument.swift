@@ -1,5 +1,4 @@
 import Foundation
-import Yams
 
 /// Errors thrown by `LayeredYAMLDocument.load` — the package's own error
 /// type, mirroring the facade-error style of `IgnoreProcessorError`/
@@ -202,76 +201,17 @@ public struct LayeredYAMLDocument: Sendable {
 
   // MARK: - Parsing
 
-  /// Parses `text` (already rendered) as YAML via Yams, converting its
-  /// composed `Node` tree into this package's own `YAMLValue`.
+  /// Parses `text` (already rendered) as YAML through `YAMLValue.parse(_:)`,
+  /// and names `path` in the error.
   ///
   /// - Throws: `LayeredYAMLDocumentError.malformed` if `text` is not valid
   ///   YAML, its tree contains a mapping key that is not a string scalar,
   ///   or it contains an alias Yams left unresolved.
   private static func parse(_ text: String, path: String) throws -> YAMLValue {
-    let node: Node?
     do {
-      node = try Yams.compose(yaml: text)
-    } catch {
-      throw LayeredYAMLDocumentError.malformed(
-        path: path, line: Self.line(from: error), message: String(describing: error))
-    }
-    guard let node else { return .null }
-    return try Self.value(from: node, path: path)
-  }
-
-  /// Converts a composed Yams `Node` into `YAMLValue`, recursively.
-  private static func value(from node: Node, path: String) throws -> YAMLValue {
-    switch node {
-    case .scalar(let scalar):
-      // `Tag.name` itself is not public API (only `Tag`'s `Equatable`
-      // conformance, comparing by name, is), so resolved scalar type is
-      // recovered by comparing the whole `Tag` against a freshly built one
-      // for each well-known name rather than switching on `.name` directly.
-      let tag = node.tag
-      if tag == Tag(.bool) {
-        return .bool(node.bool ?? false)
-      } else if tag == Tag(.int) {
-        return .int(node.int ?? 0)
-      } else if tag == Tag(.float) {
-        return .double(node.float ?? 0)
-      } else if tag == Tag(.null) {
-        return .null
-      } else {
-        return .string(scalar.string)
-      }
-    case .mapping(let mapping):
-      var values: [String: YAMLValue] = [:]
-      for (keyNode, valueNode) in mapping {
-        guard let key = keyNode.string else {
-          throw LayeredYAMLDocumentError.malformed(
-            path: path, line: keyNode.mark?.line, message: "mapping key is not a string scalar")
-        }
-        values[key] = try Self.value(from: valueNode, path: path)
-      }
-      return .dictionary(values)
-    case .sequence(let sequence):
-      return .array(try sequence.map { try Self.value(from: $0, path: path) })
-    case .alias:
-      throw LayeredYAMLDocumentError.malformed(
-        path: path, line: node.mark?.line, message: "unresolved YAML alias")
-    }
-  }
-
-  /// Extracts the 1-based line number from a `YamlError`, when the
-  /// specific failure case carries a `Mark` (`.scanner`/`.parser`/
-  /// `.composer`/`.duplicatedKeysInMapping`); other cases (`.reader`,
-  /// `.writer`, `.emitter`, ...) carry no line, and non-`YamlError` errors
-  /// never do either.
-  private static func line(from error: Error) -> Int? {
-    guard let yamlError = error as? YamlError else { return nil }
-    switch yamlError {
-    case .scanner(_, _, let mark, _), .parser(_, _, let mark, _), .composer(_, _, let mark, _):
-      return mark.line
-    case .duplicatedKeysInMapping(_, let context):
-      return context.mark.line
-    default:
-      return nil
+      return try YAMLValue.parse(text)
+    } catch YAMLValueParsingError.malformed(let line, let message) {
+      throw LayeredYAMLDocumentError.malformed(path: path, line: line, message: message)
     }
   }
 

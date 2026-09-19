@@ -33,6 +33,37 @@ public struct Located<Item: Sendable>: Sendable {
   }
 }
 
+extension DotfolderStack {
+  /// One failure of a stack that is layered over `DotfolderStack`: the file
+  /// that failed, the layer that holds it, and the text of the failure.
+  ///
+  /// `StenciledDotfolderStack` gives one for a render failure, and
+  /// `FrontmatterDocumentStack` gives one for a decode failure. The failure
+  /// does not throw out of a lookup; it goes to the `onDiagnostic` hook of
+  /// the stack.
+  public struct Diagnostic: Sendable {
+    /// The URL of the file that failed.
+    public var url: URL
+    /// The layer that holds the file.
+    public var layer: Layer
+    /// The text of the failure.
+    public var message: String
+
+    /// Creates a diagnostic. Exposed publicly so that a consumer can build
+    /// fixtures and fakes with a plain `import FoundationModelsExtras`.
+    ///
+    /// - Parameters:
+    ///   - url: The URL of the file that failed.
+    ///   - layer: The layer that holds the file.
+    ///   - message: The text of the failure.
+    public init(url: URL, layer: Layer, message: String) {
+      self.url = url
+      self.layer = layer
+      self.message = message
+    }
+  }
+}
+
 /// The interface of a layered dotfolder stack: one combined view of the
 /// directory trees of all the layers, and the only file access a consumer
 /// needs.

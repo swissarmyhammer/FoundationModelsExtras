@@ -78,4 +78,45 @@ import Testing
 
     #expect(decoded == ["x", "y", "z"])
   }
+
+  // MARK: - Parsing text
+
+  @Test func parsesEachScalarShapeAMappingAndASequence() throws {
+    let text = "flag: true\ncount: 3\nratio: 1.5\nname: x\nnothing: ~\nitems:\n  - a\n  - b\n"
+
+    let value = try YAMLValue.parse(text)
+
+    #expect(
+      value
+        == .dictionary([
+          "flag": .bool(true),
+          "count": .int(3),
+          "ratio": .double(1.5),
+          "name": .string("x"),
+          "nothing": .null,
+          "items": .array([.string("a"), .string("b")]),
+        ]))
+  }
+
+  @Test func parsesEmptyTextAsNull() throws {
+    #expect(try YAMLValue.parse("") == .null)
+  }
+
+  @Test func parsingMalformedTextThrowsWithTheLine() {
+    #expect {
+      try YAMLValue.parse("name: [unclosed\nnext: 1\n")
+    } throws: { error in
+      guard let parsingError = error as? YAMLValueParsingError else { return false }
+      switch parsingError {
+      case .malformed(let line, let message):
+        return line != nil && !message.isEmpty
+      }
+    }
+  }
+
+  @Test func parsingAMappingWithASequenceKeyThrows() {
+    #expect(throws: YAMLValueParsingError.self) {
+      _ = try YAMLValue.parse("? [a, b]\n: value\n")
+    }
+  }
 }

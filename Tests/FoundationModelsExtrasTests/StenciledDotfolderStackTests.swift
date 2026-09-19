@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 import Testing
 
 @testable import FoundationModelsExtras
@@ -31,27 +30,6 @@ import Testing
 
   /// A range that lies inside the first bytes of a fixture file.
   private static let leadingBytes = 0..<4
-
-  /// The diagnostics that a stack gave, behind a lock so the `@Sendable`
-  /// hook can append to them.
-  ///
-  /// Lock-based rather than an `actor` because the hook is called from a
-  /// synchronous lookup and cannot `await`. A `final class` around the
-  /// `Mutex` because `Mutex` is non-copyable, so the hook cannot capture it
-  /// directly.
-  private final class DiagnosticLog: Sendable {
-    private let entries = Mutex<[StenciledDotfolderStack.Diagnostic]>([])
-
-    /// Appends one diagnostic.
-    func record(_ diagnostic: StenciledDotfolderStack.Diagnostic) {
-      entries.withLock { $0.append(diagnostic) }
-    }
-
-    /// A snapshot of the diagnostics recorded so far.
-    var diagnostics: [StenciledDotfolderStack.Diagnostic] {
-      entries.withLock { $0 }
-    }
-  }
 
   /// A stenciled stack over `base` that records its diagnostics in `log`.
   private static func makeStenciled(

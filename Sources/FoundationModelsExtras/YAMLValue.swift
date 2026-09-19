@@ -47,6 +47,105 @@ public enum YAMLValueDecodingError: Error, Sendable, CustomStringConvertible {
   }
 }
 
+/// Errors thrown by `YAMLValue.parse(_:)` — the package's own error type,
+/// in the facade-error style of `YAMLValueDecodingError`: no Yams type
+/// crosses this boundary, only this documented, `CustomStringConvertible`
+/// type.
+public enum YAMLValueParsingError: Error, Sendable, CustomStringConvertible {
+  /// The text is not valid YAML, its tree contains a mapping key that is
+  /// not a string scalar, or it contains an alias Yams left unresolved.
+  /// `line` is the 1-based line, when Yams' own error carries one.
+  case malformed(line: Int?, message: String)
+
+  /// A human-readable description naming the line, when known.
+  public var description: String {
+    switch self {
+    case .malformed(let line, let message):
+      if let line {
+        return "YAML parsing failed at line \(line): \(message)"
+      }
+      return "YAML parsing failed: \(message)"
+    }
+  }
+}
+
+extension YAMLValue {
+  /// Parses `text` as one YAML document via Yams, converting its composed
+  /// `Node` tree into this package's own `YAMLValue`.
+  ///
+  /// - Parameter text: The YAML text to parse.
+  /// - Returns: The value tree, or `.null` for empty text.
+  /// - Throws: `YAMLValueParsingError.malformed` if `text` is not valid
+  ///   YAML, its tree contains a mapping key that is not a string scalar,
+  ///   or it contains an alias Yams left unresolved.
+  public static func parse(_ text: String) throws -> YAMLValue {
+    let node: Node?
+    do {
+      node = try Yams.compose(yaml: text)
+    } catch {
+      throw YAMLValueParsingError.malformed(
+        line: Self.line(from: error), message: String(describing: error))
+    }
+    guard let node else { return .null }
+    return try Self.value(from: node)
+  }
+
+  /// Converts a composed Yams `Node` into `YAMLValue`, recursively.
+  private static func value(from node: Node) throws -> YAMLValue {
+    switch node {
+    case .scalar(let scalar):
+      // `Tag.name` itself is not public API (only `Tag`'s `Equatable`
+      // conformance, comparing by name, is), so resolved scalar type is
+      // recovered by comparing the whole `Tag` against a freshly built one
+      // for each well-known name rather than switching on `.name` directly.
+      let tag = node.tag
+      if tag == Tag(.bool) {
+        return .bool(node.bool ?? false)
+      } else if tag == Tag(.int) {
+        return .int(node.int ?? 0)
+      } else if tag == Tag(.float) {
+        return .double(node.float ?? 0)
+      } else if tag == Tag(.null) {
+        return .null
+      } else {
+        return .string(scalar.string)
+      }
+    case .mapping(let mapping):
+      var values: [String: YAMLValue] = [:]
+      for (keyNode, valueNode) in mapping {
+        guard let key = keyNode.string else {
+          throw YAMLValueParsingError.malformed(
+            line: keyNode.mark?.line, message: "mapping key is not a string scalar")
+        }
+        values[key] = try Self.value(from: valueNode)
+      }
+      return .dictionary(values)
+    case .sequence(let sequence):
+      return .array(try sequence.map { try Self.value(from: $0) })
+    case .alias:
+      throw YAMLValueParsingError.malformed(
+        line: node.mark?.line, message: "unresolved YAML alias")
+    }
+  }
+
+  /// Extracts the 1-based line number from a `YamlError`, when the
+  /// specific failure case carries a `Mark` (`.scanner`/`.parser`/
+  /// `.composer`/`.duplicatedKeysInMapping`); other cases (`.reader`,
+  /// `.writer`, `.emitter`, ...) carry no line, and non-`YamlError` errors
+  /// never do either.
+  private static func line(from error: Error) -> Int? {
+    guard let yamlError = error as? YamlError else { return nil }
+    switch yamlError {
+    case .scanner(_, _, let mark, _), .parser(_, _, let mark, _), .composer(_, _, let mark, _):
+      return mark.line
+    case .duplicatedKeysInMapping(_, let context):
+      return context.mark.line
+    default:
+      return nil
+    }
+  }
+}
+
 extension YAMLValue {
   /// Re-encodes this value tree into any `Decodable` type — the "Extras
   /// merges trees, consumers decode" story (plan.md §11): `LayeredYAMLDocument`
