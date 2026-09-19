@@ -28,3 +28,23 @@ actor CredentialRequestRecorder {
     }
   }
 }
+
+/// The shared file helper of the marketplace tests. `MarketplaceConfigTests`
+/// writes text files into a temporary stack with it.
+///
+/// The helper does not call `MarketplaceConfig.save(to:)`, because that is
+/// the code under test: a test that writes its fixture with the code it
+/// proves can pass while both are wrong.
+enum MarketplaceTestSupport {
+  /// Writes text to a file, and makes the folder of the file first.
+  ///
+  /// - Parameters:
+  ///   - text: The text of the file.
+  ///   - file: The file to write.
+  /// - Throws: The error of the folder or the file write.
+  static func writeFile(text: String, to file: URL) throws {
+    try FileManager.default.createDirectory(
+      at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try text.write(to: file, atomically: true, encoding: .utf8)
+  }
+}

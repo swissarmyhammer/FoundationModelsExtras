@@ -1,8 +1,69 @@
 ---
+comments:
+- actor: claude-code
+  id: 01m2xgzqe9ssb7n74awvcjxhy6
+  text: |-
+    Picked up. Research findings:
+
+    - The ten source files are in `../FoundationModelsSkills/Sources/FoundationModelsSkills/Marketplace/` with 4-space indentation. The grant removal card in Skills has landed: `MarketplaceSource` has no `grants` field, and a grep over the ten files finds no `grants`, `RenderPolicy`, `allowed-tools` or `SkillsRegistry`. There is nothing to scrub.
+    - `MarketplacePolicy.snapshotLimits` is typed `SnapshotLimits`. In Skills that type is in `SnapshotWriter.swift`, which card ^nqdcd57 moves. Without it the policy does not compile.
+    - `MarketplaceIdentity.validate(_:)` returns `[MarketplaceDiagnostic]`. In Skills that type is in `MarketplaceDiagnostic.swift`, which card ^qtwjzx9 moves. Without it the identity file does not compile.
+    - The env variable names `SKILLS_MARKETPLACE_CACHE` and `SKILLS_MARKETPLACE_SEED` and the path `.cache/skills/marketplaces` are statics of the Skills `MarketplaceCache`, not of `MarketplaceIdentity`. `MarketplaceIdentity` holds the pre-fetch key, the cache folder name and the list validation only.
+    - `MarketplaceConfig.load(from:includeProject:)` reads `DotfolderStack.layers`, `Layer.source` and `Layer.root`. This package has all three, and the `Source` enum has the four cases `.defaults`, `.user`, `.project`, `.marketplace` that the loader switches over. The Skills `ConfigFixture` builds its stack with `DotfolderStack(name:workingDirectory:userDirectory:environment:)`, which this package has.
+    - The Skills tests to move: `MarketplaceSourceTests.swift` (already without grants cases; it also holds the `validate` and `MarketplaceDiagnostic` cases), `SourcePatternTests.swift`, `MarketplaceConfigTests.swift`. The Skills `MarketplacePolicyTests.swift` runs through a store and a git fixture, thus it belongs to card ^qtwjzx9; this card writes the pure `MarketplacePolicyValueTests.swift` instead.
+    - `MarketplaceConfigTests` calls `MarketplaceTestSupport.makeTempDirectory()` with no files, and `MarketplaceTestSupport.writeFile(text:to:)`. `FixtureSupport.TemporaryDirectory.make()` (from card ^jhj8kd2) replaces the first. No test calls `makeTempDirectory(withFiles:)` with files.
+    - The tests of this package use `@Suite("...")`, `@Test`, 2-space indentation and `@testable import Marketplace`.
+  timestamp: 2026-09-19T19:06:14.345688+00:00
+- actor: claude-code
+  id: 01m2xh04cbjnvdavqsr1x02et1
+  text: |-
+    Decisions:
+
+    1. `SnapshotLimits` moves now, into `Sources/Marketplace/SnapshotLimits.swift`, with the same members. The policy names it in a stored property, thus the target does not build without it. Card ^nqdcd57 lists it under `SnapshotWriter.swift`; that card finds it here and leaves it in its own file. Same rule as card ^jhj8kd2 decision 1: move the smallest set of types that a moved file names.
+    2. `MarketplaceDiagnostic` moves now, into `Sources/Marketplace/MarketplaceDiagnostic.swift`, with the same members. `MarketplaceIdentity.validate(_:)` returns it. Card ^qtwjzx9 lists it; that card finds it here. The `validate` tests and the two diagnostic description tests of the Skills `MarketplaceSourceTests` come with it.
+    3. The env variable names `SKILLS_MARKETPLACE_CACHE` and `SKILLS_MARKETPLACE_SEED` and the default cache path are not in the Skills `MarketplaceIdentity`. This card moves `MarketplaceIdentity` as it is and renames nothing. The three host contracts come with `MarketplaceCache` on card ^nqdcd57, whose test list names "the location from the environment variable and the default". Moving those statics into `MarketplaceIdentity` here would be a redesign, and the cache card would then find them in the wrong type.
+    4. Access levels stay as in Skills: `MarketplaceLocation`, `MarketplaceIdentity`, `MarketplaceSourceError`, `SourcePattern.matches(normalizedURL:)`, `MarketplacePolicy.refusal(forNormalizedURL:)` and `MarketplacePolicy.SourceRefusal` are internal. The tests reach them with `@testable import Marketplace`. The store, when card ^qtwjzx9 moves it, is in the same module.
+    5. The doc comments of `MarketplacePolicy` keep their DocC links to `MarketplaceStore` and `MarketplaceEvent`. The compiler does not check a DocC link, and card ^qtwjzx9 brings both types. The card forbids only `RenderPolicy`, `allowed-tools` and `SkillsRegistry`.
+    6. `Tests/MarketplaceTests/MarketplaceTestSupport.swift` gets an `enum MarketplaceTestSupport` with `writeFile(text:to:)` only. `makeTempDirectory(withFiles:)` is not moved: no test here gives it files, and the config fixture calls `TemporaryDirectory.make()` directly. An unused helper would be dead code.
+    7. `MarketplaceConfigTests` imports `Marketplace` without `@testable`, because every type it names is public. That proves the public surface of the loader.
+    8. One test file more than the card lists: `Tests/MarketplaceTests/MarketplacePinErrorTests.swift` proves the description of the moved `MarketplacePinError`, the same way card ^jhj8kd2 added `MarketplaceTimeoutErrorTests` for a type with no caller yet.
+    9. The Skills assertion `config.marketplaces.count == 2` becomes a comparison with the whole two-entry list, because a bare `2` in a test is an unnamed numeric literal under `magic-numbers-swift`.
+
+    TDD plan: RED: the six test files (five new, one changed) fail to compile because no moved type exists in `Marketplace`. GREEN: the twelve source files under `Sources/Marketplace/` with 2-space indentation.
+  timestamp: 2026-09-19T19:06:27.595345+00:00
+- actor: claude-code
+  id: 01m2xhe87mnejjr5c5a4yvnkf7
+  text: |-
+    Implementation landed. Notes for the next agent:
+
+    - TDD cycle: RED was `swift build --build-tests` with the five new test files and the changed `MarketplaceTestSupport.swift` in place and no moved source; the compiler stopped with `cannot find type 'MarketplacePinError' in scope` (exit 1). GREEN was the twelve source files under `Sources/Marketplace/`; the same build completes with no `warning:` line, and `swift test` passes.
+    - The moved code is the Skills code with 2-space indentation and no other change, with two exceptions that keep the doc comments free of a consumer name: `SkillSelection` says "does not exist for the consumer" (Skills: "for the registry"), and the two `ApplyUpdates` docs and the `applyUpdates` docs of `MarketplacePolicy` say "the consumer" (Skills: "the registry"). Card ^qtwjzx9 §4 asks for that wording on the store; the same rule applied here so the later boundary test finds nothing.
+    - Two lines of Skills were re-wrapped to keep the 2-space files under the line length: the `formDescription` literal of `SkillSelection`, and the duplicate-key message of `MarketplaceIdentity`. The text is the same.
+    - `Tests/MarketplaceTests/MarketplaceTestSupport.swift`: the `writeFile(text:to:)` body is the same two Foundation calls as `MarketplaceConfig.save(to:)`. The helper stays separate on purpose: a fixture written with the code under test can pass while both are wrong, and the doc comment of the helper says so.
+    - The `FoundationModelsSkills` working tree shows many changed files (README, CHANGELOG, `Render/`, `Resources/`, `ScriptProcessRunner.swift` deleted, and more). None of them is from this card: this card read that repository only, and wrote nothing there.
+    - A grep over `Sources/Marketplace` for `RenderPolicy`, `allowed-tools`, `SkillsRegistry`, `SkillDiscovery`, `FrontmatterDecoder` and `grant` finds nothing.
+    - Card text against the source, for the reviewer: the card says `MarketplaceIdentity` "keeps" `SKILLS_MARKETPLACE_CACHE`, `SKILLS_MARKETPLACE_SEED` and the default cache path. The Skills `MarketplaceIdentity` never held them; they are statics of the Skills `MarketplaceCache`, which card ^nqdcd57 moves (decision 3). Nothing was renamed, and nothing was moved into the wrong type.
+
+    Test counts: `swift test` — 6 test bundles, 717 tests (125 + 34 + 44 + 26 + 121 + 367), 0 failures, 0 skipped. `MarketplaceTests`: 121 tests in 11 suites (was 61 in 6). The five new suites: "Marketplace source", "Source pattern", "Marketplace config", "Marketplace policy values", "Marketplace pin error".
+  timestamp: 2026-09-19T19:14:10.292585+00:00
+- actor: claude-code
+  id: 01m2xhedkhhr217e0aq4kf7029
+  text: |-
+    ### implement — changed
+    - evidence: 18 files. Modified: Tests/MarketplaceTests/MarketplaceTestSupport.swift. Added: Sources/Marketplace/MarketplaceSource.swift, Sources/Marketplace/SkillSelection.swift, Sources/Marketplace/SourcePattern.swift, Sources/Marketplace/MarketplaceLocation.swift, Sources/Marketplace/MarketplaceIdentity.swift, Sources/Marketplace/MarketplaceSourceError.swift, Sources/Marketplace/MarketplacePinError.swift, Sources/Marketplace/MarketplacePolicy.swift, Sources/Marketplace/MarketplaceConfig.swift, Sources/Marketplace/MarketplaceConfigError.swift, Sources/Marketplace/MarketplaceDiagnostic.swift, Sources/Marketplace/SnapshotLimits.swift, Tests/MarketplaceTests/MarketplaceSourceTests.swift, Tests/MarketplaceTests/SourcePatternTests.swift, Tests/MarketplaceTests/MarketplaceConfigTests.swift, Tests/MarketplaceTests/MarketplacePolicyValueTests.swift, Tests/MarketplaceTests/MarketplacePinErrorTests.swift. `swift build --build-tests`: exit 0, 0 warnings. `swift test`: 717 tests in 6 test bundles pass, 0 failures, 0 skipped (MarketplaceTests: 121 tests in 11 suites). No change in `FoundationModelsSkills`.
+    - next: `/review` moves the card into review.
+  timestamp: 2026-09-19T19:14:15.793470+00:00
+- actor: claude-code
+  id: 01m2xhm872x1p8sfabnb266dz8
+  text: |-
+    ### test — green
+    - evidence: `swift build --build-tests` (full rebuild of the Marketplace target and its tests, forced with `touch`) — 0 warnings, 0 errors; `swift test` — 367 tests in 30 suites, 0 failed, 0 skipped
+    - next: send the task to the review step.
+  timestamp: 2026-09-19T19:17:26.882869+00:00
 depends_on:
 - 01M2XDH57XW45Z6W0V3JHJ8KD2
-position_column: todo
-position_ordinal: '8180'
+position_column: doing
+position_ordinal: '80'
 title: Move the marketplace source model, the policy and the config loader
 ---
 ## What

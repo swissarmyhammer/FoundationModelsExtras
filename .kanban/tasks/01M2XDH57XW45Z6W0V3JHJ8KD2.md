@@ -118,8 +118,31 @@ comments:
     - evidence: swift build --build-tests — build complete, 0 errors, 0 warnings; swift test — 657 tests in 65 suites passed, 0 failed, 0 skipped (Marketplace: 61 tests, 6 suites, in the total)
     - next: Send the task to review.
   timestamp: 2026-09-19T18:57:35.062520+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2xghrkf7y0ssfenprqy9q85
+  text: |-
+    ### commit — changed
+    - evidence: 70f75d4 fix(marketplace): correct two review findings on task jhj8kd2
+    - next: none. The commit work is done.
+  timestamp: 2026-09-19T18:58:36.783487+00:00
+- actor: claude-code
+  id: 01m2xgn2ztqss2yhbnh63kkbxs
+  text: |-
+    ### review — clean
+    - evidence: 0 findings — `review sha HEAD~1..HEAD` (commit 70f75d4), 2 files reviewed, 7 validator passes, 0 confirmed, 0 refuted. Both items of `## Review Findings (2026-09-19 13:39)` are checked.
+    - next: none. The task is in `done`.
+  timestamp: 2026-09-19T19:00:25.722690+00:00
+- actor: claude-code
+  id: 01m2xgnmyp5pgayxta30se540f
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 2 files, both findings of 2026-09-19 13:39 checked
+    - test: green — swift test, 657 passed, 0 failed, 0 skipped
+    - commit: 70f75d4
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T19:00:44.118821+00:00
+position_column: done
+position_ordinal: aa80
 title: Add the Marketplace target with swift-libgit2, and move the git transport and the git fixture
 ---
 ## What
