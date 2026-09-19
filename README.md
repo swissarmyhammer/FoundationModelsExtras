@@ -7,8 +7,11 @@ cross-package slash-command vocabulary, a layered `DotfolderStack` for
 locating config across defaults/user/project directories, a Stencil-backed
 `TemplateEngine` for rendering the content that lives in them — with a
 whitelist-and-budget sandbox for rendering untrusted, user-authored
-templates — and `AgentsMd`, discovery of `AGENTS.md`/`AGENT.md`/`CLAUDE.md`
-agent-instructions files with directory-level provenance.
+templates — `AgentsMd`, discovery of `AGENTS.md`/`AGENT.md`/`CLAUDE.md`
+agent-instructions files with directory-level provenance — and
+`MarketplaceStore`, in the separate `Marketplace` product, which fetches a
+remote marketplace into a cached, materialized layer root that a stack
+reads as it reads a local layer.
 
 ```swift
 import FoundationModelsExtras
@@ -154,6 +157,68 @@ This call is mirrored in `readmeExitCodeAndMergedOutputExample` in
 private `ProcessRegistry`, because the suites of the package run at the
 same time in one process.
 
+## Remote layers: `MarketplaceStore`
+
+A marketplace is a git repository, or a folder on this computer, that holds
+entries in the shape of a dotfolder layer: one `<entry>/<document>` for
+each entry, with the scripts and the references of the entry beside it.
+`MarketplaceStore`, in the separate `Marketplace` product, owns every
+marketplace of a host. It fetches each git source with libgit2 into a
+cache, writes the selected entries of a commit into a snapshot, and gives
+one `MarketplaceLayer` for each source, lowest precedence first. The root
+of a git layer is a stable `current` symlink, thus an update swaps the
+snapshot under a root that never changes. The initializer reads only the
+disk, thus a stack built right after it holds whatever the last run
+installed; `start()` then brings each git source to its remote head one
+time. A host inserts the layers at the bottom of its `DotfolderStack`, and
+reads them as it reads a local layer:
+
+```swift
+let store = MarketplaceStore(
+    sources: [MarketplaceSource(marketplaceURL)],
+    layout: MarketplaceLayout(documentName: "SKILL.md"),
+    cacheDirectory: cacheDirectory)
+await store.start()
+
+var stack = DotfolderStack(
+    name: "myagent", workingDirectory: workingDirectory, userDirectory: userDirectory)
+stack.layers.insert(contentsOf: store.marketplaceLayers().map(\.layer), at: 0)
+
+let skill = stack.item(at: "review/SKILL.md")
+// skill?.layer.source == .marketplace
+// skill?.value.contains("Read the diff first.") == true
+```
+
+`marketplaceURL` is one of three source forms: an HTTPS URL that ends in
+`.git`, `github:owner/repo`, or a `file://` URL. A `file://` URL that names
+a folder and not a `.git` repository is the layer itself; the store makes
+no copy of it. `MarketplaceLayout` names the shape of the tree: the
+document that marks an entry folder (`SKILL.md` for skills), the folder
+names that a scan skips, and the partials folder. This package does not
+know what an entry is; the host names its format. `cacheDirectory` has the
+default `MarketplaceStore.cacheDirectory()`, which reads
+`SKILLS_MARKETPLACE_CACHE` and falls back to `~/.cache/skills/marketplaces`.
+`workingDirectory` and `userDirectory` are the values that the host gives
+its local layers.
+
+A marketplace layer always renders untrusted, and there is no
+per-marketplace permission: the source of the layer is
+`DotfolderStack.Source.marketplace`, which is never trusted, and
+`MarketplaceSource` has no field that grants anything. `store.events`
+reports each check, each update and each failure, and `store.layerUpdates`
+sends one value for each swap, because a symlink swap sends no reliable
+file-system event to a watcher. `update(_:force:)`, `check()`,
+`pin(_:sha:)` and `unpin(_:)` are the commands of a host.
+
+This example is the text between the two marker comments of
+`theExampleReadsAMarketplaceSkillThroughTheStack` in
+`Tests/MarketplaceTests/ReadmeSnippetTests.swift`, kept green by
+`swift test --filter ReadmeSnippetTests`. A second test in that file reads
+this README and proves that the two copies are the same text. The test
+binds `marketplaceURL` to a repository that `GitFixtureRepository` builds,
+and `cacheDirectory`, `workingDirectory` and `userDirectory` to one
+temporary folder, thus it touches no network and no home directory.
+
 ## Install
 
 Add the package to `Package.swift`:
@@ -165,7 +230,7 @@ Add the package to `Package.swift`:
 ## Documentation
 
 Design rationale -- the dependency-diamond problem this package solves, all
-four pillars, and the untrusted-template sandbox's threat model -- is in
+six pillars, and the untrusted-template sandbox's threat model -- is in
 [`plan.md`](plan.md).
 
 ## License

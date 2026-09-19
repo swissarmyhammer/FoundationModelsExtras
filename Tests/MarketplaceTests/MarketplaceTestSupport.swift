@@ -41,12 +41,20 @@ actor CredentialRequestRecorder {
 /// and write a small tree with ``makeTempDirectory(withFiles:)``. The store
 /// suites build a fixture commit with ``skillTree(body:)``, write a local
 /// marketplace with ``writeSkillFolder(named:in:body:)``, and read what a
-/// layer root holds with ``skillBody(inLayerRoot:)``.
+/// layer root holds with ``skillBody(inLayerRoot:)``. `ReadmeSnippetTests`
+/// and `DocumentationTests` both find the marketplace section of the README
+/// with ``readmePath`` and ``readmeMarketplaceHeading``.
 ///
 /// The file helper does not call `MarketplaceConfig.save(to:)`, because that
 /// is the code under test: a test that writes its fixture with the code it
 /// proves can pass while both are wrong.
 enum MarketplaceTestSupport {
+  /// The README, relative to the package root.
+  static let readmePath = "README.md"
+
+  /// The heading of the README section that documents the marketplace.
+  static let readmeMarketplaceHeading = "## Remote layers: `MarketplaceStore`"
+
   /// The layout of a skills marketplace: `SKILL.md` marks an entry folder.
   static let skillsLayout = MarketplaceLayout(documentName: "SKILL.md")
 

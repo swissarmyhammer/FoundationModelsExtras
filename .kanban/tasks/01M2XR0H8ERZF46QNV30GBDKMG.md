@@ -43,8 +43,31 @@ comments:
     - evidence: `swift build --build-tests` — 0 warnings; `swift test` — 375 tests, 30 suites, 0 failed, 0 skipped
     - next: ready for review
   timestamp: 2026-09-19T21:46:38.798249+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2xt6agbq7bpqzww3b1rgvnc
+  text: |-
+    ### commit — changed
+    - evidence: 01e2ed1 feat(dotfolder-stack): add a URL view of the winning copies
+    - next: send the commit for review
+  timestamp: 2026-09-19T21:47:07.659649+00:00
+- actor: claude-code
+  id: 01m2xtavaksh0910k9sem7k64w
+  text: |-
+    ### review — clean
+    - evidence: 0 findings. Scope: `review sha HEAD~1..HEAD` (commit 01e2ed1). 8 files reviewed, 7 validator passes attempted, 0 failed. 4 files under `.kanban/` not reviewed (`.reviewignore`).
+    - next: none. The task is in `done`.
+  timestamp: 2026-09-19T21:49:35.955933+00:00
+- actor: claude-code
+  id: 01m2xtbcwptaay9gb3ryvd8jb3
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files
+    - test: green — swift test, 375 passed in 30 suites, 0 failed, 0 skipped
+    - commit: 01e2ed1
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T21:49:53.942350+00:00
+position_column: done
+position_ordinal: b080
 title: Give the dotfolder stack a view of the winning URLs, with no text read
 ---
 ## What

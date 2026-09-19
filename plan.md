@@ -9,9 +9,10 @@ folders, `AgentsMd` discovery of agent-instructions files (§10), and
 Everything may import it; it imports almost nothing.
 
 **Status:** pillars 1–3 built and pushed · pillars 4 (`AgentsMd`, §10) and 5
-(`LayeredYAMLDocument`, §11) planned
+(`LayeredYAMLDocument`, §11) planned · pillar 6 (`Marketplace`, §12) built on
+the separate `Marketplace` target
 · **Target:** Swift 6.2 tools, macOS 27+, Apple Silicon
-· **Updated:** 2026-07-21
+· **Updated:** 2026-09-19
 
 **Scope extension:** `IgnoreProcessor` (gitignore-semantics ignore-file
 matching and combination, documented in [`README.md`](README.md)) has since
@@ -221,7 +222,17 @@ public enum FrontmatterDocument {
   three consumers needed the same layered merge: ACPAgent's `AgentConfiguration`,
   Shelltool's `ShellPolicy`, future Skills. Frontmatter *splitting* remains
   textual; full-document *decoding* stays the consumer's — Extras merges
-  trees, consumers decode `Codable`.)
+  trees, consumers decode `Codable`.) (`swift-libgit2` (`exact: "1.9.7"`)
+  fought its way in 2026-09-19 for the `Marketplace` pillar (§12), on the
+  separate `Marketplace` target only, never on the core target: a marketplace
+  git source goes through libgit2 and not the `git` binary, thus the
+  transport needs the C library, which compiles from source as a SwiftPM
+  target with no binary artifact and no system dependency. The `Marketplace`
+  target also depends on Yams directly, for the encode and the decode of
+  `marketplaces.yaml`; the core target keeps its rule that Yams stays inside
+  `YAMLValue.swift`. The budget of the core target does not move: it does
+  not depend on libgit2, the same way it does not depend on the swift-syntax
+  that `Operations` carries. `PackageLayoutTests` guards the split.)
 - **Scope fights its way in.** The bar for a new type is a demonstrated
   consumer on both sides of the diamond. Deliberately deferred: status
   contributions, config-schema fragments. (`ProcessRegistry` fought its way in
@@ -253,7 +264,7 @@ public enum FrontmatterDocument {
 |---|---|
 | FoundationModelsACPAgent (`../FoundationModelsACPAgent/plan.md` — the composition layer: config + commands + the ACP conformance over Router; the wire itself is the zero-dep FoundationModelsACP, not an Extras consumer) | all pillars: `SlashCommand` vocabulary for its registry, `DotfolderStack` + `LayeredYAMLDocument` (§11) for `AgentConfiguration`, rendering every dotfolder document before parse, `AgentsMd` when assembling session instructions |
 | FoundationModelsAgents (plan-only) | `AgentsMd` (§10) when assembling per-sub-agent instructions, so sub-agents see the repo's agent-instructions files |
-| FoundationModelsSkills (plan-only) | `SlashCommandProviding` conformer; renders SKILL.md through the same engine and `_partials/` |
+| FoundationModelsSkills | `SlashCommandProviding` conformer; renders SKILL.md through the same engine and `_partials/`; the consumer of `Marketplace` (§12): its registry inserts the layers of `MarketplaceStore` at the bottom of its stack, with `MarketplaceLayout(documentName: "SKILL.md")`, and reads them as it reads a local layer |
 | FoundationModelsShelltool | candidate adopter of `DotfolderStack` for its stacked `ShellPolicy` YAML; potential `/ps`-style `.action` commands — illustrative, not committed |
 
 Router — the family runtime — deliberately consumes nothing here: its
@@ -438,3 +449,67 @@ public struct LayeredYAMLDocument: Sendable {
 - **Demo**: `extras-demo config` loads a fixture `config.yaml` across
   layers and prints the merged tree annotated per key with the winning
   layer.
+
+## 12. Pillar 6 — Marketplace (a fetched, cached, materialized layer root)
+
+**Why (decision 2026-09-19, the user).** Extras owns all marketplace file
+reading. A marketplace is a git repository, or a folder on this computer,
+that holds entries in the shape of a dotfolder layer. The store fetches it,
+caches it, and materializes the selected entries of one commit into a layer
+root on the disk. A consumer reads that root the same way it reads a local
+layer: it inserts the layer at the bottom of its `DotfolderStack` and stays
+a pure disk reader. Before this decision `FoundationModelsSkills` carried
+the whole implementation, although the transport, the cache, the snapshot
+writer and the catalog read know nothing about a skill, and each of them
+reads files, which is the job of this package (§1).
+
+**The split.** This package holds the transport (`GitTransport`,
+`LibGit2Transport`, the credential gate), the catalog (the Claude format,
+the Codex format, the repository scan, and the resolver that turns a catalog
+plus a tree into the entries to write), the cache
+(`<cache>/<folder>/repo.git`, `snapshots/<sha>/`, the `current` symlink,
+`state.json`, and the lock on the folder), the snapshot writer, the store
+(`MarketplaceStore`, `MarketplaceLayerProviding`, `MarketplaceLayer`,
+`MarketplaceProvenance`, `MarketplaceEvent`, `MarketplaceStatus`,
+`MarketplaceDiagnostic`), and the config (`MarketplaceSource`,
+`MarketplacePolicy`, `MarketplaceConfig` over `marketplaces.yaml`). The
+consumer, `FoundationModelsSkills`, keeps the registry that reads the
+layers, the diagnostics provenance index that maps a skill to the
+marketplace it came from, and the CLI.
+
+**`MarketplaceLayout`.** This package does not know what an entry is. The
+host names its format with three inputs: `documentName`, the document that
+marks an entry folder (`SKILL.md` for skills; it has no default);
+`excludedDirectoryNames`, the folder names that a scan skips (the default
+is `.git` and `node_modules`); and `partialsDirectoryName`, the folder that
+holds the partials of an entry (the default is `_partials`). The catalog
+resolver reads the first two, and the snapshot writer reads the third.
+Each diagnostic text interpolates the document name, thus no text of this
+package names `SKILL.md`.
+
+**No grant.** A marketplace layer always renders untrusted, and there is no
+per-marketplace permission. `MarketplaceSource` has no field that grants a
+capability, and no type of this package names one. The source of the layer
+is `DotfolderStack.Source.marketplace`, which the consumer adds itself,
+which is never trusted, and which `init(name:workingDirectory:...)` never
+derives. A consumer that lets an entry do something decides that at the
+entry, not at the marketplace.
+
+- **Dependencies.** libgit2 lands on the separate `Marketplace` target only,
+  and the target depends on Yams directly (§5). The core target does not
+  move.
+- **The layer root is stable.** The root of a git layer is
+  `<cache>/<folder>/current`, a symlink that one `rename(2)` swaps. A
+  symlink swap sends no reliable file-system event, thus the store sends one
+  value on `layerUpdates` for each swap, and a consumer reads the layers
+  again on that signal and not on a file watcher. A `file://` source that
+  names a folder is the layer itself: no copy, no cache entry, no fetch.
+- **Testing** (hermetic, per §8): `GitFixtureRepository` in the
+  `MarketplaceFixtures` product builds a bare repository with libgit2 only,
+  thus no test starts the `git` binary or touches the network;
+  `MarketplaceStoreFixture` builds a store over a temporary cache;
+  `NoGitProcessTests`, `PackageLayoutTests` and `ModuleBoundaryTests` guard
+  the rules of the target; `ReadmeSnippetTests` runs the README example and
+  proves that its two copies are the same text.
+- **Consumer**: `FoundationModelsSkills` (§6). The public surface is
+  documented in [`README.md`](README.md) and [`CHANGELOG.md`](CHANGELOG.md).

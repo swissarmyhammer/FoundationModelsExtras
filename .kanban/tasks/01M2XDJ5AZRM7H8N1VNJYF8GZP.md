@@ -1,8 +1,62 @@
 ---
+comments:
+- actor: claude-code
+  id: 01m2xtbtfnk3vb94gbjfya9pt8
+  text: |-
+    ### finish — note on the push criterion
+    - The finish loop commits a local checkpoint on each iteration and never pushes. The push to `main` is the step of the user after the loop.
+    - next: the user pushes `main` after this card is in `done`.
+  timestamp: 2026-09-19T21:50:07.861430+00:00
+- actor: claude-code
+  id: 01m2xtk0y34srykkwjtg6wb9qr
+  text: |-
+    Picked up. Research findings:
+
+    - The three documents have the shape the card names. `README.md` has one section for each capability (`IgnoreProcessor`, `Doctorable`, `ProcessRunner`) before `## Install`, each with one fenced example and one paragraph that names the test that mirrors it. The lead paragraph lists the four original pillars only. `CHANGELOG.md` has `## Unreleased` with the `ProcessRunner` entry at the top: an opening paragraph with the API, **Cause.**, **What changed.** with one bullet for each public type. `plan.md` ends at `## 11.`; §5 holds the dependency budget with one parenthetical for each addition (`ProcessRegistry`, `ProcessRunner`), and §6 is a table of consumers.
+    - The existing README contract tests (`readmeGitignoreAndReviewignoreCombinationExample`, `readmeExitCodeAndMergedOutputExample`) are hand-mirrored copies. `Examples/NotesTool/Tests/NotesToolTests/ReadmeSnippetTests.swift` is the one text-equality test of the package: it parses fenced blocks out of `docs/GUIDE.md` and compares them line by line, with the leading and trailing whitespace of each line removed, against a source file. The card asks for the text-equality shape for the marketplace example.
+    - The public surface of the `Marketplace` target, from the sources: `MarketplaceStore` (`init(sources:layout:cacheDirectory:policy:)`, `init(...transport:clock:environment:)`, `cacheDirectory(environment:)`, `marketplaceLayers()`, `layerUpdates`, `events`, `diagnostics`, `start()`, `stop()`, `check()`, `update(_:force:)`, `pin(_:sha:)`, `unpin(_:)`), `MarketplaceLayerProviding`, `MarketplaceLayer` (`layer`, `provenance`, `isWatchable`), `MarketplaceProvenance` (`displayText`), `MarketplaceSource` (`url`, `ref`, `sha`, `path`, `alias`, `select`, `autoUpdate`; no `grants`), `SkillSelection`, `SourcePattern`, `MarketplacePolicy`, `SnapshotLimits`, `MarketplaceCredential`, `MarketplaceConfig` (`fileName`, `load(from:includeProject:)`, `save(to:)`), `MarketplaceConfigError`, `MarketplaceLayout` (`documentName`, `excludedDirectoryNames`, `partialsDirectoryName`), `MarketplaceEvent`, `MarketplaceStatus`, `MarketplaceDiagnostic`, `MarketplacePinError`, `GitTransport`, `GitTransportError`, `LibGit2Transport`. The cache, the state file, the catalog types, the resolver and the snapshot writer are internal.
+    - `DotfolderStack.layers` is a public `var`, thus a host inserts the marketplace layers at index 0. `DotfolderStack.Source.marketplace` exists in the core target, and its doc says the layer is never trusted and that `init(name:workingDirectory:...)` never derives it.
+    - `MarketplaceStoreFixture` and `GitFixtureRepository` are public in `MarketplaceFixtures`. The store tests read a layer root with `String(contentsOf:)`; no test reads a marketplace layer through a `DotfolderStack` yet.
+    - `README.md` matches no validator. The 60 Swift rules are in one 754 K file; a subagent digest is in progress.
+  timestamp: 2026-09-19T21:54:03.843540+00:00
+- actor: claude-code
+  id: 01m2xv3dsm4bxy1kt4rvg4y9n1
+  text: |-
+    Decisions:
+
+    1. The README example is real code in `theExampleReadsAMarketplaceSkillThroughTheStack`, between the marker comments `// README example: begin` and `// README example: end`. The second test reads this file with `#filePath` and `README.md` with `FixtureFile`, cuts the fenced Swift block under the section heading and the lines between the markers, and compares them line for line with the leading and trailing whitespace removed. The README indents with 4 spaces and the test with 2, thus the comparison ignores indentation; the text is otherwise the same. This is the text-equality shape of `Examples/NotesTool/Tests/NotesToolTests/ReadmeSnippetTests.swift`, reduced to one block.
+    2. The example names four inputs and not literals: `marketplaceURL`, `cacheDirectory`, `workingDirectory` and `userDirectory`. The README prose says what each one is. The test binds the URL to a `GitFixtureRepository` and the three folders to one temporary folder. `userDirectory` is in the example because `DotfolderStack.init(name:workingDirectory:)` derives the user layer from the real home directory, and a host with `~/.config/myagent/review/SKILL.md` would change the result of the test; the ProcessRunner README makes the same trade with its private registry.
+    3. The example shows `cacheDirectory:` and not the default, for the same reason: the default is the real cache of the user. The prose names the default and its environment variable.
+    4. The fixture skill is `review` with the body `Read the diff first.`, not the `alpha` of the store suites, because the README reads better with a real skill name. The two literals are also `static let` constants of the test for the fixture commit and the assertions; the block itself holds them as literals because the block is the README text.
+    5. The README block reads the file with `stack.item(at:)`, thus the assertions prove both the winning layer source (`.marketplace`) and the text. `stack.layers.insert(contentsOf:at: 0)` inserts every marketplace layer at the bottom in list order.
+    6. The README paragraph on trust says the layer source is `DotfolderStack.Source.marketplace`, "which is never trusted", the sentence of the core type doc. It does not name a mechanism that the core target does not have.
+    7. `MarketplaceTestSupport` gets `readmePath` and `readmeMarketplaceHeading`, because `ReadmeSnippetTests` and `DocumentationTests` both read them, and a copy in each file is a duplicate.
+    8. `DocumentationTests.theChangelogEntryIsTheFirstUnderUnreleased` proves the position, not only the presence: the first `### ` line after `## Unreleased` is the marketplace heading. `thePlanHoldsThePillarSectionWithTheDecisionDate` proves that the date is in the text from the `## 12.` heading onward, not anywhere in the plan. The grant guard is one parameterized test over the three documents.
+    9. `plan.md`: the header status line names pillar 6 and the `Updated` date is 2026-09-19; the `FoundationModelsSkills` row of §6 loses its `(plan-only)` mark and names the consumer role; the §5 addition is one parenthetical in the dependency-budget bullet, in the shape of the `ProcessRegistry` and `ProcessRunner` ones. Yams is already in the core budget, thus §5 says that the `Marketplace` target depends on Yams directly for `marketplaces.yaml` and that the core target keeps Yams inside `YAMLValue.swift`; it does not claim that Yams is new.
+    10. `README.md`: the `## Documentation` line says "all six pillars" in place of "all four pillars", because it names `plan.md`, which now has six.
+    11. The three documents use the word "grant" only to say that there is none (`no grant`, `no grants field`, `grants anything`), as the card orders. The guarded string is the type name `MarketplaceGrants`, which no document holds.
+    12. Lint: `swiftlint --enable-all-rules` on the two new files reports none of the rules that the review enforces (`no_magic_numbers`, `missing_docs`, the force rules, the length rules, `no_file_literal` and the others). `swift format lint --strict` reports `LineLength` only, a layout tag that the `idioms-swift` gate drops; the longest new line is within the width of the existing marketplace tests.
+
+    TDD: RED was `swift test --filter 'ReadmeSnippetTests|DocumentationTests'` with the tests in place and the documents unchanged: `theReadmeHoldsTheMarketplaceSection`, `thePlanHoldsThePillarSectionWithTheDecisionDate`, `theChangelogEntryIsTheFirstUnderUnreleased` and `theReadmeBlockAndTheTestCopyAreTheSameText` failed (4 issues, exit 1); `theExampleReadsAMarketplaceSkillThroughTheStack` passed, which proves the example runs. GREEN is the three documents: the same filter passes 6 tests in 2 suites.
+  timestamp: 2026-09-19T22:03:01.300015+00:00
+- actor: claude-code
+  id: 01m2xv3p9cza96jb0ckbtn0dys
+  text: |-
+    ### implement — changed
+    - evidence: 6 files. Modified: README.md (lead paragraph, new section `## Remote layers: \`MarketplaceStore\`` before `## Install`, the `## Documentation` line), plan.md (header status and date, §5 dependency budget, §6 consumer row, new §12), CHANGELOG.md (`### Added: the \`Marketplace\` product` at the top of `## Unreleased`), Tests/MarketplaceTests/MarketplaceTestSupport.swift (`readmePath`, `readmeMarketplaceHeading`). Added: Tests/MarketplaceTests/ReadmeSnippetTests.swift, Tests/MarketplaceTests/DocumentationTests.swift. RED: `swift test --filter 'ReadmeSnippetTests|DocumentationTests'` failed with 4 issues (the three document tests and the text-equality test), exit 1. GREEN: the same filter passes 6 tests in 2 suites; `swift build --build-tests` exit 0 with no `warning:` line; `swift test` passes 936 tests in 6 bundles (125 + 34 + 44 + 26 + 332 + 375), 0 failures, 0 skipped. swiftlint reports none of the enforced rules on the new files. No change in FoundationModelsSkills. Not committed, not pushed.
+    - next: `/review` moves the card into review. The finish loop commits; the user pushes `main`.
+  timestamp: 2026-09-19T22:03:09.996172+00:00
+- actor: claude-code
+  id: 01m2xv8gqay7t67g4z7apgfpbp
+  text: |-
+    ### test — green
+    - evidence: swift build --build-tests — 0 errors, 0 warnings; swift test — 375 tests in 30 suites passed, 0 failed, 0 skipped
+    - next: send the task to review.
+  timestamp: 2026-09-19T22:05:48.138794+00:00
 depends_on:
 - 01M2XDHRDADTN57M8EVQTWJZX9
-position_column: todo
-position_ordinal: '8580'
+position_column: doing
+position_ordinal: '80'
 title: Document the Marketplace pillar in README, plan.md and CHANGELOG
 ---
 ## What

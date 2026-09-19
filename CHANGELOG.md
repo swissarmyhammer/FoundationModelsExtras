@@ -5,6 +5,92 @@ change is at the top.
 
 ## Unreleased
 
+### Added: the `Marketplace` product
+
+`MarketplaceStore.init(sources:layout:cacheDirectory:policy:)` makes a store
+over a source list, with no network work. `marketplaceLayers()` gives one
+`MarketplaceLayer` for each source, lowest precedence first, from the disk
+alone; `start()` brings each git source to its remote head one time;
+`update(_:force:)`, `check()`, `pin(_:sha:)` and `unpin(_:)` are the
+commands of a host; `events` and `layerUpdates` are the two streams. The
+product is the separate `Marketplace` target, which carries libgit2 and
+Yams; the core target does not change. The test doubles are the
+`MarketplaceFixtures` product.
+
+**Cause.** `FoundationModelsSkills` carried the whole marketplace: the git
+transport, the catalog read, the cache, the snapshot writer, the store and
+the config loader. Each of them reads files, and none of them knows what a
+skill is. The decision of 2026-09-19 is that Extras owns all marketplace
+file reading, thus the capability leaves Skills, and Skills reads a
+materialized layer root the same way it reads a local layer. The one skill
+fact of the old code, the name `SKILL.md`, became an input of
+`MarketplaceLayout`.
+
+**What changed.**
+
+- `MarketplaceStore` is an actor that owns every marketplace of a host: the
+  source list, the cache on the disk, and the layers that a consumer reads.
+  `init(sources:layout:cacheDirectory:policy:)` reads only the disk;
+  `cacheDirectory` has the default `cacheDirectory(environment:)`, which
+  reads `SKILLS_MARKETPLACE_CACHE` and falls back to
+  `~/.cache/skills/marketplaces`. A second initializer takes a `transport`,
+  a `clock` and an `environment`, for a test. `start()` applies a pending
+  snapshot and brings each git source to its remote head; `stop()` ends the
+  periodic check; `check()` gives one `MarketplaceStatus` for each source
+  and downloads nothing; `update(_:force:)` installs a new commit and gives
+  the events of the pass; `pin(_:sha:)` and `unpin(_:)` hold or release one
+  marketplace at one commit, and throw `MarketplacePinError`. `diagnostics`
+  is the list of findings; no message holds a credential.
+- `MarketplaceLayerProviding` is what a consumer needs from a store:
+  `marketplaceLayers()`, lowest precedence first, and `layerUpdates`, one
+  value for each change. A symlink swap sends no reliable file-system
+  event, thus the signal, and not a file watcher, is what makes an update
+  reach the consumer.
+- `MarketplaceLayer` is one marketplace as the consumer sees it: `layer`, a
+  `DotfolderStack.Layer` with the source `.marketplace`; `provenance`; and
+  `isWatchable`, `true` for a folder on this computer and `false` for a
+  cache-backed root. `MarketplaceProvenance` holds `id`, `url`, `sha` and
+  `catalogVersion`, and `displayText` names the snapshot without the URL.
+- `MarketplaceLayout` names the shape of a marketplace tree:
+  `documentName`, the document that marks an entry folder, with no default;
+  `excludedDirectoryNames`, with the default `.git` and `node_modules`; and
+  `partialsDirectoryName`, with the default `_partials`.
+- `MarketplaceSource` names one marketplace: `url`, `ref`, `sha`, `path`,
+  `alias`, `select` and `autoUpdate`. It has no `grants` field: a
+  marketplace layer always renders untrusted, and there is no
+  per-marketplace permission. `SkillSelection` is `.all`, `.plugins(_:)` or
+  `.skills(_:)`.
+- `MarketplacePolicy` is what the host lets the store do: `snapshotLimits`,
+  `allowedSources` and `blockedSources` over `SourcePattern` (`.exact`,
+  `.owner(host:owner:)`, `.hostRegex`, `.pathPrefix`), `credentials`,
+  `checkInterval`, `autoUpdate`, `checkOnly`, `applyUpdates`
+  (`.immediately` or `.nextLaunch`) and `fetchTimeout`.
+  `automaticUpdatesAllowed(environment:)` reads
+  `SKILLS_MARKETPLACE_AUTOUPDATE`. `SnapshotLimits` holds `maxBytes` and
+  `maxFiles`. `MarketplaceCredential` holds `username` and `token`, and its
+  description, its debug description and its mirror show no secret.
+- `MarketplaceConfig` is the `marketplaces.yaml` list of a stack:
+  `load(from:includeProject:)` reads the user layer and the project layer,
+  and `save(to:)` writes one file. A failure is a `MarketplaceConfigError`
+  that names the file.
+- `MarketplaceEvent` is `.checked`, `.updateAvailable`, `.updated` or
+  `.failed`, each with the display id and the commits, and never a URL or
+  a credential. `MarketplaceStatus` holds `id`, `current`, `latest`,
+  `error` and `updateAvailable`. `MarketplaceDiagnostic` holds a
+  `severity` of `.advisory`, `.warning` or `.error`, a `marketplaceID` and
+  a `message`.
+- `GitTransport` is the protocol of the fetch: `remoteHead` and `fetch`,
+  each with a credential provider that is asked one time and only for the
+  origin of the source. `LibGit2Transport` is the one implementation; it
+  never starts the `git` binary. `GitTransportError` is `.unreachable`,
+  `.refNotFound`, `.cancelled`, `.timedOut` or `.libgit2(code:message:)`.
+- `MarketplaceFixtures` is a product for the tests of a consumer:
+  `GitFixtureRepository` builds a bare repository with libgit2 only;
+  `MarketplaceStoreFixture` builds a store over a temporary cache;
+  `RecordingGitTransport`, `GatedGitTransport`, `ManualClock`,
+  `MarketplaceEventLog` and `TestSignal` let a store test wait on no real
+  time.
+
 ### Added: `ProcessRunner`, the family's process runner
 
 `ProcessRunner.run(executable:arguments:workingDirectory:timeout:outputCap:registry:)`
