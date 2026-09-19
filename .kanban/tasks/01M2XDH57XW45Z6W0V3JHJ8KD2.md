@@ -70,6 +70,54 @@ comments:
     - evidence: `swift build --build-tests` — 0 errors, 0 warnings. `swift test` — 6 test bundles, 657 tests in 65 suites, 0 failed, 0 skipped (includes MarketplaceTests: 61 tests in 6 suites, all pass).
     - next: send to review.
   timestamp: 2026-09-19T18:37:11.277488+00:00
+- actor: claude-code
+  id: 01m2xfd7048t9aybnvasxy4ygy
+  text: |-
+    ### commit — changed
+    - evidence: 8ca12e2 feat(marketplace): add the Marketplace target, and move the git transport and the git fixture
+    - next: Move to review.
+  timestamp: 2026-09-19T18:38:39.108219+00:00
+- actor: claude-code
+  id: 01m2xfy4gpdptm5y5cmwbfythf
+  text: |-
+    ### review — findings
+    - evidence: 2 findings — Sources/Marketplace/CatalogFileSource.swift:57, Tests/MarketplaceTests/NoGitProcessTests.swift:30 (scope: review sha HEAD~1..HEAD, commit 8ca12e2)
+    - next: correct each item in the `## Review Findings (2026-09-19 13:39)` checklist, mark each item as done, then run the review again
+  timestamp: 2026-09-19T18:47:53.622198+00:00
+- actor: claude-code
+  id: 01m2xfymmdct9fjwk6kp5rppwp
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 20 files
+    - test: green — swift test, 657 passed, 0 failed, 0 skipped
+    - commit: 8ca12e2
+    - review: findings — Sources/Marketplace/CatalogFileSource.swift:57 (dead-code-swift: `kind` is assignOnlyProperty), Tests/MarketplaceTests/NoGitProcessTests.swift:30 (case-sensitivity-coverage: no mixed-case git argument)
+  timestamp: 2026-09-19T18:48:10.125541+00:00
+- actor: claude-code
+  id: 01m2xg7yc788dwrd11h6xztd81
+  text: |-
+    Review findings of 2026-09-19 13:39 corrected. Notes for the next agent:
+
+    - `Sources/Marketplace/CatalogFileSource.swift` `code-hygiene/dead-code-swift` — var.instance `kind` is assignOnlyProperty. The `dead-code-swift` rule has a section for this exact case: a property that only the synthesized `Equatable` or `Hashable` conformance reads. The rule says: do not delete the property (the memberwise initializer and each literal supply it, and a struct with no compared property makes `a == b` true for all values), and write `// periphery:ignore` on the line above the property, with the reason on its own comment line above the marker, and no text after the marker. That is what landed. In this package the only reads of `kind` are the synthesized `==` and `hash(into:)` that `GitTransportTests` calls when it compares whole `CatalogTreeEntry` values; the resolver of card ^7z1w5f8 reads it in production. `name` has a visible reader (`entries(of:in:)` sorts by it), thus it is the only other stored property and it is not assign-only.
+    - A production reader of `kind` was considered and rejected: a private `entry(for:in:)` helper in `GitTreeFileSource` that `contents(atPath:)` reads `.kind` from would exist only to satisfy the tool, and the rule prescribes the marker.
+    - `Tests/MarketplaceTests/NoGitProcessTests.swift` `completeness/case-sensitivity-coverage` — the test arguments only exercise the lowercase `git`. Added the argument `"let GIT = Process()"` to `aProcessLineThatNamesGitIsReported`. RED was proven: with `.lowercased()` temporarily removed from `namesGit`, `swift test --filter NoGitProcessTests` failed on that one argument only (`processLinesNamingGit(in:) → []`); with `.lowercased()` restored, the suite passes.
+    - `swift build --build-tests`: exit 0, no `warning:` line. `swift test`: 657 tests in 6 test bundles pass, 0 failures.
+    - The `FoundationModelsSkills` repository was read only. Its working tree shows changes to `SkillsRegistry.swift` and a kanban task that were there before this step; they are not from this card.
+  timestamp: 2026-09-19T18:53:15.015221+00:00
+- actor: claude-code
+  id: 01m2xg82np97rzmm2cwg5qvraz
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Sources/Marketplace/CatalogFileSource.swift (reason line and `// periphery:ignore` above `kind`), Tests/MarketplaceTests/NoGitProcessTests.swift (argument `"let GIT = Process()"` in `aProcessLineThatNamesGitIsReported`). Both items of `## Review Findings (2026-09-19 13:39)` are checked. `swift build --build-tests`: exit 0, 0 warnings. `swift test`: 657 tests in 6 test bundles pass, 0 failures. No change in `FoundationModelsSkills`.
+    - next: `/review` moves the card into review.
+  timestamp: 2026-09-19T18:53:19.414932+00:00
+- actor: claude-code
+  id: 01m2xgfwapfkegqzqzf6hr7v54
+  text: |-
+    ### test — green
+    - evidence: swift build --build-tests — build complete, 0 errors, 0 warnings; swift test — 657 tests in 65 suites passed, 0 failed, 0 skipped (Marketplace: 61 tests, 6 suites, in the total)
+    - next: Send the task to review.
+  timestamp: 2026-09-19T18:57:35.062520+00:00
 position_column: doing
 position_ordinal: '80'
 title: Add the Marketplace target with swift-libgit2, and move the git transport and the git fixture
@@ -108,3 +156,13 @@ The dependency budget of the core `FoundationModelsExtras` target (plan.md §5) 
 - Record each decision in a comment on this card. Do not ask the user about an implementation detail.
 
 #marketplace #cross-repo
+
+## Review Findings (2026-09-19 13:39)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 20 file(s) reviewed, 14 not reviewed.
+
+> 14 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 14 file(s)
+
+- [x] `Sources/Marketplace/CatalogFileSource.swift:57` `code-hygiene/dead-code-swift` — var.instance `kind` is assignOnlyProperty.
+- [x] `Tests/MarketplaceTests/NoGitProcessTests.swift:30` `completeness/case-sensitivity-coverage` — The code at line 96 implements case-insensitive matching of the git executable name via `.lowercased()`, but the test arguments (lines 31-33) only exercise the canonical lowercase form 'git'. The case-insensitive handling is not proven to work for non-canonical spellings like 'GIT' or 'Git'. Add one test argument with mixed-case git, such as `"let GIT = Process()"`, to verify case-insensitive matching works correctly for non-canonical spellings.

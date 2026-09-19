@@ -31,6 +31,7 @@ struct NoGitProcessTests {
     #"process.executableURL = URL(fileURLWithPath: "/usr/bin/git")"#,
     #"process.launchPath = "/usr/bin/git""#,
     "let git = Process()",
+    "let GIT = Process()",
   ])
   func aProcessLineThatNamesGitIsReported(line: String) {
     #expect(Self.processLinesNamingGit(in: line) == [1])

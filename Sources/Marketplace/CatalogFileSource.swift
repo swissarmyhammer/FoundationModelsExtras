@@ -54,6 +54,11 @@ internal struct CatalogTreeEntry: Sendable, Hashable {
   var name: String
 
   /// What the item is.
+  ///
+  /// In this package only the synthesized `Hashable` conformance reads it,
+  /// and periphery cannot see that read. The catalog resolver of card
+  /// ^7z1w5f8 reads it.
+  // periphery:ignore
   var kind: Kind
 }
 
