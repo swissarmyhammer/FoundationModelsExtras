@@ -60,6 +60,63 @@ comments:
     - evidence: `swift build --build-tests` (full rebuild of the Marketplace target and its tests, forced with `touch`) — 0 warnings, 0 errors; `swift test` — 367 tests in 30 suites, 0 failed, 0 skipped
     - next: send the task to the review step.
   timestamp: 2026-09-19T19:17:26.882869+00:00
+- actor: claude-code
+  id: 01m2xhn5d1e78r744qnst5kteg
+  text: |-
+    ### commit — changed
+    - evidence: 81c51f8 feat(marketplace): move the source model, the policy, and the config loader
+    - next: Send the task on to review.
+  timestamp: 2026-09-19T19:17:56.769059+00:00
+- actor: claude-code
+  id: 01m2xj1fj06tw74y8pa3sfw51h
+  text: |-
+    ### review — findings
+    - evidence: 1 finding — Sources/Marketplace/SkillSelection.swift:39
+    - next: Add the test that decodes a case variant of `all` and expects a `DecodingError`. Check the item in the `## Review Findings (2026-09-19 14:18)` section. Then run the review again on the new checkpoint.
+  timestamp: 2026-09-19T19:24:40.384361+00:00
+- actor: claude-code
+  id: 01m2xj1tyvctpnzm765ar8e7tt
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 18 files
+    - test: green — swift test, 717 passed, 0 failed, 0 skipped
+    - commit: 81c51f8
+    - review: findings — Sources/Marketplace/SkillSelection.swift:39 (case-sensitivity-coverage: no test that a case variant of `all` is refused)
+  timestamp: 2026-09-19T19:24:52.059312+00:00
+- actor: claude-code
+  id: 01m2xj759h29kfrfpfksx9gzf1
+  text: |-
+    Picked up again for the one open review finding (`Sources/Marketplace/SkillSelection.swift:39` `completeness/case-sensitivity-coverage`).
+
+    Research:
+    - `SkillSelection.init(from:)` compares the string form with `text == Self.allValue`, and `allValue` is `"all"`. The doc comment of the type says the string form is `all`, thus the case-sensitive comparison is the contract.
+    - `Tests/MarketplaceTests/MarketplaceSourceTests.swift` has `anUnknownSkillSelectionDoesNotDecode`, a parameterized test over `"some"`, `{"teams": ["a"]}` and a two-key map. No argument is a case variant of `all`.
+    - The `case-sensitivity-coverage` rule asks for one test that feeds the non-canonical spelling through the changed path, not a battery of spellings and not a test for each token position. The map keys `plugins` and `skills` go through `CodingKeys`, a different comparison; the finding names the `all` comparison only, so one test for `"All"` is the whole fix.
+
+    Decision:
+    1. Add `aCaseVariantOfAllDoesNotDecode` to the "Marketplace source" suite, in the form the finding gives, after `anUnknownSkillSelectionDoesNotDecode`. A named test makes the contract visible in the test name. The `"All"` literal is not added to the parameterized invalid-input test, because there it would read as one more unknown string, not as the case contract.
+    2. TDD: the production code already refuses `"All"`, so the test passes at once. To prove the test can fail, RED is a temporary `text.lowercased() == Self.allValue` in `SkillSelection`, which the test must catch. The temporary change is reverted before GREEN. No production code changes in the end.
+  timestamp: 2026-09-19T19:27:46.481200+00:00
+- actor: claude-code
+  id: 01m2xjaw308fzph083nq285dks
+  text: |-
+    Finding worked: `Sources/Marketplace/SkillSelection.swift:39` `completeness/case-sensitivity-coverage`, checked in the `## Review Findings (2026-09-19 14:18)` section.
+
+    - Added `aCaseVariantOfAllDoesNotDecode` to `Tests/MarketplaceTests/MarketplaceSourceTests.swift`, after `anUnknownSkillSelectionDoesNotDecode`, in the form the finding gives: `#expect(throws: DecodingError.self)` over `decode(SkillSelection.self, from: #""All""#)`.
+    - TDD: RED was `swift test --filter aCaseVariantOfAllDoesNotDecode` with a temporary `text.lowercased() == Self.allValue` in `SkillSelection.init(from:)`; the test failed with "an error was expected but none was thrown and "all" was returned" (exit 1). The temporary change was reverted; `git status` shows no change under `Sources/`. GREEN: the same test passes against the committed comparison.
+    - No production code changed. The comparison `text == Self.allValue` stays as it is, because the doc comment names the string `all` as the contract.
+
+    ### implement — changed
+    - evidence: 1 file — Tests/MarketplaceTests/MarketplaceSourceTests.swift (one test added, `aCaseVariantOfAllDoesNotDecode`). `swift build --build-tests`: 0 warnings. `swift test`: 367 tests in 30 suites passed, 0 failures. RED proven with a temporary case-insensitive comparison, then reverted.
+    - next: `/review` runs again on the new checkpoint and moves the card into review.
+  timestamp: 2026-09-19T19:29:48.128884+00:00
+- actor: claude-code
+  id: 01m2xjep887ykghxvx97ezyva2
+  text: |-
+    ### test — green
+    - evidence: swift build --build-tests (0 warnings, build complete); swift test — 367 tests, 30 suites, 0 failed, 0 skipped
+    - next: none. The build is clean.
+  timestamp: 2026-09-19T19:31:53.224221+00:00
 depends_on:
 - 01M2XDH57XW45Z6W0V3JHJ8KD2
 position_column: doing
@@ -100,3 +157,12 @@ The grant removal card on the `FoundationModelsSkills` board (`^8mxhn6a` on that
 - Record each decision in a comment on this card. Do not ask the user about an implementation detail.
 
 #marketplace #cross-repo
+
+## Review Findings (2026-09-19 14:18)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 18 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/Marketplace/SkillSelection.swift:39` `completeness/case-sensitivity-coverage` — The comparison `text == Self.allValue` performs case-sensitive matching against "all", which correctly enforces the format specification (documented at line 7-8 as "the string `all`"), but no test explicitly verifies that case variants like "All" or "ALL" are rejected. The existing invalid-input tests use entirely different strings rather than case variants. Add one test that explicitly feeds a case variant through the decode path: `@Test func aCaseVariantOfAllDoesNotDecode() { #expect(throws: DecodingError.self) { try decode(SkillSelection.self, from: #""All""#) } }`.

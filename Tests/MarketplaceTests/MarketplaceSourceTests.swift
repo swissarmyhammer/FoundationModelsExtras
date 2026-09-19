@@ -258,6 +258,12 @@ struct MarketplaceSourceTests {
     }
   }
 
+  @Test func aCaseVariantOfAllDoesNotDecode() {
+    #expect(throws: DecodingError.self) {
+      try decode(SkillSelection.self, from: #""All""#)
+    }
+  }
+
   // MARK: - Diagnostic
 
   @Test func aDiagnosticWithAMarketplaceIDRendersTheIDInOneLine() {
