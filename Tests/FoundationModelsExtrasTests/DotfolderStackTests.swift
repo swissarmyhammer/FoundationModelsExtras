@@ -55,6 +55,12 @@ import Testing
     }
 
     func makeStack(environment: [String: String] = [:]) -> DotfolderStack {
+      makeStack(defaultsDirectory: defaultsDirectory, environment: environment)
+    }
+
+    /// Builds the stack with `defaultsDirectory` as the root of the defaults
+    /// layer, in place of the fixture's own `defaults/` directory.
+    func makeStack(defaultsDirectory: URL, environment: [String: String] = [:]) -> DotfolderStack {
       DotfolderStack(
         name: "testagent",
         workingDirectory: workingDirectory,
@@ -63,7 +69,29 @@ import Testing
         environment: environment
       )
     }
+
+    /// Writes the three-layer `review/` example of the combined view:
+    ///
+    /// ```
+    /// defaults/review/SKILL.md            user/review/SKILL.md        project/review/references/house-style.md
+    /// defaults/review/references/rules.md user/review/scripts/lint.sh
+    /// defaults/review/scripts/lint.sh
+    /// defaults/review/scripts/report.sh
+    /// ```
+    func writeReviewTree() {
+      write("defaults skill", to: "review/SKILL.md", in: defaultsDirectory)
+      write("defaults rules", to: "review/references/rules.md", in: defaultsDirectory)
+      write("defaults lint", to: "review/scripts/lint.sh", in: defaultsDirectory)
+      write("defaults report", to: "review/scripts/report.sh", in: defaultsDirectory)
+      write("user skill", to: "review/SKILL.md", in: userDirectory)
+      write("user lint", to: "review/scripts/lint.sh", in: userDirectory)
+      write("project house style", to: "review/references/house-style.md", in: projectDirectory)
+    }
   }
+
+  /// The paths that `isSafeRelativePath` rejects: empty, absolute, and a
+  /// parent-directory segment.
+  private static let unsafePaths = ["", "/etc", "../escaped"]
 
   @Test func plansThreeArgumentCallShapeCompiles() {
     let workingDirectory = FileManager.default.temporaryDirectory
@@ -417,5 +445,163 @@ import Testing
     )
 
     #expect(!FileManager.default.fileExists(atPath: missingDefaultsDirectory.path))
+  }
+
+  @Test func treeGivesTheUnionOfTheLayerFilesAndTheHighestCopyWins() {
+    let fixture = Fixture()
+    fixture.writeReviewTree()
+    let stack = fixture.makeStack()
+
+    let view = stack.tree("review")
+
+    #expect(
+      Set(view.keys) == [
+        "SKILL.md", "scripts/lint.sh", "scripts/report.sh",
+        "references/rules.md", "references/house-style.md",
+      ])
+    #expect(view["SKILL.md"]?.layer.source == .user)
+    #expect(
+      view["SKILL.md"]?.url == fixture.userDirectory.appendingPathComponent("review/SKILL.md"))
+    #expect(view["scripts/lint.sh"]?.layer.source == .user)
+    #expect(view["references/rules.md"]?.layer.source == .defaults)
+    #expect(view["references/house-style.md"]?.layer.source == .project)
+    #expect(
+      view["references/house-style.md"]?.url
+        == fixture.projectDirectory.appendingPathComponent("review/references/house-style.md"))
+  }
+
+  @Test func treeKeepsAFileOnlyTheLowestLayerHoldsBesideHigherFilesOfTheSameDirectory() {
+    let fixture = Fixture()
+    fixture.write("defaults report", to: "review/scripts/report.sh", in: fixture.defaultsDirectory)
+    fixture.write("project lint", to: "review/scripts/lint.sh", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+
+    let view = stack.tree("review")
+
+    #expect(view["scripts/report.sh"]?.layer.source == .defaults)
+    #expect(view["scripts/lint.sh"]?.layer.source == .project)
+  }
+
+  @Test func treeWithNoSubdirectoryViewsTheLayerRoots() {
+    let fixture = Fixture()
+    fixture.write("defaults", to: "config.yaml", in: fixture.defaultsDirectory)
+    fixture.write("project", to: "skills/review/SKILL.md", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+
+    let view = stack.tree()
+
+    #expect(Set(view.keys) == ["config.yaml", "skills/review/SKILL.md"])
+    #expect(view["skills/review/SKILL.md"]?.layer.source == .project)
+  }
+
+  @Test func childDirectoriesGivesTheLayersThatHoldEachNameLowestFirst() {
+    let fixture = Fixture()
+    fixture.write("defaults lint", to: "review/scripts/lint.sh", in: fixture.defaultsDirectory)
+    fixture.write("user lint", to: "review/scripts/lint.sh", in: fixture.userDirectory)
+    fixture.write("user logo", to: "review/assets/logo.svg", in: fixture.userDirectory)
+    let stack = fixture.makeStack()
+
+    let children = stack.childDirectories(of: "review")
+
+    #expect(Set(children.keys) == ["scripts", "assets"])
+    #expect(children["scripts"]?.map(\.source) == [.defaults, .user])
+    #expect(children["assets"]?.map(\.source) == [.user])
+  }
+
+  @Test func childDirectoriesWithNoSubdirectoryListsTheChildrenOfTheLayerRoots() {
+    let fixture = Fixture()
+    fixture.write("defaults", to: "commands/help.md", in: fixture.defaultsDirectory)
+    fixture.write("project", to: "skills/review/SKILL.md", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+
+    let children = stack.childDirectories()
+
+    #expect(children["commands"]?.map(\.source) == [.defaults])
+    #expect(children["skills"]?.map(\.source) == [.project])
+  }
+
+  @Test func layerDirectoriesGivesTheLayersThatHoldTheDirectoryLowestFirst() {
+    let fixture = Fixture()
+    fixture.write("defaults", to: "review/SKILL.md", in: fixture.defaultsDirectory)
+    fixture.write("project", to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+
+    #expect(stack.layerDirectories("review").map(\.source) == [.defaults, .project])
+  }
+
+  @Test func layerDirectoriesGivesAnEmptyArrayWhenNoLayerHoldsTheDirectory() {
+    let fixture = Fixture()
+    let stack = fixture.makeStack()
+
+    #expect(stack.layerDirectories("review").isEmpty)
+  }
+
+  @Test func layerDirectoriesWithNoDirectoryGivesEachLayerWhoseRootExists() {
+    let fixture = Fixture()
+    let missingDefaultsDirectory = fixture.root.appendingPathComponent(
+      "does-not-exist", isDirectory: true)
+    let stack = fixture.makeStack(defaultsDirectory: missingDefaultsDirectory)
+
+    #expect(stack.layerDirectories().map(\.source) == [.user, .project])
+  }
+
+  @Test func aLayerRootThatIsASymbolicLinkIsWalked() {
+    let fixture = Fixture()
+    fixture.write("linked skill", to: "review/SKILL.md", in: fixture.defaultsDirectory)
+    let linkURL = fixture.root.appendingPathComponent("defaults-link", isDirectory: true)
+    try! FileManager.default.createSymbolicLink(
+      atPath: linkURL.path, withDestinationPath: fixture.defaultsDirectory.path)
+    let stack = fixture.makeStack(defaultsDirectory: linkURL)
+
+    let view = stack.tree("review")
+
+    #expect(view["SKILL.md"]?.layer.source == .defaults)
+    #expect(view["SKILL.md"]?.url.path == linkURL.appendingPathComponent("review/SKILL.md").path)
+    #expect(stack.childDirectories(of: "review").isEmpty)
+    #expect(stack.layerDirectories("review").map(\.source) == [.defaults])
+  }
+
+  @Test func aLayerRootThatDoesNotExistAddsNothingToTheView() {
+    let fixture = Fixture()
+    let missingDefaultsDirectory = fixture.root.appendingPathComponent(
+      "does-not-exist", isDirectory: true)
+    fixture.write("project", to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stack = fixture.makeStack(defaultsDirectory: missingDefaultsDirectory)
+
+    let view = stack.tree("review")
+
+    #expect(view.count == 1)
+    #expect(view["SKILL.md"]?.layer.source == .project)
+    #expect(stack.layerDirectories("review").map(\.source) == [.project])
+  }
+
+  @Test func treeRejectsUnsafePaths() {
+    let fixture = Fixture()
+    fixture.write("# escaped", to: "escaped/help.md", in: fixture.root)
+    let stack = fixture.makeStack()
+
+    for path in Self.unsafePaths {
+      #expect(stack.tree(path).isEmpty, "tree(\(path))")
+    }
+  }
+
+  @Test func childDirectoriesRejectsUnsafePaths() {
+    let fixture = Fixture()
+    fixture.write("# escaped", to: "escaped/nested/help.md", in: fixture.root)
+    let stack = fixture.makeStack()
+
+    for path in Self.unsafePaths {
+      #expect(stack.childDirectories(of: path).isEmpty, "childDirectories(of: \(path))")
+    }
+  }
+
+  @Test func layerDirectoriesRejectsUnsafePaths() {
+    let fixture = Fixture()
+    fixture.write("# escaped", to: "escaped/help.md", in: fixture.root)
+    let stack = fixture.makeStack()
+
+    for path in Self.unsafePaths {
+      #expect(stack.layerDirectories(path).isEmpty, "layerDirectories(\(path))")
+    }
   }
 }

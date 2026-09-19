@@ -1,0 +1,1 @@
+{"id":"01M2X2EMGJ3CTTMC3JR46MY0J2","timestamp":"2026-09-19T14:52:14.226854Z","op":"create","item_id":"01M2X2EMGJW3TNHSE2PZ3DPM6S","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 0075ca\n+tag_name: dotfolder-overlay\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 0075ca\n-tag_name: dotfolder-overlay\n","transaction_id":null}

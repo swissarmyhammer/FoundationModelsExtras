@@ -11,8 +11,9 @@ import Foundation
 /// (scalars/arrays replace wholesale, sections merge by key) is a consumer
 /// concern — the consumer's codec policy, not this type's. The stack is the
 /// only thing that touches disk, and only when `nearest`, `locate`,
-/// `enumerate`, or `content` is called: constructing a stack never performs
-/// file I/O, so consumers stay constructible in tests with none.
+/// `enumerate`, `content`, `tree`, `childDirectories`, or `layerDirectories`
+/// is called: constructing a stack never performs file I/O, so consumers
+/// stay constructible in tests with none.
 public struct DotfolderStack: Sendable {
   /// Which layer of the stack a location resolved from.
   public enum Source: Sendable, Hashable {
@@ -185,9 +186,10 @@ public struct DotfolderStack: Sendable {
   /// not rooted (no leading `/`), and free of `..` traversal components.
   ///
   /// Every entry point that joins a caller-supplied path onto a layer's
-  /// root (`nearest`, `locate`, `enumerate`) routes through this check
-  /// first, so none of them can be walked outside the layer root via a
-  /// `"../"` segment or an absolute path.
+  /// root (`nearest`, `locate`, `enumerate`, `tree`, `childDirectories`,
+  /// `layerDirectories`) routes through this check first, so none of them
+  /// can be walked outside the layer root via a `"../"` segment or an
+  /// absolute path.
   ///
   /// - Parameter path: The caller-supplied relative path or subdirectory
   ///   name to validate.
@@ -281,5 +283,120 @@ public struct DotfolderStack: Sendable {
       }
     }
     return results
+  }
+
+  /// The combined view of the directory trees of all the layers.
+  ///
+  /// The unit of override is the file. For each file path relative to
+  /// `subdirectory`, the copy in the highest layer that holds that path
+  /// wins, and each lower copy is hidden. A directory is never replaced: a
+  /// file that only a lower layer holds stays in the view when a higher
+  /// layer holds other files of the same directory. The view is computed
+  /// at the time of the call; the stack holds no cache.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, e.g.
+  ///   `"review"`. `nil` means the layer root itself. Rejected (returns an
+  ///   empty dictionary) if it is empty, absolute, or contains a `..`
+  ///   component, because such a path could escape the layer root.
+  /// - Returns: A dictionary from the file path relative to `subdirectory`,
+  ///   at every depth, to the winning copy and the layer that holds it. A
+  ///   layer root that does not exist or that cannot be read adds nothing.
+  public func tree(_ subdirectory: String? = nil) -> [String: Located] {
+    guard let directories = layerDirectoryURLs(subdirectory) else { return [:] }
+    let entries = directories.flatMap { layer, directoryURL in
+      Self.filePaths(under: directoryURL).map { relativePath in
+        let url = directoryURL.appendingPathComponent(relativePath)
+        return (relativePath, Located(url: url, layer: layer))
+      }
+    }
+    return Dictionary(entries, uniquingKeysWith: { _, higher in higher })
+  }
+
+  /// The immediate child directories of `subdirectory` in the union of all
+  /// the layers, with the layers that hold each one.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, as
+  ///   accepted by `tree`. `nil` means the layer root itself. Rejected
+  ///   (returns an empty dictionary) under the same rules `tree` applies.
+  /// - Returns: A dictionary from the child directory name to the layers
+  ///   that hold that name, lowest precedence first. A layer root that does
+  ///   not exist or that cannot be read adds nothing.
+  public func childDirectories(of subdirectory: String? = nil) -> [String: [Layer]] {
+    guard let directories = layerDirectoryURLs(subdirectory) else { return [:] }
+    let entries = directories.flatMap { layer, directoryURL in
+      Self.childDirectoryNames(of: directoryURL).map { name in (name, [layer]) }
+    }
+    return Dictionary(entries, uniquingKeysWith: +)
+  }
+
+  /// The layers that hold `relativeDirectory`.
+  ///
+  /// A consumer uses this to know which layer gave a file, for example
+  /// before it runs a script from that directory.
+  ///
+  /// - Parameter relativeDirectory: A directory relative to a layer's root,
+  ///   as accepted by `tree`. `nil` means the layer root itself. Rejected
+  ///   (returns an empty array) under the same rules `tree` applies.
+  /// - Returns: The layers whose root holds `relativeDirectory` as a
+  ///   directory, lowest precedence first. Empty when no layer holds it.
+  public func layerDirectories(_ relativeDirectory: String? = nil) -> [Layer] {
+    guard let directories = layerDirectoryURLs(relativeDirectory) else { return [] }
+    return directories.filter { Self.isDirectory(atPath: $0.url.path) }.map(\.layer)
+  }
+
+  /// The directory that `subdirectory` names under each layer root, lowest
+  /// precedence first.
+  ///
+  /// The three view functions (`tree`, `childDirectories`,
+  /// `layerDirectories`) route through this helper, so each of them applies
+  /// the same `isSafeRelativePath` check and the same meaning of `nil`.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, or
+  ///   `nil` for the layer root itself.
+  /// - Returns: One `(layer, url)` pair for each layer, or `nil` when
+  ///   `subdirectory` is not safe to join onto a layer root.
+  private func layerDirectoryURLs(_ subdirectory: String?) -> [(layer: Layer, url: URL)]? {
+    guard let subdirectory else {
+      return layers.map { ($0, $0.root) }
+    }
+    guard Self.isSafeRelativePath(subdirectory) else { return nil }
+    return layers.map { ($0, $0.root.appendingPathComponent(subdirectory, isDirectory: true)) }
+  }
+
+  /// Every file under `directoryURL`, at every depth, as a path relative to
+  /// `directoryURL`.
+  ///
+  /// The walk reads the **path** of the directory, not the URL, so a layer
+  /// root that is a symbolic link to a directory is followed. No name is
+  /// skipped: which names to ignore (`.git`, `node_modules`) is the policy
+  /// of the consumer, not of the stack.
+  ///
+  /// - Parameter directoryURL: The directory to walk.
+  /// - Returns: The relative file paths, or an empty array when the
+  ///   directory does not exist or cannot be read.
+  private static func filePaths(under directoryURL: URL) -> [String] {
+    let subpaths = (try? FileManager.default.subpathsOfDirectory(atPath: directoryURL.path)) ?? []
+    return subpaths.filter { !isDirectory(atPath: directoryURL.appendingPathComponent($0).path) }
+  }
+
+  /// The names of the immediate child directories of `directoryURL`.
+  ///
+  /// - Parameter directoryURL: The directory to list.
+  /// - Returns: The child directory names, or an empty array when the
+  ///   directory does not exist or cannot be read.
+  private static func childDirectoryNames(of directoryURL: URL) -> [String] {
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: directoryURL.path)) ?? []
+    return names.filter { isDirectory(atPath: directoryURL.appendingPathComponent($0).path) }
+  }
+
+  /// Reports whether a directory exists at `path`. A symbolic link to a
+  /// directory counts as a directory.
+  ///
+  /// - Parameter path: The filesystem path to test.
+  /// - Returns: `true` if `path` resolves to a directory.
+  private static func isDirectory(atPath path: String) -> Bool {
+    var isDirectory: ObjCBool = false
+    return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+      && isDirectory.boolValue
   }
 }
