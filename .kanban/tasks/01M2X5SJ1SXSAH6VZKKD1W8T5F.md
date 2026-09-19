@@ -34,8 +34,31 @@ comments:
     - evidence: `swift build --build-tests` (after `swift package clean`) — build complete, 0 warnings; `swift test` — 364 tests passed, 0 failed, 0 skipped, in 29 suites
     - next: ready for review
   timestamp: 2026-09-19T16:41:22.487058+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2x8qes898t64kj4w8mwehye
+  text: |-
+    ### commit — changed
+    - evidence: 3a9b7b5 docs(process-runner): document ProcessRunner in README and plan.md
+    - next: Send the commit for review.
+  timestamp: 2026-09-19T16:41:54.728687+00:00
+- actor: claude-code
+  id: 01m2x8wdw0ws870rpk6g6jdmj2
+  text: |-
+    ### review — clean
+    - evidence: 0 findings (review sha HEAD~1..HEAD, commit 3a9b7b5; 1 file reviewed, README.md and plan.md matched no validator, .kanban/ excluded by .reviewignore)
+    - next: none. The task is in the done column.
+  timestamp: 2026-09-19T16:44:37.632141+00:00
+- actor: claude-code
+  id: 01m2x8wwabcpx70sm24ea9tx60
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 364 passed, 0 failed, 0 skipped
+    - commit: 3a9b7b5
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T16:44:52.427542+00:00
+position_column: done
+position_ordinal: a980
 title: Document ProcessRunner in README and note the plan.md scope extension
 ---
 ## What
