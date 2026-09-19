@@ -61,11 +61,34 @@ comments:
     - evidence: `swift build --build-tests` — 0 warnings, 0 errors; `swift test` — 367 tests in 30 suites passed, 0 failed, 0 skipped (includes the new "Marketplace cache" and "Marketplace snapshot writer" suites)
     - next: hand off to review.
   timestamp: 2026-09-19T20:21:20.006187+00:00
+- actor: claude-code
+  id: 01m2xnbbz45xg7rgawzqx5ycq4
+  text: |-
+    ### commit — changed
+    - evidence: 7c3146d feat(marketplace): move the cache, the state file, and the snapshot writer
+    - next: the review step can start.
+  timestamp: 2026-09-19T20:22:30.116431+00:00
+- actor: claude-code
+  id: 01m2xnmpfh4dapsbwvak454e9k
+  text: |-
+    ### review — clean
+    - evidence: 0 findings. Scope `review sha HEAD~1..HEAD` (commit 7c3146d). 6 files reviewed, 14 validator runs attempted, 0 failed. 4 files under `.kanban/` were not reviewed because of `.reviewignore`. No prior review findings section is on the task.
+    - next: The task is in `done`. No more work is necessary on this task.
+  timestamp: 2026-09-19T20:27:35.793636+00:00
+- actor: claude-code
+  id: 01m2xnn5nb0pgx1n9qxcr7hcr5
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files
+    - test: green — swift test, 852 passed in 6 bundles, 0 failed, 0 skipped
+    - commit: 7c3146d
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T20:27:51.339894+00:00
 depends_on:
 - 01M2XDHD4KZ7E1WWRD0VMS0QV0
 - 01M2XDHD6WSMB5PQ0707Z1W5F8
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ad80
 title: Move the cache, the state file and the snapshot writer
 ---
 ## What

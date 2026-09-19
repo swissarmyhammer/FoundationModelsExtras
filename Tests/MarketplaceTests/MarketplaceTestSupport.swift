@@ -1,5 +1,6 @@
 import FixtureSupport
 import Foundation
+import MarketplaceFixtures
 
 @testable import Marketplace
 
@@ -37,7 +38,10 @@ actor CredentialRequestRecorder {
 /// a temporary folder with ``writeFile(text:to:)``. `MarketplaceCatalogTests`,
 /// `GitTreeFileSourceTests` and `SnapshotWriterTests` resolve the fixture
 /// catalogs with ``skillsLayout``, find them with ``catalogFixture(named:)``,
-/// and write a small tree with ``makeTempDirectory(withFiles:)``.
+/// and write a small tree with ``makeTempDirectory(withFiles:)``. The store
+/// suites build a fixture commit with ``skillTree(body:)``, write a local
+/// marketplace with ``writeSkillFolder(named:in:body:)``, and read what a
+/// layer root holds with ``skillBody(inLayerRoot:)``.
 ///
 /// The file helper does not call `MarketplaceConfig.save(to:)`, because that
 /// is the code under test: a test that writes its fixture with the code it
@@ -46,8 +50,85 @@ enum MarketplaceTestSupport {
   /// The layout of a skills marketplace: `SKILL.md` marks an entry folder.
   static let skillsLayout = MarketplaceLayout(documentName: "SKILL.md")
 
+  /// The skill id that a fixture repository and a local marketplace hold.
+  static let fixtureSkillID = "alpha"
+
+  /// The folder of a marketplace that holds its skill folders, which is
+  /// the folder that a `file://` source with no `path` reads.
+  static let skillsFolderName = "skills"
+
   /// The folder of the fixture catalogs, relative to the package root.
   private static let catalogFixturesPath = "Tests/MarketplaceTests/Fixtures/catalogs"
+
+  /// The text of one fixture skill document: a frontmatter with the name and
+  /// a description, then the body.
+  ///
+  /// - Parameters:
+  ///   - id: The skill id, which is the frontmatter `name`.
+  ///   - body: The body of the skill.
+  /// - Returns: The document text.
+  static func skillDocument(named id: String, body: String) -> String {
+    "---\nname: \(id)\ndescription: fixture skill \(id)\n---\n\(body)\n"
+  }
+
+  /// The tree of one fixture commit: one skill under `skills`.
+  ///
+  /// The store suites all build this tree, thus the helper is here.
+  ///
+  /// - Parameter body: The body of the skill.
+  /// - Returns: The tree, one entry for each path.
+  static func skillTree(body: String) -> [String: GitFixtureRepository.Entry] {
+    [
+      "\(skillsFolderName)/\(fixtureSkillID)/\(skillsLayout.documentName)":
+        .file(skillDocument(named: fixtureSkillID, body: body))
+    ]
+  }
+
+  /// Writes `<directory>/<id>/SKILL.md`, and makes the skill folder first.
+  ///
+  /// - Parameters:
+  ///   - id: The skill id, which is the folder name and the frontmatter
+  ///     `name`.
+  ///   - directory: The folder that holds the skill folders.
+  ///   - body: The body of the skill.
+  /// - Throws: The error of the folder or the file write.
+  static func writeSkillFolder(named id: String, in directory: URL, body: String) throws {
+    try writeFile(
+      text: skillDocument(named: id, body: body),
+      to: directory.appendingPathComponent(id, isDirectory: true)
+        .appendingPathComponent(skillsLayout.documentName))
+  }
+
+  /// Reads the body of the fixture skill under one layer root.
+  ///
+  /// A consumer reads a marketplace layer off the disk. The store tests read
+  /// the same file, thus they prove what a consumer sees without a consumer.
+  ///
+  /// - Parameter root: The root of a marketplace layer.
+  /// - Returns: The whole text of `<root>/alpha/SKILL.md`.
+  /// - Throws: The error of the file read.
+  static func skillBody(inLayerRoot root: URL) throws -> String {
+    try String(
+      contentsOf: root.appendingPathComponent(fixtureSkillID, isDirectory: true)
+        .appendingPathComponent(skillsLayout.documentName),
+      encoding: .utf8)
+  }
+
+  /// The commit that the first ``MarketplaceEvent/failed(id:error:keptVersion:)``
+  /// of a list kept.
+  ///
+  /// The store suite and the update suite both read it, thus the helper is
+  /// here.
+  ///
+  /// - Parameter events: The events of one update.
+  /// - Returns: The kept commit, or `nil` when the first event is no
+  ///   failure.
+  static func keptVersion(ofFirst events: [MarketplaceEvent]) -> String? {
+    if case .failed(_, _, let keptVersion) = events.first {
+      return keptVersion
+    }
+    return nil
+  }
 
   /// Gives the folder of one fixture catalog.
   ///

@@ -258,14 +258,17 @@ let package = Package(
         // The test doubles and the fixture builders of the marketplace
         // (decision 2026-09-19): `GitFixtureRepository`, a bare repository
         // that a test builds with libgit2 only, with no `git` binary and no
-        // network, and `RecordingGitTransport`, the counting double that a
-        // store test injects. A plain library target and a product, not
-        // test-target code, so that both `MarketplaceTests` here and the
-        // `FoundationModelsSkills` tests import the one copy, and a consumer
-        // test target links libgit2 through it. Depends on `Marketplace` for
-        // the public `GitTransport` that the double conforms to, on
-        // `FixtureSupport` for its temporary directory, and on libgit2 for
-        // the repository build.
+        // network; `RecordingGitTransport` and `GatedGitTransport`, the
+        // counting double and the holding double that a store test injects;
+        // `ManualClock`, `MarketplaceEventLog` and `TestSignal`, which let a
+        // store test wait on no real time; and `MarketplaceStoreFixture`, a
+        // store over a temporary cache. A plain library target and a
+        // product, not test-target code, so that both `MarketplaceTests`
+        // here and the `FoundationModelsSkills` tests import the one copy,
+        // and a consumer test target links libgit2 through it. Depends on
+        // `Marketplace` for the public store, transport and layout that the
+        // doubles use, on `FixtureSupport` for its temporary directory, and
+        // on libgit2 for the repository build.
         .target(
             name: "MarketplaceFixtures",
             dependencies: [
