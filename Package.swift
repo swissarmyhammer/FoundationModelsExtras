@@ -26,6 +26,17 @@ let package = Package(
         // operation-tool capability as modules.
         .library(name: "Operations", targets: ["Operations"]),
         .library(name: "OperationsCLI", targets: ["OperationsCLI"]),
+        // The marketplace pillar (decision 2026-09-19): Extras owns all
+        // marketplace file reading, thus the git transport, the catalog read,
+        // the cache, the snapshot write and the config load live here.
+        // libgit2 is a real package dependency, so it lands on this separate
+        // target and not on the core target, the same way `Operations`
+        // carries swift-syntax without pushing it onto the core target.
+        .library(name: "Marketplace", targets: ["Marketplace"]),
+        // The git fixture builder that both this package's tests and the
+        // `FoundationModelsSkills` tests use, so there is one copy
+        // (decision 2026-09-19).
+        .library(name: "MarketplaceFixtures", targets: ["MarketplaceFixtures"]),
     ],
     dependencies: [
         // Templating engine for Pillar 3 (plan.md §4). PathKit rides along
@@ -47,6 +58,13 @@ let package = Package(
         // `ToolInvocationRecord.sessionID` are ULIDs. The library owns
         // correctness; no shim is added here.
         .package(url: "https://github.com/yaslab/ULID.swift.git", from: "1.3.1"),
+        // libgit2 for the `Marketplace` target only (decision 2026-09-19):
+        // marketplace git sources go through libgit2, never the `git` binary.
+        // libgit2 compiles from C source as a SwiftPM target, so there is no
+        // binary artifact and no system dependency. Pinned `exact:` to the
+        // same version that `FoundationModelsSkills` pins, in the same style
+        // as the Yams pin. The core target does not depend on it.
+        .package(url: "https://github.com/danielctull-forks/swift-libgit2.git", exact: "1.9.7"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -217,6 +235,63 @@ let package = Package(
         .target(
             name: "FixtureSupport",
             path: "Tests/FixtureSupport"
+        ),
+
+        // Marketplace library (decision 2026-09-19): the git transport over
+        // libgit2 and the read of a fetched commit tree, moved here from
+        // `FoundationModelsSkills`. Depends on the core module for the
+        // dotfolder stack that the config loader of a later card reads, and
+        // on Yams because that loader encodes and decodes `marketplaces.yaml`
+        // with Yams. The core target keeps its rule that Yams stays inside
+        // `YAMLValue.swift`; this target is not the core target.
+        .target(
+            name: "Marketplace",
+            dependencies: [
+                "FoundationModelsExtras",
+                .product(name: "Yams", package: "Yams"),
+                // The C API behind `LibGit2Transport`: the remote head, the
+                // shallow fetch, and the tree read of a marketplace.
+                .product(name: "libgit2", package: "swift-libgit2"),
+            ]
+        ),
+
+        // The test doubles and the fixture builders of the marketplace
+        // (decision 2026-09-19): `GitFixtureRepository`, a bare repository
+        // that a test builds with libgit2 only, with no `git` binary and no
+        // network, and `RecordingGitTransport`, the counting double that a
+        // store test injects. A plain library target and a product, not
+        // test-target code, so that both `MarketplaceTests` here and the
+        // `FoundationModelsSkills` tests import the one copy, and a consumer
+        // test target links libgit2 through it. Depends on `Marketplace` for
+        // the public `GitTransport` that the double conforms to, on
+        // `FixtureSupport` for its temporary directory, and on libgit2 for
+        // the repository build.
+        .target(
+            name: "MarketplaceFixtures",
+            dependencies: [
+                "Marketplace",
+                "FixtureSupport",
+                .product(name: "libgit2", package: "swift-libgit2"),
+            ],
+            path: "Tests/MarketplaceFixtures"
+        ),
+
+        // Tests for the marketplace library. `@testable` so the tests can
+        // reach the internal credential gate, the tree file source, and the
+        // error mapping of the libgit2 transport.
+        .testTarget(
+            name: "MarketplaceTests",
+            dependencies: [
+                "Marketplace",
+                // `PackageLayoutTests` and `NoGitProcessTests` read files off
+                // the package root through `FixtureFile.packageRoot`, and the
+                // transport tests make temporary directories through
+                // `TemporaryDirectory`.
+                "FixtureSupport",
+                // The transport tests fetch from repositories that
+                // `GitFixtureRepository` builds.
+                "MarketplaceFixtures",
+            ]
         ),
 
         // Records the ignore-parity snapshots the test suite compares
