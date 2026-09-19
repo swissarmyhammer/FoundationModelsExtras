@@ -96,12 +96,13 @@ public struct TemplateEngine: Sendable {
     ///   which starts *empty*: the swissarmyhammer corpus this package
     ///   ports (plan.md §4) uses zero filters. Any filter use is
     ///   rejected the same way.
-    /// - **Loader confined to `_partials/`** — `{% include %}` only
-    ///   ever resolves through `DotfolderLoader`'s `_partials/`
-    ///   name-resolution scheme; an absolute path or a name containing
-    ///   a `..` traversal component never resolves to a file (enforced
-    ///   by `DotfolderStack`'s own path-safety check, which every
-    ///   lookup routes through regardless of trust).
+    /// - **Loader confined to the partial locations** — `{% include %}`
+    ///   only ever resolves through `DotfolderLoader`'s name-resolution
+    ///   scheme in the partial locations (`_partials/` by default); an
+    ///   absolute path or a name containing a `..` traversal component
+    ///   never resolves to a file (enforced by `DotfolderStack`'s own
+    ///   path-safety check, which every lookup routes through regardless
+    ///   of trust).
     /// - **Include-depth limit** —
     ///   `TemplateEngine.untrustedIncludeDepthLimit` (8): a self- or
     ///   mutually including partial cannot recurse without bound.
@@ -136,11 +137,15 @@ public struct TemplateEngine: Sendable {
   }
 
   /// The partials stack passed at construction. When non-`nil`, backs a
-  /// `DotfolderLoader` that resolves `{% include %}` through its layered
-  /// `_partials/` directories (plan.md §4); also consulted here for the
+  /// `DotfolderLoader` that resolves `{% include %}` through the partial
+  /// locations of its layers (plan.md §4); also consulted here for the
   /// well-known `dotfolder_name` variable, present only when a stack was
   /// given.
   private let partials: DotfolderStack?
+
+  /// The directories, relative to a layer root, where the loader finds a
+  /// partial.
+  private let partialLocations: [String]
 
   /// The environment dictionary consulted for the precedence ladder's
   /// middle rung.
@@ -150,7 +155,7 @@ public struct TemplateEngine: Sendable {
   private let wellKnownValues: WellKnownValues
 
   /// Creates an engine. `partials`, when given, backs the `DotfolderLoader`
-  /// that resolves `{% include %}` through its layered `_partials/`
+  /// that resolves `{% include %}` through the layered `_partials/`
   /// directories, and makes its dotfolder name available as the
   /// well-known `dotfolder_name` variable (plan.md §4).
   public init(partials: DotfolderStack?) {
@@ -161,17 +166,28 @@ public struct TemplateEngine: Sendable {
     )
   }
 
-  /// Hermetic-test seam: overrides the environment dictionary and
-  /// well-known values the public initializer otherwise derives from real
-  /// process state, so precedence-ladder tests are deterministic. Not
-  /// part of the public surface — plan.md §4 specifies only
-  /// `init(partials:)`.
+  /// The seam of the hermetic tests and of `StenciledDotfolderStack`:
+  /// overrides the partial locations, the environment dictionary and the
+  /// well-known values the public initializer otherwise derives from the
+  /// `_partials/` convention and from real process state. Not part of the
+  /// public surface — plan.md §4 specifies only `init(partials:)`.
+  ///
+  /// - Parameters:
+  ///   - partials: The stack whose layers hold the partials, or `nil` for
+  ///     no `{% include %}` resolution.
+  ///   - partialLocations: The directories, relative to a layer root, where
+  ///     the loader finds a partial. Defaults to
+  ///     `DotfolderLoader.defaultPartialLocations`.
+  ///   - environment: The dictionary of the ladder's middle rung.
+  ///   - wellKnownValues: The values of the ladder's lowest rung.
   init(
     partials: DotfolderStack?,
+    partialLocations: [String] = DotfolderLoader.defaultPartialLocations,
     environment: [String: String],
     wellKnownValues: WellKnownValues
   ) {
     self.partials = partials
+    self.partialLocations = partialLocations
     self.environment = environment
     self.wellKnownValues = wellKnownValues
   }
@@ -199,14 +215,13 @@ public struct TemplateEngine: Sendable {
     do {
       switch trust {
       case .trusted:
-        let stencilEnvironment =
-          partials.map { Environment(loader: DotfolderLoader(stack: $0)) } ?? Environment()
+        let stencilEnvironment = Environment(loader: makeLoader())
         return try stencilEnvironment.renderTemplate(
           string: text, context: mergedDictionary(explicit: context))
       case .untrusted:
         try Self.validateUntrustedSyntax(text)
         let stencilEnvironment = Environment(
-          loader: partials.map { DotfolderLoader(stack: $0) },
+          loader: makeLoader(),
           extensions: [RestrictedTagsExtension()]
         )
         // The budget objects are looked up by reference, not by
@@ -233,31 +248,27 @@ public struct TemplateEngine: Sendable {
     }
   }
 
+  /// The loader that resolves `{% include %}` for one render, over the
+  /// `partials` stack and this engine's partial locations, or `nil` when
+  /// no stack was given. Both trust paths route through this helper, so
+  /// they resolve a partial the same way.
+  private func makeLoader() -> DotfolderLoader? {
+    partials.map { DotfolderLoader(stack: $0, partialLocations: partialLocations) }
+  }
+
   /// Builds the `[String: Any]` dictionary Stencil consumes: well-known
   /// values lowest, this engine's environment dictionary next, `explicit`
   /// highest — built lowest-first and overlaid upward, per plan.md §4's
   /// precedence ladder.
   private func mergedDictionary(explicit context: TemplateContext) -> [String: Any] {
-    let wellKnownContext = buildContext(from: wellKnownValues.templateValues)
-    let environmentContext = buildContext(from: environment.mapValues { .string($0) })
+    let wellKnownContext = TemplateContext(values: wellKnownValues.templateValues)
+    let environmentContext = TemplateContext(values: environment.mapValues { .string($0) })
 
     return
       wellKnownContext
       .stencilDictionary()
       .merging(environmentContext.stencilDictionary()) { _, higherRung in higherRung }
       .merging(context.stencilDictionary()) { _, higherRung in higherRung }
-  }
-
-  /// Builds a `TemplateContext` from a `[String: TemplateValue]` dictionary
-  /// by setting each key/value pair — the shared step both the well-known
-  /// and environment rungs of the precedence ladder need before they can be
-  /// merged (plan.md §4).
-  private func buildContext(from values: [String: TemplateValue]) -> TemplateContext {
-    var context = TemplateContext()
-    for (key, value) in values {
-      context.set(key: key, to: value)
-    }
-    return context
   }
 }
 

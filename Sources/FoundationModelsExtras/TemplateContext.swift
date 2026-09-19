@@ -42,6 +42,16 @@ public struct TemplateContext: Sendable {
   /// Creates an empty context.
   public init() {}
 
+  /// Creates a context that holds `values`. Internal: the rungs of the
+  /// precedence ladder that `TemplateEngine` and `StenciledDotfolderStack`
+  /// build from a dictionary route through this initializer, so they set
+  /// each key the same way.
+  ///
+  /// - Parameter values: The values to hold, keyed by name.
+  init(values: [String: TemplateValue]) {
+    self.values = values
+  }
+
   /// Sets `key` to `value`, overwriting any existing value for `key`.
   public mutating func set(key: String, to value: TemplateValue) {
     values[key] = value

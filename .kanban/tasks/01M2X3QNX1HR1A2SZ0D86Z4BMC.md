@@ -45,8 +45,31 @@ comments:
     - evidence: `swift build --build-tests` (clean rebuild, zero warnings); `swift test` — 316 tests in 27 suites, 0 failed, 0 skipped
     - next: ready for review
   timestamp: 2026-09-19T15:54:42.351903+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2x628mhqghbcy92cr09zxpc
+  text: |-
+    ### commit — changed
+    - evidence: 8585d56 feat(process-runner): add ProcessRunner to Extras with group kill, timeout, and output cap
+    - next: ready for review
+  timestamp: 2026-09-19T15:55:23.153439+00:00
+- actor: claude-code
+  id: 01m2x66yme5g4j4m0pgjayetjg
+  text: |-
+    ### review — clean
+    - evidence: 0 findings — `review sha HEAD~1..HEAD` (commit 8585d56), 7 validator runs attempted, 0 failed, 3 files reviewed
+    - next: the task is in `done`. No open finding remains.
+  timestamp: 2026-09-19T15:57:56.750191+00:00
+- actor: claude-code
+  id: 01m2x67fzy0fbbfe681nb0gag2
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 files
+    - test: green — swift test, 316 passed, 0 failed, 0 skipped
+    - commit: 8585d56
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T15:58:14.526933+00:00
+position_column: done
+position_ordinal: a680
 title: 'Move the process runner into Extras: group, timeout, output cap, and the registry'
 ---
 ## What

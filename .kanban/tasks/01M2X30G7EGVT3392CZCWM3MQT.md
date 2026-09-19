@@ -1,8 +1,63 @@
 ---
+comments:
+- actor: claude-code
+  id: 01m2x6f96whajd0h3nt189cmv7
+  text: |-
+    Research (implement step):
+
+    - `DotfolderStacking` (Sources/FoundationModelsExtras/DotfolderStacking.swift) has `layers`, `item(at:)`, `items(in:named:)`, `tree(_:)`, `childDirectories(of:)`, `layerDirectories(_:)`, `data(_:)`, `data(_:in:)`, `size(of:)`, `exists(_:)`. `content(_:)` is a method of `DotfolderStack` only, not of the protocol.
+    - `TemplateEngine` (TemplateEngine.swift) has a public `init(partials:)` that reads the process environment and the well-known values, and an internal init `init(partials:environment:wellKnownValues:)`. `render(_:context:trust:)` throws `TemplateEngineError`. The untrusted path applies the tag whitelist, the include depth, the output size and the loop count.
+    - `DotfolderLoader` (DotfolderLoader.swift, internal) resolves an include only in `_partials/`. The location is a fixed string. It needs a `partialLocations` parameter.
+    - `WellKnownValues.current(partials:)` gives `working_directory`, `date`, `hostname` and `dotfolder_name` (from the `.project` layer of the stack).
+    - The scope rule to move is `StencilPass.partialsStack(for:)` in FoundationModelsSkills: local layers are the layers that are not `.marketplace`; a `.marketplace` document gets `[winningLayer] + localLayers`; a local document gets the local layers only. The trust rule is `layer.source == .defaults ? .trusted : .untrusted`.
+    - Tests collect from a `@Sendable` closure with a `final class` around a `Mutex` (ExtrasDemoIntegrationTests.swift, `StreamBuffer`).
+    - Toolchain: Swift 6.4, macOS 27. No `.swift-format` config in the repo.
+
+    Plan: new `Sources/FoundationModelsExtras/StenciledDotfolderStack.swift`; `DotfolderLoader` gets `partialLocations`; `TemplateEngine` gets `partialLocations` through its internal init; new `Tests/FoundationModelsExtrasTests/StenciledDotfolderStackTests.swift`.
+  timestamp: 2026-09-19T16:02:29.724038+00:00
+- actor: claude-code
+  id: 01m2x6rta9gjfhj3b4c44cvmf9
+  text: |-
+    Implementation landed (TDD):
+
+    - RED: `Tests/FoundationModelsExtrasTests/StenciledDotfolderStackTests.swift` (24 tests) failed with `cannot find type 'StenciledDotfolderStack' in scope`.
+    - GREEN: `Sources/FoundationModelsExtras/StenciledDotfolderStack.swift` (new), `DotfolderLoader.swift` (partial locations, layer-major search), `TemplateEngine.swift` (`partialLocations` through the internal init, one `makeLoader()` for both trust paths).
+    - `swift build --build-tests`: 0 warnings. `swift test`: 340 tests in 28 suites pass, 0 failures. `swift format lint -s` is clean on the new and changed files; the one `.forEach` finding in `TemplateEngine.swift` is in vendored code that this task did not touch.
+
+    Decisions:
+    - The process environment is not a rung of the stenciled stack. The card names only `variables` above the well-known values, so the stack calls the internal `TemplateEngine` init with an empty environment. A consumer puts an environment value in `variables` when it wants one.
+    - `DotfolderLoader` now searches layer by layer, highest first, and inside one layer each partial location and each name variant. Thus the highest layer that holds the partial wins across locations, as the card says. With the default single location the result is the same as before.
+    - The scope rule of `StencilPass.partialsStack(for:)` is now `StenciledDotfolderStack.partialsStack(for:)`. FoundationModelsSkills is not edited; card ^95get removes the copy there.
+    - The well-known values are derived once at construction from the base stack (`dotfolder_name` from its `.project` layer), the same as `TemplateEngine.init(partials:)`.
+  timestamp: 2026-09-19T16:07:42.153051+00:00
+- actor: claude-code
+  id: 01m2x6z5k2t9y92m24rmb9y2x0
+  text: |-
+    Rule check against the review validators (code-hygiene, code-security, completeness, duplication, reuse, swift, test-integrity), with the corrections made:
+
+    - immutability: `DotfolderLoader.candidateNames(for:)` built its result with a `var` accumulator. It now builds it with `compactMap` and `flatMap`.
+    - reuse: `StenciledDotfolderStack.makeContext(from:)` did what `TemplateEngine.buildContext(from:)` did. Both are removed. `TemplateContext` has an internal `init(values:)` that both types call.
+    - initialization (init does no slow work): the stack read `WellKnownValues.current(partials:)` at construction, which reads the hostname. It now reads them at the time of each render, thus `date` is the date of the render.
+    - magic-numbers-swift: the test `0..<4` is now the named constant `leadingBytes`.
+    - concurrency: the test `DiagnosticLog` states why it is a lock and not an actor (the hook is synchronous).
+
+    After the corrections: `swift build --build-tests` 0 warnings; `swift format lint -s` clean on the new and changed files; `swift test` 340 tests in 28 suites, 0 failures.
+
+    ### implement — changed
+    - evidence: 5 files — Sources/FoundationModelsExtras/StenciledDotfolderStack.swift (new), Sources/FoundationModelsExtras/DotfolderLoader.swift, Sources/FoundationModelsExtras/TemplateEngine.swift, Sources/FoundationModelsExtras/TemplateContext.swift, Tests/FoundationModelsExtrasTests/StenciledDotfolderStackTests.swift (new, 24 tests); swift test: 340 tests, 0 failures, 0 warnings
+    - next: /review
+  timestamp: 2026-09-19T16:11:10.306096+00:00
+- actor: claude-code
+  id: 01m2x72regbeaswde62spg6q4c
+  text: |-
+    ### test — green
+    - evidence: swift build --build-tests (clean rebuild) — 0 warnings, build OK; swift test — 340 tests in 28 suites, 0 failed, 0 skipped
+    - next: ready for review
+  timestamp: 2026-09-19T16:13:07.920948+00:00
 depends_on:
 - 01M2X30BQKPD2MKA5EJQPFYMZM
-position_column: todo
-position_ordinal: '8380'
+position_column: doing
+position_ordinal: '80'
 title: 'Add StenciledDotfolderStack: the same interface, with partial locations and variables'
 ---
 ## What
@@ -33,22 +88,22 @@ stenciled.items(in: nil, named: "SKILL.md")   // each <id>/SKILL.md, rendered
 
 ## Acceptance Criteria
 
-- [ ] `StenciledDotfolderStack` conforms to `DotfolderStacking`, and each lookup gives the same file that the plain stack gives.
-- [ ] `content(_:)` gives rendered text; the plain stack gives the same file unchanged.
-- [ ] `item(at:)`, `items(in:named:)` and `tree(_:)` each give rendered text.
-- [ ] A partial resolves from `partialLocations`, and the highest layer that holds it wins.
-- [ ] A document of a `.defaults` layer renders trusted; each other layer renders untrusted, with the limits.
-- [ ] A render failure gives `nil` and one diagnostic, and it does not throw.
-- [ ] `swift build --build-tests` gives 0 warnings, and `swift test` is green.
+- [x] `StenciledDotfolderStack` conforms to `DotfolderStacking`, and each lookup gives the same file that the plain stack gives.
+- [x] `content(_:)` gives rendered text; the plain stack gives the same file unchanged.
+- [x] `item(at:)`, `items(in:named:)` and `tree(_:)` each give rendered text.
+- [x] A partial resolves from `partialLocations`, and the highest layer that holds it wins.
+- [x] A document of a `.defaults` layer renders trusted; each other layer renders untrusted, with the limits.
+- [x] A render failure gives `nil` and one diagnostic, and it does not throw.
+- [x] `swift build --build-tests` gives 0 warnings, and `swift test` is green.
 
 ## Tests
 
-- [ ] `Tests/FoundationModelsExtrasTests/StenciledDotfolderStackTests.swift` (new): a body with `{{ project }}` gives the value of `variables`.
-- [ ] Same file: a well-known value is available, and a value of the consumer with the same name wins.
-- [ ] Same file: `{% include "header" %}` resolves from a `partialLocations` entry, and the copy of the higher layer wins.
-- [ ] Same file: a body of an untrusted layer that uses a tag that is not allowed gives `nil` and one diagnostic.
-- [ ] Same file: each lookup of `DotfolderStacking` gives the same files as the plain stack for the same fixture.
-- [ ] `swift test` — all tests pass, 0 failures.
+- [x] `Tests/FoundationModelsExtrasTests/StenciledDotfolderStackTests.swift` (new): a body with `{{ project }}` gives the value of `variables`.
+- [x] Same file: a well-known value is available, and a value of the consumer with the same name wins.
+- [x] Same file: `{% include "header" %}` resolves from a `partialLocations` entry, and the copy of the higher layer wins.
+- [x] Same file: a body of an untrusted layer that uses a tag that is not allowed gives `nil` and one diagnostic.
+- [x] Same file: each lookup of `DotfolderStacking` gives the same files as the plain stack for the same fixture.
+- [x] `swift test` — all tests pass, 0 failures.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
