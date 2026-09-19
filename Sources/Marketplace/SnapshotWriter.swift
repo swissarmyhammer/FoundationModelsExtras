@@ -111,7 +111,9 @@ internal enum SnapshotWriter {
 
 /// The state of one snapshot write: where it reads, where it writes, what it
 /// counted, and what it already wrote.
-private struct SnapshotRun {
+///
+/// ``SnapshotWriter`` reads it, thus it is `fileprivate` and not `private`.
+fileprivate struct SnapshotRun {
   /// The permissions of a file that keeps its execute bit.
   private static let executableFileMode: NSNumber = 0o755
 

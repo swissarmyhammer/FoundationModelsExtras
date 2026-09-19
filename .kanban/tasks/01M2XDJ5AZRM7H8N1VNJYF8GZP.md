@@ -102,10 +102,34 @@ comments:
     - evidence: `swift build --build-tests` — 0 warnings, build complete; `swift test` — 375 tests in 30 suites passed, 0 failed, 0 skipped
     - next: hand off to review
   timestamp: 2026-09-19T22:16:59.171698+00:00
+- actor: claude-code
+  id: 01m2xvxvcj2xfh6dcyqnsw73zb
+  text: |-
+    ### commit — changed
+    - evidence: 6d1ed60 fix(marketplace-tests): unwrap firstEntry with #require in DocumentationTests
+    - next: send the task to the next pipeline step.
+  timestamp: 2026-09-19T22:17:27.186025+00:00
+- actor: claude-code
+  id: 01m2xvzp87fm1vr5ft5s06yc12
+  text: |-
+    ### review — clean
+    - evidence: 0 findings — `review sha HEAD~1..HEAD` (commit 6d1ed60), 1 file reviewed, 2 files not reviewed (`.kanban/` ignore rule). The one prior finding of 2026-09-19 17:07 is checked.
+    - next: none. The task is in `done`.
+  timestamp: 2026-09-19T22:18:27.463681+00:00
+- actor: claude-code
+  id: 01m2xw0424t1f2gh8x2d1qy4s8
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file, the finding of 2026-09-19 17:07 checked
+    - test: green — swift test, 375 passed in 30 suites, 0 failed, 0 skipped
+    - commit: 6d1ed60
+    - review: clean — 0 findings, task moved to done
+    - note: the push criterion stays with the user after the loop
+  timestamp: 2026-09-19T22:18:41.604052+00:00
 depends_on:
 - 01M2XDHRDADTN57M8EVQTWJZX9
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: b180
 title: Document the Marketplace pillar in README, plan.md and CHANGELOG
 ---
 ## What

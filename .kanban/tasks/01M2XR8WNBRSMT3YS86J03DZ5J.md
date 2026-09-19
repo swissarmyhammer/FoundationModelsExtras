@@ -1,8 +1,59 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8880'
+comments:
+- actor: claude-code
+  id: 01m2xw2jj1cpew41ew5r7ypp6h
+  text: |-
+    Research done. The readers of the three types, traced in the two files:
+
+    - `Diagnosed<Value>` in `CatalogResolver.swift`: the sibling `CatalogReader` reads it in each step, and the `extension Array` in the same file reads it in `collected()`. It is not dead code.
+    - `CatalogReader` in `CatalogResolver.swift`: the sibling `CatalogResolver` reads it in `resolve(from:selection:layout:)`. It is not dead code.
+    - `SnapshotRun` in `SnapshotWriter.swift`: the sibling `SnapshotWriter` reads it in `write(catalog:from:to:layout:limits:)`. It is not dead code.
+
+    Thus each type becomes `fileprivate struct`. No type goes away.
+
+    The doc comment sentence follows `MarketplaceStore.swift`: "The store reads it, thus it is `fileprivate` and not `private`." on `Preparation`.
+
+    Rules: the `swift/access-control` rule (Swift Access Control) says `fileprivate` is correct when a sibling type in the same file reads the type. I read the Swift rule set of the validator dump whole, and the Swift documentation rules. The other rule sets in the dump apply to code shapes that this change does not touch.
+
+    Decision: the nested `private enum CatalogRead` in `CatalogResolver` stays `private`. Only `CatalogResolver` reads it, and the card says to change no other access level.
+  timestamp: 2026-09-19T22:20:01.985612+00:00
+- actor: claude-code
+  id: 01m2xw600epj1qn3fzt76ywszt
+  text: |-
+    Implementation landed. Decisions:
+
+    - TDD: the change is an access level change with no behavior change. A test target reaches `internal` through `@testable import`, and it never sees `private` or `fileprivate`, thus no unit test can go red on this change. The existing suite is the guard, as the card and the caller say. No new test.
+    - `Diagnosed<Value>` has two readers in its file: `CatalogReader` and the `Array` extension. The doc sentence names both: "``CatalogReader`` and the `Array` extension read it, thus it is `fileprivate` and not `private`."
+    - `CatalogReader`: "``CatalogResolver`` reads it, thus it is `fileprivate` and not `private`."
+    - `SnapshotRun`: "``SnapshotWriter`` reads it, thus it is `fileprivate` and not `private`."
+    - The doc sentence uses the DocC form ``Type`` for the reader, as `MarketplaceStore.swift` does on `localSkillsFolderName`.
+    - The nested `private enum CatalogRead` stays `private`: only `CatalogResolver` reads it, and it is not top-level.
+
+    Evidence:
+
+    - `swift build --build-tests`: exit 0, 0 warnings, 0 errors.
+    - `swift test`: exit 0, all runs green, 375 tests in 30 suites in the last run, 0 failures, 0 skipped.
+    - `rg '^private (struct|enum|class|final class|actor|protocol)' Sources/Marketplace`: no match.
+    - `git diff --stat -- Sources`: 2 files changed, 10 insertions, 3 deletions.
+  timestamp: 2026-09-19T22:21:54.062721+00:00
+- actor: claude-code
+  id: 01m2xw61kc5x16z9x2vadcw52r
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Sources/Marketplace/CatalogResolver.swift, Sources/Marketplace/SnapshotWriter.swift; `swift build --build-tests` 0 warnings; `swift test` 375 tests, 0 failures
+    - next: /review
+  timestamp: 2026-09-19T22:21:55.692828+00:00
+- actor: claude-code
+  id: 01m2xwa0w27a9vrsy4fgbftz4m
+  text: |-
+    ### test — green
+    - evidence: swift build --build-tests (0 warnings, exit 0); swift test — 375 tests, 30 suites, 0 failed, 0 skipped, 0 warnings
+    - next: send the task to review.
+  timestamp: 2026-09-19T22:24:06.018496+00:00
+position_column: doing
+position_ordinal: '80'
 title: Make the top-level private types of CatalogResolver.swift and SnapshotWriter.swift fileprivate
 ---
 ## What
@@ -21,11 +72,11 @@ Do not change any other access level. Do not change behavior.
 
 ## Acceptance Criteria
 
-- [ ] No top-level type under `Sources/Marketplace` is `private`.
-- [ ] `swift build --build-tests` gives 0 warnings, and `swift test` is green.
+- [x] No top-level type under `Sources/Marketplace` is `private`.
+- [x] `swift build --build-tests` gives 0 warnings, and `swift test` is green.
 
 ## Tests
 
-- [ ] `swift test` — all tests pass, 0 failures.
+- [x] `swift test` — all tests pass, 0 failures.
 
 #marketplace

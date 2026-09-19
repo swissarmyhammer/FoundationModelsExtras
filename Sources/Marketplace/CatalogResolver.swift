@@ -132,7 +132,10 @@ internal enum CatalogResolver {
 }
 
 /// A value, with the diagnostics of the step that made it.
-private struct Diagnosed<Value> {
+///
+/// ``CatalogReader`` and the `Array` extension read it, thus it is
+/// `fileprivate` and not `private`.
+fileprivate struct Diagnosed<Value> {
   /// The value of the step.
   var value: Value
 
@@ -159,7 +162,9 @@ extension Array {
 }
 
 /// The steps of one resolution over one tree.
-private struct CatalogReader {
+///
+/// ``CatalogResolver`` reads it, thus it is `fileprivate` and not `private`.
+fileprivate struct CatalogReader {
   /// What a selected name names, for the text of a diagnostic.
   enum SelectionNoun: String {
     /// A plugin name.
