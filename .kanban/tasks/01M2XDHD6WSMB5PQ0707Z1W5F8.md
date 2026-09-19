@@ -61,10 +61,33 @@ comments:
     - evidence: swift package clean && swift build --build-tests (0 warnings, 0 errors, exit 0); swift test (6 test bundles: 125, 34, 44, 26, 194, 367 tests — 790 tests total, 30+ suites, 0 failed, 0 skipped, exit 0)
     - next: the build and the tests are clean. the review step can start.
   timestamp: 2026-09-19T19:53:32.936072+00:00
+- actor: claude-code
+  id: 01m2xkqm1qs876m5kdg1wfz7ph
+  text: |-
+    ### commit — changed
+    - evidence: 6ab7281 feat(marketplace): move the catalog formats and the catalog resolver
+    - next: the review step can start.
+  timestamp: 2026-09-19T19:54:14.455273+00:00
+- actor: claude-code
+  id: 01m2xm07xw6qvmck7gfavc6akn
+  text: |-
+    ### review — clean
+    - evidence: 0 findings. Scope `review sha HEAD~1..HEAD` (commit 6ab7281). The engine reviewed 11 files. Counts: findings 0, confirmed 0, refuted 0, attempted 14, failed 0. The task holds no prior review findings.
+    - next: none. The task moved from `review` to `done`.
+  timestamp: 2026-09-19T19:58:56.956888+00:00
+- actor: claude-code
+  id: 01m2xm0t83mjax9hay2mj3t489
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 13 files and 53 fixture files
+    - test: green — swift test, 790 passed in 6 bundles, 0 failed, 0 skipped
+    - commit: 6ab7281
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T19:59:15.715071+00:00
 depends_on:
 - 01M2XDH57XW45Z6W0V3JHJ8KD2
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ac80
 title: Move the catalog formats and the catalog resolver, with the document name as a MarketplaceLayout parameter
 ---
 ## What
