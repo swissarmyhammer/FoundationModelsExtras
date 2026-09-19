@@ -66,6 +66,12 @@ internal enum MarketplaceLocation: Sendable, Hashable {
   /// The character between the components of a path.
   private static let pathSeparator: Character = "/"
 
+  /// The path component that names the folder itself.
+  private static let currentFolderComponent = "."
+
+  /// The path component that names the parent folder.
+  private static let parentFolderComponent = ".."
+
   /// Parses the location of `source`.
   ///
   /// - Parameter source: The source to parse. Its `sha` field wins over its
@@ -125,6 +131,15 @@ internal enum MarketplaceLocation: Sendable, Hashable {
 
   /// The normalized URL: the git URL with no ref, or `file://` and the
   /// folder path with no trailing `/`.
+  ///
+  /// The rule for a `file://` URL, a git repository or a folder: the URL is
+  /// a pure function of the source text. The parser removes each `.`
+  /// component, resolves each `..` component against the component before
+  /// it, collapses repeated `/`, and removes a trailing `/`. It reads no
+  /// file, thus it resolves no symbolic link and no firmlink, and it keeps
+  /// a `/private` prefix as the host wrote it. Thus the URL, and the cache
+  /// folder name that ``MarketplaceIdentity/cacheFolderName(key:normalizedURL:)``
+  /// hashes from it, are the same whether the folder exists or not.
   var normalizedURL: String {
     switch self {
     case .git(let url, _): url
@@ -369,7 +384,8 @@ internal enum MarketplaceLocation: Sendable, Hashable {
   /// Parses a `file://` URL into a folder URL.
   ///
   /// - Parameter address: The URL text.
-  /// - Returns: The standardized folder URL.
+  /// - Returns: The folder URL, with the path cleaned by the rule of
+  ///   ``normalizedURL``.
   /// - Throws: ``MarketplaceSourceError/invalidLocalPath`` when the URL has
   ///   a remote host or no absolute path.
   private static func localFolder(_ address: String) throws -> URL {
@@ -379,7 +395,31 @@ internal enum MarketplaceLocation: Sendable, Hashable {
     else {
       throw MarketplaceSourceError.invalidLocalPath
     }
-    return URL(fileURLWithPath: url.path, isDirectory: true).standardizedFileURL
+    return URL(fileURLWithPath: lexicallyCleanedPath(url.path), isDirectory: true)
+  }
+
+  /// Cleans an absolute path with no read of the disk.
+  ///
+  /// This is the `file://` rule of ``normalizedURL``. Foundation's
+  /// `standardizedFileURL` removes a `/private` prefix only while the path
+  /// exists, thus the URL of a source would change when its folder is
+  /// removed, and a store would then read a different cache folder.
+  ///
+  /// - Parameter path: An absolute path.
+  /// - Returns: The path with no `.` component, no `..` component, no
+  ///   repeated `/`, and no trailing `/`. A `..` at the root stays at the
+  ///   root, and the root gives `/`.
+  private static func lexicallyCleanedPath(_ path: String) -> String {
+    let components = path.split(separator: pathSeparator)
+      .filter { $0 != currentFolderComponent }
+      .reduce(into: [Substring]()) { kept, component in
+        if component == parentFolderComponent {
+          _ = kept.popLast()
+        } else {
+          kept.append(component)
+        }
+      }
+    return String(pathSeparator) + components.joined(separator: String(pathSeparator))
   }
 
   /// Tells whether `host` names this computer: no host, an empty host, or

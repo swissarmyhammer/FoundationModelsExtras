@@ -21,6 +21,10 @@ struct MarketplaceSourceTests {
   /// A local marketplace folder.
   private static let localFolder = URL(fileURLWithPath: "/Users/me/skills", isDirectory: true)
 
+  /// A git repository on this computer, under the `/private` prefix that
+  /// the parser keeps as written.
+  private static let localRepositoryURL = "file:///private/var/skills.git"
+
   // MARK: - URL forms
 
   /// Each §5.1 form with the location that it gives.
@@ -36,6 +40,9 @@ struct MarketplaceSourceTests {
     ("github:swissarmyhammer/skills#stable", .git(url: httpsURL, ref: "stable")),
     ("file:///Users/me/skills", .local(localFolder)),
     ("file:///Users/me/skills/", .local(localFolder)),
+    ("file:///Users/me/../me/./skills//", .local(localFolder)),
+    (localRepositoryURL, .git(url: localRepositoryURL, ref: nil)),
+    ("file:///private/var/./tools/../skills.git/", .git(url: localRepositoryURL, ref: nil)),
     ("HTTPS://github.com/swissarmyhammer/skills.git", .git(url: httpsURL, ref: nil)),
     ("GitHub:swissarmyhammer/skills", .git(url: httpsURL, ref: nil)),
     ("FILE:///Users/me/skills", .local(localFolder)),

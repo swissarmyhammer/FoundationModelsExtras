@@ -122,10 +122,34 @@ comments:
     - evidence: swift build --build-tests (0 warnings, 0 errors); swift test — 367 tests in 30 suites, 0 failures, 0 skipped
     - next: ready for review
   timestamp: 2026-09-19T21:16:41.585534+00:00
+- actor: claude-code
+  id: 01m2xrfk4r7sy7b2nkgnwym00x
+  text: |-
+    ### commit — changed
+    - evidence: 14527fd fix(marketplace): change Preparation access level to fileprivate
+    - next: run /review on the task.
+  timestamp: 2026-09-19T21:17:14.264832+00:00
+- actor: claude-code
+  id: 01m2xrhr219nvcak12sx9fqcsf
+  text: |-
+    ### review — clean
+    - evidence: 0 findings. Scope `review sha HEAD~1..HEAD` (commit 14527fd). 1 file reviewed, 6 kanban files not reviewed by the ignore rule. The one item of `## Review Findings (2026-09-19 16:00)` is checked.
+    - next: none. The task is in `done`.
+  timestamp: 2026-09-19T21:18:24.833704+00:00
+- actor: claude-code
+  id: 01m2xrjb2gm8j7cq6nap4f0feh
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file, the finding of 2026-09-19 16:00 checked
+    - test: green — swift test, 367 passed in 30 suites, 0 failed, 0 skipped
+    - commit: 14527fd
+    - review: clean — 0 findings, task moved to done
+    - note: item 7 (push to `main`) stays with the user after the loop
+  timestamp: 2026-09-19T21:18:44.304215+00:00
 depends_on:
 - 01M2XDHMCZ9SDZ8F4EPNQDCD57
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ae80
 title: Move MarketplaceStore, the events, the status and the layer provider protocol
 ---
 ## What

@@ -15,6 +15,13 @@ struct MarketplaceLocalSourceTests {
   /// The `path` field of a source that names a folder other than `skills`.
   private static let libraryFolderName = "library"
 
+  /// The name of a folder that a `file://` source reads as a git
+  /// repository: it ends in `.git` (marketplace.md §5.1).
+  private static let repositoryFolderName = "skills.git"
+
+  /// The pre-fetch key of a source that names ``repositoryFolderName``.
+  private static let repositoryKey = "skills"
+
   // MARK: - The file:// layer (§5.1)
 
   @Test func aLocalFolderSourceServesItsSkillsWithNoCacheFolderAndNoNetwork() async throws {
@@ -82,6 +89,28 @@ struct MarketplaceLocalSourceTests {
 
     #expect(fixture.store.marketplaceLayers().isEmpty)
     #expect(fixture.store.diagnostics.contains { $0.severity == .error && $0.message.contains("relative path") })
+  }
+
+  // MARK: - The normalized file:// URL (§5.3)
+
+  @Test func aFileGitSourceKeepsItsNormalizedURLAndCacheFolderNameAfterItsFolderIsRemoved() throws {
+    // The canonical temporary directory is under `/private/var`, the prefix
+    // that `URL.standardizedFileURL` removes only while the path exists.
+    let parent = try TemporaryDirectory.make()
+    defer { try? FileManager.default.removeItem(at: parent) }
+    let repository = parent.appendingPathComponent(Self.repositoryFolderName, isDirectory: true)
+    try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: false)
+    let source = MarketplaceSource(Self.url(ofFolder: repository))
+
+    let urlBefore = try MarketplaceLocation(source: source).normalizedURL
+    try FileManager.default.removeItem(at: repository)
+    let urlAfter = try MarketplaceLocation(source: source).normalizedURL
+
+    #expect(urlBefore == Self.url(ofFolder: repository))
+    #expect(urlAfter == urlBefore)
+    #expect(
+      MarketplaceIdentity.cacheFolderName(key: Self.repositoryKey, normalizedURL: urlAfter)
+        == MarketplaceIdentity.cacheFolderName(key: Self.repositoryKey, normalizedURL: urlBefore))
   }
 
   // MARK: - The watched file:// root (§7.4)
@@ -193,7 +222,8 @@ struct MarketplaceLocalSourceTests {
   /// The `file://` URL of a folder.
   ///
   /// - Parameter folder: The folder.
-  /// - Returns: The URL, with no `.git` suffix, thus a local folder source.
+  /// - Returns: The URL. It is a git source when the folder name ends in
+  ///   `.git`, else a local folder source.
   private static func url(ofFolder folder: URL) -> String {
     "file://\(folder.path)"
   }
