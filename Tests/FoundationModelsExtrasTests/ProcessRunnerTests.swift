@@ -276,4 +276,30 @@ import Testing
     #expect(outcome.lineCount == 2)
     #expect(!outcome.isTruncated)
   }
+
+  // MARK: - README example
+
+  /// Mirrored in the `ProcessRunner` section of README.md. Keep the two in
+  /// sync.
+  ///
+  /// Makes the one call the README shows, with the README's script, and
+  /// checks the exit code, the merged output, and the mark, so the README
+  /// cannot go stale without a test that fails. The README leaves `registry`
+  /// at its default, `ProcessRegistry.global`. This test gives a private
+  /// registry, for the reason the suite documentation states.
+  @Test func readmeExitCodeAndMergedOutputExample() async throws {
+    let exitCode: Int32 = 2
+
+    let outcome = try await ProcessRunner.run(
+      executable: URL(fileURLWithPath: "/bin/sh"),
+      arguments: ["-c", "echo building; echo warning: slow >&2; exit \(exitCode)"],
+      workingDirectory: FileManager.default.temporaryDirectory,
+      timeout: Self.generousTimeout,
+      outputCap: Self.wideCap,
+      registry: ProcessRegistry())
+
+    #expect(outcome.termination == .exited(code: exitCode))
+    #expect(outcome.output == ["building", "warning: slow"])
+    #expect(!outcome.isTruncated)
+  }
 }

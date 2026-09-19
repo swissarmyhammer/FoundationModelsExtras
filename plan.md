@@ -232,7 +232,15 @@ public enum FrontmatterDocument {
   `internal`, so no package could use another's, and a correction to the kill
   path had to land in four files. The dependency budget above does not move:
   the type needs Foundation and `Synchronization`, and `Synchronization` is a
-  standard-library module, not a package.)
+  standard-library module, not a package.) (`ProcessRunner` fought its way in
+  2026-09-19 for the same reason: FoundationModelsSkills carried a runner of
+  its own, with no link to `ProcessRegistry`, so a session that ended while a
+  script ran left the process group behind. The runner is not skill
+  semantics. It belongs beside the registry, so each consumer of the family
+  gets the same process group, the same timeout with the group kill, and the
+  same output cap, documented in [`README.md`](README.md). The dependency
+  budget does not move: the type needs Foundation and `Darwin`, and `Darwin`
+  is a system module, not a package.)
 - **Coordination point.** Changes ripple to all conformers and adapters at
   once — additive evolution, breaking changes are a family event.
 - **Trust boundary documented at the type.** `.action` bodies require linked

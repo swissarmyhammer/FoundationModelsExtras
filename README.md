@@ -117,6 +117,43 @@ Run the whole surface, exit code included, with
 finding of each status, so its worst finding is an `.error` and it exits
 `1`.
 
+## Running a process: `ProcessRunner`
+
+`ProcessRunner` runs one executable directly, with no shell, in its own
+process group. It merges stdout and stderr into one bounded tail, in
+arrival order, so the caller holds no more memory than the `OutputCap`
+permits, however much the process writes. At the timeout it sends
+`SIGKILL` to the whole group, so a grandchild the process put in the
+background dies with it. The pid stands in a `ProcessRegistry` from the
+spawn to the reap. The `registry` parameter defaults to
+`ProcessRegistry.global`, so the `atexit` sweep of that registry is the
+backstop for a run that a normal exit of the host cuts short:
+
+```swift
+let outcome = try await ProcessRunner.run(
+    executable: URL(fileURLWithPath: "/bin/sh"),
+    arguments: ["-c", "echo building; echo warning: slow >&2; exit 2"],
+    workingDirectory: FileManager.default.temporaryDirectory,
+    timeout: .seconds(30),
+    outputCap: ProcessRunner.OutputCap(lineCount: 64, byteLimit: 65_536)
+)
+// outcome.termination == .exited(code: 2)
+// outcome.output == ["building", "warning: slow"]
+// outcome.isTruncated == false
+```
+
+`outcome.termination` is `.exited(code:)`, `.signaled(_:)`, or `.timedOut`.
+`outcome.lineCount` is the count of all the lines the process wrote, and
+`outcome.isTruncated` marks a cut by the cap. The call throws
+`ProcessRunner.Failure` when the spawn did not reach exec, or when the reap
+failed.
+
+This call is mirrored in `readmeExitCodeAndMergedOutputExample` in
+`Tests/FoundationModelsExtrasTests/ProcessRunnerTests.swift`, kept green by
+`swift test --filter ProcessRunnerTests`. The test gives the runner a
+private `ProcessRegistry`, because the suites of the package run at the
+same time in one process.
+
 ## Install
 
 Add the package to `Package.swift`:

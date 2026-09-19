@@ -45,11 +45,34 @@ comments:
     - evidence: swift build --build-tests (0 warnings); swift test — 363 tests, 29 suites, 0 failed, 0 skipped
     - next: ready for review
   timestamp: 2026-09-19T16:30:53.295339+00:00
+- actor: claude-code
+  id: 01m2x845180nakjagerdm4k5j4
+  text: |-
+    ### commit — changed
+    - evidence: 376004e feat(frontmatter-stack): add FrontmatterDocumentStack for (metadata, content) items
+    - next: Send the commit for review.
+  timestamp: 2026-09-19T16:31:22.152341+00:00
+- actor: claude-code
+  id: 01m2x8a36dcxgnwfa8k3eqrn6d
+  text: |-
+    ### review — clean
+    - evidence: 0 findings (review sha HEAD~1..HEAD, commit 376004e; 10 files reviewed, 4 files in .kanban/ skipped by .reviewignore)
+    - next: none. The task is in done.
+  timestamp: 2026-09-19T16:34:36.877441+00:00
+- actor: claude-code
+  id: 01m2x8akbczezsrwr9945r8jb3
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 10 files
+    - test: green — swift test, 363 passed, 0 failed, 0 skipped
+    - commit: 376004e
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T16:34:53.420423+00:00
 depends_on:
 - 01M2X30BQKPD2MKA5EJQPFYMZM
 - 01M2X30G7EGVT3392CZCWM3MQT
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: a880
 title: 'Add FrontmatterDocumentStack: the same interface, with (metadata, content) items'
 ---
 ## What
