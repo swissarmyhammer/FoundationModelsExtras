@@ -7,12 +7,36 @@ import Foundation
 /// (<cwd>/.<name>/)`.
 ///
 /// `DotfolderStack` is the plain `DotfolderStacking` implementation, with
-/// `Item == String`: each lookup gives the text of the winning file. It never
-/// merges file contents. Key-level config merging (scalars/arrays replace
-/// wholesale, sections merge by key) is a consumer concern — the consumer's
-/// codec policy, not this type's. The stack is the only thing that touches
-/// disk, and only when a lookup is called: constructing a stack never
-/// performs file I/O, so consumers stay constructible in tests with none.
+/// `Item == String`: each lookup gives the text of the winning file.
+///
+/// The stack gives one combined view of the directory trees of all the
+/// layers. The unit of override is the file. For a path relative to a layer
+/// root, the copy in the highest layer that holds that path wins, and each
+/// lower copy is hidden. A directory is never replaced: a directory in the
+/// view holds the union of the names of all the layers. For example, with
+/// these layers:
+///
+/// ```
+/// defaults: review/SKILL.md, review/references/rules.md,
+///           review/scripts/lint.sh, review/scripts/report.sh
+/// user:     review/SKILL.md, review/scripts/lint.sh
+/// project:  review/references/house-style.md
+/// ```
+///
+/// the view of `review/` gives `SKILL.md` from user, `scripts/lint.sh` from
+/// user, `scripts/report.sh` from defaults, `references/rules.md` from
+/// defaults, and `references/house-style.md` from project.
+///
+/// The stack does not merge the contents of a file. Key-level config merging
+/// (scalars and arrays replace wholesale, sections merge by key) is the
+/// concern of the consumer, its codec policy, not of this type.
+///
+/// The stack holds no cache, thus it needs no file watcher. Each call reads
+/// the disk at the time of the call, and gives the files as they are then. A
+/// consumer that caches a result keeps its own watcher. The stack is the
+/// only thing that touches disk, and only when a lookup is called:
+/// constructing a stack never performs file I/O, so consumers stay
+/// constructible in tests with none.
 ///
 /// Each lookup applies two checks to a caller-supplied path. The text check
 /// `isSafeRelativePath` rejects a path that is empty, absolute or has a `..`
@@ -241,30 +265,31 @@ public struct DotfolderStack: Sendable {
     return layers.compactMap { Self.existingCopy(of: relativePath, in: $0)?.url }
   }
 
-  /// Lists every file matching `suffix` under `subdirectory` in each layer,
-  /// keyed by name with `suffix` stripped, with higher layers shadowing
-  /// lower ones by name.
+  /// The files of the combined view that are directly in `subdirectory` and
+  /// that match `suffix`, keyed by name with `suffix` removed.
+  ///
+  /// This is the top level of `tree(_:)`, filtered by `suffix`. It applies
+  /// the same override rule: the copy in the highest layer that holds a name
+  /// wins.
   ///
   /// - Parameters:
   ///   - subdirectory: A directory relative to a layer's root, e.g.
   ///     `"commands"`. Rejected (returns an empty dictionary) if it is
   ///     empty, absolute, or contains a `..` component — such paths could
   ///     otherwise escape the layer root.
-  ///   - suffix: The filename suffix to match and strip, e.g. `".md"`.
-  ///     Files without this suffix are ignored.
+  ///   - suffix: The filename suffix to match and remove, e.g. `".md"`.
+  ///     Files without this suffix are ignored. A file in a child directory
+  ///     of `subdirectory` is not in the result.
   /// - Returns: A dictionary from name (without `suffix`) to the winning
   ///   file's location, the layer that won it, and its text. A winning
   ///   file whose content is not UTF-8 text is not in the result.
   public func enumerate(_ subdirectory: String, suffix: String) -> [String: Located<String>] {
-    guard let directories = layerDirectoryURLs(subdirectory) else { return [:] }
-    let entries = directories.flatMap { layer, directoryURL in
-      Self.entryURLs(of: directoryURL, in: layer)
-        .filter { $0.lastPathComponent.hasSuffix(suffix) }
-        .map { url -> (String, Copy) in
-          (String(url.lastPathComponent.dropLast(suffix.count)), (layer, url))
-        }
+    let entries = tree(subdirectory).compactMap {
+      relativePath, item -> (String, Located<String>)? in
+      guard !relativePath.contains("/"), relativePath.hasSuffix(suffix) else { return nil }
+      return (String(relativePath.dropLast(suffix.count)), item)
     }
-    return Self.winningTexts(of: entries)
+    return Dictionary(uniqueKeysWithValues: entries)
   }
 
   /// The combined view of the directory trees of all the layers.
@@ -322,8 +347,11 @@ public struct DotfolderStack: Sendable {
   /// - Returns: A dictionary from the name of the child directory to the
   ///   winning copy of `fileName` in it, as `item(at:)` gives it. A child
   ///   directory that does not hold `fileName` is not in the result.
-  public func items(in subdirectory: String? = nil, named fileName: String) -> [String: Located<String>] {
-    let entries = childDirectories(of: subdirectory).keys.compactMap { name -> (String, Located<String>)? in
+  public func items(
+    in subdirectory: String? = nil, named fileName: String
+  ) -> [String: Located<String>] {
+    let entries = childDirectories(of: subdirectory).keys.compactMap {
+      name -> (String, Located<String>)? in
       let directory = subdirectory.map { "\($0)/\(name)" } ?? name
       return item(at: "\(directory)/\(fileName)").map { (name, $0) }
     }
@@ -362,7 +390,8 @@ public struct DotfolderStack: Sendable {
   ///   no layer holds it.
   public func layerDirectories(_ relativeDirectory: String? = nil) -> [Layer] {
     guard let directories = layerDirectoryURLs(relativeDirectory) else { return [] }
-    return directories
+    return
+      directories
       .filter { Self.isDirectory(atPath: $0.url.path) && $0.layer.confines($0.url) }
       .map(\.layer)
   }
@@ -466,10 +495,10 @@ public struct DotfolderStack: Sendable {
 
   /// The text of the winning copy of each key in `entries`.
   ///
-  /// `tree` and `enumerate` both collect one `(key, copy)` entry per layer,
-  /// lowest precedence first, and route through this helper, so both apply
-  /// the same override rule: the last copy of a key wins, and a winning
-  /// copy that is not UTF-8 text is left out.
+  /// `tree` collects one `(key, copy)` entry per layer, lowest precedence
+  /// first, and routes through this helper, which applies the override
+  /// rule: the last copy of a key wins, and a winning copy that is not
+  /// UTF-8 text is left out.
   ///
   /// - Parameter entries: The copies of each key, lowest precedence first.
   /// - Returns: A dictionary from the key to the located text of its

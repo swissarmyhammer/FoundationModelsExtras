@@ -53,10 +53,33 @@ comments:
     - evidence: swift build --build-tests — 0 warnings, build complete; swift test — 301 tests, 0 failed, 0 skipped
     - next: ready for review
   timestamp: 2026-09-19T15:23:10.030110+00:00
+- actor: claude-code
+  id: 01m2x48cazskwesr3bb47pgvjw
+  text: |-
+    ### commit — changed
+    - evidence: bd5c277 feat(dotfolder-stack): add a generic DotfolderStacking interface
+    - next: send the task for review.
+  timestamp: 2026-09-19T15:23:46.399859+00:00
+- actor: claude-code
+  id: 01m2x4e3az9ngst36hs9endx3x
+  text: |-
+    ### review — clean
+    - evidence: 0 findings — `review sha HEAD~1..HEAD` (bd5c277), 5 files reviewed, 7 validator runs attempted, 0 failed, 0 refuted
+    - next: task moved to done
+  timestamp: 2026-09-19T15:26:53.791558+00:00
+- actor: claude-code
+  id: 01m2x4emc3g3mryk69mwhcv1b9
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 301 passed, 0 failed, 0 skipped
+    - commit: bd5c277
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T15:27:11.235979+00:00
 depends_on:
 - 01M2X2EMGFB08X9F0XV40N54DH
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: a480
 title: Make DotfolderStacking a generic interface, and the only file access
 ---
 ## What

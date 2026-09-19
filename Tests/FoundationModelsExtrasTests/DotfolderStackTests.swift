@@ -252,6 +252,25 @@ import Testing
     #expect(results["help"] != nil)
   }
 
+  @Test func enumerateAgreesWithTheTopLevelOfTree() {
+    let fixture = Fixture()
+    fixture.writeReviewTree()
+    fixture.write("defaults notes", to: "review/NOTES.md", in: fixture.defaultsDirectory)
+    let stack = fixture.makeStack()
+
+    let enumerated = stack.enumerate("review", suffix: ".md")
+    let topLevel = stack.tree("review").filter { !$0.key.contains("/") && $0.key.hasSuffix(".md") }
+
+    #expect(Set(enumerated.keys) == ["SKILL", "NOTES"])
+    #expect(enumerated.count == topLevel.count)
+    for (path, item) in topLevel {
+      let name = String(path.dropLast(".md".count))
+      #expect(enumerated[name]?.url == item.url, "url of \(name)")
+      #expect(enumerated[name]?.layer.source == item.layer.source, "layer of \(name)")
+      #expect(enumerated[name]?.value == item.value, "value of \(name)")
+    }
+  }
+
   @Test func defaultsDirEnvironmentOverrideRedirectsTheLowestLayer() {
     let fixture = Fixture()
     let overrideDirectory = fixture.root.appendingPathComponent("override", isDirectory: true)
