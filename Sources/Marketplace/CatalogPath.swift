@@ -1,8 +1,5 @@
 /// The path rules of a ``CatalogFileSource`` tree: relative, separated by `/`,
 /// and the empty path is the root.
-///
-/// This card moves the members that ``GitTreeFileSource`` calls. Card
-/// ^7z1w5f8 adds the members that the catalog resolver calls.
 internal enum CatalogPath {
   /// The separator of path components.
   static let separator: Character = "/"
@@ -19,6 +16,9 @@ internal enum CatalogPath {
   /// The prefix of a path in the home directory.
   private static let homePrefix = "~"
 
+  /// The text that shows the root folder in a diagnostic.
+  private static let rootDisplay = "."
+
   /// Normalizes a relative path from a catalog.
   ///
   /// - Parameter path: The path, for example `./skills/tdd`.
@@ -32,6 +32,17 @@ internal enum CatalogPath {
     return path.split(separator: separator).filter { $0 != currentFolder }.joined(separator: String(separator))
   }
 
+  /// Resolves a relative path from a catalog against a folder of the tree.
+  ///
+  /// - Parameters:
+  ///   - relativePath: The path, as the catalog writes it.
+  ///   - folder: The normalized folder that the path is relative to.
+  /// - Returns: The normalized path in the tree, or `nil` when
+  ///   ``normalized(path:)`` refuses `relativePath`.
+  static func resolved(relativePath: String, inFolder folder: String) -> String? {
+    normalized(path: relativePath).map { $0.isEmpty ? folder : child(named: $0, of: folder) }
+  }
+
   /// Adds one or more components to a folder path.
   ///
   /// - Parameters:
@@ -40,6 +51,31 @@ internal enum CatalogPath {
   /// - Returns: The path of the child.
   static func child(named name: String, of folder: String) -> String {
     folder.isEmpty ? name : folder + String(separator) + name
+  }
+
+  /// Gives the last component of a path.
+  ///
+  /// - Parameter path: The normalized path.
+  /// - Returns: The last component, or `nil` for the root.
+  static func lastComponent(of path: String) -> String? {
+    path.split(separator: separator).last.map(String.init)
+  }
+
+  /// Tells whether a name is one folder name.
+  ///
+  /// - Parameter name: The name.
+  /// - Returns: `true` when the name is a normalized path with one
+  ///   component.
+  static func isSingleComponent(name: String) -> Bool {
+    normalized(path: name) == name && !name.contains(separator)
+  }
+
+  /// Shows a path in the text of a diagnostic.
+  ///
+  /// - Parameter path: The normalized path.
+  /// - Returns: The path, or `.` for the root.
+  static func display(path: String) -> String {
+    path.isEmpty ? rootDisplay : path
   }
 
   /// Tells whether a path is relative and stays inside its root.

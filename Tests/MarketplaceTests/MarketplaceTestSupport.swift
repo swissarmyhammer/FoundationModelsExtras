@@ -1,3 +1,4 @@
+import FixtureSupport
 import Foundation
 import Marketplace
 
@@ -29,13 +30,46 @@ actor CredentialRequestRecorder {
   }
 }
 
-/// The shared file helper of the marketplace tests. `MarketplaceConfigTests`
-/// writes text files into a temporary stack with it.
+/// The shared helpers of the marketplace tests.
 ///
-/// The helper does not call `MarketplaceConfig.save(to:)`, because that is
-/// the code under test: a test that writes its fixture with the code it
+/// `MarketplaceConfigTests` writes text files into a temporary stack with
+/// ``writeFile(text:to:)``. `MarketplaceCatalogTests` and
+/// `GitTreeFileSourceTests` both resolve the fixture catalogs with
+/// ``skillsLayout``, find them with ``catalogFixture(named:)``, and write a
+/// small tree with ``makeTempDirectory(withFiles:)``.
+///
+/// The file helper does not call `MarketplaceConfig.save(to:)`, because that
+/// is the code under test: a test that writes its fixture with the code it
 /// proves can pass while both are wrong.
 enum MarketplaceTestSupport {
+  /// The layout of a skills marketplace: `SKILL.md` marks an entry folder.
+  static let skillsLayout = MarketplaceLayout(documentName: "SKILL.md")
+
+  /// The folder of the fixture catalogs, relative to the package root.
+  private static let catalogFixturesPath = "Tests/MarketplaceTests/Fixtures/catalogs"
+
+  /// Gives the folder of one fixture catalog.
+  ///
+  /// - Parameter name: The folder name of the fixture.
+  /// - Returns: The folder, under the package root.
+  static func catalogFixture(named name: String) -> URL {
+    FixtureFile.url("\(catalogFixturesPath)/\(name)")
+  }
+
+  /// Makes a new temporary folder and writes a tree of text files into it.
+  ///
+  /// - Parameter files: The text of each file, keyed by its path in the
+  ///   folder.
+  /// - Returns: The new folder.
+  /// - Throws: The error of a folder or file write.
+  static func makeTempDirectory(withFiles files: [String: String]) throws -> URL {
+    let root = try TemporaryDirectory.make()
+    for (path, text) in files {
+      try writeFile(text: text, to: root.appendingPathComponent(path))
+    }
+    return root
+  }
+
   /// Writes text to a file, and makes the folder of the file first.
   ///
   /// - Parameters:

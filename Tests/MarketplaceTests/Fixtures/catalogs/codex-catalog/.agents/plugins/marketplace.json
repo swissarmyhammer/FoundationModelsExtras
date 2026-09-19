@@ -1,0 +1,19 @@
+{
+  "name": "codex-fixture",
+  "interface": {
+    "displayName": "Codex fixture"
+  },
+  "plugins": [
+    {
+      "name": "tools",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tools"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Coding"
+    }
+  ]
+}

@@ -117,10 +117,33 @@ comments:
     - evidence: swift build --build-tests (0 warnings, build complete); swift test — 367 tests, 30 suites, 0 failed, 0 skipped
     - next: none. The build is clean.
   timestamp: 2026-09-19T19:31:53.224221+00:00
+- actor: claude-code
+  id: 01m2xjffp83v87v9w0ytmvajfb
+  text: |-
+    ### commit — changed
+    - evidence: 9a7774a test(marketplace): add a case-variant decode test for SkillSelection.all
+    - next: `/review` runs again on the new checkpoint.
+  timestamp: 2026-09-19T19:32:19.272988+00:00
+- actor: claude-code
+  id: 01m2xjkcw2gy9rnbnf93tkfzg1
+  text: |-
+    ### review — clean
+    - evidence: 0 findings. Scope `review sha HEAD~1..HEAD` (commit 9a7774a). 1 file reviewed: `Tests/MarketplaceTests/MarketplaceSourceTests.swift`. 2 files in `.kanban/` not reviewed (ignore rule). The one prior finding of `## Review Findings (2026-09-19 14:18)` is checked.
+    - next: none. The task is in `done`.
+  timestamp: 2026-09-19T19:34:27.458670+00:00
+- actor: claude-code
+  id: 01m2xjkyh8ptd701s6xz712f9v
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file, the finding of 2026-09-19 14:18 checked
+    - test: green — swift test, 367 passed in 30 suites, 0 failed, 0 skipped
+    - commit: 9a7774a
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T19:34:45.544765+00:00
 depends_on:
 - 01M2XDH57XW45Z6W0V3JHJ8KD2
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ab80
 title: Move the marketplace source model, the policy and the config loader
 ---
 ## What

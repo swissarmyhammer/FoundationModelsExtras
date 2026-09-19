@@ -1,0 +1,12 @@
+{
+  "name": "codex-second",
+  "plugins": [
+    {
+      "name": "codex",
+      "source": {
+        "source": "local",
+        "path": "./"
+      }
+    }
+  ]
+}

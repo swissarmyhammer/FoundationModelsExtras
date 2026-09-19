@@ -1,0 +1,11 @@
+{
+  "name": "claude-first",
+  "plugins": [
+    {
+      "name": "claude",
+      "source": "./",
+      "strict": false,
+      "skills": ["./skills/from-claude"]
+    }
+  ]
+}

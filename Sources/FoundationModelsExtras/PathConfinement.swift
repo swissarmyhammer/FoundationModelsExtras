@@ -10,8 +10,10 @@ import Foundation
 /// The rule came from the `PathConfinement` type of `FoundationModelsSkills`,
 /// where each resource operation applied it to a skill directory. It lives
 /// here now, so that the stack is the only thing that opens a file and a
-/// consumer never needs `FileManager` for the check.
-internal enum PathConfinement {
+/// consumer never needs `FileManager` for the check. The marketplace local
+/// file source applies the same rule to a marketplace folder, thus the rule
+/// is public and there is one copy.
+public enum PathConfinement {
   /// Reports whether `candidate` resolves to `root` or to a location under
   /// `root`.
   ///
@@ -25,7 +27,7 @@ internal enum PathConfinement {
   ///   - root: The layer root that must contain `candidate`.
   /// - Returns: `true` if the resolved `candidate` is the resolved `root` or
   ///   is under it.
-  internal static func isConfined(_ candidate: URL, to root: URL) -> Bool {
+  public static func isConfined(_ candidate: URL, to root: URL) -> Bool {
     let resolvedRoot = resolvingSymlinksOfExistingPrefix(root)
     let resolvedCandidate = resolvingSymlinksOfExistingPrefix(candidate)
     return isContained(resolvedCandidate, in: resolvedRoot)

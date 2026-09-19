@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "swissarmyhammer-skills",
+  "owner": { "name": "swissarmyhammer" },
+  "metadata": {
+    "description": "Engineering workflow skills from swissarmyhammer.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "swissarmyhammer",
+      "source": "./",
+      "strict": false,
+      "description": "All swissarmyhammer skills.",
+      "skills": [
+        "./skills/code-context",
+        "./skills/commit",
+        "./skills/tdd"
+      ]
+    }
+  ]
+}

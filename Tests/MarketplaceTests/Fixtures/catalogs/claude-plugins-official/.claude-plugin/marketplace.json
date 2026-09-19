@@ -1,0 +1,99 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-plugins-official",
+  "description": "Directory of popular Claude Code extensions including development tools, productivity plugins, and MCP integrations",
+  "owner": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+  },
+  "renames": {
+    "adlc": "agentforce-adlc",
+    "airwallex": "airwallex-agentos"
+  },
+  "plugins": [
+    {
+      "name": "42crunch-api-security-testing",
+      "description": "Automate API security directly in Claude Code with 42Crunch.",
+      "author": { "name": "42Crunch" },
+      "category": "security",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/42Crunch-AI/claude-plugins.git",
+        "path": "plugins/api-security-testing",
+        "ref": "v1.5.5",
+        "sha": "30287f5e3f122a646d1ac5ca3ab96e130c52a3ad"
+      },
+      "homepage": "https://42crunch.com"
+    },
+    {
+      "name": "agentforce-adlc",
+      "description": "Agentforce Agent Development Life Cycle — author, discover, scaffold, deploy, test, and optimize .agent files",
+      "category": "development",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/SalesforceAIResearch/agentforce-adlc.git",
+        "sha": "09bf1539d41f9ff355ba3eb5d05d4a75813423bb"
+      },
+      "homepage": "https://github.com/SalesforceAIResearch/agentforce-adlc"
+    },
+    {
+      "name": "airwallex-agentos",
+      "description": "Bring Airwallex's global financial infrastructure to Claude.",
+      "author": { "name": "Airwallex" },
+      "category": "productivity",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/airwallex/airwallex-marketplace.git",
+        "path": "plugins/airwallex-agentos",
+        "ref": "master",
+        "sha": "d323dd68c85874f6311a1bd20184f803a96e09a9"
+      },
+      "homepage": "https://www.airwallex.com/docs"
+    },
+    {
+      "name": "amd-skills",
+      "description": "AMD's verified Agent Skills in one plugin.",
+      "author": { "name": "AMD" },
+      "category": "development",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/amd/skills.git",
+        "path": "skills",
+        "ref": "main",
+        "sha": "6916fb371d1cba40757b223cf16b4cd4912b202f"
+      },
+      "strict": false,
+      "skills": [
+        "./local-ai-use",
+        "./local-ai-app-integration",
+        "./serving-llms-on-instinct",
+        "./tracelens-analysis-orchestrator"
+      ],
+      "homepage": "https://developer.amd.com/"
+    },
+    {
+      "name": "code-review",
+      "description": "Automated code review for pull requests using multiple specialized agents with confidence-based scoring to filter false positives",
+      "author": { "name": "Anthropic", "email": "support@anthropic.com" },
+      "source": "./plugins/code-review",
+      "category": "productivity",
+      "homepage": "https://github.com/anthropics/claude-plugins-public/tree/main/plugins/code-review"
+    },
+    {
+      "name": "frontend-design",
+      "description": "Create distinctive, production-grade frontend interfaces with high design quality.",
+      "author": { "name": "Anthropic", "email": "support@anthropic.com" },
+      "source": "./plugins/frontend-design",
+      "category": "development",
+      "homepage": "https://github.com/anthropics/claude-plugins-public/tree/main/plugins/frontend-design"
+    },
+    {
+      "name": "skill-creator",
+      "description": "Create new skills, improve existing skills, and measure skill performance.",
+      "author": { "name": "Anthropic", "email": "support@anthropic.com" },
+      "source": "./plugins/skill-creator",
+      "category": "development",
+      "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/skill-creator"
+    }
+  ]
+}

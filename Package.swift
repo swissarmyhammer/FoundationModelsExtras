@@ -291,6 +291,15 @@ let package = Package(
                 // The transport tests fetch from repositories that
                 // `GitFixtureRepository` builds.
                 "MarketplaceFixtures",
+            ],
+            resources: [
+                // `MarketplaceCatalogTests` and `GitTreeFileSourceTests` read
+                // the fixture catalogs from the disk through
+                // `FixtureFile.url`. The resource declaration only stops the
+                // SwiftPM "unhandled files" warning for the fixture tree that
+                // is not `.swift`, as `FoundationModelsExtrasTests` does for
+                // its `Fixtures`.
+                .copy("Fixtures")
             ]
         ),
 

@@ -1,0 +1,41 @@
+{
+  "name": "remote-plugins",
+  "plugins": [
+    {
+      "name": "from-github",
+      "source": {
+        "source": "github",
+        "repo": "acme/team-skills"
+      }
+    },
+    {
+      "name": "from-git-subdir",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://example.com/acme/monorepo.git",
+        "path": "plugins/skills",
+        "ref": "main"
+      }
+    },
+    {
+      "name": "from-url",
+      "source": {
+        "source": "url",
+        "url": "https://example.com/acme/skills.git"
+      }
+    },
+    {
+      "name": "from-npm",
+      "source": {
+        "source": "npm",
+        "package": "@acme/skills"
+      }
+    },
+    {
+      "name": "local",
+      "source": "./",
+      "strict": false,
+      "skills": ["./skills/local-one"]
+    }
+  ]
+}

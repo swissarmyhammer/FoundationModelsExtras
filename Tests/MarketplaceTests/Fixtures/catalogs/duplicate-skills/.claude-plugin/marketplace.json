@@ -1,0 +1,15 @@
+{
+  "name": "duplicates",
+  "plugins": [
+    {
+      "name": "first",
+      "source": "./first",
+      "strict": false,
+      "skills": ["./shared", "./alpha"]
+    },
+    {
+      "name": "second",
+      "source": "./second"
+    }
+  ]
+}

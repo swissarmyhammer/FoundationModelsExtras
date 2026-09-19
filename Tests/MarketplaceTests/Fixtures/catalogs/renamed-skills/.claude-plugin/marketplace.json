@@ -1,0 +1,16 @@
+{
+  "name": "renamed",
+  "renames": {
+    "old-name": "new-name",
+    "retired": null,
+    "old-plugin": "main"
+  },
+  "plugins": [
+    {
+      "name": "main",
+      "source": "./",
+      "strict": false,
+      "skills": ["./skills/new-name", "./skills/steady"]
+    }
+  ]
+}
