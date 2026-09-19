@@ -287,6 +287,20 @@ import Testing
     #expect(log.diagnostics.count == 1)
   }
 
+  @Test func urlsKeepsAFileThatFailsToRender() {
+    let fixture = Fixture()
+    fixture.write(Self.disallowedTagBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let log = DiagnosticLog()
+    let stenciled = Self.makeStenciled(over: fixture.makeStack(), log: log)
+
+    let view = stenciled.urls("review")
+
+    #expect(
+      view["SKILL.md"]?.value == fixture.projectDirectory.appendingPathComponent("review/SKILL.md"))
+    #expect(stenciled.tree("review")["SKILL.md"] == nil)
+    #expect(log.diagnostics.count == 1)
+  }
+
   // MARK: - The same files as the plain stack
 
   @Test func layersAreTheLayersOfThePlainStack() {
@@ -309,6 +323,7 @@ import Testing
       stenciled.items(in: nil, named: "SKILL.md").mapValues(\.url)
         == stack.items(in: nil, named: "SKILL.md").mapValues(\.url))
     #expect(stenciled.tree("review").mapValues(\.url) == stack.tree("review").mapValues(\.url))
+    #expect(stenciled.urls("review").mapValues(\.value) == stack.urls("review").mapValues(\.value))
     #expect(
       stenciled.childDirectories(of: "review").mapValues { $0.map(\.source) }
         == stack.childDirectories(of: "review").mapValues { $0.map(\.source) })

@@ -22,9 +22,9 @@ import Foundation
 ///
 /// `Item` is `String`, the same as the plain stack. Each text that a lookup
 /// gives back is rendered: `content(_:)`, `item(at:)`, `items(in:named:)`
-/// and `tree(_:)`. The byte lookups (`data`, the ranged `data`, `size`)
-/// and the directory lookups give what the base stack gives, unchanged.
-/// The frontmatter is not a concept at this layer.
+/// and `tree(_:)`. The URL view (`urls`), the byte lookups (`data`, the
+/// ranged `data`, `size`) and the directory lookups give what the base stack
+/// gives, unchanged. The frontmatter is not a concept at this layer.
 ///
 /// ## Variables
 ///
@@ -162,6 +162,20 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   ///   that fails to render is not in the view.
   public func tree(_ subdirectory: String? = nil) -> [String: Located<String>] {
     base.tree(subdirectory).compactMapValues(rendered)
+  }
+
+  /// The recursive combined view of `subdirectory` as URLs, as the base
+  /// stack gives it.
+  ///
+  /// This stack makes its item from text, thus it does not filter this view:
+  /// it holds every file of the base stack, and a file that fails to render
+  /// stays in it.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, or
+  ///   `nil` for the layer root itself.
+  /// - Returns: What `DotfolderStack.urls(_:)` gives.
+  public func urls(_ subdirectory: String? = nil) -> [String: Located<URL>] {
+    base.urls(subdirectory)
   }
 
   /// The immediate child directories of `subdirectory`, as the base stack

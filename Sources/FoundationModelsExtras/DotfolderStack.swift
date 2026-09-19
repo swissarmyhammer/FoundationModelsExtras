@@ -292,7 +292,7 @@ public struct DotfolderStack: Sendable {
     return Dictionary(uniqueKeysWithValues: entries)
   }
 
-  /// The combined view of the directory trees of all the layers.
+  /// The combined view of the directory trees of all the layers, as texts.
   ///
   /// The unit of override is the file. For each file path relative to
   /// `subdirectory`, the copy in the highest layer that holds that path
@@ -300,6 +300,10 @@ public struct DotfolderStack: Sendable {
   /// file that only a lower layer holds stays in the view when a higher
   /// layer holds other files of the same directory. The view is computed
   /// at the time of the call; the stack holds no cache.
+  ///
+  /// This view holds the text files only: the stack reads each winning
+  /// file, and a file whose content is not UTF-8 text is not in the view.
+  /// `urls(_:)` holds every file.
   ///
   /// - Parameter subdirectory: A directory relative to a layer's root, e.g.
   ///   `"review"`. `nil` means the layer root itself. Rejected (returns an
@@ -312,13 +316,31 @@ public struct DotfolderStack: Sendable {
   ///   outside its layer root adds nothing. A winning file whose content is
   ///   not UTF-8 text is not in the view.
   public func tree(_ subdirectory: String? = nil) -> [String: Located<String>] {
-    guard let directories = layerDirectoryURLs(subdirectory) else { return [:] }
-    let entries = directories.flatMap { layer, directoryURL in
-      Self.filePaths(under: directoryURL, in: layer).map { relativePath -> (String, Copy) in
-        (relativePath, (layer, directoryURL.appendingPathComponent(relativePath)))
-      }
+    Self.winningTexts(of: winningCopies(in: subdirectory))
+  }
+
+  /// The combined view of the directory trees of all the layers, as URLs.
+  ///
+  /// This view makes the same walk as `tree(_:)` and applies the same
+  /// override rule, but it holds every file: the stack opens no file to make
+  /// it, thus a file whose bytes are not UTF-8 text, for example an image
+  /// under `assets/` or a compiled helper under `scripts/`, is in it. A
+  /// consumer that lists the files of a directory tree uses this view, and
+  /// reads the bytes it needs with `data(_:)`.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, e.g.
+  ///   `"review"`. `nil` means the layer root itself. Rejected (returns an
+  ///   empty dictionary) under the same rules `tree(_:)` applies.
+  /// - Returns: A dictionary from the file path relative to `subdirectory`,
+  ///   at every depth, to the URL of the winning copy and the layer that
+  ///   holds it. The URL is both the `url` and the `value` of each entry. A
+  ///   layer root that does not exist or that cannot be read adds nothing. A
+  ///   file that resolves through a symbolic link to a location outside its
+  ///   layer root adds nothing.
+  public func urls(_ subdirectory: String? = nil) -> [String: Located<URL>] {
+    winningCopies(in: subdirectory).mapValues { copy in
+      Located(url: copy.url, layer: copy.layer, value: copy.url)
     }
-    return Self.winningTexts(of: entries)
   }
 
   /// The winning copy of `relativePath`, with the layer that gave it and
@@ -493,19 +515,41 @@ public struct DotfolderStack: Sendable {
     }
   }
 
-  /// The text of the winning copy of each key in `entries`.
+  /// The winning copy of each file in the union of the layers under
+  /// `subdirectory`.
   ///
-  /// `tree` collects one `(key, copy)` entry per layer, lowest precedence
-  /// first, and routes through this helper, which applies the override
-  /// rule: the last copy of a key wins, and a winning copy that is not
-  /// UTF-8 text is left out.
+  /// The two tree views (`tree`, `urls`) route through this helper, so each
+  /// of them makes the same walk and applies the same override rule. The
+  /// walk is `layerDirectoryURLs` and then `filePaths(under:in:)`, lowest
+  /// precedence first; one `(path, copy)` entry is collected for each file
+  /// of each layer, and the last copy of a path wins. No file is opened.
   ///
-  /// - Parameter entries: The copies of each key, lowest precedence first.
-  /// - Returns: A dictionary from the key to the located text of its
+  /// - Parameter subdirectory: A directory relative to a layer's root, or
+  ///   `nil` for the layer root itself.
+  /// - Returns: A dictionary from the file path relative to `subdirectory`
+  ///   to its winning copy, or an empty dictionary when `subdirectory` is
+  ///   not safe to join onto a layer root.
+  private func winningCopies(in subdirectory: String?) -> [String: Copy] {
+    guard let directories = layerDirectoryURLs(subdirectory) else { return [:] }
+    let entries = directories.flatMap { layer, directoryURL in
+      Self.filePaths(under: directoryURL, in: layer).map { relativePath -> (String, Copy) in
+        (relativePath, (layer, directoryURL.appendingPathComponent(relativePath)))
+      }
+    }
+    return Dictionary(entries, uniquingKeysWith: { _, higher in higher })
+  }
+
+  /// The text of each winning copy in `copies`.
+  ///
+  /// `tree` routes through this helper, which applies the UTF-8 rule of the
+  /// text view alone: a winning copy that is not UTF-8 text is left out.
+  ///
+  /// - Parameter copies: The winning copy of each file, as
+  ///   `winningCopies(in:)` gives it.
+  /// - Returns: A dictionary from the file path to the located text of its
   ///   winning copy.
-  private static func winningTexts(of entries: [(String, Copy)]) -> [String: Located<String>] {
-    Dictionary(entries, uniquingKeysWith: { _, higher in higher })
-      .compactMapValues(locatedText)
+  private static func winningTexts(of copies: [String: Copy]) -> [String: Located<String>] {
+    copies.compactMapValues(locatedText)
   }
 
   /// Opens the winning copy of `relativePath` for reading, runs `body` on
@@ -532,9 +576,9 @@ public struct DotfolderStack: Sendable {
   /// The directory that `subdirectory` names under each layer root, lowest
   /// precedence first.
   ///
-  /// The view functions (`tree`, `childDirectories`, `layerDirectories`)
-  /// route through this helper, so each of them applies the same
-  /// `isSafeRelativePath` check and the same meaning of `nil`.
+  /// The view functions (`tree`, `urls`, `childDirectories`,
+  /// `layerDirectories`) route through this helper, so each of them applies
+  /// the same `isSafeRelativePath` check and the same meaning of `nil`.
   ///
   /// - Parameter subdirectory: A directory relative to a layer's root, or
   ///   `nil` for the layer root itself.

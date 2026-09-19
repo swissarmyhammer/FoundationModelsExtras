@@ -22,6 +22,10 @@ import Testing
     /// the project layer.
     let projectDirectory: URL
 
+    /// Bytes that are not valid UTF-8: `0xFF` and `0xFE` never occur in a
+    /// UTF-8 sequence.
+    static let binaryBytes = Data([0xFF, 0xFE, 0x00, 0x01, 0x02, 0x03])
+
     init() {
       let uncanonicalRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("DotfolderStackTests-\(UUID().uuidString)", isDirectory: true)
@@ -614,6 +618,16 @@ import Testing
 
     for path in Self.unsafePaths {
       #expect(stack.tree(path).isEmpty, "tree(\(path))")
+    }
+  }
+
+  @Test func urlsRejectsUnsafePaths() {
+    let fixture = Fixture()
+    fixture.write("# escaped", to: "escaped/help.md", in: fixture.root)
+    let stack = fixture.makeStack()
+
+    for path in Self.unsafePaths {
+      #expect(stack.urls(path).isEmpty, "urls(\(path))")
     }
   }
 

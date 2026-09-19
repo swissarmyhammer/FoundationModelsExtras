@@ -23,9 +23,9 @@ import Foundation
 /// frontmatter, `nil` when the file holds no frontmatter block or the decode
 /// failed; `content` is the text after the closing fence, byte for byte, or
 /// the full text when there is no frontmatter block. Each text lookup gives
-/// a document: `item(at:)`, `items(in:named:)` and `tree(_:)`. The byte
-/// lookups (`data`, the ranged `data`, `size`) and the directory lookups
-/// give what the base stack gives, unchanged.
+/// a document: `item(at:)`, `items(in:named:)` and `tree(_:)`. The URL view
+/// (`urls`), the byte lookups (`data`, the ranged `data`, `size`) and the
+/// directory lookups give what the base stack gives, unchanged.
 ///
 /// ## The split and the decode
 ///
@@ -146,6 +146,20 @@ where Base.Item == String {
   /// - Returns: The view of the base stack with each text split.
   public func tree(_ subdirectory: String? = nil) -> [String: Located<Item>] {
     base.tree(subdirectory).mapValues(document)
+  }
+
+  /// The recursive combined view of `subdirectory` as URLs, as the base
+  /// stack gives it.
+  ///
+  /// This stack makes its item from text, thus it does not filter this view:
+  /// it holds every file of the base stack, whether or not `tree(_:)` gives
+  /// a document for it.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, or
+  ///   `nil` for the layer root itself.
+  /// - Returns: What the base stack's `urls(_:)` gives.
+  public func urls(_ subdirectory: String? = nil) -> [String: Located<URL>] {
+    base.urls(subdirectory)
   }
 
   /// The immediate child directories of `subdirectory`, as the base stack

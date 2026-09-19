@@ -50,8 +50,31 @@ comments:
     - evidence: swift build --build-tests — 0 errors, 0 warnings; swift test — 367 tests in 30 suites passed, 0 failed, 0 skipped
     - next: send to review
   timestamp: 2026-09-19T21:29:30.373959+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2xs8k3hqx92e5bc3gyy4mz7
+  text: |-
+    ### commit — changed
+    - evidence: a92483b fix(marketplace): keep the file:// URL the same when the folder is gone
+    - next: run /review on the task.
+  timestamp: 2026-09-19T21:30:53.425053+00:00
+- actor: claude-code
+  id: 01m2xscayk4g1dtgy12fq3w2fz
+  text: |-
+    ### review — clean
+    - evidence: 0 findings (review sha HEAD~1..HEAD, commit a92483b; 3 files reviewed, 4 .kanban files skipped by .reviewignore)
+    - next: none. The task is in done.
+  timestamp: 2026-09-19T21:32:56.147888+00:00
+- actor: claude-code
+  id: 01m2xsctvzzctdpzeq97p2mvmx
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 367 passed in 30 suites, 0 failed, 0 skipped
+    - commit: a92483b
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T21:33:12.447193+00:00
+position_column: done
+position_ordinal: af80
 title: 'MarketplaceLocation: the normalized URL of a file:// git source changes when its folder is gone'
 ---
 ## What

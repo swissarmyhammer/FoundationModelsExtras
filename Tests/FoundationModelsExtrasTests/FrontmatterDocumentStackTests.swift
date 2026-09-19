@@ -281,6 +281,7 @@ import Testing
       documents.items(in: nil, named: "SKILL.md").mapValues(\.url)
         == stack.items(in: nil, named: "SKILL.md").mapValues(\.url))
     #expect(documents.tree("review").mapValues(\.url) == stack.tree("review").mapValues(\.url))
+    #expect(documents.urls("review").mapValues(\.value) == stack.urls("review").mapValues(\.value))
     #expect(
       documents.childDirectories(of: "review").mapValues { $0.map(\.source) }
         == stack.childDirectories(of: "review").mapValues { $0.map(\.source) })
@@ -294,6 +295,18 @@ import Testing
     #expect(documents.size(of: "review/SKILL.md") == stack.size(of: "review/SKILL.md"))
     #expect(documents.exists("review/SKILL.md") == stack.exists("review/SKILL.md"))
     #expect(documents.exists("review/missing.md") == stack.exists("review/missing.md"))
+  }
+
+  @Test func urlsGivesAFileThatIsNotTextAsTheBaseStackGives() {
+    let fixture = Fixture()
+    fixture.write(Fixture.binaryBytes, to: "assets/logo.png", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+    let documents = Self.makeRawStack(over: stack)
+
+    #expect(
+      documents.urls()["assets/logo.png"]?.value
+        == fixture.projectDirectory.appendingPathComponent("assets/logo.png"))
+    #expect(documents.tree()["assets/logo.png"] == nil)
   }
 
   @Test func theByteLookupsGiveTheBytesOfTheWholeFileNotTheContent() {

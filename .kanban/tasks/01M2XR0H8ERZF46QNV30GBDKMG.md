@@ -1,6 +1,50 @@
 ---
-position_column: todo
-position_ordinal: '8780'
+comments:
+- actor: claude-code
+  id: 01m2xsj74050v2xkj79fec4k6j
+  text: |-
+    Research done.
+
+    - `tree(_:)` in `DotfolderStack.swift` makes the walk: `layerDirectoryURLs(_:)` gives one directory for each layer, `filePaths(under:in:)` gives the confined file paths, and `winningTexts(of:)` applies the override rule (`uniquingKeysWith { _, higher in higher }`) and then the UTF-8 rule (`locatedText`).
+    - The plan: a private `winningCopies(in:)` makes the walk and applies the override rule. `urls(_:)` maps each copy to `Located<URL>`. `tree(_:)` routes the same copies through `winningTexts(of:)`, which keeps the UTF-8 rule alone.
+    - `DotfolderStacking` has three conformers in this package: `DotfolderStack`, `FrontmatterDocumentStack`, `StenciledDotfolderStack`. No test fake conforms to it, thus the new requirement breaks no fake.
+    - The two layered stacks forward `urls(_:)` to `base`, the same as `data(_:)`, `size(of:)` and `exists(_:)`.
+    - Review rules read: the Swift prompt rules (access control, casing, doc parameter naming, idioms, immutability, optionals, preconditions), the duplication, reuse, completeness and test-integrity rules in full, and the head of each Swift tool rule (dead code, disallowed constructs, function length, idioms, magic numbers, missing docs). The rules for Dart, Go, Python, Rust and TypeScript do not apply to Swift files and were not read.
+    - No `ARCHITECTURE.md` exists at the package root.
+  timestamp: 2026-09-19T21:36:08.832574+00:00
+- actor: claude-code
+  id: 01m2xsy6ckwavgrp95bz80p3tt
+  text: |-
+    Implementation landed, with TDD (RED: `value of type 'DotfolderStack' has no member 'urls'` in the test build; GREEN: 113 tests in the four stack suites, then 375 tests in 30 suites with `swift test`).
+
+    Decisions:
+
+    - `winningCopies(in:)` is a new private helper on `DotfolderStack`. It makes the walk (`layerDirectoryURLs`, `filePaths(under:in:)`) and applies the override rule (`uniquingKeysWith { _, higher in higher }`), and it opens no file. `tree(_:)` and `urls(_:)` both route through it.
+    - `winningTexts(of:)` now takes the `[String: Copy]` dictionary that `winningCopies(in:)` gives, and applies the UTF-8 rule alone (`compactMapValues(locatedText)`), as the card asks. `tree(_:)` is its one caller.
+    - `urls(_:)` gives `Located<URL>` with the URL as both `url` and `value`. This is the shape the card names, and it keeps `Located` as the one result type of the interface.
+    - The protocol gains `urls(_:)` beside `tree(_:)`. The doc of `tree(_:)` on the protocol and on `DotfolderStack` says it holds the text files only; the doc of `urls(_:)` says it holds every file and opens no file.
+    - `FrontmatterDocumentStack.urls(_:)` and `StenciledDotfolderStack.urls(_:)` forward to `base.urls(subdirectory)`, the same as `data`, `size(of:)` and `exists`. The type docs of both list the URL view with the byte lookups as unchanged pass-throughs.
+    - Tests: the "opens no file" criterion is proved with a file whose POSIX permissions are `0`: `urls()` holds it, `tree()` and `data(_:)` do not. The test would not hold as root, because root can read such a file; the CI runner is not root.
+    - `binaryBytes` moved from a private constant of `DotfolderStackingTests` to `DotfolderStackTests.Fixture.binaryBytes`, because `FrontmatterDocumentStackTests` now needs the same bytes. One definition, three consumers.
+    - The `StenciledDotfolderStack` test uses a file that fails to render, not a binary file: that is the one case where the stenciled `tree(_:)` drops an entry, and it proves that `urls(_:)` keeps it.
+    - `swift format lint --strict` on the eight changed files gives no finding. No `.swift-format` file exists in the package, thus the toolchain defaults apply.
+  timestamp: 2026-09-19T21:42:41.299052+00:00
+- actor: claude-code
+  id: 01m2xsza7vtdges6n9bbcyt2jf
+  text: |-
+    ### implement — changed
+    - evidence: 8 files — Sources/FoundationModelsExtras/DotfolderStack.swift, Sources/FoundationModelsExtras/DotfolderStacking.swift, Sources/FoundationModelsExtras/FrontmatterDocumentStack.swift, Sources/FoundationModelsExtras/StenciledDotfolderStack.swift, Tests/FoundationModelsExtrasTests/DotfolderStackTests.swift, Tests/FoundationModelsExtrasTests/DotfolderStackingTests.swift, Tests/FoundationModelsExtrasTests/FrontmatterDocumentStackTests.swift, Tests/FoundationModelsExtrasTests/StenciledDotfolderStackTests.swift. `swift build --build-tests` 0 warnings; `swift test` 375 tests in 30 suites passed, 0 failures, 0 skipped; `swift format lint --strict` on the 8 files gives no finding.
+    - next: `/review`. Not committed, not pushed, as the caller asked.
+  timestamp: 2026-09-19T21:43:18.011745+00:00
+- actor: claude-code
+  id: 01m2xt5eae14deevxrp7jyndmx
+  text: |-
+    ### test — green
+    - evidence: `swift build --build-tests` — 0 warnings; `swift test` — 375 tests, 30 suites, 0 failed, 0 skipped
+    - next: ready for review
+  timestamp: 2026-09-19T21:46:38.798249+00:00
+position_column: doing
+position_ordinal: '80'
 title: Give the dotfolder stack a view of the winning URLs, with no text read
 ---
 ## What
@@ -46,20 +90,20 @@ func urls(_ subdirectory: String? = nil) -> [String: Located<URL>]
 
 ## Acceptance Criteria
 
-- [ ] `urls(_:)` gives each file of the union of the layers, at every depth,
+- [x] `urls(_:)` gives each file of the union of the layers, at every depth,
       whether or not its bytes are UTF-8 text.
-- [ ] `urls(_:)` applies the same override rule as `tree(_:)`: the copy of the
+- [x] `urls(_:)` applies the same override rule as `tree(_:)`: the copy of the
       highest layer that holds a path wins, and a directory is never replaced.
-- [ ] `urls(_:)` refuses the same unsafe subdirectory paths as `tree(_:)`, and
+- [x] `urls(_:)` refuses the same unsafe subdirectory paths as `tree(_:)`, and
       it drops a file that resolves through a symbolic link to a location
       outside its layer root.
-- [ ] `urls(_:)` opens no file.
-- [ ] `FrontmatterDocumentStack.urls(_:)` and `StenciledDotfolderStack.urls(_:)`
+- [x] `urls(_:)` opens no file.
+- [x] `FrontmatterDocumentStack.urls(_:)` and `StenciledDotfolderStack.urls(_:)`
       give what the base stack gives.
-- [ ] Tests: a file of bytes that are not UTF-8 is in `urls(_:)` and is not in
+- [x] Tests: a file of bytes that are not UTF-8 is in `urls(_:)` and is not in
       `tree(_:)`; a lower layer only holds a path and that path is in
       `urls(_:)`; a higher layer wins a shared path.
-- [ ] `swift build --build-tests` gives 0 warnings, and `swift test` is green.
+- [x] `swift build --build-tests` gives 0 warnings, and `swift test` is green.
 
 ## Who needs this
 

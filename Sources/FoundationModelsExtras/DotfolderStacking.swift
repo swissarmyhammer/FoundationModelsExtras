@@ -111,13 +111,31 @@ public protocol DotfolderStacking: Sendable {
   ///   hold `fileName` is not in the result.
   func items(in subdirectory: String?, named fileName: String) -> [String: Located<Item>]
 
-  /// The recursive combined view of `subdirectory`.
+  /// The recursive combined view of `subdirectory`, as items.
+  ///
+  /// This view holds the files the stack can make an item from. A file the
+  /// stack cannot make an item from, for example one whose bytes are not
+  /// UTF-8 text, is not in it. `urls(_:)` holds every file.
   ///
   /// - Parameter subdirectory: A directory relative to a layer's root, or
   ///   `nil` for the layer root itself.
   /// - Returns: A dictionary from the file path relative to `subdirectory`,
   ///   at every depth, to the winning copy and the layer that holds it.
   func tree(_ subdirectory: String?) -> [String: Located<Item>]
+
+  /// The recursive combined view of `subdirectory`, as URLs.
+  ///
+  /// This view applies the same override rule as `tree(_:)`, and it holds
+  /// every file: the stack reads no file to make it, thus a file whose bytes
+  /// are not text is in it. A consumer that lists the files of a directory
+  /// tree uses this view, and reads the bytes it needs with `data(_:)`.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, or
+  ///   `nil` for the layer root itself.
+  /// - Returns: A dictionary from the file path relative to `subdirectory`,
+  ///   at every depth, to the URL of the winning copy and the layer that
+  ///   holds it.
+  func urls(_ subdirectory: String?) -> [String: Located<URL>]
 
   /// The immediate child directories of `subdirectory` in the union of all
   /// the layers, with the layers that hold each one.

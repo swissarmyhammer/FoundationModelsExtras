@@ -5,22 +5,22 @@ import Testing
 
 /// Behavioral tests for the `DotfolderStacking` interface as `DotfolderStack`
 /// implements it: the generic `Located<Item>` result, `item(at:)`,
-/// `items(in:named:)`, the byte lookups (`data`, the ranged `data`, `size`,
-/// `exists`), and the symbolic-link confinement that each lookup applies.
-/// Every test builds its own throwaway three-layer tree through
-/// `DotfolderStackTests.Fixture`, so nothing touches the real home directory.
+/// `items(in:named:)`, the URL view `urls(_:)`, the byte lookups (`data`, the
+/// ranged `data`, `size`, `exists`), and the symbolic-link confinement that
+/// each lookup applies. Every test builds its own throwaway three-layer tree
+/// through `DotfolderStackTests.Fixture`, so nothing touches the real home
+/// directory.
 @Suite struct DotfolderStackingTests {
   typealias Fixture = DotfolderStackTests.Fixture
 
-  /// Bytes that are not valid UTF-8: `0xFF` and `0xFE` never occur in a
-  /// UTF-8 sequence.
-  private static let binaryBytes = Data([0xFF, 0xFE, 0x00, 0x01, 0x02, 0x03])
-
-  /// A range that lies inside `binaryBytes`.
+  /// A range that lies inside `Fixture.binaryBytes`.
   private static let innerRange = 2..<5
 
-  /// A range that starts inside `binaryBytes` and ends past its end.
+  /// A range that starts inside `Fixture.binaryBytes` and ends past its end.
   private static let rangePastTheEnd = 4..<100
+
+  /// The POSIX permissions of a file that no one can open.
+  private static let unreadablePermissions = 0
 
   /// The text of the winning copy of `relativePath`, read through the
   /// interface and not through the concrete type. It compiles only when
@@ -99,13 +99,76 @@ import Testing
     #expect(view["references/rules.md"]?.value == "defaults rules")
   }
 
+  @Test func urlsGivesTheSameWinningFilesAsTreeWhenEveryFileIsText() {
+    let fixture = Fixture()
+    fixture.writeReviewTree()
+    let stack = fixture.makeStack()
+
+    let view = stack.urls("review")
+    let texts = stack.tree("review")
+
+    #expect(view.mapValues(\.value) == texts.mapValues(\.url))
+    #expect(view.mapValues(\.layer.source) == texts.mapValues(\.layer.source))
+    #expect(view.allSatisfy { $0.value.url == $0.value.value })
+  }
+
+  @Test func urlsGivesTheCopyOfTheHighestLayerThatHoldsAPath() {
+    let fixture = Fixture()
+    fixture.write("defaults skill", to: "review/SKILL.md", in: fixture.defaultsDirectory)
+    fixture.write("project skill", to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+
+    let located = stack.urls("review")["SKILL.md"]
+
+    #expect(located?.layer.source == .project)
+    #expect(located?.value == fixture.projectDirectory.appendingPathComponent("review/SKILL.md"))
+  }
+
+  @Test func urlsKeepsAFileOnlyALowerLayerHolds() {
+    let fixture = Fixture()
+    fixture.write("defaults report", to: "review/scripts/report.sh", in: fixture.defaultsDirectory)
+    fixture.write("project lint", to: "review/scripts/lint.sh", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+
+    let located = stack.urls("review")["scripts/report.sh"]
+
+    #expect(located?.layer.source == .defaults)
+    #expect(
+      located?.value
+        == fixture.defaultsDirectory.appendingPathComponent("review/scripts/report.sh"))
+  }
+
+  @Test func urlsGivesAFileWhoseBytesAreNotUTF8ThatTreeLeavesOut() {
+    let fixture = Fixture()
+    fixture.write(Fixture.binaryBytes, to: "assets/logo.png", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+
+    #expect(
+      stack.urls()["assets/logo.png"]?.value
+        == fixture.projectDirectory.appendingPathComponent("assets/logo.png"))
+    #expect(stack.tree()["assets/logo.png"] == nil)
+  }
+
+  @Test func urlsGivesAFileThatCannotBeOpened() throws {
+    let fixture = Fixture()
+    fixture.write("locked", to: "locked.txt", in: fixture.projectDirectory)
+    let lockedURL = fixture.projectDirectory.appendingPathComponent("locked.txt")
+    try FileManager.default.setAttributes(
+      [.posixPermissions: Self.unreadablePermissions], ofItemAtPath: lockedURL.path)
+    let stack = fixture.makeStack()
+
+    #expect(stack.urls()["locked.txt"]?.value == lockedURL)
+    #expect(stack.tree()["locked.txt"] == nil)
+    #expect(stack.data("locked.txt") == nil)
+  }
+
   @Test func aFileThatIsNotValidUTF8GivesNilFromItemAtAndItsBytesFromData() {
     let fixture = Fixture()
-    fixture.write(Self.binaryBytes, to: "assets/logo.bin", in: fixture.projectDirectory)
+    fixture.write(Fixture.binaryBytes, to: "assets/logo.bin", in: fixture.projectDirectory)
     let stack = fixture.makeStack()
 
     #expect(stack.item(at: "assets/logo.bin") == nil)
-    #expect(stack.data("assets/logo.bin") == Self.binaryBytes)
+    #expect(stack.data("assets/logo.bin") == Fixture.binaryBytes)
   }
 
   @Test func dataGivesTheBytesOfTheHighestCopy() {
@@ -119,23 +182,23 @@ import Testing
 
   @Test func rangedDataGivesTheSameBytesAsTheFullReadForThatRange() {
     let fixture = Fixture()
-    fixture.write(Self.binaryBytes, to: "assets/logo.bin", in: fixture.userDirectory)
+    fixture.write(Fixture.binaryBytes, to: "assets/logo.bin", in: fixture.userDirectory)
     let stack = fixture.makeStack()
 
     let part = stack.data("assets/logo.bin", in: Self.innerRange)
 
     #expect(part == stack.data("assets/logo.bin")?.subdata(in: Self.innerRange))
-    #expect(part == Self.binaryBytes.subdata(in: Self.innerRange))
+    #expect(part == Fixture.binaryBytes.subdata(in: Self.innerRange))
   }
 
   @Test func rangedDataStopsAtTheEndOfTheFile() {
     let fixture = Fixture()
-    fixture.write(Self.binaryBytes, to: "assets/logo.bin", in: fixture.userDirectory)
+    fixture.write(Fixture.binaryBytes, to: "assets/logo.bin", in: fixture.userDirectory)
     let stack = fixture.makeStack()
 
     let tail = stack.data("assets/logo.bin", in: Self.rangePastTheEnd)
 
-    #expect(tail == Self.binaryBytes.dropFirst(Self.rangePastTheEnd.lowerBound))
+    #expect(tail == Fixture.binaryBytes.dropFirst(Self.rangePastTheEnd.lowerBound))
   }
 
   @Test func sizeOfGivesTheSizeOfTheHighestCopy() {
@@ -196,6 +259,7 @@ import Testing
     #expect(stack.content("leak.txt") == nil)
     #expect(stack.locate("leak.txt").isEmpty)
     #expect(stack.tree()["leak.txt"] == nil)
+    #expect(stack.urls()["leak.txt"] == nil)
   }
 
   @Test func aSymbolicLinkToADirectoryOutsideTheLayerRootIsNotInTheView() {
@@ -206,6 +270,7 @@ import Testing
     let stack = fixture.makeStack()
 
     #expect(stack.tree()["escaped/secret.txt"] == nil)
+    #expect(stack.urls()["escaped/secret.txt"] == nil)
     #expect(stack.childDirectories()["escaped"] == nil)
     #expect(stack.layerDirectories("escaped").isEmpty)
     #expect(stack.items(in: nil, named: "secret.txt").isEmpty)
