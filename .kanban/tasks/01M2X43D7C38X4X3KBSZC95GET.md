@@ -1,6 +1,15 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m2x53wtnqypp7wwd6cz8fpmz
+  text: |-
+    ### finish — skipped
+    - reason: the work is in the FoundationModelsSkills repository, not in this tree. The finish loop works in the current tree only.
+    - reason: Skills gets FoundationModelsExtras as a remote dependency on the `main` branch (`Package.swift` line 85). The stack API from ^qpfymzm (commits 41f7890, bd5c277, 922d0cd) is local and not pushed, thus Skills cannot build against it yet.
+    - next: push the Extras `main` branch, then run `/finish ^zc95get` from the Skills repository.
+  timestamp: 2026-09-19T15:38:48.021197+00:00
 depends_on:
 - 01M2X30BQKPD2MKA5EJQPFYMZM
 position_column: todo

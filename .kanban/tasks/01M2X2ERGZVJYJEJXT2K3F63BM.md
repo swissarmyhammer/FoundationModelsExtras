@@ -26,10 +26,33 @@ comments:
     - evidence: `swift package clean && swift build --build-tests` gives 0 warnings. `swift test` gives 302 tests in 26 suites, 0 failed, 0 skipped.
     - next: send the task to review.
   timestamp: 2026-09-19T15:35:03.321592+00:00
+- actor: claude-code
+  id: 01m2x4zkab0zwkdmpt8m5ph2wt
+  text: |-
+    ### commit — changed
+    - evidence: 922d0cd refactor(dotfolder-stack): put enumerate on the tree view
+    - next: send the task for review.
+  timestamp: 2026-09-19T15:36:27.211522+00:00
+- actor: claude-code
+  id: 01m2x52jxc7rvy3abxx621z41h
+  text: |-
+    ### review — clean
+    - evidence: 0 findings. Scope `review sha HEAD~1..HEAD` (commit 922d0cd). 2 files reviewed, 7 validator runs, 0 confirmed, 0 refuted. Not reviewed: 4 files in `.kanban/` (ignore rule), `CHANGELOG.md` (no validator matches).
+    - next: none. The task moved from `review` to `done`.
+  timestamp: 2026-09-19T15:38:05.100017+00:00
+- actor: claude-code
+  id: 01m2x52xmkqgg3az57zbvjw7qe
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 302 passed, 0 failed, 0 skipped
+    - commit: 922d0cd
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T15:38:16.083649+00:00
 depends_on:
 - 01M2X2EMGFB08X9F0XV40N54DH
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: a580
 title: Put enumerate on the combined view, and correct the DotfolderStack documents
 ---
 ## What

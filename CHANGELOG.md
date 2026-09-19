@@ -5,6 +5,35 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `ProcessRunner`, the family's process runner
+
+`ProcessRunner.run(executable:arguments:workingDirectory:timeout:outputCap:registry:)`
+runs one executable directly, with no shell, in its own process group. It
+merges stdout and stderr into one bounded tail, kills the whole group with
+`SIGKILL` at the timeout, and holds the pid in a `ProcessRegistry` from the
+spawn to the reap. The `registry` parameter defaults to
+`ProcessRegistry.global`, so the `atexit` sweep is the backstop for a run
+that a normal exit of the host cuts short.
+
+**Cause.** `FoundationModelsSkills` carried a runner of its own, with no
+link to `ProcessRegistry`: a session that ended while a script ran left the
+process group behind. The runner is not skill semantics. It belongs beside
+the registry, so each consumer of the family gets the same limits and the
+same backstop.
+
+**What changed.**
+
+- `ProcessRunner.OutputCap` names the two limits of the kept output: the
+  count of complete lines, and the most bytes the run holds at one time.
+  The read cuts at the byte limit while it runs, so a process that writes
+  without end does not grow the memory of the caller.
+- `ProcessRunner.Outcome` names what happened: `termination` is
+  `.exited(code:)`, `.signaled(_:)`, or `.timedOut`; `lineCount` is the
+  count of all the lines the process wrote; `output` is the kept tail; and
+  `isTruncated` marks a cut. `duration` is the wall-clock time of the run.
+- `ProcessRunner.Failure` is thrown when the spawn did not reach exec
+  (`.spawnFailed(status:)`), or when the reap failed (`.waitFailed(errno:)`).
+
 ### Added: `DotfolderStack` is directory-shaped, and `DotfolderStacking` is its interface
 
 This change breaks the source of a consumer that names the type
