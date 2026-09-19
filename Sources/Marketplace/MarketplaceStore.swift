@@ -1392,7 +1392,8 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
 /// not prepare.
 ///
 /// The work runs before `self` is whole, thus it lives outside the actor.
-private struct Preparation {
+/// The store reads it, thus it is `fileprivate` and not `private`.
+fileprivate struct Preparation {
   /// The sources that the store serves, in list order.
   var sources: [MarketplaceStore.PreparedSource] = []
 

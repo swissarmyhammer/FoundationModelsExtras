@@ -73,6 +73,55 @@ comments:
     - evidence: swift build --build-tests — build complete, 0 warnings; swift test — 367 tests in 30 suites passed, 0 failed, 0 skipped
     - next: send the work to review.
   timestamp: 2026-09-19T20:59:24.882610+00:00
+- actor: claude-code
+  id: 01m2xqg09vcxb0rv43xt445sc7
+  text: |-
+    ### commit — changed
+    - evidence: 3a2dcdb feat(marketplace): move the store, the events, the status, and the layer provider protocol
+    - next: run the review step
+  timestamp: 2026-09-19T20:59:59.163516+00:00
+- actor: claude-code
+  id: 01m2xqxzed1y774j4gtnhx5cp9
+  text: |-
+    ### review — findings
+    - evidence: 1 finding — Sources/Marketplace/MarketplaceStore.swift:1395 (swift/access-control: `Preparation` is `private`, but `MarketplaceStore` reads it at line 250; make it `fileprivate`)
+    - next: correct the finding, apply the same correction to each `private` type in the file that a sibling type reads, then run the review again on the new checkpoint
+  timestamp: 2026-09-19T21:07:37.037975+00:00
+- actor: claude-code
+  id: 01m2xqyg3njpccddk85a0vqs5e
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 20 files
+    - test: green — swift test, 921 passed in 6 bundles, 0 failed, 0 skipped
+    - commit: 3a2dcdb
+    - review: findings — Sources/Marketplace/MarketplaceStore.swift:1395 (swift/access-control: `Preparation` is `private` but a sibling type reads it; make it `fileprivate`)
+  timestamp: 2026-09-19T21:07:54.101132+00:00
+- actor: claude-code
+  id: 01m2xr950a28w2fcpry2tg4yrg
+  text: |-
+    Picked up again for the one open review finding (`swift/access-control` on `Preparation`). What was done and why:
+
+    - `Sources/Marketplace/MarketplaceStore.swift`: `private struct Preparation` is now `fileprivate struct Preparation`, and its doc comment gets the sentence of the file convention (the one on `localSkillsFolderName`): "The store reads it, thus it is `fileprivate` and not `private`."
+    - The whole file was checked for the same cause. The file has two top-level declarations: `public actor MarketplaceStore` and `Preparation`. The six other `private` types (`ServedMarketplace`, `PinOverride`, `PassKind`, `PassResult`, `InFlightPass`, `Materialized`) are nested in the actor and only the actor's own members read them, thus `private` is correct for them and they stay. `GitRemote`, `PreparedKind` and `PreparedSource` were already `fileprivate`, because `Preparation` reads them.
+    - TDD framing: at file scope, Swift gives `private` and `fileprivate` the same reach, thus no behavior test can go RED on this change. It is a REFACTOR step, and the guard is that the existing suite stays green through it. No source-text lint test was added for one file.
+    - The default `swift format lint` configuration reports `[FileScopedDeclarationPrivacy] replace 'fileprivate' with 'private' on file-scoped declarations` on the changed line. That is not a conflict: the `idioms-swift` gate of the review keeps seven named rules and drops every other tag, and `FileScopedDeclarationPrivacy` is not one of the seven. The `swift/access-control` rule is the one the review enforces, and the change obeys it.
+    - Discovery outside this file: `CatalogResolver.swift` (`Diagnosed<Value>`, `CatalogReader`) and `SnapshotWriter.swift` (`SnapshotRun`) hold top-level `private struct` types with the same cause. The order bounds this pass to the file of the finding, thus they are a new task, not an edit here.
+    - No file in `FoundationModelsSkills` was touched.
+  timestamp: 2026-09-19T21:13:43.178031+00:00
+- actor: claude-code
+  id: 01m2xr9q8kbny6vb38brkyn56d
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Sources/Marketplace/MarketplaceStore.swift (`private struct Preparation` is now `fileprivate struct Preparation`, plus one doc sentence that says why). The finding in `## Review Findings (2026-09-19 16:00)` is checked. `swift build --build-tests` exit 0, 0 warnings; `swift test` 367 tests in 30 suites passed, 0 failed, 0 skipped. The `idioms-swift` allowlist has no `FileScopedDeclarationPrivacy`, thus the default `swift format lint` line on it is not a review finding. New task ^j03dz5j records the same cause in CatalogResolver.swift and SnapshotWriter.swift. No change in FoundationModelsSkills. Not committed.
+    - next: `/review` on the working tree moves the card into review. The finish loop commits; the user pushes `main`.
+  timestamp: 2026-09-19T21:14:01.875475+00:00
+- actor: claude-code
+  id: 01m2xrek7hb7519sw379a9fp12
+  text: |-
+    ### test — green
+    - evidence: swift build --build-tests (0 warnings, 0 errors); swift test — 367 tests in 30 suites, 0 failures, 0 skipped
+    - next: ready for review
+  timestamp: 2026-09-19T21:16:41.585534+00:00
 depends_on:
 - 01M2XDHMCZ9SDZ8F4EPNQDCD57
 position_column: doing
@@ -117,3 +166,12 @@ In the `Marketplace` target, move the actor that owns the marketplace state, and
 - Record each decision in a comment on this card. Do not ask the user about an implementation detail.
 
 #marketplace #cross-repo
+
+## Review Findings (2026-09-19 16:00)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 20 file(s) reviewed, 6 not reviewed.
+
+> 6 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 6 file(s)
+
+- [x] `Sources/Marketplace/MarketplaceStore.swift:1395` `swift/access-control` — `Preparation` is marked `private`, but it is accessed from `MarketplaceStore` (a different type in the same file) on line 250. The access level should be `fileprivate` to allow this sibling-type access. Change line 1395 from `private struct Preparation` to `fileprivate struct Preparation`.
