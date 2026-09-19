@@ -58,7 +58,7 @@ struct DocumentationTests {
     let lines = try FixtureFile.text(Self.changelogPath).get().components(separatedBy: "\n")
 
     let unreleased = try #require(lines.firstIndex(of: Self.unreleasedHeading))
-    let firstEntry = lines[unreleased...].first { $0.hasPrefix(Self.entryHeadingPrefix) }
+    let firstEntry = try #require(lines[unreleased...].first { $0.hasPrefix(Self.entryHeadingPrefix) })
 
     #expect(firstEntry == Self.changelogHeading)
   }

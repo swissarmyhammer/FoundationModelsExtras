@@ -53,6 +53,55 @@ comments:
     - evidence: swift build --build-tests — 0 errors, 0 warnings; swift test — 375 tests in 30 suites passed, 0 failed, 0 skipped
     - next: send the task to review.
   timestamp: 2026-09-19T22:05:48.138794+00:00
+- actor: claude-code
+  id: 01m2xva6kvh3b19jw9jkfv99ka
+  text: |-
+    ### commit — changed
+    - evidence: 7404f57 docs(marketplace): add the Marketplace pillar to README, plan.md, and CHANGELOG
+    - next: send the commit for review. The user pushes main.
+  timestamp: 2026-09-19T22:06:43.323094+00:00
+- actor: claude-code
+  id: 01m2xvjjkhwymsza3jz7t2nbf9
+  text: |-
+    ### review — findings
+    - evidence: 1 finding — Tests/MarketplaceTests/DocumentationTests.swift:61 (swift/optionals)
+    - next: Unwrap `firstEntry` with `try #require(...)` at the assignment in DocumentationTests.swift. Remove the same cause from the whole file. Then run `swift test` and start the review again with `HEAD~1..HEAD`.
+  timestamp: 2026-09-19T22:11:17.745095+00:00
+- actor: claude-code
+  id: 01m2xvk40hk1k7n451xwa6tyz3
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 6 files
+    - test: green — swift test, 375 passed in 30 suites, 0 failed, 0 skipped
+    - commit: 7404f57
+    - review: findings — Tests/MarketplaceTests/DocumentationTests.swift:61 (swift/optionals: unwrap `firstEntry` with `#require` at the assignment)
+  timestamp: 2026-09-19T22:11:35.569585+00:00
+- actor: claude-code
+  id: 01m2xvrvkp61ptwqf01r1dvhmn
+  text: |-
+    Picked up again for the one open review finding (`swift/optionals` in `Tests/MarketplaceTests/DocumentationTests.swift`).
+
+    Discoveries:
+    - The file holds three optionals. `section` and `unreleased` already unwrap with `try #require`. `firstEntry` was the one optional that an expectation compared directly. After the change, no optional in the file goes into an expectation.
+    - The rule `optionals.md` of the `swift` validator says: unwrap with an assertion in a test (`try #require(source)`), never with `guard` or with a trailing `if let`. The change obeys it.
+    - No production code changes. The test still proves the same thing, and it fails with a clear "required value is nil" message when no entry heading follows `## Unreleased`.
+    - No `ARCHITECTURE.md` exists in the package.
+    - No change in FoundationModelsSkills. No commit, no push, no worktree.
+  timestamp: 2026-09-19T22:14:43.574870+00:00
+- actor: claude-code
+  id: 01m2xvs4hb46qjkq654yce55gz
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/MarketplaceTests/DocumentationTests.swift. `firstEntry` now unwraps with `try #require(...)` at the assignment; the expectation compares the unwrapped string. No other optional in the file goes into an expectation. The finding is checked on the card. `swift test --filter DocumentationTests`: 4 tests in 1 suite passed. `swift build --build-tests`: exit 0, 0 `warning:` lines. `swift test`: 936 tests in 6 bundles passed (125 + 34 + 44 + 26 + 332 + 375), 0 failures, 0 skipped. Not committed, not pushed.
+    - next: `/review` with `HEAD~1..HEAD` plus the working tree. The finish loop commits; the user pushes `main`.
+  timestamp: 2026-09-19T22:14:52.715416+00:00
+- actor: claude-code
+  id: 01m2xvx013peb8mx5f2gn60tt0
+  text: |-
+    ### test — green
+    - evidence: `swift build --build-tests` — 0 warnings, build complete; `swift test` — 375 tests in 30 suites passed, 0 failed, 0 skipped
+    - next: hand off to review
+  timestamp: 2026-09-19T22:16:59.171698+00:00
 depends_on:
 - 01M2XDHRDADTN57M8EVQTWJZX9
 position_column: doing
@@ -88,3 +137,17 @@ Record the new `Marketplace` product in the three documents that describe the pa
 - Record each decision in a comment on this card. Do not ask the user about an implementation detail.
 
 #marketplace #docs
+
+## Review Findings (2026-09-19 17:07)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 3 file(s) reviewed, 7 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 3 file(s) not reviewed — no validator matched:
+> - `CHANGELOG.md` — no validator matches this file
+> - `README.md` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+- [x] `Tests/MarketplaceTests/DocumentationTests.swift:61` `swift/optionals` — The optional `firstEntry` should be unwrapped with `#require` at the assignment, not compared directly in an expectation. This gives a confusing failure message (nil ≠ expected string) if no line starts with the entry heading prefix, rather than the clear failure that an assertion unwrap would give. Change line 61 to unwrap the optional: `let firstEntry = try #require(lines[unreleased...].first { $0.hasPrefix(Self.entryHeadingPrefix) })`, then keep line 63's expectation as-is to compare the unwrapped string to the expected heading.
