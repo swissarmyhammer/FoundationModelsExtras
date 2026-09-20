@@ -180,6 +180,18 @@ fact of the old code, the name `SKILL.md`, became an input of
   `SKILLS_MARKETPLACE_AUTOUPDATE`. `SnapshotLimits` holds `maxBytes` and
   `maxFiles`. `MarketplaceCredential` holds `username` and `token`, and its
   description, its debug description and its mirror show no secret.
+- `MarketplaceListing` is one marketplace as a read-only list shows it:
+  `id`, `key`, `url`, `currentSha`, `catalogVersion`, `lastChecked`,
+  `isLocalFolder`, `holdsOneCommit` and `lastError`.
+  `MarketplaceStore.listings(of:cacheDirectory:)` gives one for each source,
+  in list order. It reads `state.json` of the cache, opens no connection and
+  needs no store, thus it is the whole read behind a list command. A source
+  whose URL is of no supported form gives a listing that carries the message
+  of the parser and no URL, thus a list shows every source and no
+  credential. `MarketplaceStore.cacheDirectoryVariable` and
+  `MarketplaceStore.seedDirectoryVariable` name the two environment
+  variables of the cache. The layout of the cache stays inside the product:
+  no public type names a folder of it or a file in it.
 - `MarketplaceConfig` is the `marketplaces.yaml` list of a stack:
   `load(from:includeProject:)` reads the user layer and the project layer,
   and `save(to:)` writes one file. A failure is a `MarketplaceConfigError`

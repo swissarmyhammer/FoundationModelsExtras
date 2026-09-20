@@ -133,8 +133,32 @@ comments:
     - evidence: `swift test` — 434 tests, 33 suites, 0 failed, 0 skipped. `swift package clean && swift build --build-tests` — 0 warnings. `swift test --filter 'FoundationModelsExtrasTests.DotfolderWatcherTests'` run 10 times — 20/20 tests passed each run (200 executions total, 0 failures), thus no flake found in the `DispatchSource` file-system-source path. Old symbol names `handleRawEvent` and `handleAncestorEvent(at:)` do not occur anywhere in the tree; only the new names `fileSystemEventDidOccur()` and `ancestorEventDidOccur(at:)` are present.
     - next: send the task to review.
   timestamp: 2026-09-20T18:21:58.850272+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m300xr1cf1b4fcbk365fp6me
+  text: |-
+    ### commit — changed
+    - evidence: 12257d2 refactor(dotfolder-watcher): name debounce constants and rename event methods
+    - next: Run the review step to confirm all four findings are cleared.
+  timestamp: 2026-09-20T18:23:15.500112+00:00
+- actor: claude-code
+  id: 01m3010jsc0n6s9vq6zk1z9p1z
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 12257d2). 7 validators attempted, 0 failed, 0 findings, 0 confirmed, 0 refuted. 1 file reviewed, 2 files not reviewed because an ignore rule holds them (`.kanban/`). No new file:line finding. The 4 findings of the round 2026-09-20 13:03 are all marked `- [x]`: DotfolderWatcher.swift `code-hygiene/magic-numbers-swift` x2, and DotfolderWatcher.swift `swift/fluent-usage` x2.
+    - next: The card moves to `done`. No open finding stays.
+  timestamp: 2026-09-20T18:24:48.428207+00:00
+- actor: claude-code
+  id: 01m3010yeg4anxa5nnbkhm93yz
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file, `Sources/FoundationModelsExtras/DotfolderWatcher.swift`. The 4 findings are corrected and each item is checked.
+    - test: green — `swift test`, 434 tests in 33 suites, 0 failed, 0 skipped. The watcher suite ran 10 times with no flake.
+    - commit: 12257d2 — refactor(dotfolder-watcher): name debounce constants and rename event methods
+    - review: clean — 7 validators attempted, 0 failed, 0 findings. Each of the 4 earlier findings is `- [x]`. The task moved to `done`.
+    - note: the push criterion stays with the user after the loop.
+  timestamp: 2026-09-20T18:25:00.368298+00:00
+position_column: done
+position_ordinal: b580
 title: 'Add DotfolderWatcher: move the recursive directory watcher out of FoundationModelsSkills'
 ---
 ## What

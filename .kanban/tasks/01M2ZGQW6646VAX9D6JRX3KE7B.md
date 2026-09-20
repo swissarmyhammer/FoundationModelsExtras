@@ -1,6 +1,69 @@
 ---
-position_column: todo
-position_ordinal: '8380'
+comments:
+- actor: claude-code
+  id: 01m3011aw6j2pvdtkwhwrnw3j5
+  text: |-
+    ### finish — note on the board and on the push
+    - The "Where the work is" section tells a reader to move the card to the Extras board. The card is already on the FoundationModelsExtras board, which is the board of this package, thus no move is necessary.
+    - The finish loop commits a local checkpoint on each iteration and never pushes. The push to `main` is the step of the user after the loop.
+    - next: the loop runs implement, test, commit and review on this card.
+  timestamp: 2026-09-20T18:25:13.094243+00:00
+- actor: claude-code
+  id: 01m301c4ch63rm114pgfpgpyem
+  text: |-
+    ### Research
+
+    Read the `Marketplace` target and the `skills marketplace` CLI of the sibling repository (read only, no edit there).
+
+    What the CLI does, and what the new API must replace:
+    - `MarketplaceRow.rows(of:cacheDirectory:)` reads `<cache>/state.json` with `MarketplaceState.load`, then maps each source. It opens no connection.
+    - The six columns are `ID, URL, CURRENT, CATALOG, CHECKED, STATUS`. The status ladder is: a folder on this computer gives `local folder` and returns at once; else `record.lastError`; else `not installed` when there is no current commit; else `pinned` or `ready`.
+    - `holdsOneCommit`: `record.pinnedSha != nil` wins; then `record.unpinned == true` gives false; else `source.isPinned`.
+    - A source of no supported form still gets a row: the id is the alias, the URL is `nil`, and the status is `String(describing: error)`. A `nil` URL is the privacy rule: a URL that carries a credential is never shown.
+    - The id lookup of `check`, `update`, `pin`, `unpin` and `remove` matches the display id, then the pre-fetch key.
+
+    Decisions for this card:
+    - `MarketplaceListing` goes in a file of its own, with the derivation beside the value. `MarketplaceStore.listings(of:cacheDirectory:)` forwards to it, so the store file does not grow.
+    - `id` is the display id, else the pre-fetch key, else the alias. It is the empty text when the source gives none of the three; the `-` of the CLI is a rendering choice that stays in the CLI.
+    - `key` is `nil` for a source of no supported form, because such a source has no pre-fetch key. The alias still names it through `id`.
+    - A listing of a folder on this computer carries no commit, no catalog version, no last check and no error, as the CLI row does.
+
+    Tests:
+    - The pin tests drive `MarketplaceStore.pin(_:sha:)` and `unpin(_:)`, which write `state.json` with no network work.
+    - The other tests write one `MarketplaceStateRecord` into the state file, under the folder name that `MarketplaceIdentity.cacheFolderName(key:normalizedURL:)` gives.
+    - `ModuleBoundaryTests` gets the guard that the five cache-layout types stay `internal`.
+  timestamp: 2026-09-20T18:31:06.897951+00:00
+- actor: claude-code
+  id: 01m301sys0p7h3abcajsssep1f
+  text: |-
+    ### Work record
+
+    TDD order: the test file went in first and the run failed to build with `type 'MarketplaceStore' has no member 'cacheDirectoryVariable'` and `'seedDirectoryVariable'`. The API then made the 17 tests of the suite pass.
+
+    The boundary guard `noCacheLayoutTypeStandsOnTheModuleSurface` guards a property that already holds, thus it could not start red on its own. To prove it can fail, `MarketplaceCache` was made `public` for one run: the test failed with `offenders → ["/Sources/Marketplace/MarketplaceCache.swift: MarketplaceCache"]`. The type is `internal` again.
+
+    Notes for the next agent:
+    - `MarketplaceStore.pin(_:sha:)` and `unpin(_:)` write `state.json` with no network work and no `start()`, thus a pin test needs no git fixture. The other tests write one `MarketplaceStateRecord` into the state file directly.
+    - `MarketplaceStore.listings(of:cacheDirectory:)` forwards to `MarketplaceListing.listings(of:cacheDirectory:)`, which is `internal` and lives beside the value. `MarketplaceStore.swift` is already long, thus the derivation is not in it.
+    - The `id` of a source that has a bad URL and no alias is the empty text. The `-` of the CLI is a rendering choice and stays in the CLI.
+    - `README.md` gets a paragraph AFTER the fenced block of the marketplace section. `ReadmeSnippetTests` reads the FIRST fenced Swift block under that heading and compares it with the test copy, thus a new block before it would break that suite.
+  timestamp: 2026-09-20T18:38:39.904385+00:00
+- actor: claude-code
+  id: 01m301t35n4p7p0kcs7gk6ad6f
+  text: |-
+    ### implement — changed
+    - evidence: 6 files — Sources/Marketplace/MarketplaceListing.swift (new), Sources/Marketplace/MarketplaceStore.swift, Tests/MarketplaceTests/MarketplaceListingTests.swift (new), Tests/MarketplaceTests/ModuleBoundaryTests.swift, README.md, CHANGELOG.md. `swift test`: 6 targets, 434 + 350 + 125 + 44 + 34 + 26 tests passed, zero failures, zero warnings.
+    - next: `/review` reads the change. The card stays in `doing`.
+  timestamp: 2026-09-20T18:38:44.405284+00:00
+- actor: claude-code
+  id: 01m301yjhn10r41v32mdqh1ym1
+  text: |-
+    ### test — green
+    - evidence: swift test — 434 tests, 33 suites, 0 failed, 0 skipped; swift build — 0 warnings; diagnostics check working — 0 errors, 0 warnings
+    - next: ready for review
+  timestamp: 2026-09-20T18:41:11.221113+00:00
+position_column: doing
+position_ordinal: '80'
 title: Give the Marketplace product the public read API that the skills CLI needs
 ---
 ## Where the work is

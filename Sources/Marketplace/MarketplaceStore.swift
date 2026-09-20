@@ -305,6 +305,43 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     MarketplaceCache.cacheDirectory(environment: environment)
   }
 
+  /// The environment variable that names the cache directory
+  /// (marketplace.md §7.1).
+  ///
+  /// A host writes it into the environment of a child process, and a test
+  /// gives a temporary folder with it, thus the name is part of the public
+  /// contract. ``cacheDirectory(environment:)`` reads it.
+  public static let cacheDirectoryVariable = MarketplaceCache.cacheVariable
+
+  /// The environment variable that names the read-only seed folder
+  /// (marketplace.md §7.5).
+  ///
+  /// The folder has the layout of a cache directory. The store reads a
+  /// snapshot from it for an offline or a CI install, and never writes it.
+  public static let seedDirectoryVariable = MarketplaceCache.seedVariable
+
+  /// Reads one listing for each source out of the state file of a cache
+  /// directory (marketplace.md §5.3).
+  ///
+  /// This is the read behind a list command. The call opens no connection,
+  /// starts no fetch, and writes nothing, thus it needs no store and no
+  /// ``start()``. A listing carries the name, the URL, the commit, the
+  /// catalog version, the last check and the last failure of one
+  /// marketplace, which is the whole of one row.
+  ///
+  /// - Parameters:
+  ///   - sources: The marketplaces, in list order.
+  ///   - cacheDirectory: The cache directory that holds `state.json`.
+  ///     ``cacheDirectory(environment:)`` gives the one of the host.
+  /// - Returns: One listing for each source, in list order. A source whose
+  ///   URL is of no supported form gives a listing that carries the message
+  ///   of the parser, thus a list shows every source that the host named.
+  public static func listings(
+    of sources: [MarketplaceSource], cacheDirectory: URL
+  ) -> [MarketplaceListing] {
+    MarketplaceListing.listings(of: sources, cacheDirectory: cacheDirectory)
+  }
+
   /// Reads the state file of one cache directory.
   ///
   /// - Parameter directory: The cache directory, or the seed folder, which

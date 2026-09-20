@@ -231,6 +231,20 @@ sends one value for each swap, because a symlink swap sends no reliable
 file-system event to a watcher. `update(_:force:)`, `check()`,
 `pin(_:sha:)` and `unpin(_:)` are the commands of a host.
 
+`MarketplaceStore.listings(of:cacheDirectory:)` is the read behind a list
+command. It reads `state.json` of the cache, opens no connection and needs
+no store, and it gives one `MarketplaceListing` for each source: the name,
+the pre-fetch key, the normalized URL, the current commit, the catalog
+version, the last check, whether the marketplace is a folder on this
+computer, whether it holds one commit, and the message of the last failure.
+A source whose URL is of no supported form gives a listing that carries the
+message of the parser, thus a list shows every source that the host named.
+`MarketplaceStore.cacheDirectoryVariable` and
+`MarketplaceStore.seedDirectoryVariable` name the two environment variables
+of the cache, so a host and a test both set them by name. The layout of the
+cache stays inside the product: no public type names a folder of it or a
+file in it.
+
 This example is the text between the two marker comments of
 `theExampleReadsAMarketplaceSkillThroughTheStack` in
 `Tests/MarketplaceTests/ReadmeSnippetTests.swift`, kept green by
