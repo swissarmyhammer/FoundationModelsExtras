@@ -918,13 +918,18 @@ struct WellKnownValues: Sendable {
 }
 
 extension DotfolderStack {
-  /// Recovers this stack's bare dotfolder name (e.g. `"myagent"`) from its
-  /// project layer's root directory name (`<workingDirectory>/.myagent`)
-  /// — the one layer `DotfolderStack.init` always appends regardless of
-  /// whether `defaultsDirectory`/`userDirectory` were supplied, so this
-  /// never returns `nil` for a real stack.
+  /// Recovers this stack's bare dotfolder name (e.g. `"myagent"`) from the
+  /// root directory name of its highest-precedence `.project` layer
+  /// (`<workingDirectory>/.myagent`).
+  ///
+  /// `init(name:workingDirectory:...)` always appends one `.project`
+  /// layer, whatever `defaultsDirectory` and `userDirectory` hold, thus a
+  /// derived stack always has a name. A stack from `init(layers:)` can
+  /// hold more than one `.project` layer; the layers are lowest
+  /// precedence first, thus the last one names the stack. A stack with no
+  /// `.project` layer has no name.
   fileprivate var projectDotfolderName: String? {
-    guard let projectLayer = layers.first(where: { $0.source == .project }) else { return nil }
+    guard let projectLayer = layers.last(where: { $0.source == .project }) else { return nil }
     let directoryName = projectLayer.root.lastPathComponent
     return directoryName.hasPrefix(".") ? String(directoryName.dropFirst()) : directoryName
   }

@@ -188,4 +188,17 @@ public protocol DotfolderStacking: Sendable {
   /// - Returns: `true` if at least one layer holds `relativePath` and the
   ///   path is safe.
   func exists(_ relativePath: String) -> Bool
+
+  /// Reports whether the winning copy of `relativePath` has the execute
+  /// bit.
+  ///
+  /// The answer is for the copy in the highest layer that holds
+  /// `relativePath`. A lower copy with a different mode is hidden, the
+  /// same way its text is hidden.
+  ///
+  /// - Parameter relativePath: A path relative to a layer's root.
+  /// - Returns: `true` when the current user may run the winning copy.
+  ///   `false` when no layer holds `relativePath`, when the path is not
+  ///   safe, or when the winning copy has no execute bit.
+  func isExecutable(_ relativePath: String) -> Bool
 }

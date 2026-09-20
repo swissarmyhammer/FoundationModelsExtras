@@ -4,7 +4,7 @@ import Testing
 
 /// Guards the three documents of the marketplace pillar: `README.md` holds
 /// the section, `plan.md` holds the pillar section with the decision date,
-/// `CHANGELOG.md` holds the entry at the top of the unreleased section, and
+/// `CHANGELOG.md` holds the entry in the unreleased section, and
 /// no document names a marketplace grant, because there is no
 /// per-marketplace permission.
 ///
@@ -54,13 +54,13 @@ struct DocumentationTests {
     #expect(plan[section.lowerBound...].contains(Self.decisionDate))
   }
 
-  @Test func theChangelogEntryIsTheFirstUnderUnreleased() throws {
+  @Test func theChangelogHoldsTheEntryUnderUnreleased() throws {
     let lines = try FixtureFile.text(Self.changelogPath).get().components(separatedBy: "\n")
 
     let unreleased = try #require(lines.firstIndex(of: Self.unreleasedHeading))
-    let firstEntry = try #require(lines[unreleased...].first { $0.hasPrefix(Self.entryHeadingPrefix) })
+    let entries = lines[unreleased...].filter { $0.hasPrefix(Self.entryHeadingPrefix) }
 
-    #expect(firstEntry == Self.changelogHeading)
+    #expect(entries.contains(Self.changelogHeading))
   }
 
   @Test(arguments: documentPaths)

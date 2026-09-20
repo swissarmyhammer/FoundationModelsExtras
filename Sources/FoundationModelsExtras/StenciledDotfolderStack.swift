@@ -233,6 +233,15 @@ public struct StenciledDotfolderStack: DotfolderStacking {
     base.exists(relativePath)
   }
 
+  /// Reports whether the winning copy of `relativePath` has the execute
+  /// bit. The render does not change the mode of a file.
+  ///
+  /// - Parameter relativePath: A path relative to a layer's root.
+  /// - Returns: What `DotfolderStack.isExecutable(_:)` gives.
+  public func isExecutable(_ relativePath: String) -> Bool {
+    base.isExecutable(relativePath)
+  }
+
   /// Renders the text of `located` with the trust of its layer and the
   /// partials in the scope of its layer.
   ///

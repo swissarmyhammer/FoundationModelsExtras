@@ -64,6 +64,18 @@ import Testing
       try! contents.write(to: fileURL, options: .atomic)
     }
 
+    /// Writes `contents` to `relativePath` under `directory`, then gives the
+    /// new file the POSIX permissions `permissions`, for example `0o755` for
+    /// a file that its owner may run.
+    func write(
+      _ contents: String, to relativePath: String, in directory: URL, permissions: Int
+    ) {
+      write(contents, to: relativePath, in: directory)
+      try! FileManager.default.setAttributes(
+        [.posixPermissions: permissions],
+        ofItemAtPath: directory.appendingPathComponent(relativePath).path)
+    }
+
     /// Creates a symbolic link at `relativePath` under `directory` that
     /// points to `destination`.
     func link(_ relativePath: String, in directory: URL, to destination: URL) {
@@ -146,6 +158,56 @@ import Testing
     #expect(stack.layers.map(\.source) == [.defaults, .user, .project])
     #expect(stack.layers[0].root == fixture.defaultsDirectory)
     #expect(stack.layers[1].root == fixture.userDirectory)
+  }
+
+  @Test func aStackOverALayerListFindsTheWinningCopyAcrossTwoLayers() {
+    let fixture = Fixture()
+    fixture.write("defaults skill", to: "review/SKILL.md", in: fixture.defaultsDirectory)
+    fixture.write("user skill", to: "review/SKILL.md", in: fixture.userDirectory)
+
+    let stack = DotfolderStack(layers: [
+      DotfolderStack.Layer(source: .defaults, root: fixture.defaultsDirectory),
+      DotfolderStack.Layer(source: .user, root: fixture.userDirectory),
+    ])
+
+    #expect(stack.item(at: "review/SKILL.md")?.value == "user skill")
+    #expect(stack.item(at: "review/SKILL.md")?.layer.source == .user)
+  }
+
+  @Test func aMarketplaceLayerAtTheBottomOfALayerListLosesToALocalLayer() {
+    let fixture = Fixture()
+    let marketplaceDirectory = fixture.root.appendingPathComponent("marketplace", isDirectory: true)
+    fixture.write("market skill", to: "skills/x/SKILL.md", in: marketplaceDirectory)
+    fixture.write("project skill", to: "skills/x/SKILL.md", in: fixture.projectDirectory)
+
+    let stack = DotfolderStack(layers: [
+      DotfolderStack.Layer(source: .marketplace, root: marketplaceDirectory),
+      DotfolderStack.Layer(source: .project, root: fixture.projectDirectory),
+    ])
+
+    #expect(stack.item(at: "skills/x/SKILL.md")?.value == "project skill")
+    #expect(stack.item(at: "skills/x/SKILL.md")?.layer.source == .project)
+  }
+
+  @Test func aStackOverTheLayersOfADerivedStackGivesTheSameLookups() {
+    let fixture = Fixture()
+    fixture.writeReviewTree()
+    let derived = fixture.makeStack()
+
+    let stack = DotfolderStack(layers: derived.layers)
+
+    #expect(stack.tree("review").mapValues(\.value) == derived.tree("review").mapValues(\.value))
+    #expect(stack.tree("review").mapValues(\.url) == derived.tree("review").mapValues(\.url))
+    #expect(stack.nearest("review/SKILL.md") == derived.nearest("review/SKILL.md"))
+  }
+
+  @Test func constructingAStackOverALayerListPerformsNoFileIO() {
+    let fixture = Fixture()
+    let missingDirectory = fixture.root.appendingPathComponent("brand-new", isDirectory: true)
+
+    _ = DotfolderStack(layers: [DotfolderStack.Layer(source: .user, root: missingDirectory)])
+
+    #expect(!FileManager.default.fileExists(atPath: missingDirectory.path))
   }
 
   @Test func nearestReturnsProjectCopyWhenAllThreeLayersHoldTheFile() {

@@ -162,6 +162,25 @@ public struct DotfolderStack: Sendable {
     self.layers = layers
   }
 
+  /// Creates a stack over an explicit list of layers, lowest precedence
+  /// first.
+  ///
+  /// A consumer that already holds its layers makes a stack from them with
+  /// this initializer: a list of host directories, or the marketplace
+  /// layers of a store below the local layers. The initializer derives no
+  /// layer, it applies no name rule, and it reads no file; each lookup
+  /// reads the disk at the time of the call, as it does for a derived
+  /// stack.
+  ///
+  /// The list may hold more than one layer of one source. A stack with two
+  /// `.project` layers takes its `dotfolder_name` from the highest of
+  /// them.
+  ///
+  /// - Parameter layers: The layers of the stack, lowest precedence first.
+  public init(layers: [Layer]) {
+    self.layers = layers
+  }
+
   /// Reports whether `name` is safe to embed in a layer path (bare
   /// `<name>` appended under the user config directory, `.<name>` appended
   /// onto `workingDirectory` for the project layer): non-empty, a single
@@ -470,11 +489,33 @@ public struct DotfolderStack: Sendable {
     nearest(relativePath) != nil
   }
 
+  /// Reports whether the winning copy of `relativePath` has the execute
+  /// bit.
+  ///
+  /// A consumer that lists the files of a directory, or that runs a script
+  /// of a layer, asks the stack for the mode, thus it never needs
+  /// `FileManager` itself. The answer is for the copy that `nearest(_:)`
+  /// gives: the copy in the highest layer that holds `relativePath`. A
+  /// lower copy with a different mode is hidden, the same way its text is
+  /// hidden.
+  ///
+  /// - Parameter relativePath: A path relative to a layer's root, as
+  ///   accepted by `nearest`. Rejected (returns `false`) under the same
+  ///   rules `exists(_:)` applies.
+  /// - Returns: `true` when the current user may run the winning copy.
+  ///   `false` when no layer holds `relativePath`, when the path is not
+  ///   safe, or when the winning copy has no execute bit.
+  public func isExecutable(_ relativePath: String) -> Bool {
+    guard let url = nearest(relativePath) else { return false }
+    return FileManager.default.isExecutableFile(atPath: url.path)
+  }
+
   /// The copy of `relativePath` in the highest layer that holds it.
   ///
   /// Every lookup of one path (`nearest`, `content`, `item`, `data`, `size`,
-  /// `exists`) routes through this helper, so each of them applies the same
-  /// `isSafeRelativePath` check and the same confinement rule.
+  /// `exists`, `isExecutable`) routes through this helper, so each of them
+  /// applies the same `isSafeRelativePath` check and the same confinement
+  /// rule.
   ///
   /// - Parameter relativePath: A path relative to a layer's root.
   /// - Returns: The winning copy, or `nil` when the path is not safe or no

@@ -31,6 +31,21 @@ import Testing
   /// A range that lies inside the first bytes of a fixture file.
   private static let leadingBytes = 0..<4
 
+  /// The body of a script file, which holds no template tag.
+  private static let scriptBody = "#!/bin/sh\n"
+
+  /// The path of the script file that its owner may run.
+  private static let scriptPath = "review/scripts/lint.sh"
+
+  /// The path of the script file that no one may run.
+  private static let plainScriptPath = "review/scripts/report.sh"
+
+  /// The POSIX permissions of a file that its owner may run.
+  private static let executablePermissions = 0o755
+
+  /// The POSIX permissions of a file that no one may run.
+  private static let plainPermissions = 0o644
+
   /// A stenciled stack over `base` that records its diagnostics in `log`.
   private static func makeStenciled(
     over base: DotfolderStack,
@@ -99,6 +114,20 @@ import Testing
       over: fixture.makeStack(), variables: ["dotfolder_name": "from-consumer"])
 
     #expect(stenciled.content("review/SKILL.md") == "from-consumer")
+  }
+
+  @Test func theDotfolderNameComesFromTheHighestPrecedenceProjectLayer() {
+    let fixture = Fixture()
+    let lowerProjectDirectory = fixture.root.appendingPathComponent(".lower", isDirectory: true)
+    let higherProjectDirectory = fixture.root.appendingPathComponent(".higher", isDirectory: true)
+    fixture.write("{{ dotfolder_name }}", to: "review/SKILL.md", in: lowerProjectDirectory)
+    let stack = DotfolderStack(layers: [
+      DotfolderStack.Layer(source: .project, root: lowerProjectDirectory),
+      DotfolderStack.Layer(source: .project, root: higherProjectDirectory),
+    ])
+    let stenciled = Self.makeStenciled(over: stack)
+
+    #expect(stenciled.content("review/SKILL.md") == "higher")
   }
 
   // MARK: - Each text lookup is rendered
@@ -299,6 +328,79 @@ import Testing
       view["SKILL.md"]?.value == fixture.projectDirectory.appendingPathComponent("review/SKILL.md"))
     #expect(stenciled.tree("review")["SKILL.md"] == nil)
     #expect(log.diagnostics.count == 1)
+  }
+
+  // MARK: - The execute bit
+
+  @Test func isExecutableFollowsTheExecuteBitOfTheFile() {
+    let fixture = Fixture()
+    fixture.write(
+      Self.scriptBody, to: Self.scriptPath, in: fixture.projectDirectory,
+      permissions: Self.executablePermissions)
+    fixture.write(
+      Self.scriptBody, to: Self.plainScriptPath, in: fixture.projectDirectory,
+      permissions: Self.plainPermissions)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    #expect(stenciled.isExecutable(Self.scriptPath))
+    #expect(!stenciled.isExecutable(Self.plainScriptPath))
+  }
+
+  @Test func isExecutableAnswersForTheCopyOfTheHighestLayer() {
+    let fixture = Fixture()
+    fixture.write(
+      Self.scriptBody, to: Self.scriptPath, in: fixture.defaultsDirectory,
+      permissions: Self.executablePermissions)
+    fixture.write(
+      Self.scriptBody, to: Self.scriptPath, in: fixture.projectDirectory,
+      permissions: Self.plainPermissions)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    #expect(!stenciled.isExecutable(Self.scriptPath))
+  }
+
+  @Test func isExecutableIsFalseForARefusedPathAndForAMissingFile() {
+    let fixture = Fixture()
+    // A file that the project layer would reach through a `..` component,
+    // and that an absolute path names directly. Both paths are refused, so
+    // the execute bit of this file is never read.
+    fixture.write(
+      Self.scriptBody, to: "outside/run.sh", in: fixture.workingDirectory,
+      permissions: Self.executablePermissions)
+    let outsidePath = fixture.workingDirectory.appendingPathComponent("outside/run.sh").path
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    for path in ["../outside/run.sh", outsidePath, "review/missing.sh"] {
+      #expect(!stenciled.isExecutable(path), "isExecutable(\(path))")
+    }
+  }
+
+  @Test func isExecutableIsFalseForASymbolicLinkThatLeavesItsLayerRoot() {
+    let fixture = Fixture()
+    fixture.write(
+      Self.scriptBody, to: "outside/run.sh", in: fixture.root,
+      permissions: Self.executablePermissions)
+    fixture.link(
+      "run.sh", in: fixture.projectDirectory,
+      to: fixture.root.appendingPathComponent("outside/run.sh"))
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    #expect(!stenciled.isExecutable("run.sh"))
+  }
+
+  @Test func isExecutableGivesTheAnswerOfThePlainStack() {
+    let fixture = Fixture()
+    fixture.write(
+      Self.scriptBody, to: Self.scriptPath, in: fixture.projectDirectory,
+      permissions: Self.executablePermissions)
+    fixture.write("notes", to: "review/NOTES.md", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+    let stenciled = Self.makeStenciled(over: stack)
+
+    #expect(stack.isExecutable(Self.scriptPath))
+    #expect(stenciled.isExecutable(Self.scriptPath) == stack.isExecutable(Self.scriptPath))
+    #expect(stenciled.isExecutable("review/NOTES.md") == stack.isExecutable("review/NOTES.md"))
+    #expect(stenciled.isExecutable("review/missing.md") == stack.isExecutable("review/missing.md"))
   }
 
   // MARK: - The same files as the plain stack

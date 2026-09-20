@@ -5,6 +5,44 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `DotfolderStack(layers:)` and the execute bit of the winning copy
+
+`DotfolderStack` has a second initializer that takes an explicit list of
+layers, and each stack of the family answers for the execute bit of the
+winning copy.
+
+**Cause.** `FoundationModelsSkills` held one shim for each gap: an internal
+`init(layers:)` that called the derived initializer with a placeholder name
+and then replaced the layers, and a direct read of `FileManager` for the
+mode of a file. The rule of the family is that the raw work of loading lives
+in Extras, thus both gaps close here.
+
+**What changed.**
+
+- `DotfolderStack.init(layers:)` is public. It stores the layers, lowest
+  precedence first. It derives no layer, it applies no name rule, and it
+  reads no file, the same as the derived initializer. A consumer that holds
+  its own layers — a list of host directories, or the marketplace layers of
+  a store below the local layers — makes a stack from them.
+- The well-known template value `dotfolder_name` comes from the
+  highest-precedence `.project` layer. A derived stack holds one `.project`
+  layer, thus its value does not change. A stack from `init(layers:)` can
+  hold more than one `.project` layer, and the last one names the stack. A
+  stack with no `.project` layer has no name.
+- `isExecutable(_:)` is a new requirement of `DotfolderStacking`, and
+  `DotfolderStack`, `StenciledDotfolderStack` and `FrontmatterDocumentStack`
+  each answer it. It reports the execute bit of the copy in the highest
+  layer that holds the path, through the same path checks as `exists(_:)`:
+  a path that is empty, absolute or that holds a `..` component, a copy that
+  resolves through a symbolic link to a location outside its layer root, and
+  a missing file each give `false`. A consumer that lists a file or that
+  runs a script no longer needs `FileManager`.
+
+**This change adds a requirement to a protocol.** A type outside this
+package that conforms to `DotfolderStacking` does not compile until it adds
+`isExecutable(_:)`. A stack that is layered over another stack passes the
+call to its base.
+
 ### Added: the `Marketplace` product
 
 `MarketplaceStore.init(sources:layout:cacheDirectory:policy:)` makes a store

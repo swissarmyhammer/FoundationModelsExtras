@@ -42,6 +42,15 @@ import Testing
   /// A range that lies inside the first bytes of a fixture file.
   private static let leadingBytes = 0..<4
 
+  /// The body of a script file, which holds no frontmatter block.
+  private static let scriptBody = "#!/bin/sh\n"
+
+  /// The path of the script file of the execute-bit test.
+  private static let scriptPath = "review/scripts/lint.sh"
+
+  /// The POSIX permissions of a file that its owner may run.
+  private static let executablePermissions = 0o755
+
   /// A stack over `base` whose metadata is the raw frontmatter text, and
   /// that records its diagnostics in `log`.
   private static func makeRawStack<Base: DotfolderStacking>(
@@ -295,6 +304,21 @@ import Testing
     #expect(documents.size(of: "review/SKILL.md") == stack.size(of: "review/SKILL.md"))
     #expect(documents.exists("review/SKILL.md") == stack.exists("review/SKILL.md"))
     #expect(documents.exists("review/missing.md") == stack.exists("review/missing.md"))
+  }
+
+  @Test func isExecutableGivesTheAnswerOfTheBaseStack() {
+    let fixture = Fixture()
+    fixture.write(
+      Self.scriptBody, to: Self.scriptPath, in: fixture.projectDirectory,
+      permissions: Self.executablePermissions)
+    fixture.write(Self.skillDocument, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stack = fixture.makeStack()
+    let documents = Self.makeRawStack(over: stack)
+
+    #expect(stack.isExecutable(Self.scriptPath))
+    #expect(documents.isExecutable(Self.scriptPath) == stack.isExecutable(Self.scriptPath))
+    #expect(documents.isExecutable("review/SKILL.md") == stack.isExecutable("review/SKILL.md"))
+    #expect(documents.isExecutable("review/missing.md") == stack.isExecutable("review/missing.md"))
   }
 
   @Test func urlsGivesAFileThatIsNotTextAsTheBaseStackGives() {

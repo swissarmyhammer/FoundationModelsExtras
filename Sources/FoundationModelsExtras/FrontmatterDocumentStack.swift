@@ -217,6 +217,15 @@ where Base.Item == String {
     base.exists(relativePath)
   }
 
+  /// Reports whether the winning copy of `relativePath` has the execute
+  /// bit. The split does not change the mode of a file.
+  ///
+  /// - Parameter relativePath: A path relative to a layer's root.
+  /// - Returns: What the base stack's `isExecutable(_:)` gives.
+  public func isExecutable(_ relativePath: String) -> Bool {
+    base.isExecutable(relativePath)
+  }
+
   /// Splits the text of `located` and decodes its frontmatter.
   ///
   /// Every text lookup routes through this helper, so each of them applies
