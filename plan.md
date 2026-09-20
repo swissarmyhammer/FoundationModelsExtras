@@ -261,7 +261,19 @@ public enum FrontmatterDocument {
   gets the same process group, the same timeout with the group kill, and the
   same output cap, documented in [`README.md`](README.md). The dependency
   budget does not move: the type needs Foundation and `Darwin`, and `Darwin`
-  is a system module, not a package.)
+  is a system module, not a package.) (`DotfolderWatcher` fought its way in
+  2026-09-20 for the same reason: FoundationModelsSkills carried a recursive
+  directory watcher with no skill semantics in it. It takes roots, it joins a
+  burst of file system events into one callback after a quiet period, and it
+  has no opinion about what changed. The stack itself holds no cache, thus it
+  needs no watcher; but a consumer that caches a result needs one, and the
+  rule of the family is that the raw work of loading lives here and a consumer
+  keeps the work of its own schema only. The watcher thus belongs beside the
+  stack, where each consumer of the family gets the same recursion, the same
+  debounce, the same arming of a root that is not there yet, and the same
+  flush order, documented in [`README.md`](README.md). The dependency budget
+  does not move: the type needs Foundation and Dispatch, and Dispatch is a
+  system module, not a package.)
 - **Coordination point.** Changes ripple to all conformers and adapters at
   once — additive evolution, breaking changes are a family event.
 - **Trust boundary documented at the type.** `.action` bodies require linked

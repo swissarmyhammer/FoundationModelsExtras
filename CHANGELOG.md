@@ -5,6 +5,36 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `DotfolderWatcher`
+
+A consumer that caches a result of a stack can now watch the layer roots with
+a type of this package.
+
+**Cause.** `DotfolderStack` holds no cache, thus it needs no watcher of its
+own, and its documentation sent each consumer to a watcher of its own. That
+is against the rule of the family: the raw work of loading lives here, and a
+consumer keeps the work of its own schema only. `FoundationModelsSkills`
+carried such a watcher, with no skill semantics in it.
+
+**What changed.**
+
+- `DotfolderWatcher` is public. It watches the directory tree of each root
+  recursively, and it joins a burst of file system events into one `onChange`
+  call after a quiet period. It has no opinion about what changed: the
+  consumer reads the stack again from the start.
+- `init(roots:debounceInterval:onChange:)` takes the roots, and
+  `init(stack:debounceInterval:onChange:)` takes the layer roots of any
+  `DotfolderStacking`. The default quiet period is 200 ms.
+- `start()` and `stop()` are the commands, and `deinit` stops the watcher.
+  `stop()` closes each file descriptor, and it is safe to call from inside
+  `onChange`. A watcher that stopped starts again.
+- A root that is not on disk at `start()` is armed at its nearest existing
+  ancestor, thus the later creation of that root fires `onChange` too. Work
+  under that ancestor that does not bring the root nearer to existence fires
+  nothing.
+- The dependency budget does not move: the type needs Foundation and
+  Dispatch.
+
 ### Added: `QuarantinedText` and `StenciledDotfolderStack.render(_:in:)`
 
 A consumer can now render text that it holds itself, with the trust and the

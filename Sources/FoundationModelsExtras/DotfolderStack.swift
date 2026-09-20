@@ -33,10 +33,10 @@ import Foundation
 ///
 /// The stack holds no cache, thus it needs no file watcher. Each call reads
 /// the disk at the time of the call, and gives the files as they are then. A
-/// consumer that caches a result keeps its own watcher. The stack is the
-/// only thing that touches disk, and only when a lookup is called:
-/// constructing a stack never performs file I/O, so consumers stay
-/// constructible in tests with none.
+/// consumer that caches a result watches the layer roots with
+/// `DotfolderWatcher`. The stack is the only thing that touches disk, and
+/// only when a lookup is called: constructing a stack never performs file
+/// I/O, so consumers stay constructible in tests with none.
 ///
 /// Each lookup applies two checks to a caller-supplied path. The text check
 /// `isSafeRelativePath` rejects a path that is empty, absolute or has a `..`

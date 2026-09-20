@@ -240,6 +240,41 @@ binds `marketplaceURL` to a repository that `GitFixtureRepository` builds,
 and `cacheDirectory`, `workingDirectory` and `userDirectory` to one
 temporary folder, thus it touches no network and no home directory.
 
+## Watching the layers: `DotfolderWatcher`
+
+`DotfolderStack` holds no cache: each lookup reads the disk at the time of
+the call. A consumer that caches what a lookup gave must know when a layer
+changed, and `DotfolderWatcher` is that signal. It watches the tree of each
+layer root recursively, joins a burst of file system events into one
+`onChange` call after a quiet period, and says nothing about WHAT changed:
+the consumer reads the stack again. A layer root that is not on disk at
+`start()` is armed at its nearest existing ancestor, thus the later creation
+of that root fires the callback too:
+
+```swift
+let stack = DotfolderStack(
+    name: "myagent", workingDirectory: workingDirectory, userDirectory: userDirectory)
+
+let watcher = DotfolderWatcher(stack: stack) {
+    // A layer changed on disk. The stack holds no cache, thus the next
+    // lookup gives the new files.
+    reload()
+}
+watcher.start()
+defer { watcher.stop() }
+```
+
+`init(roots:)` takes the roots directly, for a consumer that watches folders
+that no stack holds. `debounceInterval` has the default 200 ms. `stop()`
+closes each file descriptor and is safe to call from inside `onChange`, and
+`deinit` calls it.
+
+This example is mirrored in `readmeStackWatcherExample` in
+`Tests/FoundationModelsExtrasTests/DotfolderWatcherTests.swift`, kept green by
+`swift test --filter DotfolderWatcherTests`. The test binds
+`workingDirectory` and `userDirectory` to one temporary folder, thus it
+touches no home directory.
+
 ## Install
 
 Add the package to `Package.swift`:

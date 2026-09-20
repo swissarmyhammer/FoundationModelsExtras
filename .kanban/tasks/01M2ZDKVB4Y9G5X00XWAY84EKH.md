@@ -54,8 +54,49 @@ comments:
     - evidence: swift build --build-tests (0 warnings, 0 errors); swift test — 414 tests in 32 suites passed, 0 failed, 0 skipped
     - next: ready for review
   timestamp: 2026-09-20T14:47:10.487043+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2zmkg1w2n4mny1cjxncg20m
+  text: |-
+    ### commit — changed
+    - evidence: 966c1d7 feat(quarantined-text): render text held by a consumer under trust and partial scope of a layer
+    - next: ready for review
+  timestamp: 2026-09-20T14:47:56.732075+00:00
+- actor: claude-code
+  id: 01m2zxhgkc45jcn0hfm497t8y1
+  text: |-
+    ### review — stuck
+    - evidence: 0 findings. The review engine did not run. `review sha HEAD~1..HEAD` gave `attempted: 7, failed: 7` three times: two times with the session backend and one time with the local backend. A fourth run with `validators: ["swift"]` also gave 7 of 7 failed. `check validators` gives `ok: true, count: 13`, thus the validator files are good and the review workers are the cause. The last agent for this card stopped at a rate limit, thus a rate limit is the probable cause.
+    - next: A person must clear the rate limit or repair the review workers, then run `/review 01M2ZDKVB4Y9G5X00XWAY84EKH HEAD~1..HEAD` again. The card stays in `review`. Do not move the card to `done`: a count of zero findings from a failed run is not a clean review.
+  timestamp: 2026-09-20T17:24:08.940843+00:00
+- actor: claude-code
+  id: 01m2zxjeecwgtqa1zpe8g5rm09
+  text: |-
+    ### finish iteration 1 — stuck
+    - implement: changed — 8 files
+    - test: green — swift test, 414 passed in 32 suites, 0 failed, 0 skipped
+    - commit: 966c1d7
+    - review: stuck — the review engine did not run. `review sha HEAD~1..HEAD` gave 7 of 7 validator runs failed, on the session backend and on the local backend. `check validators` gives ok. A rate limit is the probable cause: the agent before this one stopped at a rate limit.
+    - note: this is an infrastructure block, not a finding. The code is green and committed. The card stays in `review` until the review engine runs.
+  timestamp: 2026-09-20T17:24:39.500408+00:00
+- actor: claude-code
+  id: 01m2zy2sgk2077s0h311hwq5vr
+  text: |-
+    ### review — clean
+    - evidence: 0 findings. `review sha HEAD~1..HEAD` gave attempted: 7, failed: 0, findings: 0, confirmed: 0, refuted: 0. The engine ran fully this time, thus the earlier block is gone. The engine read 5 files of the commit 966c1d7; it did not read `.kanban/` (an ignore rule), and no validator matches `CHANGELOG.md`, `README.md` and `plan.md`.
+    - next: the card moves to `done`. The user pushes `main`.
+  timestamp: 2026-09-20T17:33:35.123146+00:00
+- actor: claude-code
+  id: 01m2zy3bs8efx8e17shjne1wty
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: no-change — the code of iteration 1 stands; the block was the review engine, not the work
+    - test: no-change — the green run of iteration 1 stands (414 passed in 32 suites)
+    - commit: 966c1d7 — the checkpoint of iteration 1; nothing new to commit
+    - review: clean — 0 findings, attempted 7, failed 0. The rate limit reset, thus the engine ran fully. The task moved to done.
+    - note: the push criterion stays with the user after the loop
+  timestamp: 2026-09-20T17:33:53.832388+00:00
+position_column: done
+position_ordinal: b480
 title: 'Render text that a consumer holds: quarantined spans, under the trust and the partial scope of a layer'
 ---
 ## What
