@@ -49,8 +49,32 @@ comments:
     - evidence: `swift build --build-tests` — build complete, 0 warnings; `swift test` — 386 tests in 30 suites, 0 failed, 0 skipped
     - next: send to review
   timestamp: 2026-09-20T14:25:22.906995+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2zkb7f0zsp6mtsnh9x6vte8
+  text: |-
+    ### commit — changed
+    - evidence: 62bf1aa feat(dotfolder-stack): add init(layers:) and isExecutable(_:)
+    - next: The user must push the commit to main.
+  timestamp: 2026-09-20T14:25:57.216145+00:00
+- actor: claude-code
+  id: 01m2zkhyktp5t12dxfp5j3zy8t
+  text: |-
+    ### review — clean
+    - evidence: 0 findings
+    - next: The card moves to done. The engine examined the diffs of commit 62bf1aa (`review sha HEAD~1..HEAD`), 9 files. No prior review findings were open.
+  timestamp: 2026-09-20T14:29:37.530303+00:00
+- actor: claude-code
+  id: 01m2zkja1sta4mkzwbcsxjpv1c
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 10 files
+    - test: green — swift test, 386 passed in 30 suites, 0 failed, 0 skipped
+    - commit: 62bf1aa
+    - review: clean — 0 findings, task moved to done
+    - note: the push criterion stays with the user after the loop
+  timestamp: 2026-09-20T14:29:49.241174+00:00
+position_column: done
+position_ordinal: b380
 title: 'Close two DotfolderStack gaps that FoundationModelsSkills papers over: init(layers:) and the execute bit'
 ---
 ## What

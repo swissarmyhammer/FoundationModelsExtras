@@ -38,6 +38,27 @@ let greeting = try engine.render(
 // greeting == "Hello world! Config lives under .myagent/."
 ```
 
+`StenciledDotfolderStack` renders the files of a stack, and `render(_:in:)`
+renders text that the caller holds. A consumer whose own format runs passes
+of its own before Stencil marks what those passes spliced in as
+quarantined: the render gives each such span to Stencil as a value, thus a
+`{{ … }}` inside it stays as it is, and the whole text is one render, under
+one set of the limits. The trust and the scope of the partials come from the
+layer, the same as for a file:
+
+```swift
+let stenciled = StenciledDotfolderStack(base: stack, variables: ["project": "acme"])
+let layer = DotfolderStack.Layer(source: .project, root: projectRoot)
+
+let text = QuarantinedText(spans: [
+    .original("Project {{ project }}, argument: "),
+    .quarantined(argument),  // data: Stencil never scans it
+])
+
+let rendered = try stenciled.render(text, in: layer)
+// A `.defaults` layer renders trusted; each other layer renders untrusted.
+```
+
 ## Ignoring files: `IgnoreProcessor`
 
 `IgnoreProcessor` implements `gitignore(5)` matching semantics -- last-match-

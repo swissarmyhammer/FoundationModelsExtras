@@ -12,7 +12,7 @@ Everything may import it; it imports almost nothing.
 (`LayeredYAMLDocument`, §11) planned · pillar 6 (`Marketplace`, §12) built on
 the separate `Marketplace` target
 · **Target:** Swift 6.2 tools, macOS 27+, Apple Silicon
-· **Updated:** 2026-09-19
+· **Updated:** 2026-09-20
 
 **Scope extension:** `IgnoreProcessor` (gitignore-semantics ignore-file
 matching and combination, documented in [`README.md`](README.md)) has since
@@ -213,6 +213,16 @@ public enum FrontmatterDocument {
 - **Whole-file render, then parse.** A templated file renders as one text
   (frontmatter included, so YAML values can be templated), then splits/
   decodes. One rule, no per-format special cases.
+- **Text that a consumer holds renders here too** (2026-09-20). A consumer
+  whose own format has passes of its own runs those passes first, marks what
+  they spliced in as quarantined (`QuarantinedText`), and gives the text to
+  `StenciledDotfolderStack.render(_:in:)`. The stack owns Stencil, the
+  trust and the scope of the partials: the layer names the trust, the layer
+  names the partials it may read, and the whole text is one template, thus
+  one render and one set of the untrusted limits. A quarantined span reaches
+  Stencil as a context value, never as template text, thus no pass can ever
+  scan what an earlier pass spliced in. The consumer keeps the grammar of
+  its own format; it never rebuilds the Stencil half.
 
 ## 5. Rules
 

@@ -5,6 +5,49 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `QuarantinedText` and `StenciledDotfolderStack.render(_:in:)`
+
+A consumer can now render text that it holds itself, with the trust and the
+partial scope of a layer.
+
+**Cause.** `StenciledDotfolderStack` rendered only a file that it read
+itself. Its trust rule, its partial scope rule, its context and its
+well-known values were all private, thus a consumer that holds text of its
+own had no supported way to render it. `FoundationModelsSkills` is such a
+consumer: the body of a skill goes through two passes of the skill format
+first, and the text that those passes splice in is data, which Stencil must
+never scan. With no entry point here, Skills rebuilt the generic half
+itself. That half is Stencil work, thus it belongs in this package.
+
+**What changed.**
+
+- `QuarantinedText` is public. It holds text in spans: an `.original` span
+  is source text, which the next pass may scan, and a `.quarantined` span is
+  text that an earlier pass spliced in, which each later pass copies and
+  never scans. `init(spans:)` drops each empty span and joins the adjacent
+  `.original` spans. `mappingOriginalSpans(_:)` and
+  `mappingOriginalSpans(awaiting:)` are the one seam that a pass uses, and
+  each `.original` span comes with the character before it in the joined
+  text. `SpanBuilder` collects the spans of one pass.
+- `StenciledDotfolderStack.render(_:in:)` renders such a text, and the
+  convenience of the same name renders a plain `String`. The trust comes
+  from the layer (`.defaults` is trusted, each other source is untrusted)
+  and the scope of the partials comes from the layer as well. The whole text
+  is ONE template: each quarantined span reaches Stencil as a context value,
+  thus a `{{ … }}` or an `{% include %}` inside it stays as it is, and the
+  text on the two sides of a span is still one template. One template means
+  one render, thus one set of the untrusted limits, whatever the number of
+  spans. A span inside an open `{{`, `{%` or `{#` throws
+  `TemplateEngineError.renderingFailed`, and a bare `{` before a span stays
+  literal.
+- `WellKnownValues` is public, with a public initializer and a public
+  `current(partials:)`, and `StenciledDotfolderStack.init` takes
+  `wellKnownValues:`. `nil`, the default, reads the current values at each
+  render, as before. A consumer that must pin `hostname`, `date` and
+  `working_directory` gives them here.
+- The environment stays out of this stack. A consumer that wants an
+  environment value in its text puts that value in `variables`.
+
 ### Added: `DotfolderStack(layers:)` and the execute bit of the winning copy
 
 `DotfolderStack` has a second initializer that takes an explicit list of

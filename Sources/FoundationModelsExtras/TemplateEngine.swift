@@ -865,20 +865,39 @@ final class RestrictedForNode: NodeType {
 
 /// The well-known system variables backing the precedence ladder's lowest
 /// rung (plan.md §4): dotfolder name (present only when a `partials` stack
-/// was given), working directory, date, and hostname. Plain injectable data
-/// — `current(partials:)` derives the real values `TemplateEngine`'s public
-/// `init(partials:)` uses; tests inject fixed values directly so the ladder
-/// is deterministic.
-struct WellKnownValues: Sendable {
+/// was given), working directory, date, and hostname. Plain data that a
+/// caller can supply — `current(partials:)` derives the real values that
+/// `TemplateEngine`'s `init(partials:)` uses; a consumer that must pin the
+/// values, for example a test, builds them itself and gives them to
+/// `StenciledDotfolderStack.init`, so that the ladder is the same at each
+/// render.
+public struct WellKnownValues: Sendable {
   /// The current working directory.
-  var workingDirectory: String
+  public var workingDirectory: String
   /// Today's date.
-  var date: String
+  public var date: String
   /// The current machine's hostname.
-  var hostname: String
+  public var hostname: String
   /// The dotfolder name recovered from a `partials` stack's project
   /// layer, or `nil` when no stack was given.
-  var dotfolderName: String?
+  public var dotfolderName: String?
+
+  /// Creates a set of well-known values.
+  ///
+  /// - Parameters:
+  ///   - workingDirectory: The working directory.
+  ///   - date: The date.
+  ///   - hostname: The hostname of the machine.
+  ///   - dotfolderName: The dotfolder name, or `nil` when there is none.
+  ///     Defaults to `nil`.
+  public init(
+    workingDirectory: String, date: String, hostname: String, dotfolderName: String? = nil
+  ) {
+    self.workingDirectory = workingDirectory
+    self.date = date
+    self.hostname = hostname
+    self.dotfolderName = dotfolderName
+  }
 
   /// This value's fields as `TemplateValue`s, keyed ready to overlay into
   /// a `TemplateContext`. `dotfolder_name` is present only when
@@ -907,7 +926,11 @@ struct WellKnownValues: Sendable {
   /// Derives the real well-known values from process state: the current
   /// working directory, today's UTC date, this machine's hostname, and
   /// (when `partials` is non-`nil`) its project layer's dotfolder name.
-  static func current(partials: DotfolderStack?) -> WellKnownValues {
+  ///
+  /// - Parameter partials: The stack whose highest `.project` layer names
+  ///   the dotfolder, or `nil` for no `dotfolder_name`.
+  /// - Returns: The derived values.
+  public static func current(partials: DotfolderStack?) -> WellKnownValues {
     WellKnownValues(
       workingDirectory: FileManager.default.currentDirectoryPath,
       date: dateFormatter.string(from: Date()),

@@ -26,6 +26,14 @@ import Foundation
 /// ranged `data`, `size`) and the directory lookups give what the base stack
 /// gives, unchanged. The frontmatter is not a concept at this layer.
 ///
+/// ## Text that a consumer holds
+///
+/// `render(_:in:)` renders text that the caller holds, with the trust and
+/// the partial scope of a layer of the stack. A consumer whose own format
+/// runs passes of its own before Stencil marks what those passes spliced in
+/// as quarantined, and the render then gives that text to Stencil as a
+/// value, never as template text.
+///
 /// ## Variables
 ///
 /// The render interpolates `variables` above the well-known values
@@ -84,6 +92,10 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   /// The values that the render interpolates, above the well-known values.
   public let variables: [String: String]
 
+  /// The well-known values of each render, or `nil` to read the current
+  /// values at the time of each render.
+  public let wellKnownValues: WellKnownValues?
+
   /// The hook that receives each render failure.
   private let onDiagnostic: DiagnosticHandler
 
@@ -99,17 +111,23 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   ///     `defaultPartialLocations`.
   ///   - variables: The values that the render interpolates. A value here
   ///     wins over a well-known value of the same name. Defaults to none.
+  ///   - wellKnownValues: The well-known values of each render. `nil`, the
+  ///     default, reads the current values at the time of each render, thus
+  ///     `date` is the date of the render. A consumer that must pin these
+  ///     values, for example a test, gives them here.
   ///   - onDiagnostic: The hook that receives each render failure. Defaults
   ///     to a hook that ignores it.
   public init(
     base: DotfolderStack,
     partialLocations: [String] = defaultPartialLocations,
     variables: [String: String] = [:],
+    wellKnownValues: WellKnownValues? = nil,
     onDiagnostic: @escaping DiagnosticHandler = { _ in }
   ) {
     self.base = base
     self.partialLocations = partialLocations
     self.variables = variables
+    self.wellKnownValues = wellKnownValues
     self.onDiagnostic = onDiagnostic
     self.context = TemplateContext(values: variables.mapValues { .string($0) })
   }
@@ -242,28 +260,187 @@ public struct StenciledDotfolderStack: DotfolderStacking {
     base.isExecutable(relativePath)
   }
 
+  /// Renders `text`, which the caller holds, with the trust of `layer` and
+  /// the partials in the scope of `layer`.
+  ///
+  /// The whole text becomes ONE template. Each `.original` span is template
+  /// text. Each `.quarantined` span is data: the template holds a reference
+  /// to a context key in its place, and the text of the span is the value
+  /// of that key, thus Stencil never reads it as syntax. A `{{ x }}` or an
+  /// `{% include %}` inside such a span stays as it is. The text on the two
+  /// sides of a span is still one template, thus an `{% if %}` block may
+  /// straddle a span.
+  ///
+  /// One template also means one render call, thus ONE set of the limits of
+  /// an untrusted render: the output size, the loop count and the include
+  /// depth. The engine gives fresh limits to each render call, thus to
+  /// render N spans as N templates would give an untrusted text N times
+  /// each limit, and a text can make spans for free.
+  ///
+  /// The variables and the well-known values are those of the stack, the
+  /// same as for a file. The process environment is not a rung: a consumer
+  /// puts each environment value that it wants into `variables`.
+  ///
+  /// - Parameters:
+  ///   - text: The text to render, in spans.
+  ///   - layer: The layer that the text belongs to. The trust comes from
+  ///     this layer, and so does the scope of the partials.
+  /// - Returns: The rendered text.
+  /// - Throws: `TemplateEngineError.renderingFailed` when Stencil fails to
+  ///   parse or to render the template, when the checks of an untrusted
+  ///   render refuse it, or when a `.quarantined` span sits inside an open
+  ///   Stencil delimiter.
+  public func render(_ text: QuarantinedText, in layer: DotfolderStack.Layer) throws -> String {
+    var renderContext = context
+    let template = try Self.template(for: text, injectingQuarantinedSpansInto: &renderContext)
+    let engine = TemplateEngine(
+      partials: partialsStack(for: layer),
+      partialLocations: partialLocations,
+      environment: [:],
+      wellKnownValues: wellKnownValues ?? .current(partials: base)
+    )
+    return try engine.render(template, context: renderContext, trust: Self.trust(of: layer))
+  }
+
+  /// Renders `text`, which the caller holds and every byte of which is
+  /// template text, with the trust of `layer` and the partials in the scope
+  /// of `layer`.
+  ///
+  /// - Parameters:
+  ///   - text: The text to render. All of it is `.original`, thus Stencil
+  ///     scans all of it.
+  ///   - layer: The layer that the text belongs to. The trust comes from
+  ///     this layer, and so does the scope of the partials.
+  /// - Returns: The rendered text.
+  /// - Throws: `TemplateEngineError.renderingFailed`, as
+  ///   `render(_:in:)` for a `QuarantinedText` does.
+  public func render(_ text: String, in layer: DotfolderStack.Layer) throws -> String {
+    try render(QuarantinedText(original: text), in: layer)
+  }
+
+  /// The prefix of the context key under which a render gives the text of
+  /// each `.quarantined` span to Stencil as a value. The number of the span
+  /// follows the prefix (`<prefix>0`, `<prefix>1`, and so on).
+  ///
+  /// A variable of the stack that carries such a name loses nothing: the
+  /// render sets these keys last, thus they always win, and the value that
+  /// each one carries is text that the same render spliced in.
+  static let quarantinedSpanContextKeyPrefix = "foundationModelsExtrasQuarantinedSpan"
+
+  /// The three delimiter pairs of Stencil — the variable, the tag and the
+  /// comment — as `(opener, closer)`. `endsInsideOpenDelimiter(_:)` reads
+  /// them to tell whether the template text stops inside one of them.
+  private static let delimiterPairs: [(opener: String, closer: String)] = [
+    (opener: "{{", closer: "}}"), (opener: "{%", closer: "%}"), (opener: "{#", closer: "#}"),
+  ]
+
+  /// Builds the one template that a render gives to Stencil: the
+  /// `.original` spans of `text` as they are, and a `{{ <key> }}` reference
+  /// in place of each `.quarantined` span, whose text goes into `context`
+  /// under that key.
+  ///
+  /// A span that would sit inside an open delimiter pair — template text
+  /// that has opened a `{{`, a `{%` or a `{#` and has not closed it — is
+  /// refused here, as a `TemplateEngineError.renderingFailed`. Text that a
+  /// pass spliced in may name a variable, steer a tag or disappear, and the
+  /// reader of Stencil does not know a quotation mark, thus to let the
+  /// reference through would render nonsense in place of a failure.
+  ///
+  /// A run of bare `{` at the very end of the text before a span moves out
+  /// of the template and onto the front of the value of that span. It is
+  /// always literal text there: a `{` that opened real syntax is part of an
+  /// open delimiter, which the rule above refuses. To leave it in the
+  /// template would join it to the `{{` of the reference (`{$1}` becomes
+  /// `{{{ key }}}`), which Stencil reads as a broken variable; to move it
+  /// renders `{value}`.
+  ///
+  /// - Parameters:
+  ///   - text: The text to render, in spans.
+  ///   - context: The context of the render. It receives one `.string`
+  ///     entry for each `.quarantined` span, keyed by
+  ///     `quarantinedSpanContextKeyPrefix` and the number of the span. The
+  ///     entries are set after every other rung, thus nothing can shadow a
+  ///     key.
+  /// - Returns: The template text.
+  /// - Throws: `TemplateEngineError.renderingFailed` when a `.quarantined`
+  ///   span sits inside an open Stencil delimiter pair.
+  private static func template(
+    for text: QuarantinedText, injectingQuarantinedSpansInto context: inout TemplateContext
+  ) throws -> String {
+    var template = ""
+    var quarantinedSpanCount = 0
+    for span in text.spans {
+      switch span {
+      case .original(let spanText):
+        template += spanText
+      case .quarantined(let spliced):
+        guard !endsInsideOpenDelimiter(template) else {
+          throw TemplateEngineError.renderingFailed(
+            message:
+              "a spliced value sits inside a Stencil variable, tag or comment; spliced text can never form template syntax"
+          )
+        }
+        let key = "\(quarantinedSpanContextKeyPrefix)\(quarantinedSpanCount)"
+        quarantinedSpanCount += 1
+        let value = movingTrailingBraces(from: &template, ontoFrontOf: spliced)
+        context.set(key: key, to: .string(value))
+        template += "{{ \(key) }}"
+      }
+    }
+    return template
+  }
+
+  /// Reports whether `template` stops inside one of `delimiterPairs`: an
+  /// opener stands after every closer.
+  ///
+  /// - Parameter template: The template text built so far.
+  /// - Returns: `true` when no closer follows the last opener of
+  ///   `template`.
+  private static func endsInsideOpenDelimiter(_ template: String) -> Bool {
+    let lastOpener = delimiterPairs.compactMap {
+      template.range(of: $0.opener, options: .backwards)?.lowerBound
+    }.max()
+    let lastCloser = delimiterPairs.compactMap {
+      template.range(of: $0.closer, options: .backwards)?.lowerBound
+    }.max()
+    guard let lastOpener else { return false }
+    return lastCloser.map { $0 < lastOpener } ?? true
+  }
+
+  /// Takes each `{` from the end of `template`, and gives `value` with
+  /// those braces in front of it.
+  ///
+  /// - Parameters:
+  ///   - template: The template text built so far. The braces at its end go
+  ///     away.
+  ///   - value: The spliced value that comes after `template`.
+  /// - Returns: `value`, with the braces that `template` lost in front of
+  ///   it.
+  private static func movingTrailingBraces(
+    from template: inout String, ontoFrontOf value: String
+  ) -> String {
+    var moved = ""
+    while template.last == "{" {
+      template.removeLast()
+      moved.append("{")
+    }
+    return moved + value
+  }
+
   /// Renders the text of `located` with the trust of its layer and the
   /// partials in the scope of its layer.
   ///
   /// Every text lookup routes through this helper, so each of them applies
-  /// the same trust rule, the same scope rule and the same failure rule.
-  /// The well-known values are read here, at the time of the render, so
-  /// that the construction of the stack does no slow work and `date` is
-  /// the date of the render.
+  /// the same trust rule, the same scope rule and the same failure rule. A
+  /// file takes the same path as the text of a consumer: all of its bytes
+  /// are template text, thus it holds one `.original` span.
   ///
   /// - Parameter located: An item of the base stack.
   /// - Returns: The same item with its text rendered, or `nil` when the
   ///   render fails, in which case the failure went to `onDiagnostic`.
   private func rendered(_ located: Located<String>) -> Located<String>? {
-    let engine = TemplateEngine(
-      partials: partialsStack(for: located.layer),
-      partialLocations: partialLocations,
-      environment: [:],
-      wellKnownValues: .current(partials: base)
-    )
     do {
-      let text = try engine.render(
-        located.value, context: context, trust: Self.trust(of: located.layer))
+      let text = try render(located.value, in: located.layer)
       return Located(url: located.url, layer: located.layer, value: text)
     } catch {
       onDiagnostic(
