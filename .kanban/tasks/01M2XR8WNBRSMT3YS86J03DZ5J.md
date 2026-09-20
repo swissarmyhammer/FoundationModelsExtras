@@ -52,8 +52,31 @@ comments:
     - evidence: swift build --build-tests (0 warnings, exit 0); swift test — 375 tests, 30 suites, 0 failed, 0 skipped, 0 warnings
     - next: send the task to review.
   timestamp: 2026-09-19T22:24:06.018496+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2xwase4mf0yktxees14n02e
+  text: |-
+    ### commit — changed
+    - evidence: a2e7fc0 fix(marketplace): change private types to fileprivate in CatalogResolver and SnapshotWriter
+    - next: none
+  timestamp: 2026-09-19T22:24:31.172976+00:00
+- actor: claude-code
+  id: 01m2xwfd5v5vpk8hqv3xmah11g
+  text: |-
+    ### review — clean
+    - evidence: 0 findings — `review sha HEAD~1..HEAD` (a2e7fc0), 2 files reviewed, 1 candidate refuted, no prior findings open
+    - next: none. The task is in `done`.
+  timestamp: 2026-09-19T22:27:02.459917+00:00
+- actor: claude-code
+  id: 01m2xwg2qxs7qqrnyw6tjfp1az
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 375 passed in 30 suites, 0 failed, 0 skipped
+    - commit: a2e7fc0
+    - review: clean — 0 findings, task moved to done
+  timestamp: 2026-09-19T22:27:24.541250+00:00
+position_column: done
+position_ordinal: b280
 title: Make the top-level private types of CatalogResolver.swift and SnapshotWriter.swift fileprivate
 ---
 ## What
