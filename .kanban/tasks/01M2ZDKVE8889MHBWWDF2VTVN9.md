@@ -59,6 +59,80 @@ comments:
     - evidence: `swift package clean && swift build --build-tests` (0 warnings) then `swift test` — 434 tests, 33 suites, 0 failed, 0 skipped. `DotfolderWatcherTests` (DispatchSource-based) re-run 8 times with `swift test --filter 'FoundationModelsExtrasTests.DotfolderWatcherTests'` — 20/20 tests passed each run, no flake.
     - next: send the task to review.
   timestamp: 2026-09-20T18:01:22.202879+00:00
+- actor: claude-code
+  id: 01m2zzr4jds7t5wedz83yy007g
+  text: |-
+    ### commit — changed
+    - evidence: 19af7e1 feat(dotfolder-watcher): add DotfolderWatcher and move it out of FoundationModelsSkills
+    - next: run review of the commit
+  timestamp: 2026-09-20T18:02:43.149969+00:00
+- actor: claude-code
+  id: 01m3002dr5wp1q1717zd2md3zc
+  text: |
+    ### review — findings
+    - evidence: `review sha HEAD~1..HEAD` — 7 validators attempted, 0 failed, 4 findings (4 confirmed, 0 refuted). Sources/FoundationModelsExtras/DotfolderWatcher.swift:146 `code-hygiene/magic-numbers-swift`; Sources/FoundationModelsExtras/DotfolderWatcher.swift:173 `code-hygiene/magic-numbers-swift`; Sources/FoundationModelsExtras/DotfolderWatcher.swift:478 `swift/fluent-usage`; Sources/FoundationModelsExtras/DotfolderWatcher.swift:493 `swift/fluent-usage`.
+    - next: correct the 4 findings in `DotfolderWatcher.swift`, and remove the same cause everywhere in that file: give each magic number a named constant, and give each event method a past-tense name. Then run the review again. The card stays in `review`.
+  timestamp: 2026-09-20T18:08:20.229702+00:00
+- actor: claude-code
+  id: 01m3002tqnnsjhxpa02zt5x3av
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 6 files. New `DotfolderWatcher.swift` and `DotfolderWatcherTests.swift`, plus `DotfolderStack.swift`, `README.md`, `plan.md` and `CHANGELOG.md`.
+    - test: green — `swift test`, 434 tests in 33 suites, 0 failed, 0 skipped. The watcher suite ran 8 times with no flake.
+    - commit: 19af7e1 — feat(dotfolder-watcher): add DotfolderWatcher and move it out of FoundationModelsSkills
+    - review: findings — 7 validators attempted, 0 failed, 4 findings. `Sources/FoundationModelsExtras/DotfolderWatcher.swift:146` and `:173` (`code-hygiene/magic-numbers-swift`); `Sources/FoundationModelsExtras/DotfolderWatcher.swift:478` and `:493` (`swift/fluent-usage`).
+    - next: iteration 2 corrects the 4 findings and removes the same cause from the whole file.
+  timestamp: 2026-09-20T18:08:33.525535+00:00
+- actor: claude-code
+  id: 01m300d27t0nsqjxw0e142e3rv
+  text: |
+    ### implement — the 4 findings, and the cause removed from the whole file
+
+    Each finding is a requirement. Each one is corrected, and the cause of each one is removed from the whole file, not only from the line that the finding names.
+
+    **`code-hygiene/magic-numbers-swift` at `:146` and `:173` — "Magic numbers should be replaced by named constants."**
+
+    An earlier comment on this card decided that the 200 ms default stays a literal, because a default argument is evaluated at the call site. The finding wins over that decision. Two measurements gave the correct fix:
+
+    1. A `private static let` cannot be the default argument of a public initializer. Measured with `swiftc -swift-version 6`: `static property 'defaultDebounceInterval' is private and cannot be referenced from a default argument value` ... `note: ... is not '@usableFromInline' or public`. Thus the constant must be public.
+    2. A named constant of type `DispatchTimeInterval` is not enough by itself. Measured with swiftlint 0.65.1 and `allowed_numbers: [0, 1, -1, 100]`: `public static let defaultDebounceInterval: DispatchTimeInterval = .milliseconds(200)` still REPORTS, because the `200` is an argument of a call, and the carve-out of the rule covers a plain literal in a declaration only (`let foo = 123`).
+
+    The fix that satisfies the validator and compiles is thus a pair:
+
+    - `private static let defaultDebounceMilliseconds = 200` — a plain literal in a declaration, which the rule does not report.
+    - `public static let defaultDebounceInterval = DispatchTimeInterval.milliseconds(defaultDebounceMilliseconds)` — no literal at all.
+
+    Each public initializer now reads `debounceInterval: DispatchTimeInterval = DotfolderWatcher.defaultDebounceInterval`, and the documentation of each parameter names `defaultDebounceInterval` in place of "200 ms". The value that a caller receives does not change.
+
+    The new public constant is the one new item of public surface. It is documented, and it gives a caller the default period by name.
+
+    Measured after the fix: swiftlint reports 0 findings over the whole file with that configuration. The `200` and the two masks are the only numbers of the file that are not `0`, `1` or `-1`.
+
+    **`swift/fluent-usage` at `:478` and `:493` — "Event-handling method uses `handle...` prefix instead of past-tense pattern."**
+
+    The file held two such methods, and both are renamed to a name that the finding itself gives:
+
+    - `handleAncestorEvent(at:)` -> `ancestorEventDidOccur(at:)`
+    - `handleRawEvent()` -> `fileSystemEventDidOccur()`
+
+    Each call site and each documentation reference is renamed with them. `grep` over `Sources`, `Tests`, `Examples` and `README.md` finds no `handle` name of this file any more. The two remaining `handler` words are `setEventHandler(handler:)` and `setCancelHandler`, which belong to Dispatch. Each other method of the file is an effectful imperative verb phrase (`armRoots()`, `watchTree(at:)`, `flush()`), which is what the rule asks for.
+
+    Evidence: `swift build --build-tests` complete with no warning; `swift test` 434 tests in 33 suites, 0 failed, 0 skipped; `swift-format lint --strict` gives the same 5 lines as `HEAD` gives, thus this change adds no formatting error.
+  timestamp: 2026-09-20T18:14:08.890489+00:00
+- actor: claude-code
+  id: 01m300d92kvgw08gt7pw12r7r3
+  text: |
+    ### implement — changed
+    - evidence: 1 file — `Sources/FoundationModelsExtras/DotfolderWatcher.swift`. The 4 findings of the newest `## Review Findings` section are corrected and checked: the two magic numbers become `defaultDebounceMilliseconds` and `defaultDebounceInterval`, and the two event methods become `ancestorEventDidOccur(at:)` and `fileSystemEventDidOccur()`. `swift build --build-tests`: complete, 0 warnings. `swift test`: 434 tests in 33 suites, 0 failed, 0 skipped. `swiftlint` with `no_magic_numbers` and `allowed_numbers: [0, 1, -1, 100]`: 0 findings over the file, where it gave 2 before. Nothing is committed, nothing is pushed, and `FoundationModelsSkills` is not touched.
+    - next: `/review` of the file again. The card stays in `doing`.
+  timestamp: 2026-09-20T18:14:15.891833+00:00
+- actor: claude-code
+  id: 01m300vd62bxfy8y5aykmpv3k7
+  text: |-
+    ### test — green
+    - evidence: `swift test` — 434 tests, 33 suites, 0 failed, 0 skipped. `swift package clean && swift build --build-tests` — 0 warnings. `swift test --filter 'FoundationModelsExtrasTests.DotfolderWatcherTests'` run 10 times — 20/20 tests passed each run (200 executions total, 0 failures), thus no flake found in the `DispatchSource` file-system-source path. Old symbol names `handleRawEvent` and `handleAncestorEvent(at:)` do not occur anywhere in the tree; only the new names `fileSystemEventDidOccur()` and `ancestorEventDidOccur(at:)` are present.
+    - next: send the task to review.
+  timestamp: 2026-09-20T18:21:58.850272+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'Add DotfolderWatcher: move the recursive directory watcher out of FoundationModelsSkills'
@@ -104,3 +178,20 @@ Do not edit `FoundationModelsSkills` in this card. A card on that board deletes 
 - Record each decision in a comment on this card. Do not ask the user about an implementation detail.
 
 #loading-boundary #cross-repo
+
+## Review Findings (2026-09-20 13:03)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 3 file(s) reviewed, 7 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 3 file(s) not reviewed — no validator matched:
+> - `CHANGELOG.md` — no validator matches this file
+> - `README.md` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsExtras/DotfolderWatcher.swift:146` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsExtras/DotfolderWatcher.swift:173` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsExtras/DotfolderWatcher.swift:478` `swift/fluent-usage` — Event-handling method uses `handle...` prefix instead of past-tense pattern. Method names for events should read as past-tense statements about what happened, not imperative commands to handle something. Rename to `ancestorEventDidOccur` or `ancestorDidChange` to read as a past-tense statement.
+- [x] `Sources/FoundationModelsExtras/DotfolderWatcher.swift:493` `swift/fluent-usage` — Event-handling method uses `handle...` prefix instead of past-tense pattern. Method names for events should read as past-tense statements about what happened, not imperative commands to handle something. Rename to `eventDidOccur` or `fileSystemEventDidOccur` to read as a past-tense statement.

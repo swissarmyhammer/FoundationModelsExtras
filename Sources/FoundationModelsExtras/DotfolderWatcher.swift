@@ -40,6 +40,18 @@ import Foundation
 /// are watched (or are no longer watched) when `onChange` fires.
 // swiftlint:disable:next no_unchecked_sendable  The serial queue guards each value that changes, and the documentation of each value says so; the compiler cannot check that rule.
 public final class DotfolderWatcher: @unchecked Sendable {
+  /// The number of milliseconds of quiet that `defaultDebounceInterval`
+  /// waits.
+  private static let defaultDebounceMilliseconds = 200
+
+  /// The quiet period that each public initializer takes when the caller
+  /// names no interval: 200 ms.
+  ///
+  /// A caller that wants the default period, together with an argument of
+  /// its own that comes after it, names this value.
+  public static let defaultDebounceInterval = DispatchTimeInterval.milliseconds(
+    defaultDebounceMilliseconds)
+
   /// Marks `queue`, thus `runOnQueue(_:)` can find a reentrant call from
   /// inside an event handler of one of the `DispatchSource` values of this
   /// watcher.
@@ -137,13 +149,14 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ///     existing ancestor directory armed instead, thus the later creation
   ///     of the root is still seen.
   ///   - debounceInterval: How long the tree must stay quiet before a burst
-  ///     of events becomes one `onChange` call. The default is 200 ms.
+  ///     of events becomes one `onChange` call. The default is
+  ///     `defaultDebounceInterval`.
   ///   - onChange: Called one time for each quiet period at the most, on an
   ///     unspecified queue, when something changed under any watched root.
   ///     Never called again after `stop()` gives back control.
   public convenience init(
     roots: [URL],
-    debounceInterval: DispatchTimeInterval = .milliseconds(200),
+    debounceInterval: DispatchTimeInterval = DotfolderWatcher.defaultDebounceInterval,
     onChange: @escaping @Sendable () -> Void
   ) {
     self.init(
@@ -164,13 +177,14 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ///     root that is not on disk is armed, as it is for the initializer
   ///     that takes the roots.
   ///   - debounceInterval: How long the tree must stay quiet before a burst
-  ///     of events becomes one `onChange` call. The default is 200 ms.
+  ///     of events becomes one `onChange` call. The default is
+  ///     `defaultDebounceInterval`.
   ///   - onChange: Called one time for each quiet period at the most, on an
   ///     unspecified queue, when something changed under any layer root.
   ///     Never called again after `stop()` gives back control.
   public convenience init(
     stack: some DotfolderStacking,
-    debounceInterval: DispatchTimeInterval = .milliseconds(200),
+    debounceInterval: DispatchTimeInterval = DotfolderWatcher.defaultDebounceInterval,
     onChange: @escaping @Sendable () -> Void
   ) {
     self.init(
@@ -364,9 +378,9 @@ public final class DotfolderWatcher: @unchecked Sendable {
   }
 
   /// Records `child` as awaited under `ancestor` and opens a source whose
-  /// events `handleAncestorEvent(at:)` filters, if `ancestor` does not have
-  /// a source already from an earlier root or from a watched tree that it
-  /// belongs to.
+  /// events `ancestorEventDidOccur(at:)` filters, if `ancestor` does not
+  /// have a source already from an earlier root or from a watched tree that
+  /// it belongs to.
   ///
   /// Always called on `queue`.
   ///
@@ -379,7 +393,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
     guard watchedSources[ancestor.path] == nil else { return }
     let ancestorPath = ancestor.path
     installSource(at: ancestor, eventMask: Self.directoryEventMask) { [weak self] in
-      self?.handleAncestorEvent(at: ancestorPath)
+      self?.ancestorEventDidOccur(at: ancestorPath)
     }
   }
 
@@ -412,7 +426,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ///   - eventMask: The events to observe on `url`.
   private func watchEntry(at url: URL, eventMask: DispatchSource.FileSystemEvent) {
     installSource(at: url, eventMask: eventMask) { [weak self] in
-      self?.handleRawEvent()
+      self?.fileSystemEventDidOccur()
     }
   }
 
@@ -475,14 +489,14 @@ public final class DotfolderWatcher: @unchecked Sendable {
   /// source.
   ///
   /// - Parameter ancestorPath: The absolute path of the armed ancestor.
-  private func handleAncestorEvent(at ancestorPath: String) {
+  private func ancestorEventDidOccur(at ancestorPath: String) {
     let fileManager = FileManager.default
     let ancestorVanished = !fileManager.fileExists(atPath: ancestorPath)
     let childAppeared = (awaitedChildren[ancestorPath] ?? []).contains {
       fileManager.fileExists(atPath: $0)
     }
     guard ancestorVanished || childAppeared else { return }
-    handleRawEvent()
+    fileSystemEventDidOccur()
   }
 
   /// Starts the shared debounce timer again: it starts a new timer, and the
@@ -490,7 +504,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ///
   /// Always called on `queue`, from the event handler of a
   /// `DispatchSource`.
-  private func handleRawEvent() {
+  private func fileSystemEventDidOccur() {
     guard isWatching else { return }
     newestTimerNumber += 1
     let timerNumber = newestTimerNumber
