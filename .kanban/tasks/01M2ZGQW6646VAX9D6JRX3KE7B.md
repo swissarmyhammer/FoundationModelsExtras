@@ -62,8 +62,32 @@ comments:
     - evidence: swift test — 434 tests, 33 suites, 0 failed, 0 skipped; swift build — 0 warnings; diagnostics check working — 0 errors, 0 warnings
     - next: ready for review
   timestamp: 2026-09-20T18:41:11.221113+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3022mptvjcmh88d9sk8h93t
+  text: |-
+    ### commit — changed
+    - evidence: 37e6116 feat(marketplace): add a public read API for the skills CLI
+    - next: review the change
+  timestamp: 2026-09-20T18:43:24.506632+00:00
+- actor: claude-code
+  id: 01m30272y415n5vy6egrmhg6sg
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 37e6116) — 7 validators attempted, 0 failed, 0 findings. 4 files reviewed: Sources/Marketplace/MarketplaceListing.swift, Sources/Marketplace/MarketplaceStore.swift, Tests/MarketplaceTests/MarketplaceListingTests.swift, Tests/MarketplaceTests/ModuleBoundaryTests.swift. README.md and CHANGELOG.md got no review, because no validator reads a Markdown file. The 4 `.kanban/` files are out of scope by a `.reviewignore` rule. No prior review finding is open.
+    - next: the card moves to `done`. The user pushes when the user wants to.
+  timestamp: 2026-09-20T18:45:50.148718+00:00
+- actor: claude-code
+  id: 01m3027bemgyxn6121z11xq801
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files. New `Sources/Marketplace/MarketplaceListing.swift` and `Tests/MarketplaceTests/MarketplaceListingTests.swift`, plus `MarketplaceStore.swift`, `ModuleBoundaryTests.swift`, `README.md` and `CHANGELOG.md`.
+    - test: green — `swift test` runs 6 test targets and each one passes with exit 0: 434, 350, 125, 44, 34 and 26 tests, 0 failed, 0 skipped. The build gives no warning.
+    - commit: 37e6116 — feat(marketplace): add a public read API for the skills CLI
+    - review: clean — 7 validators attempted, 0 failed, 0 findings, over the 4 Swift files of the commit. The task moved to `done`.
+    - note: the push to `main` stays with the user after the loop.
+  timestamp: 2026-09-20T18:45:58.868956+00:00
+position_column: done
+position_ordinal: b680
 title: Give the Marketplace product the public read API that the skills CLI needs
 ---
 ## Where the work is
