@@ -23,12 +23,6 @@ import Testing
 /// and its user folder to one temporary folder.
 @Suite("README marketplace example")
 struct ReadmeSnippetTests {
-  /// The line that opens the fenced Swift block of the README section.
-  private static let fenceOpening = "```swift"
-
-  /// The line that closes a fenced block.
-  private static let fenceClosing = "```"
-
   /// The comment line that starts the example in this file.
   private static let exampleStart = "// README example: begin"
 
@@ -81,51 +75,10 @@ struct ReadmeSnippetTests {
   }
 
   @Test func theReadmeBlockAndTheTestCopyAreTheSameText() throws {
-    let readmeLines = try Self.readmeExampleLines()
-    let testLines = try Self.testExampleLines()
+    let readmeLines = try ReadmeExample.readmeLines(under: MarketplaceTestSupport.readmeMarketplaceHeading)
+    let testLines = try ReadmeExample.lines(between: Self.exampleStart, and: Self.exampleEnd)
 
     #expect(!readmeLines.isEmpty, "the README block holds at least one line, or the check proves nothing")
     #expect(readmeLines == testLines)
-  }
-
-  // MARK: - Support
-
-  /// The lines of the fenced Swift block under the marketplace heading of
-  /// `README.md`, with the whitespace of each line trimmed.
-  ///
-  /// - Returns: The lines between the fence that opens the block and the
-  ///   fence that closes it.
-  /// - Throws: A failed requirement when the README has no marketplace
-  ///   heading, or no fenced Swift block after it.
-  private static func readmeExampleLines() throws -> [String] {
-    let lines = trimmedLines(ofText: try FixtureFile.text(MarketplaceTestSupport.readmePath).get())
-    let heading = try #require(lines.firstIndex(of: MarketplaceTestSupport.readmeMarketplaceHeading))
-    let opening = try #require(lines[heading...].firstIndex(of: fenceOpening))
-    let closing = try #require(lines[opening...].dropFirst().firstIndex(of: fenceClosing))
-    return Array(lines[(opening + 1)..<closing])
-  }
-
-  /// The lines between the two marker comments of this file, with the
-  /// whitespace of each line trimmed.
-  ///
-  /// - Parameter thisFile: The path of this file. The default is the path
-  ///   that the compiler gives.
-  /// - Returns: The lines between the start marker and the end marker.
-  /// - Throws: A failed requirement when a marker is not there, else the
-  ///   error of the file read.
-  private static func testExampleLines(thisFile: String = #filePath) throws -> [String] {
-    let lines = trimmedLines(ofText: try String(contentsOfFile: thisFile, encoding: .utf8))
-    let start = try #require(lines.firstIndex(of: exampleStart))
-    let end = try #require(lines[start...].firstIndex(of: exampleEnd))
-    return Array(lines[(start + 1)..<end])
-  }
-
-  /// Splits `text` into lines, with the leading and trailing whitespace of
-  /// each line removed.
-  ///
-  /// - Parameter text: The text to split.
-  /// - Returns: One entry for each line.
-  private static func trimmedLines(ofText text: String) -> [String] {
-    text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
   }
 }

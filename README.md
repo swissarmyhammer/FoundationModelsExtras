@@ -254,6 +254,60 @@ binds `marketplaceURL` to a repository that `GitFixtureRepository` builds,
 and `cacheDirectory`, `workingDirectory` and `userDirectory` to one
 temporary folder, thus it touches no network and no home directory.
 
+### Example: a marketplace under local folders
+
+A marketplace gives the skills. The local folders of the host change them.
+With these files:
+
+```
+team-skills/skills/review/SKILL.md      Review {{ project }}. {% include "rules.md" %} {% include "footer.md" %}
+team-skills/skills/deploy/SKILL.md      Marketplace deploy of {{ project }}.
+team-skills/skills/_partials/rules.md   Marketplace rules.
+team-skills/skills/_partials/footer.md  Marketplace footer.
+~/.config/myagent/_partials/rules.md    User rules.
+<cwd>/.myagent/deploy/SKILL.md          Project deploy of {{ project }}.
+<cwd>/.myagent/local/SKILL.md           Local skill. {% include "footer.md" %}
+```
+
+the host puts the marketplace below its local folders and renders with
+Stencil:
+
+```swift
+// Local folders: user (~/.config/myagent) < project (<cwd>/.myagent).
+var stack = DotfolderStack(
+    name: "myagent", workingDirectory: workingDirectory, userDirectory: userDirectory)
+
+// The marketplace goes BELOW the local folders, so a local copy wins.
+let store = MarketplaceStore(
+    sources: [MarketplaceSource(marketplaceURL)],
+    layout: MarketplaceLayout(documentName: "SKILL.md"),
+    cacheDirectory: cacheDirectory)
+stack.layers.insert(contentsOf: store.marketplaceLayers().map(\.layer), at: 0)
+
+// Stencil renders each file that a lookup gives.
+let skills = StenciledDotfolderStack(base: stack, variables: ["project": "acme"])
+    .items(in: nil, named: "SKILL.md")
+
+// skills["review"]  from .marketplace: "Review acme. User rules. Marketplace footer."
+// skills["deploy"]  from .project:     "Project deploy of acme."
+// skills["local"]   nil: a local file cannot include a marketplace partial
+```
+
+The rules:
+
+| Case | Result |
+|---|---|
+| Only the marketplace has a skill | The marketplace copy |
+| The project has the same skill | The project copy |
+| The user has a partial that a marketplace skill includes | The user copy |
+| A marketplace skill includes a partial that only its marketplace has | The marketplace copy |
+| A local skill includes a partial that only a marketplace has | A render failure: the skill is not in the result, and the failure goes to `onDiagnostic` |
+
+The last rule keeps a local file independent of a remote source. Each rule
+is one test in `Tests/MarketplaceTests/LayerPrecedenceExampleTests.swift`,
+and a test in that file proves that this block and the test copy are the
+same text: `swift test --filter LayerPrecedenceExampleTests`.
+
 ## Watching the layers: `DotfolderWatcher`
 
 `DotfolderStack` holds no cache: each lookup reads the disk at the time of
