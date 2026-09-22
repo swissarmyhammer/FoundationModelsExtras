@@ -547,21 +547,27 @@ is out of this rule: with `path:` it gives its folder unchanged, and with no
 
 **The partials of a snapshot** (decision 2026-09-22, the user). The
 snapshot is flat: a skill is at `<snapshot>/<skill>/`, and the folders
-between a plugin source and a skill, for example `skills/`, are not in it.
-Thus the partials of those folders merge into `<snapshot>/_partials/`, from
-the least specific to the most specific. First comes the partials folder of
-the source of each selected plugin that gives a skill or an agent (for a
-tree with no catalog, the partials folder of the root). Then comes the
-partials folder of each folder that holds a selected skill, for example
-`skills/_partials/`, as before. A more specific copy replaces a less
-specific copy with no diagnostic; two copies at the same level of
-specificity give one diagnostic, and the later plugin wins. A partials
-folder inside a skill folder goes with the skill folder, and the include
-walk (§4) finds it there first. Both `_partials/` at the root and
-`skills/_partials/` stay valid places, thus every partial that a snapshot
-held before this decision it still holds. A known limit of the flat
-snapshot: an agent also sees the partials of `skills/_partials/`, because
-they merge into the one partials folder of the snapshot.
+between a plugin source and a skill, for example `skills/` and
+`skills/group/`, are not in it. Thus the partials of those folders merge into
+`<snapshot>/_partials/`. For each selected skill, the writer takes each
+folder from the source of its plugin (for a tree with no catalog, the root)
+down to the folder that holds the skill: for `skills/group/review/`, the
+source root, `skills/`, and `skills/group/`. The partials folder of the
+source of a plugin that gives only agents is also in the set. The writer
+copies the partials folder of each folder of the set one time, from the
+least specific (the fewest path components) to the most specific, whatever
+the catalog order. A more specific copy replaces a less specific copy with no
+diagnostic. Two folders at the same level of specificity that give a partial
+of the same name, for example `skills/group-a/_partials/x.md` and
+`skills/group-b/_partials/x.md`, or the sources of two plugins, give one
+diagnostic, and the later one in catalog order wins. A partials folder
+inside a skill folder goes with the skill folder, and the include walk (§4)
+finds it there first. Both `_partials/` at the root and `skills/_partials/`
+stay valid places, thus every partial that a snapshot held before this
+decision it still holds, except where a more specific folder now holds a copy
+of the same name. A known limit of the flat snapshot: each skill and each
+agent sees the merged partials of all these folders, because they merge into
+the one partials folder of the snapshot.
 
 **No grant.** A marketplace layer always renders untrusted, and there is no
 per-marketplace permission. `MarketplaceSource` has no field that grants a

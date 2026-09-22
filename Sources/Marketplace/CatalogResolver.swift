@@ -20,8 +20,8 @@ internal struct ResolvedCatalog: Sendable, Hashable {
   /// The source folder of each selected plugin that gives the snapshot a
   /// skill or an agent file, in catalog order, one time each. A scan gives
   /// the root of the tree, the empty path, when it gives a skill or an agent
-  /// file. The snapshot writer copies the partials folder of each one first,
-  /// as the least specific partials of the snapshot.
+  /// file. The snapshot writer copies the partials folder of each one, and
+  /// of each folder from it down to each of its selected skills.
   var sourceRoots: [String] = []
 
   /// The `renames` map of the catalog. It is empty for a scan.

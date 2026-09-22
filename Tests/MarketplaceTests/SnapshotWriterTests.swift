@@ -465,6 +465,90 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "alpha/\(Self.partialsName)/own.md") == "from alpha")
   }
 
+  // MARK: - The partials of nested folders
+
+  /// A catalog with one plugin at the root of the tree that lists one skill
+  /// in a nested folder, `skills/group/review/`.
+  private static let nestedSkillCatalog =
+    #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/group/review"]}]}"#
+
+  /// A tree with one skill at `skills/group/review/`. The root, `skills/`
+  /// and `skills/group/` each hold one partial of their own, and one partial
+  /// with the shared name `shared.md`.
+  private static let nestedSkillTree: [String: String] = [
+    ".claude-plugin/marketplace.json": nestedSkillCatalog,
+    "skills/group/review/SKILL.md": skillFile(named: "review"),
+    "_partials/root-only.md": "root only",
+    "_partials/shared.md": "from the root",
+    "skills/_partials/skills-only.md": "skills only",
+    "skills/_partials/shared.md": "from skills",
+    "skills/group/_partials/group-only.md": "group only",
+    "skills/group/_partials/shared.md": "from group",
+  ]
+
+  /// The number of files that a snapshot of ``nestedSkillTree`` holds when
+  /// it copies each partials folder one time: one `SKILL.md` file, and two
+  /// partials for each of the three folders.
+  private static let nestedSkillFileCount = 7
+
+  @Test func aNestedSkillGetsThePartialsOfEachFolderFromTheSourceRootDown() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(Self.nestedSkillTree, layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(
+      try destination.names(inFolder: Self.partialsName)
+        == ["group-only.md", "root-only.md", "shared.md", "skills-only.md"])
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from group")
+  }
+
+  @Test func eachPartialsFolderOfANestedSkillIsCopiedOneTime() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(Self.nestedSkillTree, layout: Self.layout, to: destination)
+
+    #expect(report.fileCount == Self.nestedSkillFileCount)
+  }
+
+  @Test func theMostSpecificCopyWinsWhenTheCatalogListsTheLessSpecificFolderLast() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        ".claude-plugin/marketplace.json":
+          #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/group/review", "./skills/top"]}]}"#,
+        "skills/group/review/SKILL.md": Self.skillFile(named: "review"),
+        "skills/top/SKILL.md": Self.skillFile(named: "top"),
+        "skills/_partials/shared.md": "from skills",
+        "skills/group/_partials/shared.md": "from group",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from group")
+  }
+
+  @Test func twoFoldersAtTheSameLevelGiveOneDiagnosticAndTheLaterFolderWins() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        ".claude-plugin/marketplace.json":
+          #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/group-a/alpha", "./skills/group-b/beta"]}]}"#,
+        "skills/group-a/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+        "skills/group-b/beta/SKILL.md": Self.skillFile(named: "beta"),
+        "skills/group-a/_partials/x.md": "from group-a",
+        "skills/group-b/_partials/x.md": "from group-b",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.map(\.severity) == [.warning])
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/x.md") == "from group-b")
+  }
+
   /// The text of one fixture `SKILL.md` file.
   ///
   /// - Parameter name: The frontmatter name of the skill.

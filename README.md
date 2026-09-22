@@ -270,20 +270,32 @@ reads them again on each `layerUpdates` value; an agent body can include a
 partial of the partials folder of the same layer.
 
 The snapshot is flat: a skill is at `<snapshot>/<skill>/`, and the folders
-between a plugin source and a skill, for example `skills/`, are not in it.
-Thus the partials of those folders merge into `<snapshot>/_partials/`, from
-the least specific to the most specific. First comes
-`<plugin source>/_partials/` of each plugin that gives a skill or an agent
-(for a tree with no catalog, `<root>/_partials/`). Then comes the
-`_partials/` of each folder that holds a selected skill, for example
-`skills/_partials/`; a copy from there replaces
-a copy of the same name from the plugin source, with no diagnostic. Two
-plugins that give a partial of the same name at the same level: the later
-plugin wins, with one diagnostic. A `_partials/` folder inside a skill folder
-goes with the skill folder, and the include walk finds it at
-`<snapshot>/<skill>/_partials/`, where it wins for that skill. A known limit
-of the flat snapshot: an agent also sees the partials of `skills/_partials/`,
-because they merge into the one `<snapshot>/_partials/`.
+between a plugin source and a skill, for example `skills/` and
+`skills/group/`, are not in it. Thus the partials of those folders merge into
+`<snapshot>/_partials/`. For each selected skill, the snapshot takes each
+folder from the plugin source (for a tree with no catalog, the root) down to
+the folder that holds the skill. It copies the `_partials/` of each of these
+folders one time, from the least specific (the fewest path components) to
+the most specific. For a skill at `skills/group/review/`, the order is:
+
+```
+_partials/                 the plugin source
+skills/_partials/          less specific
+skills/group/_partials/    the most specific: it wins
+```
+
+The `<plugin source>/_partials/` of a plugin that gives only agents is
+copied too. A copy from a more specific folder replaces a copy of the same
+name from a less specific folder, with no diagnostic, whatever the catalog
+order. Two folders at the same level that give a partial of the same name,
+for example `skills/group-a/_partials/x.md` and
+`skills/group-b/_partials/x.md`, or the source roots of two plugins: the
+later one in catalog order wins, with one diagnostic. A `_partials/` folder
+inside a skill folder goes with the skill folder, and the include walk finds
+it at `<snapshot>/<skill>/_partials/`, where it wins for that skill. A known
+limit of the flat snapshot: each skill and each agent sees the merged
+partials of all these folders, because they merge into the one
+`<snapshot>/_partials/`.
 
 A marketplace layer always renders untrusted, and there is no
 per-marketplace permission: the source of the layer is

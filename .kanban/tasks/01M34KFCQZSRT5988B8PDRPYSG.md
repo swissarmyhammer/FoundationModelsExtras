@@ -77,8 +77,24 @@ comments:
     - evidence: `swift build --build-tests` — build complete, 0 errors, 0 warnings. `swift test` — Test run with 443 tests in 34 suites passed, 0 failed, 0 skipped, 0 compiler warnings.
     - next: none
   timestamp: 2026-09-22T14:10:43.754425+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m34qe22mwxynxsvg0v1wqce3
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (94a400d). 0 findings, 0 confirmed, 1 refuted, 7 attempted, 0 failed. The prior finding is checked.
+    - next: none. The task moved to done.
+  timestamp: 2026-09-22T14:13:36.468839+00:00
+- actor: claude-code
+  id: 01m34qefnkn7wbw6hqkn7a820y
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (removed the @Suite attribute with no arguments)
+    - test: green — swift build --build-tests 0 warnings; swift test 0 failed, 0 skipped
+    - commit: 94a400d
+    - review: clean — 0 findings
+  timestamp: 2026-09-22T14:13:50.387262+00:00
+position_column: done
+position_ordinal: b880
 title: Resolve partials from the document up to the layer root, and copy the partials of the plugin root into a snapshot
 ---
 ## Where the request came from

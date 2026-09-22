@@ -111,7 +111,89 @@ struct PartialWalkTests {
     #expect(rendered == expected)
   }
 
+  @Test func theWalkSkipsALevelWithNoCopyAndContinuesUp() throws {
+    let fixture = Fixture()
+    try FileManager.default.createDirectory(
+      at: fixture.defaultsDirectory.appendingPathComponent("a/b/_partials", isDirectory: true),
+      withIntermediateDirectories: true)
+    fixture.write("a copy", to: Self.partialPath(inFolder: "a"), in: fixture.defaultsDirectory)
+    fixture.write("root copy", to: Self.partialPath(inFolder: ""), in: fixture.defaultsDirectory)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    let rendered = try stenciled.render(
+      Self.includeBody, at: "a/b/c/doc.md", in: Self.defaultsLayer(of: fixture))
+
+    #expect(rendered == "a copy")
+  }
+
+  /// A body that includes three partials, `x`, `y` and `z`, each of which
+  /// only one folder of the walk holds.
+  private static let threePartialsBody =
+    "{% include \"_partials/x\" %} {% include \"_partials/y\" %} {% include \"_partials/z\" %}"
+
+  @Test func oneDocumentGetsDifferentPartialsFromDifferentLevels() throws {
+    let fixture = Fixture()
+    fixture.write("x of a/b", to: "a/b/_partials/x.md", in: fixture.defaultsDirectory)
+    fixture.write("y of a", to: "a/_partials/y.md", in: fixture.defaultsDirectory)
+    fixture.write("z of the root", to: "_partials/z.md", in: fixture.defaultsDirectory)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    let rendered = try stenciled.render(
+      Self.threePartialsBody, at: "a/b/doc.md", in: Self.defaultsLayer(of: fixture))
+
+    #expect(rendered == "x of a/b y of a z of the root")
+  }
+
+  /// Each document path of the deep walk test, with the copy that its walk
+  /// finds first. Only `a/b/c/d/`, `a/` and the layer root hold a copy.
+  private static let deepWalkCases: [(documentPath: String, expected: String)] = [
+    (documentPath: "a/b/c/d/e/f/doc.md", expected: "a/b/c/d copy"),
+    (documentPath: "a/b/c/d/doc.md", expected: "a/b/c/d copy"),
+    (documentPath: "a/b/c/doc.md", expected: "a copy"),
+    (documentPath: "doc.md", expected: "root copy"),
+  ]
+
+  @Test(arguments: deepWalkCases)
+  func aWalkThroughSixLevelsFindsTheNearestCopy(documentPath: String, expected: String) throws {
+    let fixture = Fixture()
+    fixture.write("a/b/c/d copy", to: Self.partialPath(inFolder: "a/b/c/d"), in: fixture.defaultsDirectory)
+    fixture.write("a copy", to: Self.partialPath(inFolder: "a"), in: fixture.defaultsDirectory)
+    fixture.write("root copy", to: Self.partialPath(inFolder: ""), in: fixture.defaultsDirectory)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    let rendered = try stenciled.render(
+      Self.includeBody, at: documentPath, in: Self.defaultsLayer(of: fixture))
+
+    #expect(rendered == expected)
+  }
+
   // MARK: - The walk and the layers
+
+  /// Each document path of the deep walk test across layers, with the copy
+  /// that its walk finds first. The defaults layer holds a copy in
+  /// `a/b/c/d/e/`. The project layer, which is higher, holds a copy in
+  /// `a/b/` and at its root.
+  private static let deepLayerWalkCases: [(documentPath: String, expected: String)] = [
+    (documentPath: "a/b/c/d/e/f/doc.md", expected: "defaults a/b/c/d/e copy"),
+    (documentPath: "a/b/c/d/e/doc.md", expected: "defaults a/b/c/d/e copy"),
+    (documentPath: "a/b/c/d/doc.md", expected: "project a/b copy"),
+    (documentPath: "a/doc.md", expected: "project root copy"),
+  ]
+
+  @Test(arguments: deepLayerWalkCases)
+  func aMoreSpecificFolderOfALowerLayerWinsAcrossSixLevels(documentPath: String, expected: String) throws {
+    let fixture = Fixture()
+    fixture.write(
+      "defaults a/b/c/d/e copy", to: Self.partialPath(inFolder: "a/b/c/d/e"), in: fixture.defaultsDirectory)
+    fixture.write("project a/b copy", to: Self.partialPath(inFolder: "a/b"), in: fixture.projectDirectory)
+    fixture.write("project root copy", to: Self.partialPath(inFolder: ""), in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack())
+
+    let rendered = try stenciled.render(
+      Self.includeBody, at: documentPath, in: Self.defaultsLayer(of: fixture))
+
+    #expect(rendered == expected)
+  }
 
   @Test func aMoreSpecificFolderOfALowerLayerWinsOverALessSpecificFolderOfAHigherLayer() {
     let fixture = Fixture()
