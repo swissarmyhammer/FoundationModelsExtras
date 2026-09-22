@@ -509,6 +509,25 @@ resolver reads the first two, and the snapshot writer reads the third.
 Each diagnostic text interpolates the document name, thus no text of this
 package names `SKILL.md`.
 
+**The agents folder of a layer.** A Claude plugin holds skills and agents
+side by side, thus the root of a git layer also holds `agents/<file name>.md`:
+one flat folder, one `.md` file for each agent, and the file name is the
+agent name (`MarketplaceLayer.agentsDirectoryName`, the one public name of
+this rule). A catalog plugin gives the `.md` files of its `agents` list,
+relative to the plugin source, else each `.md` file directly in
+`<plugin source>/agents/`; a tree with no catalog gives each `.md` file
+directly in `<root>/agents/`. No subfolder of `agents/` is read. The later
+plugin wins a duplicate file name with one diagnostic, as for skills.
+`SkillSelection.all` and `.plugins` take the agents; `.skills` takes none.
+The agent files count toward `SnapshotLimits`. The name `agents` is reserved
+at the layer root: a skill folder with that name gets a diagnostic and is not
+copied. The store copies agent files by name and reads no agent frontmatter,
+as it knows no skill (`ModuleBoundaryTests`). A consumer, for example
+`FoundationModelsAgents`, reads `<layer root>/agents/*.md` from each layer,
+and reads the layers again on each `layerUpdates` value. A `file://` source
+is out of this rule: with `path:` it gives its folder unchanged, and with no
+`path:` it reads `<folder>/skills` only.
+
 **No grant.** A marketplace layer always renders untrusted, and there is no
 per-marketplace permission. `MarketplaceSource` has no field that grants a
 capability, and no type of this package names one. The source of the layer

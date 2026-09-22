@@ -59,11 +59,11 @@ internal struct SnapshotReport: Sendable, Hashable {
 /// Writes the selected skills of one resolved catalog into one flat folder
 /// (marketplace.md §7.3 steps 3 and 4, and §4.2).
 ///
-/// The result is a layer root: `<skill>/…` for each selected skill, plus the
-/// partials folder that the ``MarketplaceLayout`` of the host names. The
-/// input is any ``CatalogFileSource``, so the same code writes a folder on
-/// the disk and the tree of a fetched commit. There is no checkout and no
-/// work tree.
+/// The result is a layer root: `<skill>/…` for each selected skill,
+/// `agents/<name>` for each selected agent file, plus the partials folder
+/// that the ``MarketplaceLayout`` of the host names. The input is any
+/// ``CatalogFileSource``, so the same code writes a folder on the disk and
+/// the tree of a fetched commit. There is no checkout and no work tree.
 ///
 /// ``MarketplaceCache/install(snapshotAt:sha:ref:)`` then takes the folder
 /// that this writer staged.
@@ -100,6 +100,7 @@ internal enum SnapshotWriter {
     do {
       try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
       try run.copySkills(catalog.skills)
+      try run.copyAgents(catalog.agents)
       try run.copyPartials(ofSkills: catalog.skills)
     } catch {
       try? FileManager.default.removeItem(at: temporaryDirectory)
@@ -167,6 +168,27 @@ fileprivate struct SnapshotRun {
     for skill in skills {
       let name = try Self.validated(name: skill.name, inDirectory: skill.path)
       try copyTree(fromTreePath: skill.path, toRelativePath: name, depth: 0)
+    }
+  }
+
+  /// Copies each selected agent file to `<snapshot>/agents/<name>`.
+  ///
+  /// The copy reads no text of an agent file. An agent file is a document,
+  /// thus the copy does not keep an execute bit. Each file counts toward
+  /// the policy limits, as a file of a skill folder does.
+  ///
+  /// - Parameter agents: The selected agent files, one for each name.
+  /// - Throws: ``SnapshotError``, else the error of a read or of a write.
+  mutating func copyAgents(_ agents: [ResolvedAgent]) throws {
+    guard !agents.isEmpty else {
+      return
+    }
+    let folder = MarketplaceLayer.agentsDirectoryName
+    try FileManager.default.createDirectory(at: url(forRelativePath: folder), withIntermediateDirectories: true)
+    for agent in agents {
+      let name = try Self.validated(name: agent.name, inDirectory: CatalogPath.parent(of: agent.path))
+      try copyFile(
+        fromTreePath: agent.path, toRelativePath: CatalogPath.child(named: name, of: folder), isExecutable: false)
     }
   }
 
@@ -441,16 +463,6 @@ fileprivate struct SnapshotRun {
   /// - Returns: The folder of each skill folder, with no repeat.
   private static func parentFolders(ofSkills skills: [ResolvedSkill]) -> [String] {
     var seen: Set<String> = []
-    return skills.map { parentFolder(ofSkillAt: $0.path) }.filter { seen.insert($0).inserted }
-  }
-
-  /// The folder that holds one skill folder.
-  ///
-  /// - Parameter path: The skill folder in the tree. The empty path is the
-  ///   root.
-  /// - Returns: The folder that holds it. The root gives the root.
-  private static func parentFolder(ofSkillAt path: String) -> String {
-    path.split(separator: CatalogPath.separator).dropLast()
-      .joined(separator: String(CatalogPath.separator))
+    return skills.map { CatalogPath.parent(of: $0.path) }.filter { seen.insert($0).inserted }
   }
 }

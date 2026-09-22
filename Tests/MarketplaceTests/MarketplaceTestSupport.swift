@@ -41,7 +41,10 @@ actor CredentialRequestRecorder {
 /// and write a small tree with ``makeTempDirectory(withFiles:)``. The store
 /// suites build a fixture commit with ``skillTree(body:)``, write a local
 /// marketplace with ``writeSkillFolder(named:in:body:)``, and read what a
-/// layer root holds with ``skillBody(inLayerRoot:)``. `ReadmeSnippetTests`
+/// layer root holds with ``skillBody(inLayerRoot:)``. The catalog suite and
+/// the snapshot writer suite resolve the agents of
+/// ``twoPluginAgentTree``, and the agent tests write agent files with
+/// ``agentDocument(named:)``. `ReadmeSnippetTests`
 /// and `DocumentationTests` both find the marketplace section of the README
 /// with ``readmePath`` and ``readmeMarketplaceHeading``.
 ///
@@ -78,6 +81,40 @@ enum MarketplaceTestSupport {
   static func skillDocument(named id: String, body: String) -> String {
     "---\nname: \(id)\ndescription: fixture skill \(id)\n---\n\(body)\n"
   }
+
+  /// The text of one fixture agent file: a frontmatter with the name and a
+  /// description, then a body that names the agent.
+  ///
+  /// - Parameter name: The agent name, which is the frontmatter `name`.
+  /// - Returns: The file text.
+  static func agentDocument(named name: String) -> String {
+    "---\nname: \(name)\ndescription: fixture agent \(name)\n---\nThe body of the \(name) agent.\n"
+  }
+
+  /// A tree with a Claude catalog of two plugins, `first` and then
+  /// `second`. Each plugin has one skill and one agent: `first` has the
+  /// skill `alpha` and the agent `planner.md`, and `second` has the skill
+  /// `beta` and the agent `reviewer.md`. The catalog renames the plugin
+  /// `old` to `second`.
+  ///
+  /// The catalog suite and the snapshot writer suite both read this tree,
+  /// thus it is here.
+  static let twoPluginAgentTree: [String: String] = [
+    ".claude-plugin/marketplace.json": """
+      {
+        "name": "two-plugins",
+        "plugins": [
+          { "name": "first", "source": "./first" },
+          { "name": "second", "source": "./second" }
+        ],
+        "renames": { "old": "second" }
+      }
+      """,
+    "first/skills/alpha/SKILL.md": skillDocument(named: "alpha", body: "The body of alpha."),
+    "first/agents/planner.md": agentDocument(named: "planner"),
+    "second/skills/beta/SKILL.md": skillDocument(named: "beta", body: "The body of beta."),
+    "second/agents/reviewer.md": agentDocument(named: "reviewer"),
+  ]
 
   /// The tree of one fixture commit: one skill under `skills`.
   ///

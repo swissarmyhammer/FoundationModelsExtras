@@ -13,6 +13,10 @@ internal struct ResolvedCatalog: Sendable, Hashable {
   /// The selected skills, in catalog order.
   var skills: [ResolvedSkill]
 
+  /// The agent files of the selected plugins, in catalog order, one for
+  /// each file name.
+  var agents: [ResolvedAgent] = []
+
   /// The `renames` map of the catalog. It is empty for a scan.
   var renames: [String: String?]
 
@@ -33,6 +37,22 @@ internal struct ResolvedSkill: Sendable, Hashable {
   var plugin: String?
 }
 
+/// One agent file that a marketplace gives.
+///
+/// The resolver knows an agent file only by its name: it reads no text of
+/// the file.
+internal struct ResolvedAgent: Sendable, Hashable {
+  /// The file name, for example `reviewer.md`. The snapshot writes the file
+  /// to `<snapshot>/agents/<name>`.
+  var name: String
+
+  /// The path of the file in the tree.
+  var path: String
+
+  /// The plugin that gives the agent, or `nil` for a scan.
+  var plugin: String?
+}
+
 /// Reads the catalog of a marketplace from a ``CatalogFileSource`` and
 /// resolves the list of skills (marketplace.md §5.2 and §6.4).
 ///
@@ -49,7 +69,17 @@ internal struct ResolvedSkill: Sendable, Hashable {
 /// folder. A plugin with a remote source is skipped. When two plugins give
 /// the same skill name, the later plugin wins. A selected name that the
 /// catalog renamed maps to the new name, and a name that the catalog removed
-/// selects nothing.
+/// selects nothing. A skill with the name
+/// ``MarketplaceLayer/agentsDirectoryName`` gets one warning, and the
+/// resolver skips it, because that name is reserved at the layer root.
+///
+/// The agent files of a plugin are the `.md` files of its `agents` list,
+/// else the `.md` files directly in `<plugin source>/agents/`. A tree with no
+/// catalog gives the `.md` files directly in `<root>/agents/`. The
+/// selections ``SkillSelection/all`` and ``SkillSelection/plugins(_:)`` take
+/// the agent files; ``SkillSelection/skills(_:)`` takes none. When two
+/// plugins give the same file name, the later plugin wins. The resolver
+/// knows an agent file only by its name: it reads no text of the file.
 ///
 /// The ``MarketplaceLayout`` of the host names the document, thus the
 /// resolver holds no knowledge of what an entry is.
@@ -200,6 +230,9 @@ fileprivate struct CatalogReader {
   /// The key of the frontmatter that names the root entry.
   private static let nameKey = "name"
 
+  /// The extension of an agent file.
+  static let agentFileExtension = ".md"
+
   /// The files of the tree.
   let source: any CatalogFileSource
 
@@ -213,22 +246,26 @@ fileprivate struct CatalogReader {
 
   // MARK: - Catalog
 
-  /// Resolves the skills of a catalog.
+  /// Resolves the skills and the agent files of a catalog.
   ///
   /// - Parameters:
   ///   - catalog: The decoded catalog.
   ///   - selection: The host selection.
-  /// - Returns: The selected skills, with a diagnostic for each problem.
+  /// - Returns: The selected skills and agent files, with a diagnostic for
+  ///   each problem.
   func resolved(catalog: MarketplaceCatalog, selection: SkillSelection) -> ResolvedCatalog {
     let renamed = renamedSelection(of: selection, renames: catalog.renames)
     let plugins = selectedItems(items: catalog.plugins, by: renamed.value, noun: .plugin, nameOf: \.name)
     let listed = plugins.value.map { skills(of: $0) }
-    let unique = deduplicated(skills: listed.flatMap(\.value), winner: .last)
+    let unique = deduplicated(listed.flatMap(\.value), winner: .last)
     let selected = selectedItems(items: unique.value, by: renamed.value, noun: .skill, nameOf: \.name)
+    let kept = unreserved(skills: selected.value)
+    let agentFiles = agents(ofPlugins: plugins.value, selection: renamed.value)
     return ResolvedCatalog(
-      name: catalog.name, version: catalog.metadata?.version, skills: selected.value, renames: catalog.renames,
+      name: catalog.name, version: catalog.metadata?.version, skills: kept.value, agents: agentFiles.value,
+      renames: catalog.renames,
       diagnostics: renamed.diagnostics + plugins.diagnostics + listed.flatMap(\.diagnostics)
-        + unique.diagnostics + selected.diagnostics)
+        + unique.diagnostics + selected.diagnostics + kept.diagnostics + agentFiles.diagnostics)
   }
 
   /// Finds the skills of one plugin.
@@ -316,21 +353,149 @@ fileprivate struct CatalogReader {
     }
   }
 
-  // MARK: - Scan
+  // MARK: - Agents
 
-  /// Resolves the skills of a tree that has no catalog.
+  /// Tells whether a selection takes the agent files of its plugins.
   ///
   /// - Parameter selection: The host selection.
-  /// - Returns: The selected skills of the scan. A scan has no plugin, so a
-  ///   ``SkillSelection/plugins(_:)`` selection gives no skill and one
-  ///   warning for each name.
+  /// - Returns: `true` for ``SkillSelection/all`` and
+  ///   ``SkillSelection/plugins(_:)``. A ``SkillSelection/skills(_:)``
+  ///   selection names skills only, thus it takes no agent file.
+  static func takesAgents(_ selection: SkillSelection) -> Bool {
+    switch selection {
+    case .all, .plugins:
+      true
+    case .skills:
+      false
+    }
+  }
+
+  /// Finds the agent files of the selected plugins.
+  ///
+  /// - Parameters:
+  ///   - plugins: The selected plugins, in catalog order.
+  ///   - selection: The host selection, after the renames.
+  /// - Returns: One agent file for each file name. When two plugins give the
+  ///   same name, the later plugin wins, and each losing file gives one
+  ///   warning.
+  func agents(ofPlugins plugins: [MarketplaceCatalog.Plugin], selection: SkillSelection) -> Diagnosed<[ResolvedAgent]> {
+    guard Self.takesAgents(selection) else {
+      return Diagnosed(value: [])
+    }
+    let found = plugins.map { agents(of: $0) }
+    let unique = deduplicated(found.flatMap(\.value), winner: .last)
+    return Diagnosed(value: unique.value, diagnostics: found.flatMap(\.diagnostics) + unique.diagnostics)
+  }
+
+  /// Finds the agent files of one plugin.
+  ///
+  /// A plugin with a remote source, or with a source path outside the
+  /// repository, gives no agent file and no diagnostic: the skills step
+  /// gives the warning for that plugin.
+  ///
+  /// - Parameter plugin: The plugin entry.
+  /// - Returns: The files of the `agents` list, else the agent files of
+  ///   `<source>/agents/`.
+  func agents(of plugin: MarketplaceCatalog.Plugin) -> Diagnosed<[ResolvedAgent]> {
+    guard case .relative(let path) = plugin.source, let root = CatalogPath.normalized(path: path) else {
+      return Diagnosed(value: [])
+    }
+    guard let entries = plugin.agents else {
+      return folderAgents(ofPlugin: plugin.name, root: root)
+    }
+    return entries.map { listedAgent(entry: $0, ofPlugin: plugin.name, root: root) }.collected()
+  }
+
+  /// Finds one agent file of an `agents` list.
+  ///
+  /// - Parameters:
+  ///   - entry: The entry of the list, relative to the plugin source.
+  ///   - plugin: The name of the plugin.
+  ///   - root: The normalized source path of the plugin.
+  /// - Returns: The agent file, or `nil` and one diagnostic when the entry
+  ///   does not name an agent file of the tree.
+  func listedAgent(entry: String, ofPlugin plugin: String, root: String) -> Diagnosed<ResolvedAgent?> {
+    guard let path = CatalogPath.resolved(relativePath: entry, inFolder: root),
+      let name = CatalogPath.lastComponent(of: path)
+    else {
+      return Diagnosed(value: nil, diagnostics: [unlistedAgentDiagnostic(entry: entry, plugin: plugin)])
+    }
+    let folder = CatalogPath.parent(of: path)
+    let listed = listing(ofFolder: folder)
+    guard listed.value.contains(where: { $0.name == name && Self.isAgentFile(entry: $0) }) else {
+      let notFound = listed.diagnostics.isEmpty ? [unlistedAgentDiagnostic(entry: entry, plugin: plugin)] : []
+      return Diagnosed(value: nil, diagnostics: listed.diagnostics + notFound)
+    }
+    return Diagnosed(value: ResolvedAgent(name: name, path: path, plugin: plugin))
+  }
+
+  /// Finds the agent files directly in `<root>/agents/`. The call does not
+  /// read a subfolder.
+  ///
+  /// - Parameters:
+  ///   - plugin: The name of the plugin, or `nil` for a scan.
+  ///   - root: The normalized source path of the plugin, or the empty path
+  ///     for the root of a scanned tree.
+  /// - Returns: The agent files, in name order. A tree with no agents
+  ///   folder gives no agent file.
+  func folderAgents(ofPlugin plugin: String?, root: String) -> Diagnosed<[ResolvedAgent]> {
+    let folder = CatalogPath.child(named: MarketplaceLayer.agentsDirectoryName, of: root)
+    return listing(ofFolder: folder).map { entries in
+      entries.filter { Self.isAgentFile(entry: $0) }
+        .map { ResolvedAgent(name: $0.name, path: CatalogPath.child(named: $0.name, of: folder), plugin: plugin) }
+    }
+  }
+
+  /// Tells whether an item of a folder is an agent file.
+  ///
+  /// The extension match is exact, as the match of
+  /// ``MarketplaceLayout/documentName`` is: `reviewer.MD` is not an agent
+  /// file. The call reads no text of the file.
+  ///
+  /// - Parameter entry: The item.
+  /// - Returns: `true` for a regular file whose name ends in `.md` and has
+  ///   one character or more before the extension. A symbolic link is not
+  ///   an agent file.
+  static func isAgentFile(entry: CatalogTreeEntry) -> Bool {
+    guard case .file = entry.kind, entry.name.hasSuffix(agentFileExtension),
+      entry.name.count > agentFileExtension.count
+    else {
+      return false
+    }
+    return true
+  }
+
+  /// Removes each skill whose name is reserved at the layer root: the name
+  /// of the agents folder.
+  ///
+  /// - Parameter skills: The selected skills, in catalog order.
+  /// - Returns: The skills that the snapshot can hold. Each removed skill
+  ///   gives one warning.
+  func unreserved(skills: [ResolvedSkill]) -> Diagnosed<[ResolvedSkill]> {
+    let isReserved: (ResolvedSkill) -> Bool = { $0.name == MarketplaceLayer.agentsDirectoryName }
+    return Diagnosed(
+      value: skills.filter { !isReserved($0) },
+      diagnostics: skills.filter(isReserved).map { reservedNameDiagnostic(skill: $0) })
+  }
+
+  // MARK: - Scan
+
+  /// Resolves the skills and the agent files of a tree that has no catalog.
+  ///
+  /// - Parameter selection: The host selection.
+  /// - Returns: The selected skills of the scan, and the agent files of
+  ///   `<root>/agents/` for ``SkillSelection/all``. A scan has no plugin, so
+  ///   a ``SkillSelection/plugins(_:)`` selection gives no skill, no agent
+  ///   file, and one warning for each name.
   func scanned(selection: SkillSelection) -> ResolvedCatalog {
     guard case .plugins = selection else {
       let found = scannedSkills()
       let selected = selectedItems(items: found.value, by: selection, noun: .skill, nameOf: \.name)
+      let kept = unreserved(skills: selected.value)
+      let agentFiles = Self.takesAgents(selection) ? folderAgents(ofPlugin: nil, root: "") : Diagnosed(value: [])
       return ResolvedCatalog(
-        name: nil, version: nil, skills: selected.value, renames: [:],
-        diagnostics: found.diagnostics + selected.diagnostics)
+        name: nil, version: nil, skills: kept.value, agents: agentFiles.value, renames: [:],
+        diagnostics: found.diagnostics + selected.diagnostics + kept.diagnostics + agentFiles.diagnostics)
     }
     let noPlugins: [MarketplaceCatalog.Plugin] = []
     let unknownPlugins = selectedItems(items: noPlugins, by: selection, noun: .plugin, nameOf: \.name)
@@ -346,7 +511,7 @@ fileprivate struct CatalogReader {
   func scannedSkills() -> Diagnosed<[ResolvedSkill]> {
     let folders = skillFolders(in: [""], depth: CatalogResolver.rootDepth)
     let named = folders.value.map { scannedSkill(atFolder: $0) }.collected()
-    let unique = deduplicated(skills: named.value, winner: .first)
+    let unique = deduplicated(named.value, winner: .first)
     return Diagnosed(
       value: unique.value, diagnostics: folders.diagnostics + named.diagnostics + unique.diagnostics)
   }
@@ -513,24 +678,24 @@ fileprivate struct CatalogReader {
 
   // MARK: - Shared steps
 
-  /// Keeps one skill for each name.
+  /// Keeps one item for each name.
   ///
   /// - Parameters:
-  ///   - skills: The skills, in order.
-  ///   - winner: Which skill wins when two skills have the same name.
-  /// - Returns: The winning skills, in order. Each losing skill gives one
+  ///   - items: The skills or the agent files, in order.
+  ///   - winner: Which item wins when two items have the same name.
+  /// - Returns: The winning items, in order. Each losing item gives one
   ///   warning.
-  func deduplicated(skills: [ResolvedSkill], winner: DuplicateWinner) -> Diagnosed<[ResolvedSkill]> {
-    let winners = Dictionary(skills.indices.map { (skills[$0].name, $0) }) { first, later in
+  func deduplicated<Item: ResolvedItem>(_ items: [Item], winner: DuplicateWinner) -> Diagnosed<[Item]> {
+    let winners = Dictionary(items.indices.map { (items[$0].name, $0) }) { first, later in
       winner == .first ? first : later
     }
     return Diagnosed(
-      value: skills.indices.filter { winners[skills[$0].name] == $0 }.map { skills[$0] },
-      diagnostics: skills.indices.compactMap { index in
-        guard let kept = winners[skills[index].name], kept != index else {
+      value: items.indices.filter { winners[items[$0].name] == $0 }.map { items[$0] },
+      diagnostics: items.indices.compactMap { index in
+        guard let kept = winners[items[index].name], kept != index else {
           return nil
         }
-        return duplicateDiagnostic(loser: skills[index], winner: skills[kept])
+        return duplicateDiagnostic(loser: items[index], winner: items[kept])
       })
   }
 
@@ -622,25 +787,77 @@ fileprivate struct CatalogReader {
     return diagnostic(severity: .warning, saying: message)
   }
 
-  /// Makes the warning for a skill that loses to a skill with the same
+  /// Makes the warning for an item that loses to an item with the same
   /// name.
   ///
   /// - Parameters:
-  ///   - loser: The skill that the resolver does not use.
-  ///   - winner: The skill that the resolver uses.
-  /// - Returns: A warning that names the two skill folders.
-  func duplicateDiagnostic(loser: ResolvedSkill, winner: ResolvedSkill) -> MarketplaceDiagnostic {
+  ///   - loser: The item that the resolver does not use.
+  ///   - winner: The item that the resolver uses.
+  /// - Returns: A warning that names the two paths.
+  func duplicateDiagnostic<Item: ResolvedItem>(loser: Item, winner: Item) -> MarketplaceDiagnostic {
     let message =
-      #"Two skills have the name "\#(winner.name)": \#(Self.described(skill: loser)) and \#(Self.described(skill: winner)). The resolver uses "\#(CatalogPath.display(path: winner.path))"."#
+      #"Two \#(Item.pluralNoun) have the name "\#(winner.name)": \#(Self.described(item: loser)) and \#(Self.described(item: winner)). The resolver uses "\#(CatalogPath.display(path: winner.path))"."#
     return diagnostic(severity: .warning, saying: message)
   }
 
-  /// Describes a skill for the text of a diagnostic.
+  /// Makes the warning for a skill whose name is reserved at the layer
+  /// root.
   ///
-  /// - Parameter skill: The skill.
-  /// - Returns: The quoted folder path, and the plugin when there is one.
-  static func described(skill: ResolvedSkill) -> String {
-    let folder = #""\#(CatalogPath.display(path: skill.path))""#
-    return skill.plugin.map { #"\#(folder) (plugin "\#($0)")"# } ?? folder
+  /// - Parameter skill: The skill that the resolver does not use.
+  /// - Returns: A warning that names the skill folder and the reserved name.
+  func reservedNameDiagnostic(skill: ResolvedSkill) -> MarketplaceDiagnostic {
+    let message =
+      #"The skill \#(Self.described(item: skill)) has the name "\#(skill.name)", which a layer root keeps for the agent files. The resolver skips it."#
+    return diagnostic(severity: .warning, saying: message)
   }
+
+  /// Makes the warning for an entry of an `agents` list that does not name
+  /// an agent file.
+  ///
+  /// - Parameters:
+  ///   - entry: The entry of the list, as the catalog writes it.
+  ///   - plugin: The name of the plugin.
+  /// - Returns: A warning that names the plugin and the entry.
+  func unlistedAgentDiagnostic(entry: String, plugin: String) -> MarketplaceDiagnostic {
+    let message =
+      #"The plugin "\#(plugin)" lists the agent path "\#(entry)", which is not an \#(Self.agentFileExtension) file in the repository. The resolver skips it."#
+    return diagnostic(severity: .warning, saying: message)
+  }
+
+  /// Describes a skill or an agent file for the text of a diagnostic.
+  ///
+  /// - Parameter item: The skill or the agent file.
+  /// - Returns: The quoted path, and the plugin when there is one.
+  static func described(item: some ResolvedItem) -> String {
+    let path = #""\#(CatalogPath.display(path: item.path))""#
+    return item.plugin.map { #"\#(path) (plugin "\#($0)")"# } ?? path
+  }
+}
+
+/// One item that the resolver finds in a tree: a skill folder or an agent
+/// file. The name of an item is unique in one layer.
+///
+/// ``CatalogReader`` reads it, thus it is `fileprivate` and not `private`.
+fileprivate protocol ResolvedItem {
+  /// The kind of the items, in the plural, for the text of a diagnostic.
+  static var pluralNoun: String { get }
+
+  /// The name of the item in the layer.
+  var name: String { get }
+
+  /// The path of the item in the tree.
+  var path: String { get }
+
+  /// The plugin that gives the item, or `nil` for a scan.
+  var plugin: String? { get }
+}
+
+extension ResolvedSkill: ResolvedItem {
+  /// The kind of a skill, in the plural.
+  fileprivate static let pluralNoun = "skills"
+}
+
+extension ResolvedAgent: ResolvedItem {
+  /// The kind of an agent file, in the plural.
+  fileprivate static let pluralNoun = "agents"
 }

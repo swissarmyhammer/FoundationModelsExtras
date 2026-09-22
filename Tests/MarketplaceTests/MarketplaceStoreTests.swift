@@ -146,6 +146,23 @@ struct MarketplaceStoreTests {
 
   // MARK: - Layers
 
+  @Test func aCatalogSourceGivesALayerThatHoldsItsAgentsBesideItsSkillsAndPartials() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.agentCatalogTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(sources: [MarketplaceSource(fixture.url)])
+
+    await cache.store.start()
+
+    let root = try #require(cache.store.marketplaceLayers().first).layer.root
+    let agents = root.appendingPathComponent(MarketplaceLayer.agentsDirectoryName, isDirectory: true)
+    #expect(
+      try String(contentsOf: agents.appendingPathComponent(Self.agentFileName), encoding: .utf8)
+        == MarketplaceTestSupport.agentDocument(named: Self.agentName))
+    #expect(try Self.skillBody(ofFirstLayer: cache.store).contains("alpha body"))
+    #expect(
+      try String(contentsOf: root.appendingPathComponent(Self.partialPath), encoding: .utf8) == Self.partialText)
+  }
+
   @Test func theLayersComeInListOrderLowestFirst() async throws {
     let first = try GitFixtureRepository()
     try first.commit(files: Self.skillTree(body: "first"))
@@ -341,5 +358,31 @@ struct MarketplaceStoreTests {
       {"name": "\(name)", "plugins": [{"name": "p", "source": "./", "skills": ["\(skillPath)"]}]}
       """
     return skillTree(body: body).merging([".claude-plugin/marketplace.json": .file(catalog)]) { _, later in later }
+  }
+
+  /// The name of the agent of ``agentCatalogTree(body:)``.
+  private static let agentName = "reviewer"
+
+  /// The file name of the agent of ``agentCatalogTree(body:)``.
+  private static let agentFileName = "\(agentName).md"
+
+  /// The partial of ``agentCatalogTree(body:)``, relative to the layer root.
+  private static let partialPath = "\(MarketplaceLayout.defaultPartialsDirectoryName)/sah-rules.md"
+
+  /// The text of the partial of ``agentCatalogTree(body:)``.
+  private static let partialText = "Fixture rules."
+
+  /// The tree of a fixture in the shape of the `swissarmyhammer/skills`
+  /// marketplace: a Claude catalog with one plugin at the root, one skill,
+  /// one partial beside the skill, and one agent in `agents/`.
+  ///
+  /// - Parameter body: The body of the skill.
+  /// - Returns: The tree, one entry for each path.
+  private static func agentCatalogTree(body: String) -> [String: GitFixtureRepository.Entry] {
+    catalogTree(name: fixtureID, body: body).merging([
+      "\(MarketplaceTestSupport.skillsFolderName)/\(partialPath)": .file(partialText),
+      "\(MarketplaceLayer.agentsDirectoryName)/\(agentFileName)":
+        .file(MarketplaceTestSupport.agentDocument(named: agentName)),
+    ]) { _, later in later }
   }
 }

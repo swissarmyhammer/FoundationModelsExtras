@@ -326,6 +326,145 @@ struct SnapshotWriterTests {
     """
   }
 
+  // MARK: - Agents
+
+  /// The agents folder of a layer root.
+  private static let agentsName = MarketplaceLayer.agentsDirectoryName
+
+  /// The fixture of the `swissarmyhammer/skills` shape: one plugin at the
+  /// root, with `skills/`, `skills/_partials/` and `agents/` side by side.
+  private static let agentsFixtureName = "swissarmyhammer-agents"
+
+  /// The agent files of ``agentsFixtureName``, in name order.
+  private static let agentsFixtureAgentNames = [
+    "committer.md", "double-check.md", "explorer.md", "general-purpose.md", "implementer.md", "planner.md",
+    "reviewer.md", "tester.md",
+  ]
+
+  /// The number of files of a tree with one skill document and one agent
+  /// file.
+  private static let oneSkillFileAndOneAgentFile = 2
+
+  /// A tree with no catalog: one skill and one agent.
+  private static let oneSkillAndOneAgentTree: [String: String] = [
+    "skills/alpha/SKILL.md": skillFile(named: "alpha"),
+    "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+  ]
+
+  /// The pattern of a Stencil include tag. The one capture is the included
+  /// path.
+  ///
+  /// A `Regex` is not `Sendable`, thus the pattern is a computed property
+  /// and not a stored one.
+  private static var includePattern: Regex<(Substring, Substring)> {
+    #/\{% include "([^"]+)" %\}/#
+  }
+
+  /// The extension that an included partial path leaves out.
+  private static let partialExtension = ".md"
+
+  @Test func theSnapshotHoldsAgentsSlashNameForTheAgentsOfEachPlugin() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(MarketplaceTestSupport.twoPluginAgentTree, layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.names() == [Self.agentsName, "alpha", "beta"])
+    #expect(try destination.names(inFolder: Self.agentsName) == ["planner.md", "reviewer.md"])
+    #expect(
+      try destination.text(ofFile: "\(Self.agentsName)/reviewer.md")
+        == MarketplaceTestSupport.agentDocument(named: "reviewer"))
+  }
+
+  @Test func theAgentFileOfTheLaterPluginIsInTheSnapshot() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    var tree = MarketplaceTestSupport.twoPluginAgentTree
+    tree["first/agents/reviewer.md"] = "from first"
+
+    _ = try Self.writeTree(tree, layout: Self.layout, to: destination)
+
+    #expect(
+      try destination.text(ofFile: "\(Self.agentsName)/reviewer.md")
+        == MarketplaceTestSupport.agentDocument(named: "reviewer"))
+  }
+
+  @Test func anAgentFileIsCopiedByteForByte() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    let text = "---\nname: [\n---\n\nNo frontmatter that parses.\n"
+
+    _ = try Self.writeTree(["agents/broken.md": text], layout: Self.layout, to: destination)
+
+    #expect(try destination.text(ofFile: "\(Self.agentsName)/broken.md") == text)
+  }
+
+  @Test func theReportCountsEachAgentFile() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(Self.oneSkillAndOneAgentTree, layout: Self.layout, to: destination)
+
+    #expect(report.fileCount == Self.oneSkillFileAndOneAgentFile)
+  }
+
+  @Test func anAgentFileAboveTheFileLimitIsRejectedAndNoFolderStays() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    let limits = SnapshotLimits(maxBytes: Self.generousLimits.maxBytes, maxFiles: Self.limitOfOne)
+
+    #expect(throws: SnapshotError.tooManyFiles(path: "agents/planner.md", limit: Self.limitOfOne)) {
+      _ = try Self.writeSnapshot(
+        ofFolder: try MarketplaceTestSupport.makeTempDirectory(withFiles: Self.oneSkillAndOneAgentTree),
+        selection: .all, layout: Self.layout, limits: limits, to: destination)
+    }
+    #expect(!destination.folderExists)
+  }
+
+  @Test func aSkillFolderNamedAgentsIsNotCopied() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        ".claude-plugin/marketplace.json":
+          #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/agents", "./skills/alpha"]}]}"#,
+        "skills/agents/SKILL.md": Self.skillFile(named: "agents"),
+        "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.names() == ["alpha"])
+  }
+
+  @Test func theSwissarmyhammerShapeGivesEachAgentAndThePartials() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeFixture(named: Self.agentsFixtureName, selection: .all, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.names() == [Self.partialsName, Self.agentsName, "code-context", "review"])
+    #expect(try destination.names(inFolder: Self.agentsName) == Self.agentsFixtureAgentNames)
+    #expect(
+      try destination.names(inFolder: Self.partialsName)
+        == ["sah-architecture-awareness.md", "sah-findings-are-requirements.md"])
+  }
+
+  @Test(arguments: agentsFixtureAgentNames)
+  func eachAgentOfTheSwissarmyhammerShapeFindsThePartialThatItIncludes(agent: String) throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    _ = try Self.writeFixture(named: Self.agentsFixtureName, selection: .all, to: destination)
+
+    let text = try destination.text(ofFile: "\(Self.agentsName)/\(agent)")
+    let included = text.matches(of: Self.includePattern).map { String($0.output.1) + Self.partialExtension }
+
+    #expect(!included.isEmpty)
+    #expect(included.allSatisfy { FileManager.default.fileExists(atPath: destination.folder.appendingPathComponent($0).path) })
+  }
+
   // MARK: - The execute bit
 
   @Test func anExecutableFileKeepsModeSevenFiveFive() throws {

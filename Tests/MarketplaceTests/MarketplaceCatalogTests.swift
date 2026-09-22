@@ -48,6 +48,46 @@ struct MarketplaceCatalogTests {
     "web-artifacts-builder", "webapp-testing",
   ]
 
+  /// The folder of a layer root, and of a plugin source, that holds the
+  /// agent files.
+  private static let agentsFolderName = "agents"
+
+  /// A catalog with one plugin, `p`, at the root, whose `agents` list names
+  /// `planner.md` and one entry more.
+  ///
+  /// - Parameter entry: The second entry of the `agents` list.
+  /// - Returns: The JSON text of the catalog.
+  private static func agentListCatalog(secondEntry entry: String) -> String {
+    #"{"name": "n", "plugins": [{"name": "p", "source": "./", "agents": ["./agents/planner.md", "\#(entry)"]}]}"#
+  }
+
+  /// A tree whose `agents` folder holds one agent, a text file, a file
+  /// with an upper-case extension, and a subfolder with one more `.md`
+  /// file.
+  private static let mixedAgentsFolder: [String: String] = [
+    "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+    "agents/notes.txt": "Not an agent.",
+    "agents/UPPER.MD": MarketplaceTestSupport.agentDocument(named: "upper"),
+    "agents/nested/deep.md": MarketplaceTestSupport.agentDocument(named: "deep"),
+  ]
+
+  /// Each selection of ``MarketplaceTestSupport/twoPluginAgentTree``, with
+  /// the file names of the agents that it gives.
+  private static let catalogAgentSelections: [(selection: SkillSelection, agents: [String])] = [
+    (.all, ["planner.md", "reviewer.md"]),
+    (.plugins(["second"]), ["reviewer.md"]),
+    (.plugins(["first", "second"]), ["planner.md", "reviewer.md"]),
+    (.skills(["alpha", "beta"]), []),
+  ]
+
+  /// Each selection of a tree with no catalog, with the file names of the
+  /// agents that it gives.
+  private static let scanAgentSelections: [(selection: SkillSelection, agents: [String])] = [
+    (.all, ["planner.md"]),
+    (.skills(["alpha"]), []),
+    (.plugins(["tools"]), []),
+  ]
+
   // MARK: - Golden catalogs
 
   @Test func theAnthropicCatalogGivesEachSkillOfBothPlugins() {
@@ -411,6 +451,163 @@ struct MarketplaceCatalogTests {
     #expect(catalog.renames == expected)
   }
 
+  // MARK: - Agents
+
+  @Test func theAgentsFolderOfALayerIsNamedAgents() {
+    #expect(MarketplaceLayer.agentsDirectoryName == Self.agentsFolderName)
+  }
+
+  @Test func aCatalogWithTwoPluginsGivesTheAgentsOfBothPlugins() throws {
+    let catalog = try Self.resolvedCatalog(ofTree: MarketplaceTestSupport.twoPluginAgentTree)
+
+    #expect(
+      catalog.agents == [
+        Self.agent(named: "planner", inFolder: "first", plugin: "first"),
+        Self.agent(named: "reviewer", inFolder: "second", plugin: "second"),
+      ])
+    #expect(catalog.diagnostics.isEmpty)
+  }
+
+  @Test func theLaterPluginWinsADuplicateAgentNameWithOneWarning() throws {
+    var tree = MarketplaceTestSupport.twoPluginAgentTree
+    tree["first/agents/reviewer.md"] = MarketplaceTestSupport.agentDocument(named: "reviewer")
+
+    let catalog = try Self.resolvedCatalog(ofTree: tree)
+
+    #expect(
+      catalog.agents == [
+        Self.agent(named: "planner", inFolder: "first", plugin: "first"),
+        Self.agent(named: "reviewer", inFolder: "second", plugin: "second"),
+      ])
+    #expect(catalog.diagnostics.map(\.severity) == [.warning])
+    #expect(Self.diagnostics(in: catalog, naming: "reviewer.md").count == 1)
+  }
+
+  @Test func anAgentsListGivesOnlyTheListedFiles() throws {
+    let catalog = try Self.resolvedCatalog(ofTree: [
+      Self.claudeCatalogPath: #"{"name": "n", "plugins": [{"name": "p", "source": "./", "agents": ["./agents/planner.md"]}]}"#,
+      "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+      "agents/reviewer.md": MarketplaceTestSupport.agentDocument(named: "reviewer"),
+    ])
+
+    #expect(catalog.agents == [Self.agent(named: "planner", inFolder: "", plugin: "p")])
+    #expect(catalog.diagnostics.isEmpty)
+  }
+
+  @Test(arguments: ["./agents/notes.txt", "./agents/missing.md", "../outside.md", "./agents/nested", "./agents/UPPER.MD"])
+  func anAgentsListEntryThatIsNotAnMdFileGivesOneWarning(entry: String) throws {
+    var tree = Self.mixedAgentsFolder
+    tree[Self.claudeCatalogPath] = Self.agentListCatalog(secondEntry: entry)
+
+    let catalog = try Self.resolvedCatalog(ofTree: tree)
+
+    #expect(catalog.agents == [Self.agent(named: "planner", inFolder: "", plugin: "p")])
+    #expect(catalog.diagnostics.map(\.severity) == [.warning])
+    #expect(Self.diagnostics(in: catalog, naming: entry).count == 1)
+  }
+
+  @Test func anAgentsValueOfOneTextIsAListOfOneEntry() throws {
+    let catalog = try Self.resolvedCatalog(ofTree: [
+      Self.claudeCatalogPath: #"{"name": "n", "plugins": [{"name": "p", "source": "./", "agents": "./agents/planner.md"}]}"#,
+      "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+      "agents/reviewer.md": MarketplaceTestSupport.agentDocument(named: "reviewer"),
+    ])
+
+    #expect(catalog.agents == [Self.agent(named: "planner", inFolder: "", plugin: "p")])
+    #expect(catalog.diagnostics.isEmpty)
+  }
+
+  @Test func aPluginWithNoAgentsListGivesOnlyTheMdFilesDirectlyInItsAgentsFolder() throws {
+    var tree = Self.mixedAgentsFolder
+    tree[Self.claudeCatalogPath] = #"{"name": "n", "plugins": [{"name": "p", "source": "./"}]}"#
+
+    let catalog = try Self.resolvedCatalog(ofTree: tree)
+
+    #expect(catalog.agents == [Self.agent(named: "planner", inFolder: "", plugin: "p")])
+    #expect(catalog.diagnostics.isEmpty)
+  }
+
+  @Test func aTreeWithNoCatalogGivesOnlyTheMdFilesDirectlyInItsAgentsFolder() throws {
+    var tree = Self.mixedAgentsFolder
+    tree["skills/alpha/SKILL.md"] = Self.skillDocument(named: "alpha")
+    tree["agents/reviewer.md"] = MarketplaceTestSupport.agentDocument(named: "reviewer")
+
+    let catalog = try Self.resolvedCatalog(ofTree: tree)
+
+    #expect(
+      catalog.agents == [
+        Self.agent(named: "planner", inFolder: "", plugin: nil),
+        Self.agent(named: "reviewer", inFolder: "", plugin: nil),
+      ])
+    #expect(catalog.skills == [ResolvedSkill(name: "alpha", path: "skills/alpha", plugin: nil)])
+    #expect(catalog.diagnostics.isEmpty)
+  }
+
+  @Test(arguments: catalogAgentSelections)
+  func eachSelectionOfACatalogGivesTheAgentsOfTheSelectedPlugins(selection: SkillSelection, agents: [String]) throws {
+    let catalog = try Self.resolvedCatalog(ofTree: MarketplaceTestSupport.twoPluginAgentTree, selection: selection)
+
+    #expect(catalog.agents.map(\.name) == agents)
+    #expect(catalog.diagnostics.isEmpty)
+  }
+
+  @Test(arguments: scanAgentSelections)
+  func eachSelectionOfATreeWithNoCatalogGivesItsAgentsOnlyForAll(selection: SkillSelection, agents: [String]) throws {
+    let catalog = try Self.resolvedCatalog(
+      ofTree: [
+        "skills/alpha/SKILL.md": Self.skillDocument(named: "alpha"),
+        "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+      ], selection: selection)
+
+    #expect(catalog.agents.map(\.name) == agents)
+  }
+
+  @Test func aRenamedSelectedPluginGivesTheAgentsOfTheNewPlugin() throws {
+    let catalog = try Self.resolvedCatalog(
+      ofTree: MarketplaceTestSupport.twoPluginAgentTree, selection: .plugins(["old"]))
+
+    #expect(catalog.agents == [Self.agent(named: "reviewer", inFolder: "second", plugin: "second")])
+    #expect(catalog.diagnostics.map(\.severity) == [.advisory])
+  }
+
+  @Test func anAgentFileIsTakenWithNoReadOfItsFrontmatter() throws {
+    let catalog = try Self.resolvedCatalog(ofTree: [
+      "agents/broken.md": Self.unparseableDocument,
+      "agents/plain.md": "No frontmatter at all.",
+    ])
+
+    #expect(
+      catalog.agents == [
+        Self.agent(named: "broken", inFolder: "", plugin: nil),
+        Self.agent(named: "plain", inFolder: "", plugin: nil),
+      ])
+    #expect(catalog.diagnostics.isEmpty)
+  }
+
+  @Test func aListedSkillFolderNamedAgentsGivesOneWarningAndIsNotASkill() throws {
+    let catalog = try Self.resolvedCatalog(ofTree: [
+      Self.claudeCatalogPath:
+        #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/agents", "./skills/alpha"]}]}"#,
+      "skills/agents/SKILL.md": Self.skillDocument(named: "agents"),
+      "skills/alpha/SKILL.md": Self.skillDocument(named: "alpha"),
+    ])
+
+    #expect(catalog.skills == [ResolvedSkill(name: "alpha", path: "skills/alpha", plugin: "p")])
+    #expect(catalog.diagnostics.map(\.severity) == [.warning])
+    #expect(Self.diagnostics(in: catalog, naming: "skills/agents").count == 1)
+  }
+
+  @Test func aScannedSkillFolderNamedAgentsGivesOneWarningAndIsNotASkill() throws {
+    let catalog = try Self.resolvedCatalog(ofTree: [
+      "skills/agents/SKILL.md": Self.skillDocument(named: "agents"),
+      "skills/alpha/SKILL.md": Self.skillDocument(named: "alpha"),
+    ])
+
+    #expect(catalog.skills == [ResolvedSkill(name: "alpha", path: "skills/alpha", plugin: nil)])
+    #expect(catalog.diagnostics.map(\.severity) == [.warning])
+    #expect(Self.diagnostics(in: catalog, naming: "skills/agents").count == 1)
+  }
+
   // MARK: - Decoding
 
   @Test func aPluginSourceDecodesFromAString() throws {
@@ -534,15 +731,32 @@ struct MarketplaceCatalogTests {
   }
 
   /// Writes a tree into a new temporary folder and resolves it with the
-  /// ``SkillSelection/all`` selection and the skills layout.
+  /// skills layout.
   ///
-  /// - Parameter files: The text of each file, keyed by its path in the tree.
+  /// - Parameters:
+  ///   - files: The text of each file, keyed by its path in the tree.
+  ///   - selection: The host selection. The default is ``SkillSelection/all``.
   /// - Returns: The resolved catalog.
   /// - Throws: The error of a folder or file write.
-  private static func resolvedCatalog(ofTree files: [String: String]) throws -> ResolvedCatalog {
+  private static func resolvedCatalog(
+    ofTree files: [String: String], selection: SkillSelection = .all
+  ) throws -> ResolvedCatalog {
     CatalogResolver.resolve(
       from: LocalCatalogFileSource(root: try MarketplaceTestSupport.makeTempDirectory(withFiles: files)),
-      selection: .all, layout: MarketplaceTestSupport.skillsLayout)
+      selection: selection, layout: MarketplaceTestSupport.skillsLayout)
+  }
+
+  /// Makes the expected agent of one `agents` folder.
+  ///
+  /// - Parameters:
+  ///   - name: The agent name, with no `.md` extension.
+  ///   - folder: The folder that holds the `agents` folder. The empty path
+  ///     is the root.
+  ///   - plugin: The plugin of the agent, or `nil` for a scan.
+  /// - Returns: The resolved agent, named by its file name.
+  private static func agent(named name: String, inFolder folder: String, plugin: String?) -> ResolvedAgent {
+    let agentsFolder = folder.isEmpty ? Self.agentsFolderName : "\(folder)/\(Self.agentsFolderName)"
+    return ResolvedAgent(name: "\(name).md", path: "\(agentsFolder)/\(name).md", plugin: plugin)
   }
 
   /// Makes the text of an entry document with a plain frontmatter.

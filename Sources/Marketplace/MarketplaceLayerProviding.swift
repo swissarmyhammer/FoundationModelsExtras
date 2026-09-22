@@ -69,6 +69,23 @@ public struct MarketplaceProvenance: Sendable, Equatable {
 /// The root is the stable `<cache>/<id>/current` path, thus it stays the
 /// same across an update; only the provenance changes.
 public struct MarketplaceLayer: Sendable {
+  /// The name of the folder at the root of a layer that holds the agent
+  /// files: `<layer root>/agents/<file name>.md`.
+  ///
+  /// The folder is flat. It holds one `.md` file for each agent, and the
+  /// file name is the agent name. A consumer reads the `.md` files of this
+  /// folder from each layer of ``MarketplaceLayerProviding/marketplaceLayers()``,
+  /// and reads them again on each value of
+  /// ``MarketplaceLayerProviding/layerUpdates``, as it does for the skills.
+  /// An agent body can include a partial of the partials folder of the same
+  /// layer.
+  ///
+  /// The name is reserved at the layer root: a skill folder with this name
+  /// gets a ``MarketplaceDiagnostic``, and the snapshot does not hold it.
+  /// This package copies the agent files by name only. It reads no agent
+  /// frontmatter.
+  public static let agentsDirectoryName = "agents"
+
   /// The layer itself. Its source is ``FoundationModelsExtras/DotfolderStack/Source/marketplace``,
   /// thus it never renders trusted (marketplace.md §4.3).
   public var layer: DotfolderStack.Layer

@@ -26,7 +26,7 @@ internal struct MarketplaceCatalog: Sendable, Hashable, Decodable {
     var version: String?
   }
 
-  /// One plugin entry: a named list of skills.
+  /// One plugin entry: a named list of skills and agents.
   struct Plugin: Sendable, Hashable, Decodable {
     /// The name of the plugin.
     var name: String
@@ -42,6 +42,42 @@ internal struct MarketplaceCatalog: Sendable, Hashable, Decodable {
     /// When it is `nil`, the skills are the folders of
     /// `<source>/skills/`.
     var skills: [String]?
+
+    /// The agent files of the plugin, relative to the plugin source. When
+    /// it is `nil`, the agents are the `.md` files directly in
+    /// `<source>/agents/`.
+    var agents: [String]?
+
+    /// The keys of a plugin entry.
+    private enum CodingKeys: String, CodingKey {
+      case name
+      case source
+      case strict
+      case skills
+      case agents
+    }
+
+    /// Decodes a plugin entry.
+    ///
+    /// The `agents` value is a list of paths, or one path. One path is a
+    /// list of one entry, thus a catalog that writes `"agents": "./x.md"`
+    /// stays usable.
+    ///
+    /// - Parameter decoder: The decoder to read from.
+    /// - Throws: `DecodingError` when `name` or `source` is missing, or when
+    ///   a value has the wrong type.
+    init(from decoder: any Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      name = try container.decode(String.self, forKey: .name)
+      source = try container.decode(PluginSource.self, forKey: .source)
+      strict = try container.decodeIfPresent(Bool.self, forKey: .strict)
+      skills = try container.decodeIfPresent([String].self, forKey: .skills)
+      if let path = try? container.decode(String.self, forKey: .agents) {
+        agents = [path]
+      } else {
+        agents = try container.decodeIfPresent([String].self, forKey: .agents)
+      }
+    }
   }
 
   /// The `source` value of a plugin: a string, or an object.

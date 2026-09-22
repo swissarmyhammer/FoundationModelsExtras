@@ -222,6 +222,25 @@ default `MarketplaceStore.cacheDirectory()`, which reads
 `workingDirectory` and `userDirectory` are the values that the host gives
 its local layers.
 
+The root of a git layer also holds the agents of the marketplace, in one
+flat folder: `agents/<file name>.md`, one `.md` file for each agent, and the
+file name is the agent name. `MarketplaceLayer.agentsDirectoryName` names
+the folder. A catalog plugin gives the files of its `agents` list, which are
+paths relative to the plugin source; an entry that is not an `.md` file gets
+a diagnostic and is skipped. A plugin with no `agents` list gives each `.md`
+file directly in `<plugin source>/agents/`, and a tree with no catalog gives
+each `.md` file directly in `<root>/agents/`; a subfolder of `agents/` is not
+read. When two plugins give the same file name, the later plugin wins, with
+one diagnostic, as for skills. `SkillSelection.all` and `.plugins([...])`
+take the agents of the selected plugins; `.skills([...])` takes none. The
+agent files count toward the `SnapshotLimits` of the policy. The name
+`agents` is reserved at the layer root, thus a skill folder with that name
+gets a diagnostic and is not in the layer. This package copies each agent
+file by name and reads no agent frontmatter. A consumer reads
+`<layer root>/agents/*.md` from each layer of `marketplaceLayers()`, and
+reads them again on each `layerUpdates` value; an agent body can include a
+partial of the partials folder of the same layer.
+
 A marketplace layer always renders untrusted, and there is no
 per-marketplace permission: the source of the layer is
 `DotfolderStack.Source.marketplace`, which is never trusted, and

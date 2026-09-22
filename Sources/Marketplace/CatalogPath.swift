@@ -61,6 +61,15 @@ internal enum CatalogPath {
     path.split(separator: separator).last.map(String.init)
   }
 
+  /// Gives the folder that holds a path.
+  ///
+  /// - Parameter path: The normalized path.
+  /// - Returns: The path with no last component. A path of one component,
+  ///   and the root, give the root.
+  static func parent(of path: String) -> String {
+    path.split(separator: separator).dropLast().joined(separator: String(separator))
+  }
+
   /// Tells whether a name is one folder name.
   ///
   /// - Parameter name: The name.
