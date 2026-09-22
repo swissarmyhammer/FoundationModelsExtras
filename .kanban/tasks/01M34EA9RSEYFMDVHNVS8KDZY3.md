@@ -42,8 +42,24 @@ comments:
     - note: An LSP diagnostics scan first showed 19 stale errors in `MarketplaceCatalogTests.swift`, `MarketplaceStoreTests.swift`, and `SnapshotWriterTests.swift`. A fresh clean build and a re-scan showed 0 errors and 0 warnings. The stale scan came from an old SourceKit index, not from the real code.
     - next: none.
   timestamp: 2026-09-22T12:04:40.374453+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m34ge0dcdqjyd6h3r6rzf847
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (a696a85): 0 findings (confirmed 0, refuted 0). The engine reviewed 9 files. It did not review 17 files: 2 files are ignored, and no validator matches the other 15 files.
+    - next: none. The task is in done.
+  timestamp: 2026-09-22T12:11:14.732659+00:00
+- actor: claude-code
+  id: 01m34geb0xxrf2hr0yj5ptdf98
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 12 files
+    - test: green — swift test, 1043 passed, 0 failed, 0 skipped
+    - commit: a696a85
+    - review: clean — 0 findings
+  timestamp: 2026-09-22T12:11:25.597189+00:00
+position_column: done
+position_ordinal: b780
 title: Give a marketplace layer the agents of each selected plugin, in `agents/`
 ---
 ## Where the work is

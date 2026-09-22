@@ -32,7 +32,9 @@ import Foundation
 /// the partial scope of a layer of the stack. A consumer whose own format
 /// runs passes of its own before Stencil marks what those passes spliced in
 /// as quarantined, and the render then gives that text to Stencil as a
-/// value, never as template text.
+/// value, never as template text. `render(_:at:in:)` does the same for the
+/// text of a document whose path the caller knows, so that an
+/// `{% include %}` walks from the folder of that document.
 ///
 /// ## Variables
 ///
@@ -45,13 +47,22 @@ import Foundation
 /// ## Partials
 ///
 /// An `{% include %}` finds a partial in `partialLocations`, the
-/// directories relative to a layer root. The search follows the combined
-/// view: the highest layer that holds the partial wins. The scope of the
-/// search is the layer of the document plus the local layers: a document
-/// of a `.marketplace` layer sees that one marketplace layer and every
-/// local layer, with a local copy winning over the marketplace copy of the
-/// same name; a document of a local layer sees the local layers only, so
-/// it never reads the partial of a remote source.
+/// directories relative to a folder of a layer. The search walks from the
+/// folder of the document up to the layer root, the most specific folder
+/// first: for `skills/commit/SKILL.md` it searches `skills/commit/_partials/`,
+/// then `skills/_partials/`, then `_partials/`. The most specific folder
+/// that holds the partial wins, in any layer. In one folder the search
+/// follows the combined view: the highest layer that holds the partial
+/// wins. The walk never goes above the layer root. A file of a lookup walks
+/// from its own folder; text of `render(_:in:)` has no path, thus it
+/// searches the layer root only.
+///
+/// The scope of the search is the layer of the document plus the local
+/// layers: a document of a `.marketplace` layer sees that one marketplace
+/// layer and every local layer, with a local copy in the same folder
+/// winning over the marketplace copy of the same name; a document of a
+/// local layer sees the local layers only, so it never reads the partial of
+/// a remote source.
 ///
 /// ## Trust
 ///
@@ -281,6 +292,10 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   /// same as for a file. The process environment is not a rung: a consumer
   /// puts each environment value that it wants into `variables`.
   ///
+  /// An `{% include %}` of this form searches the partial locations of the
+  /// layer root only, because the text has no path. A consumer that knows
+  /// the path of the document uses `render(_:at:in:)`.
+  ///
   /// - Parameters:
   ///   - text: The text to render, in spans.
   ///   - layer: The layer that the text belongs to. The trust comes from
@@ -291,20 +306,15 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   ///   render refuse it, or when a `.quarantined` span sits inside an open
   ///   Stencil delimiter.
   public func render(_ text: QuarantinedText, in layer: DotfolderStack.Layer) throws -> String {
-    var renderContext = context
-    let template = try Self.template(for: text, injectingQuarantinedSpansInto: &renderContext)
-    let engine = TemplateEngine(
-      partials: partialsStack(for: layer),
-      partialLocations: partialLocations,
-      environment: [:],
-      wellKnownValues: wellKnownValues ?? .current(partials: base)
-    )
-    return try engine.render(template, context: renderContext, trust: Self.trust(of: layer))
+    try render(text, documentPath: nil, in: layer)
   }
 
   /// Renders `text`, which the caller holds and every byte of which is
   /// template text, with the trust of `layer` and the partials in the scope
   /// of `layer`.
+  ///
+  /// An `{% include %}` of this form searches the partial locations of the
+  /// layer root only, as `render(_:in:)` for a `QuarantinedText` does.
   ///
   /// - Parameters:
   ///   - text: The text to render. All of it is `.original`, thus Stencil
@@ -316,6 +326,87 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   ///   `render(_:in:)` for a `QuarantinedText` does.
   public func render(_ text: String, in layer: DotfolderStack.Layer) throws -> String {
     try render(QuarantinedText(original: text), in: layer)
+  }
+
+  /// Renders `text`, which the caller holds, as the document at
+  /// `documentPath` of `layer`.
+  ///
+  /// The render is the same as `render(_:in:)`: the trust, the scope of the
+  /// partials, the quarantined spans and the limits. The one difference is
+  /// the search of an `{% include %}`: it walks the partial locations from
+  /// the folder of the document up to the layer root, the most specific
+  /// folder first. For a document at `skills/commit/SKILL.md` the walk
+  /// searches `skills/commit/_partials/`, then `skills/_partials/`, then
+  /// `_partials/`. At each folder it checks each layer in scope, the
+  /// highest first, and the first copy that it finds wins. Thus a copy in a
+  /// more specific folder of a lower layer wins over a copy in a less
+  /// specific folder of a higher layer. The file lookups of this stack
+  /// render each file with this same walk.
+  ///
+  /// The walk never goes above the layer root: a `documentPath` that is
+  /// absolute or that holds a `..` component searches the layer root only.
+  ///
+  /// - Parameters:
+  ///   - text: The text to render, in spans.
+  ///   - documentPath: The path of the document, relative to the root of
+  ///     `layer`, for example `skills/commit/SKILL.md`. The file need not
+  ///     exist: the walk reads only its folders.
+  ///   - layer: The layer that the text belongs to. The trust comes from
+  ///     this layer, and so does the scope of the partials.
+  /// - Returns: The rendered text.
+  /// - Throws: `TemplateEngineError.renderingFailed`, as `render(_:in:)`
+  ///   does. The text of a partial that no folder of the walk holds names
+  ///   each folder that the walk searched, in the order of the search.
+  public func render(
+    _ text: QuarantinedText, at documentPath: String, in layer: DotfolderStack.Layer
+  ) throws -> String {
+    try render(text, documentPath: documentPath, in: layer)
+  }
+
+  /// Renders `text`, which the caller holds and every byte of which is
+  /// template text, as the document at `documentPath` of `layer`.
+  ///
+  /// - Parameters:
+  ///   - text: The text to render. All of it is `.original`, thus Stencil
+  ///     scans all of it.
+  ///   - documentPath: The path of the document, relative to the root of
+  ///     `layer`. The walk of an `{% include %}` starts at its folder.
+  ///   - layer: The layer that the text belongs to. The trust comes from
+  ///     this layer, and so does the scope of the partials.
+  /// - Returns: The rendered text.
+  /// - Throws: `TemplateEngineError.renderingFailed`, as
+  ///   `render(_:at:in:)` for a `QuarantinedText` does.
+  public func render(
+    _ text: String, at documentPath: String, in layer: DotfolderStack.Layer
+  ) throws -> String {
+    try render(QuarantinedText(original: text), at: documentPath, in: layer)
+  }
+
+  /// The one render that each public render form and each file lookup
+  /// calls.
+  ///
+  /// - Parameters:
+  ///   - text: The text to render, in spans.
+  ///   - documentPath: The path of the document, relative to the root of
+  ///     `layer`, where the walk of an `{% include %}` starts, or `nil` to
+  ///     search the layer root only.
+  ///   - layer: The layer that the text belongs to.
+  /// - Returns: The rendered text.
+  /// - Throws: `TemplateEngineError.renderingFailed`, as `render(_:in:)`
+  ///   does.
+  private func render(
+    _ text: QuarantinedText, documentPath: String?, in layer: DotfolderStack.Layer
+  ) throws -> String {
+    var renderContext = context
+    let template = try Self.template(for: text, injectingQuarantinedSpansInto: &renderContext)
+    let engine = TemplateEngine(
+      partials: partialsStack(for: layer),
+      partialLocations: partialLocations,
+      documentPath: documentPath,
+      environment: [:],
+      wellKnownValues: wellKnownValues ?? .current(partials: base)
+    )
+    return try engine.render(template, context: renderContext, trust: Self.trust(of: layer))
   }
 
   /// The prefix of the context key under which a render gives the text of
@@ -433,20 +524,41 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   /// Every text lookup routes through this helper, so each of them applies
   /// the same trust rule, the same scope rule and the same failure rule. A
   /// file takes the same path as the text of a consumer: all of its bytes
-  /// are template text, thus it holds one `.original` span.
+  /// are template text, thus it holds one `.original` span. The walk of an
+  /// `{% include %}` starts at the folder of the file, as for
+  /// `render(_:at:in:)`.
   ///
   /// - Parameter located: An item of the base stack.
   /// - Returns: The same item with its text rendered, or `nil` when the
   ///   render fails, in which case the failure went to `onDiagnostic`.
   private func rendered(_ located: Located<String>) -> Located<String>? {
     do {
-      let text = try render(located.value, in: located.layer)
+      let text = try render(
+        QuarantinedText(original: located.value), documentPath: Self.documentPath(of: located),
+        in: located.layer)
       return Located(url: located.url, layer: located.layer, value: text)
     } catch {
       onDiagnostic(
         Diagnostic(url: located.url, layer: located.layer, message: String(describing: error)))
       return nil
     }
+  }
+
+  /// The path of the file of `located`, relative to the root of its layer.
+  ///
+  /// The base stack builds the URL of each item from the layer root, thus
+  /// the path components of the root start the path components of the URL.
+  ///
+  /// - Parameter located: An item of the base stack.
+  /// - Returns: The relative path, or `nil` when the URL is not below the
+  ///   layer root, in which case the walk searches the layer root only.
+  private static func documentPath(of located: Located<String>) -> String? {
+    let rootComponents = located.layer.root.standardizedFileURL.pathComponents
+    let fileComponents = located.url.standardizedFileURL.pathComponents
+    guard fileComponents.count > rootComponents.count, fileComponents.starts(with: rootComponents) else {
+      return nil
+    }
+    return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
   }
 
   /// The trust of a document of `layer`: `.trusted` for the `.defaults`

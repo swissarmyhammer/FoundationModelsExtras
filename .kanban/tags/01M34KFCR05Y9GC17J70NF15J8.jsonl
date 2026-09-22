@@ -1,0 +1,1 @@
+{"id":"01M34KFCR0Z8VR7HX2RD39220K","timestamp":"2026-09-22T13:04:25.856493Z","op":"create","item_id":"01M34KFCR05Y9GC17J70NF15J8","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: '008672'\n+tag_name: partials\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: '008672'\n-tag_name: partials\n","transaction_id":null}

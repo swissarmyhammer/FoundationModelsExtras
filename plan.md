@@ -12,7 +12,7 @@ Everything may import it; it imports almost nothing.
 (`LayeredYAMLDocument`, §11) planned · pillar 6 (`Marketplace`, §12) built on
 the separate `Marketplace` target
 · **Target:** Swift 6.2 tools, macOS 27+, Apple Silicon
-· **Updated:** 2026-09-20
+· **Updated:** 2026-09-22
 
 **Scope extension:** `IgnoreProcessor` (gitignore-semantics ignore-file
 matching and combination, documented in [`README.md`](README.md)) has since
@@ -223,6 +223,23 @@ public enum FrontmatterDocument {
   Stencil as a context value, never as template text, thus no pass can ever
   scan what an earlier pass spliced in. The consumer keeps the grammar of
   its own format; it never rebuilds the Stencil half.
+- **An include walks from the document to the layer root** (2026-09-22). In
+  swissarmyhammer, `_partials/`, `agents/` and `skills/` are siblings below
+  one root, and the marketplaces also keep `skills/_partials/`. Thus an
+  `{% include "_partials/x" %}` in a document at `a/b/doc.md` searches
+  `a/b/_partials/`, then `a/_partials/`, then `_partials/` at the layer root.
+  The most specific folder wins first; layer precedence applies only between
+  copies in the same folder, so a copy in a more specific folder of a lower
+  layer wins over a copy in a less specific folder of a higher layer. The
+  walk never goes above the layer root, and each path goes through the
+  confinement checks of `DotfolderStack`. The file lookups of
+  `StenciledDotfolderStack` walk from the folder of the file;
+  `render(_:at:in:)` walks from a path that the caller gives; `render(_:in:)`
+  has no path and searches the layer root only, as before. Every partial
+  that resolved before this change resolves to the same file, unless a
+  more specific `_partials/` folder now holds a copy of the same name. The
+  diagnostic of a missing partial lists each folder of the walk, in the
+  order of the search.
 
 ## 5. Rules
 
@@ -527,6 +544,24 @@ as it knows no skill (`ModuleBoundaryTests`). A consumer, for example
 and reads the layers again on each `layerUpdates` value. A `file://` source
 is out of this rule: with `path:` it gives its folder unchanged, and with no
 `path:` it reads `<folder>/skills` only.
+
+**The partials of a snapshot** (decision 2026-09-22, the user). The
+snapshot is flat: a skill is at `<snapshot>/<skill>/`, and the folders
+between a plugin source and a skill, for example `skills/`, are not in it.
+Thus the partials of those folders merge into `<snapshot>/_partials/`, from
+the least specific to the most specific. First comes the partials folder of
+the source of each selected plugin that gives a skill or an agent (for a
+tree with no catalog, the partials folder of the root). Then comes the
+partials folder of each folder that holds a selected skill, for example
+`skills/_partials/`, as before. A more specific copy replaces a less
+specific copy with no diagnostic; two copies at the same level of
+specificity give one diagnostic, and the later plugin wins. A partials
+folder inside a skill folder goes with the skill folder, and the include
+walk (§4) finds it there first. Both `_partials/` at the root and
+`skills/_partials/` stay valid places, thus every partial that a snapshot
+held before this decision it still holds. A known limit of the flat
+snapshot: an agent also sees the partials of `skills/_partials/`, because
+they merge into the one partials folder of the snapshot.
 
 **No grant.** A marketplace layer always renders untrusted, and there is no
 per-marketplace permission. `MarketplaceSource` has no field that grants a

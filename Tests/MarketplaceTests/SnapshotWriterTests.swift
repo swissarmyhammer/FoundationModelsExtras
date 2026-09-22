@@ -311,6 +311,160 @@ struct SnapshotWriterTests {
     "second/skills/_partials/shared.md": "from second",
   ]
 
+  // MARK: - The partials of the plugin source root
+
+  /// A catalog with one plugin whose source is the root of the tree.
+  private static let rootPluginCatalog = #"{"name": "n", "plugins": [{"name": "p", "source": "./"}]}"#
+
+  @Test func thePartialsOfThePluginSourceRootAreCopied() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        ".claude-plugin/marketplace.json":
+          #"{"name": "n", "plugins": [{"name": "tools", "source": "./tools"}]}"#,
+        "tools/skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+        "tools/_partials/note.md": "from the plugin root",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.names() == [Self.partialsName, "alpha"])
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the plugin root")
+  }
+
+  @Test func theSkillsPartialsReplaceThePluginRootPartialsWithNoDiagnostic() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
+        "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+        "_partials/root-only.md": "root only",
+        "_partials/shared.md": "from the root",
+        "skills/_partials/shared.md": "from skills",
+        "skills/_partials/skills-only.md": "skills only",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(
+      try destination.names(inFolder: Self.partialsName) == ["root-only.md", "shared.md", "skills-only.md"])
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from skills")
+  }
+
+  @Test func anAgentOfAPluginGetsThePartialsOfThePluginSourceRoot() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
+        "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+        "_partials/sah-x.md": "from the root",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.names() == [Self.partialsName, Self.agentsName])
+    #expect(try destination.names(inFolder: Self.partialsName) == ["sah-x.md"])
+  }
+
+  @Test func aTreeWithNoCatalogCopiesThePartialsOfTheRoot() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+        "_partials/note.md": "from the root",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the root")
+  }
+
+  @Test func aSkillFolderAtTheRootOfATreeWithNoCatalogCopiesTheRootPartialsOneTime() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        "alpha/SKILL.md": Self.skillFile(named: "alpha"),
+        "_partials/note.md": "from the root",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.names(inFolder: Self.partialsName) == ["note.md"])
+  }
+
+  @Test func twoPluginRootPartialsOfTheSameNameGiveOneDiagnosticAndTheLaterPluginWins() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    var tree = Self.twoPartialFolderTree
+    tree["first/skills/_partials/shared.md"] = nil
+    tree["second/skills/_partials/shared.md"] = nil
+    tree["first/_partials/shared.md"] = "from first"
+    tree["second/_partials/shared.md"] = "from second"
+
+    let report = try Self.writeTree(tree, layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.map(\.severity) == [.warning])
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from second")
+  }
+
+  @Test func aMoreSpecificFileReplacesALessSpecificLinkAndNotItsTarget() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    let root = try MarketplaceTestSupport.makeTempDirectory(withFiles: [
+      ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
+      "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+      "_partials/target.md": "the target",
+      "skills/_partials/shared.md": "from skills",
+    ])
+    try FileManager.default.createSymbolicLink(
+      atPath: root.appendingPathComponent("_partials/shared.md").path, withDestinationPath: "target.md")
+
+    let report = try Self.writeSnapshot(
+      ofFolder: root, selection: .all, layout: Self.layout, limits: Self.generousLimits, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from skills")
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/target.md") == "the target")
+  }
+
+  @Test func aMoreSpecificLinkReplacesALessSpecificFile() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    let root = try MarketplaceTestSupport.makeTempDirectory(withFiles: [
+      ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
+      "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+      "_partials/shared.md": "from the root",
+      "skills/_partials/target.md": "the skills target",
+    ])
+    try FileManager.default.createSymbolicLink(
+      atPath: root.appendingPathComponent("skills/_partials/shared.md").path, withDestinationPath: "target.md")
+
+    let report = try Self.writeSnapshot(
+      ofFolder: root, selection: .all, layout: Self.layout, limits: Self.generousLimits, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "the skills target")
+  }
+
+  @Test func aPartialsFolderInsideASkillFolderGoesWithTheSkillFolder() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    _ = try Self.writeTree(
+      [
+        "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
+        "skills/alpha/_partials/own.md": "from alpha",
+      ], layout: Self.layout, to: destination)
+
+    #expect(try destination.names() == ["alpha"])
+    #expect(try destination.text(ofFile: "alpha/\(Self.partialsName)/own.md") == "from alpha")
+  }
+
   /// The text of one fixture `SKILL.md` file.
   ///
   /// - Parameter name: The frontmatter name of the skill.

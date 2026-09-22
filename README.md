@@ -59,6 +59,34 @@ let rendered = try stenciled.render(text, in: layer)
 // A `.defaults` layer renders trusted; each other layer renders untrusted.
 ```
 
+### Where an include finds a partial
+
+An `{% include "_partials/x" %}` walks from the folder of the document up to
+the layer root, and the most specific folder wins. For a document at
+`skills/commit/SKILL.md` the walk searches these folders, in this order:
+
+```
+skills/commit/_partials/x.md    the partials of one skill
+skills/_partials/x.md           the partials of the skills
+_partials/x.md                  the partials of the whole layer root
+```
+
+At each folder the walk checks each layer in scope, the highest first, and
+the first copy that it finds wins. Thus a copy in a more specific folder of
+a lower layer wins over a copy in a less specific folder of a higher layer;
+in one folder, the highest layer wins, as before. A skill at
+`commit/SKILL.md` and an agent at `agents/committer.md` of one root both
+find `_partials/x.md` at that root, and a `commit/_partials/x.md` wins for
+that one skill only. The walk never goes above the layer root, and each path
+that it tries goes through the confinement checks of `DotfolderStack`.
+
+The file lookups of `StenciledDotfolderStack` walk from the folder of each
+file. `render(_:at:in:)` renders text that the caller holds as the document
+at a path relative to the layer root, with the same walk. `render(_:in:)`
+has no path, thus it searches the layer root only. When no folder holds the
+partial, the failure lists each folder that the walk searched, in the order
+of the search.
+
 ## Ignoring files: `IgnoreProcessor`
 
 `IgnoreProcessor` implements `gitignore(5)` matching semantics -- last-match-
@@ -240,6 +268,22 @@ file by name and reads no agent frontmatter. A consumer reads
 `<layer root>/agents/*.md` from each layer of `marketplaceLayers()`, and
 reads them again on each `layerUpdates` value; an agent body can include a
 partial of the partials folder of the same layer.
+
+The snapshot is flat: a skill is at `<snapshot>/<skill>/`, and the folders
+between a plugin source and a skill, for example `skills/`, are not in it.
+Thus the partials of those folders merge into `<snapshot>/_partials/`, from
+the least specific to the most specific. First comes
+`<plugin source>/_partials/` of each plugin that gives a skill or an agent
+(for a tree with no catalog, `<root>/_partials/`). Then comes the
+`_partials/` of each folder that holds a selected skill, for example
+`skills/_partials/`; a copy from there replaces
+a copy of the same name from the plugin source, with no diagnostic. Two
+plugins that give a partial of the same name at the same level: the later
+plugin wins, with one diagnostic. A `_partials/` folder inside a skill folder
+goes with the skill folder, and the include walk finds it at
+`<snapshot>/<skill>/_partials/`, where it wins for that skill. A known limit
+of the flat snapshot: an agent also sees the partials of `skills/_partials/`,
+because they merge into the one `<snapshot>/_partials/`.
 
 A marketplace layer always renders untrusted, and there is no
 per-marketplace permission: the source of the layer is

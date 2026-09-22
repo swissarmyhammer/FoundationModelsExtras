@@ -17,6 +17,13 @@ internal struct ResolvedCatalog: Sendable, Hashable {
   /// each file name.
   var agents: [ResolvedAgent] = []
 
+  /// The source folder of each selected plugin that gives the snapshot a
+  /// skill or an agent file, in catalog order, one time each. A scan gives
+  /// the root of the tree, the empty path, when it gives a skill or an agent
+  /// file. The snapshot writer copies the partials folder of each one first,
+  /// as the least specific partials of the snapshot.
+  var sourceRoots: [String] = []
+
   /// The `renames` map of the catalog. It is empty for a scan.
   var renames: [String: String?]
 
@@ -80,6 +87,10 @@ internal struct ResolvedAgent: Sendable, Hashable {
 /// the agent files; ``SkillSelection/skills(_:)`` takes none. When two
 /// plugins give the same file name, the later plugin wins. The resolver
 /// knows an agent file only by its name: it reads no text of the file.
+///
+/// The source roots are the source folder of each selected plugin that
+/// gives a skill or an agent file, and the root of a tree with no catalog.
+/// The snapshot writer copies the partials folder of each one.
 ///
 /// The ``MarketplaceLayout`` of the host names the document, thus the
 /// resolver holds no knowledge of what an entry is.
@@ -263,6 +274,7 @@ fileprivate struct CatalogReader {
     let agentFiles = agents(ofPlugins: plugins.value, selection: renamed.value)
     return ResolvedCatalog(
       name: catalog.name, version: catalog.metadata?.version, skills: kept.value, agents: agentFiles.value,
+      sourceRoots: Self.sourceRoots(of: plugins.value, givingSkills: kept.value, agents: agentFiles.value),
       renames: catalog.renames,
       diagnostics: renamed.diagnostics + plugins.diagnostics + listed.flatMap(\.diagnostics)
         + unique.diagnostics + selected.diagnostics + kept.diagnostics + agentFiles.diagnostics)
@@ -397,7 +409,7 @@ fileprivate struct CatalogReader {
   /// - Returns: The files of the `agents` list, else the agent files of
   ///   `<source>/agents/`.
   func agents(of plugin: MarketplaceCatalog.Plugin) -> Diagnosed<[ResolvedAgent]> {
-    guard case .relative(let path) = plugin.source, let root = CatalogPath.normalized(path: path) else {
+    guard let root = Self.sourceRoot(of: plugin) else {
       return Diagnosed(value: [])
     }
     guard let entries = plugin.agents else {
@@ -478,6 +490,38 @@ fileprivate struct CatalogReader {
       diagnostics: skills.filter(isReserved).map { reservedNameDiagnostic(skill: $0) })
   }
 
+  // MARK: - Partials
+
+  /// The normalized source folder of one plugin.
+  ///
+  /// - Parameter plugin: The plugin entry.
+  /// - Returns: The source path, or `nil` for a remote source or for a path
+  ///   outside the repository.
+  static func sourceRoot(of plugin: MarketplaceCatalog.Plugin) -> String? {
+    guard case .relative(let path) = plugin.source else {
+      return nil
+    }
+    return CatalogPath.normalized(path: path)
+  }
+
+  /// The source folders whose partials folder the snapshot copies: one for
+  /// each selected plugin that gives a skill or an agent file.
+  ///
+  /// A plugin that gives nothing to the snapshot gives no partials either.
+  ///
+  /// - Parameters:
+  ///   - plugins: The selected plugins, in catalog order.
+  ///   - skills: The skills that the snapshot holds.
+  ///   - agents: The agent files that the snapshot holds.
+  /// - Returns: The source folders, in catalog order, one time each.
+  static func sourceRoots(
+    of plugins: [MarketplaceCatalog.Plugin], givingSkills skills: [ResolvedSkill], agents: [ResolvedAgent]
+  ) -> [String] {
+    let givers = Set(skills.compactMap(\.plugin) + agents.compactMap(\.plugin))
+    var seen: Set<String> = []
+    return plugins.filter { givers.contains($0.name) }.compactMap(sourceRoot).filter { seen.insert($0).inserted }
+  }
+
   // MARK: - Scan
 
   /// Resolves the skills and the agent files of a tree that has no catalog.
@@ -493,8 +537,10 @@ fileprivate struct CatalogReader {
       let selected = selectedItems(items: found.value, by: selection, noun: .skill, nameOf: \.name)
       let kept = unreserved(skills: selected.value)
       let agentFiles = Self.takesAgents(selection) ? folderAgents(ofPlugin: nil, root: "") : Diagnosed(value: [])
+      let givesEntries = !kept.value.isEmpty || !agentFiles.value.isEmpty
       return ResolvedCatalog(
-        name: nil, version: nil, skills: kept.value, agents: agentFiles.value, renames: [:],
+        name: nil, version: nil, skills: kept.value, agents: agentFiles.value,
+        sourceRoots: givesEntries ? [""] : [], renames: [:],
         diagnostics: found.diagnostics + selected.diagnostics + kept.diagnostics + agentFiles.diagnostics)
     }
     let noPlugins: [MarketplaceCatalog.Plugin] = []

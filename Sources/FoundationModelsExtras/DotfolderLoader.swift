@@ -11,7 +11,7 @@ enum DotfolderLoaderError: Error, Sendable, CustomStringConvertible {
   /// No partial location of any layer held any of the name variants tried
   /// for `name` — the literal include argument, exactly as written in the
   /// template. `directoriesSearched` lists every directory consulted, in
-  /// the stack's layer order, for diagnostics.
+  /// the order of the search, for diagnostics.
   case partialNotFound(name: String, directoriesSearched: [String])
 
   /// A human-readable description naming the missing include and the
@@ -26,7 +26,8 @@ enum DotfolderLoaderError: Error, Sendable, CustomStringConvertible {
 }
 
 /// Resolves Stencil `{% include %}` partials through the partial locations
-/// of a `DotfolderStack`'s layers, nearest layer wins (plan.md §4): a
+/// of a `DotfolderStack`'s layers (plan.md §4). The most specific folder
+/// wins first (see "The walk"). In one folder the nearest layer wins: a
 /// project's copy shadows the user's, which shadows the shipped defaults'.
 /// Conforms to Stencil's `Loader` protocol so it plugs directly into
 /// `Environment(loader:)` — no filesystem convention of Stencil's leaks
@@ -34,11 +35,31 @@ enum DotfolderLoaderError: Error, Sendable, CustomStringConvertible {
 ///
 /// ## Partial locations
 ///
-/// A partial location is a directory relative to a layer root, `_partials`
-/// by default. The search follows the combined view of the stack: the
-/// highest layer that holds a partial wins, whichever location and name
-/// variant it holds it under. Inside one layer the locations are searched
-/// in the order given, and the name variants below in their order.
+/// A partial location is a directory relative to a folder of a layer,
+/// `_partials` by default. At one folder, the search follows the combined
+/// view of the stack: the highest layer that holds a partial wins, whichever
+/// location and name variant it holds it under. Inside one layer the
+/// locations are searched in the order given, and the name variants below in
+/// their order.
+///
+/// ## The walk
+///
+/// A loader that knows the path of the document walks from the folder of
+/// the document up to the layer root. For a document at `a/b/doc.md`, it
+/// searches the partial locations of `a/b`, then of `a`, then of the layer
+/// root. The most specific folder wins: a copy in `a/b/_partials/` wins over
+/// a copy in `_partials/`, also when the copy in `_partials/` is in a higher
+/// layer. Layer precedence applies only between copies in the same folder.
+///
+/// A loader with no document path searches the layer root only. A document
+/// path that is absolute or that holds a `..` component also gives the layer
+/// root only, thus the walk never goes above the layer root. Each path that
+/// the walk tries goes through the checks of `DotfolderStack`, thus a
+/// `_partials/` folder that a symbolic link takes out of its layer root
+/// gives nothing.
+///
+/// A nested include walks from the same document: the path of a partial
+/// does not change the folders that the walk searches.
 ///
 /// ## Name resolution
 ///
@@ -61,26 +82,50 @@ final class DotfolderLoader: Loader, Sendable {
   /// The extension the name resolution appends to an extensionless include.
   private static let markdownExtension = ".md"
 
+  /// The separator of the components of a relative path.
+  private static let pathSeparator: Character = "/"
+
+  /// The path component that walks out of a folder.
+  private static let parentDirectoryComponent = ".."
+
+  /// The path component that names the folder itself.
+  private static let currentDirectoryComponent = "."
+
   /// The stack whose layers this loader resolves includes against.
   private let stack: DotfolderStack
 
-  /// The directories, relative to a layer root, that hold the partials.
+  /// The directories, relative to a folder of a layer, that hold the
+  /// partials.
   private let partialLocations: [String]
+
+  /// The folders, relative to a layer root, that the walk searches, the most
+  /// specific first. The last folder is always the layer root, the empty
+  /// path.
+  private let searchFolders: [String]
 
   /// Creates a loader over `stack`.
   ///
   /// - Parameters:
   ///   - stack: The stack whose layers hold the partials.
-  ///   - partialLocations: The directories, relative to a layer root, to
-  ///     search for a partial. Defaults to `defaultPartialLocations`.
-  init(stack: DotfolderStack, partialLocations: [String] = defaultPartialLocations) {
+  ///   - partialLocations: The directories, relative to a folder of a
+  ///     layer, to search for a partial. Defaults to
+  ///     `defaultPartialLocations`.
+  ///   - documentPath: The path of the document, relative to its layer
+  ///     root, for example `skills/commit/SKILL.md`. The walk starts at the
+  ///     folder of the document. `nil`, the default, searches the layer root
+  ///     only.
+  init(
+    stack: DotfolderStack, partialLocations: [String] = defaultPartialLocations,
+    documentPath: String? = nil
+  ) {
     self.stack = stack
     self.partialLocations = partialLocations
+    self.searchFolders = Self.searchFolders(forDocumentAt: documentPath)
   }
 
   /// Resolves `name` per the partial locations and the name-resolution
-  /// scheme documented on this type, returning the nearest layer's content
-  /// as a Stencil `Template`.
+  /// scheme documented on this type, returning the content of the winning
+  /// copy of the walk as a Stencil `Template`.
   ///
   /// - Parameters:
   ///   - name: The literal include argument, exactly as written in the
@@ -102,38 +147,58 @@ final class DotfolderLoader: Loader, Sendable {
       templateString: content, environment: environment, name: name)
   }
 
-  /// The text of the partial `name` in the highest layer that holds it,
-  /// under any partial location and any name variant.
+  /// The text of the partial `name` in the most specific folder that holds
+  /// it, under any partial location and any name variant.
   ///
-  /// Each layer is searched on its own, highest precedence first, so a
-  /// copy in a higher layer wins over a copy in a lower layer even when the
-  /// two sit under different locations or different name variants.
+  /// The folders of the walk are searched one at a time, the most specific
+  /// first. At one folder, each layer is searched on its own, highest
+  /// precedence first, so a copy in a higher layer wins over a copy in a
+  /// lower layer of the same folder even when the two sit under different
+  /// locations or different name variants.
   ///
   /// - Parameter name: The literal include argument.
-  /// - Returns: The text of the winning copy, or `nil` when no layer holds
-  ///   the partial.
+  /// - Returns: The text of the winning copy, or `nil` when no folder of any
+  ///   layer holds the partial.
   private func partialContent(named name: String) -> String? {
-    let relativePaths = partialPaths(for: name)
-    for layer in stack.layers.reversed() {
-      var layerStack = stack
-      layerStack.layers = [layer]
-      if let content = relativePaths.lazy.compactMap(layerStack.content).first {
-        return content
-      }
-    }
-    return nil
+    let candidates = candidateNames(for: name)
+    return searchFolders.lazy
+      .compactMap { self.partialContent(atPaths: self.partialPaths(of: candidates, in: $0)) }
+      .first
   }
 
-  /// The paths, relative to a layer root, at which a layer may hold the
-  /// partial `name`: each partial location joined with each name variant,
-  /// locations in the order given and variants in resolution order.
+  /// The text of the first path of `relativePaths` in the highest layer that
+  /// holds one of them.
   ///
-  /// - Parameter name: The literal include argument.
+  /// Each lookup goes through `DotfolderStack.content(_:)`, thus through the
+  /// path check and the confinement check of the stack.
+  ///
+  /// - Parameter relativePaths: The paths, relative to a layer root, to try
+  ///   in each layer, in order.
+  /// - Returns: The text of the winning copy, or `nil` when no layer holds
+  ///   any of the paths.
+  private func partialContent(atPaths relativePaths: [String]) -> String? {
+    stack.layers.reversed().lazy
+      .compactMap { layer in
+        var layerStack = self.stack
+        layerStack.layers = [layer]
+        return relativePaths.lazy.compactMap(layerStack.content).first
+      }
+      .first
+  }
+
+  /// The paths, relative to a layer root, at which a layer may hold a
+  /// partial in `folder`: each partial location of `folder` joined with each
+  /// name variant, locations in the order given and variants in resolution
+  /// order.
+  ///
+  /// - Parameters:
+  ///   - candidates: The name variants of the include, in resolution order.
+  ///   - folder: A folder of the walk, relative to a layer root. The empty
+  ///     path is the layer root.
   /// - Returns: The relative paths to try, in order.
-  private func partialPaths(for name: String) -> [String] {
-    let candidates = candidateNames(for: name)
-    return partialLocations.flatMap { location in
-      candidates.map { "\(location)/\($0)" }
+  private func partialPaths(of candidates: [String], in folder: String) -> [String] {
+    partialLocations.flatMap { location in
+      candidates.map { Self.joined(folder, Self.joined(location, $0)) }
     }
   }
 
@@ -154,11 +219,51 @@ final class DotfolderLoader: Loader, Sendable {
     return ([name] + strippedNames).flatMap { [$0, $0 + Self.markdownExtension] }
   }
 
-  /// Every directory a lookup consults, in the stack's layer order, for
-  /// the diagnostic of a partial that no layer holds.
+  /// Every directory a lookup consults, in the order of the search, for the
+  /// diagnostic of a partial that no layer holds: for each folder of the
+  /// walk, the most specific first, each layer, highest first, and each
+  /// partial location in the order given.
   private var searchedDirectories: [String] {
-    stack.layers.flatMap { layer in
-      partialLocations.map { layer.root.appendingPathComponent($0).path }
+    searchFolders.flatMap { folder in
+      stack.layers.reversed().flatMap { layer in
+        partialLocations.map { layer.root.appendingPathComponent(Self.joined(folder, $0)).path }
+      }
     }
+  }
+
+  /// The folders that the walk searches for a document at `documentPath`,
+  /// the most specific first.
+  ///
+  /// For `a/b/doc.md` the folders are `a/b`, `a` and the layer root (the
+  /// empty path). A `.` component and an empty component name no folder, so
+  /// the walk drops them.
+  ///
+  /// - Parameter documentPath: The path of the document, relative to its
+  ///   layer root, or `nil` when the path is not known.
+  /// - Returns: The folders, relative to a layer root. The layer root alone
+  ///   when `documentPath` is `nil`, absolute, or holds a `..` component.
+  private static func searchFolders(forDocumentAt documentPath: String?) -> [String] {
+    guard let documentPath, !documentPath.hasPrefix(String(pathSeparator)) else {
+      return [""]
+    }
+    let components = documentPath.split(separator: pathSeparator).map(String.init)
+    guard !components.contains(parentDirectoryComponent) else {
+      return [""]
+    }
+    let folderComponents = components.dropLast().filter { $0 != currentDirectoryComponent }
+    return (0...folderComponents.count).reversed().map {
+      folderComponents.prefix($0).joined(separator: String(pathSeparator))
+    }
+  }
+
+  /// Joins a folder and a path below it.
+  ///
+  /// - Parameters:
+  ///   - folder: A folder relative to a layer root. The empty path is the
+  ///     layer root.
+  ///   - path: A path relative to `folder`.
+  /// - Returns: `path` relative to the layer root.
+  private static func joined(_ folder: String, _ path: String) -> String {
+    folder.isEmpty ? path : "\(folder)\(pathSeparator)\(path)"
   }
 }

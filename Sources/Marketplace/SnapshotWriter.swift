@@ -61,9 +61,26 @@ internal struct SnapshotReport: Sendable, Hashable {
 ///
 /// The result is a layer root: `<skill>/…` for each selected skill,
 /// `agents/<name>` for each selected agent file, plus the partials folder
-/// that the ``MarketplaceLayout`` of the host names. The input is any
-/// ``CatalogFileSource``, so the same code writes a folder on the disk and
-/// the tree of a fetched commit. There is no checkout and no work tree.
+/// that the ``MarketplaceLayout`` of the host names.
+///
+/// The snapshot is flat: the folders between a plugin source and a skill,
+/// for example `skills/`, do not exist in it. Thus the partials of those
+/// folders merge into `<snapshot>/<partials folder>/`, from the least
+/// specific to the most specific. First comes the partials folder of each
+/// source root (``ResolvedCatalog/sourceRoots``), then the partials folder
+/// of each folder that holds a selected skill, for example
+/// `skills/_partials/`. A more specific copy replaces a less specific copy
+/// with no diagnostic. Two copies at the same level of specificity give one
+/// diagnostic, and the later one wins. A partials folder inside a skill
+/// folder goes with the skill folder.
+///
+/// A known limit of the flat snapshot: an agent file also sees the partials
+/// of `skills/_partials/`, because they merge into the one partials folder
+/// of the snapshot.
+///
+/// The input is any ``CatalogFileSource``, so the same code writes a folder
+/// on the disk and the tree of a fetched commit. There is no checkout and no
+/// work tree.
 ///
 /// ``MarketplaceCache/install(snapshotAt:sha:ref:)`` then takes the folder
 /// that this writer staged.
@@ -101,7 +118,8 @@ internal enum SnapshotWriter {
       try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
       try run.copySkills(catalog.skills)
       try run.copyAgents(catalog.agents)
-      try run.copyPartials(ofSkills: catalog.skills)
+      try run.copyPartials(ofSourceRoots: catalog.sourceRoots)
+      try run.copyPartials(ofSkills: catalog.skills, besides: catalog.sourceRoots)
     } catch {
       try? FileManager.default.removeItem(at: temporaryDirectory)
       throw error
@@ -192,21 +210,55 @@ fileprivate struct SnapshotRun {
     }
   }
 
+  /// Copies the partials folder of each source root to
+  /// `<snapshot>/<partials folder>/`: the least specific partials of the
+  /// snapshot.
+  ///
+  /// Two source roots can hold a partial of the same name. The later root
+  /// wins, and the write records one diagnostic. After the copy, the run
+  /// forgets these writes, so that a more specific folder replaces them
+  /// with no diagnostic.
+  ///
+  /// - Parameter roots: The source roots, in catalog order.
+  /// - Throws: ``SnapshotError``, else the error of a read or of a write.
+  mutating func copyPartials(ofSourceRoots roots: [String]) throws {
+    for root in roots {
+      try copyPartialsFolder(of: root)
+    }
+    forgetPartialsWrites()
+  }
+
   /// Copies the partials folder of each folder that holds a selected skill
   /// to `<snapshot>/<partials folder>/`.
   ///
-  /// Two such folders can hold a partial of the same name. The later folder
-  /// wins, and the write records one diagnostic.
+  /// These partials are more specific than the partials of the source
+  /// roots, thus they replace a copy of the same name. A folder that is
+  /// also a source root was copied already, thus the call skips it. Two
+  /// folders can hold a partial of the same name. The later folder wins,
+  /// and the write records one diagnostic.
   ///
-  /// - Parameter skills: The selected skills, in catalog order.
+  /// - Parameters:
+  ///   - skills: The selected skills, in catalog order.
+  ///   - roots: The source roots, whose partials folders are copied already.
   /// - Throws: ``SnapshotError``, else the error of a read or of a write.
-  mutating func copyPartials(ofSkills skills: [ResolvedSkill]) throws {
-    for folder in Self.parentFolders(ofSkills: skills) {
-      try copyTree(
-        fromTreePath: CatalogPath.child(named: partialsDirectoryName, of: folder),
-        toRelativePath: partialsDirectoryName,
-        depth: 0)
+  mutating func copyPartials(ofSkills skills: [ResolvedSkill], besides roots: [String]) throws {
+    let copied = Set(roots)
+    for folder in Self.parentFolders(ofSkills: skills) where !copied.contains(folder) {
+      try copyPartialsFolder(of: folder)
     }
+  }
+
+  /// Copies the partials folder of one folder of the tree to
+  /// `<snapshot>/<partials folder>/`.
+  ///
+  /// - Parameter folder: The folder in the tree that holds the partials
+  ///   folder. The empty path is the root.
+  /// - Throws: ``SnapshotError``, else the error of a read or of a write.
+  private mutating func copyPartialsFolder(of folder: String) throws {
+    try copyTree(
+      fromTreePath: CatalogPath.child(named: partialsDirectoryName, of: folder),
+      toRelativePath: partialsDirectoryName,
+      depth: 0)
   }
 
   // MARK: - The copy
@@ -286,6 +338,7 @@ fileprivate struct SnapshotRun {
     note(write: treePath, toRelativePath: relativePath)
     notePointer(file: treePath, data: data)
     let file = url(forRelativePath: relativePath)
+    try Self.removeEarlierItem(at: file)
     try data.write(to: file)
     guard isExecutable else {
       return
@@ -313,8 +366,9 @@ fileprivate struct SnapshotRun {
     }
     try count(file: treePath, bytes: 0)
     note(write: treePath, toRelativePath: relativePath)
-    try FileManager.default.createSymbolicLink(
-      atPath: url(forRelativePath: relativePath).path, withDestinationPath: target)
+    let link = url(forRelativePath: relativePath)
+    try Self.removeEarlierItem(at: link)
+    try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: target)
   }
 
   // MARK: - Limits
@@ -357,6 +411,16 @@ fileprivate struct SnapshotRun {
     report.diagnostics.append(diagnostic(saying: message))
   }
 
+  /// Forgets each write into the partials folder of the snapshot.
+  ///
+  /// The next write of such a path comes from a more specific folder. It
+  /// replaces the earlier copy, which is the rule of the merge, thus it
+  /// gives no diagnostic.
+  private mutating func forgetPartialsWrites() {
+    let prefix = partialsDirectoryName + String(CatalogPath.separator)
+    writtenPaths = writtenPaths.filter { !$0.key.hasPrefix(prefix) }
+  }
+
   /// Records that one file holds a large file storage pointer.
   ///
   /// The writer writes the pointer as it is, because the content is in
@@ -395,6 +459,23 @@ fileprivate struct SnapshotRun {
   private func url(forRelativePath relativePath: String) -> URL {
     relativePath.split(separator: CatalogPath.separator)
       .reduce(destination) { $0.appendingPathComponent(String($1)) }
+  }
+
+  /// Removes the item that an earlier write put at `url`, so that a later
+  /// copy replaces it.
+  ///
+  /// A later file never writes through an earlier symbolic link into the
+  /// target of that link, and a later link never fails on an earlier file.
+  /// The check reads the item itself, not the target of a link, thus a
+  /// link to a file that is not there is removed too.
+  ///
+  /// - Parameter url: The location of the item in the snapshot.
+  /// - Throws: The error of the removal.
+  private static func removeEarlierItem(at url: URL) throws {
+    guard (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil else {
+      return
+    }
+    try FileManager.default.removeItem(at: url)
   }
 
   /// Checks one name before it becomes a component of a snapshot path.

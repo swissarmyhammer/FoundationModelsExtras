@@ -147,6 +147,12 @@ public struct TemplateEngine: Sendable {
   /// partial.
   private let partialLocations: [String]
 
+  /// The path of the document that this engine renders, relative to its
+  /// layer root, or `nil` when the path is not known. The loader walks the
+  /// partial locations from the folder of the document up to the layer
+  /// root; with `nil` it searches the layer root only.
+  private let documentPath: String?
+
   /// The environment dictionary consulted for the precedence ladder's
   /// middle rung.
   private let environment: [String: String]
@@ -178,16 +184,21 @@ public struct TemplateEngine: Sendable {
   ///   - partialLocations: The directories, relative to a layer root, where
   ///     the loader finds a partial. Defaults to
   ///     `DotfolderLoader.defaultPartialLocations`.
+  ///   - documentPath: The path of the document, relative to its layer
+  ///     root, where the walk of the loader starts. Defaults to `nil`, which
+  ///     searches the layer root only.
   ///   - environment: The dictionary of the ladder's middle rung.
   ///   - wellKnownValues: The values of the ladder's lowest rung.
   init(
     partials: DotfolderStack?,
     partialLocations: [String] = DotfolderLoader.defaultPartialLocations,
+    documentPath: String? = nil,
     environment: [String: String],
     wellKnownValues: WellKnownValues
   ) {
     self.partials = partials
     self.partialLocations = partialLocations
+    self.documentPath = documentPath
     self.environment = environment
     self.wellKnownValues = wellKnownValues
   }
@@ -249,11 +260,13 @@ public struct TemplateEngine: Sendable {
   }
 
   /// The loader that resolves `{% include %}` for one render, over the
-  /// `partials` stack and this engine's partial locations, or `nil` when
-  /// no stack was given. Both trust paths route through this helper, so
-  /// they resolve a partial the same way.
+  /// `partials` stack, this engine's partial locations and the path of its
+  /// document, or `nil` when no stack was given. Both trust paths route
+  /// through this helper, so they resolve a partial the same way.
   private func makeLoader() -> DotfolderLoader? {
-    partials.map { DotfolderLoader(stack: $0, partialLocations: partialLocations) }
+    partials.map {
+      DotfolderLoader(stack: $0, partialLocations: partialLocations, documentPath: documentPath)
+    }
   }
 
   /// Builds the `[String: Any]` dictionary Stencil consumes: well-known
