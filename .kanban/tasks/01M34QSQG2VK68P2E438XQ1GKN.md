@@ -36,8 +36,24 @@ comments:
     - no formatter config file in the repo (`.swift-format`, `.swiftformat`, `.swiftlint.yml` all absent; no Airbnb plugin dependency), so no format step applies.
     - next: none. Build and tests are clean.
   timestamp: 2026-09-22T14:29:04.549603+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m34rg9bn9kfke2dha33brywc
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (282021a): 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. README.md and plan.md: no validator matches these files. .kanban/ files: excluded by .reviewignore.
+    - next: none. The task is in done.
+  timestamp: 2026-09-22T14:32:18.037578+00:00
+- actor: claude-code
+  id: 01m34rgkz510kdx4j6yrqdemn2
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files
+    - test: green — swift test, 1069 passed, 0 failed, 0 skipped
+    - commit: 282021a
+    - review: clean — 0 findings
+  timestamp: 2026-09-22T14:32:28.901879+00:00
+position_column: done
+position_ordinal: b980
 title: Copy the partials of every folder from the plugin root down to each skill, and test deep partial nesting
 ---
 ## Why
