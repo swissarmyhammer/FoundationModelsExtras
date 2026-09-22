@@ -47,6 +47,36 @@ comments:
     - evidence: `swift build --build-tests` (clean rebuild after `swift package clean`) — 0 warnings, 0 errors. `swift test` — 1061 tests total across all targets, 0 failed, 0 skipped: FoundationModelsExtrasTests 443/443, MarketplaceTests 389/389 (including the "Marketplace snapshot writer" suite for the partials-copy work), OperationsTests 125/125, OperationsMacrosTests 34/34, OperationsCLITests 44/44, NotesToolTests 26/26.
     - next: ready for review.
   timestamp: 2026-09-22T14:01:01.781485+00:00
+- actor: claude-code
+  id: 01m34q2vmm9g7622m5c9g4fx5f
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (1269d2d); 1 finding (1 confirmed, 0 refuted) — Tests/FoundationModelsExtrasTests/PartialWalkTests.swift:11
+    - next: remove the redundant @Suite attribute with no arguments from each suite in the file, then run the review again.
+  timestamp: 2026-09-22T14:07:29.428429+00:00
+- actor: claude-code
+  id: 01m34q32dzd2jtg492x2b7pb2c
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 9 files
+    - test: green — swift test, 1061 passed, 0 failed, 0 skipped
+    - commit: 1269d2d
+    - review: findings — Tests/FoundationModelsExtrasTests/PartialWalkTests.swift:11
+  timestamp: 2026-09-22T14:07:36.383130+00:00
+- actor: claude-code
+  id: 01m34q5kz4e71g0hnt47zwh3jk
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/PartialWalkTests.swift (removed the `@Suite` attribute with no arguments from `PartialWalkTests`; no other `@Suite` is in the file). `swift build --build-tests` exit 0, 0 warnings. `swift test` exit 0, 1061 tests passed (125+34+44+26+389+443), 0 failed. The finding is flipped to `- [x]`.
+    - next: /review
+  timestamp: 2026-09-22T14:08:59.876973+00:00
+- actor: claude-code
+  id: 01m34q8sda6gqnsnbyj3n4skbz
+  text: |-
+    ### test — green
+    - evidence: `swift build --build-tests` — build complete, 0 errors, 0 warnings. `swift test` — Test run with 443 tests in 34 suites passed, 0 failed, 0 skipped, 0 compiler warnings.
+    - next: none
+  timestamp: 2026-09-22T14:10:43.754425+00:00
 position_column: doing
 position_ordinal: '80'
 title: Resolve partials from the document up to the layer root, and copy the partials of the plugin root into a snapshot
@@ -131,3 +161,16 @@ The snapshot is flat: a skill is at `<snapshot>/<skill>/`, and the folders betwe
 - [x] The existing `swissarmyhammer-agents` fixture test (partials in `skills/_partials/`) stays green.
 
 #marketplace #extras #cross-repo #partials
+
+## Review Findings (2026-09-22 09:02)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 7 file(s) reviewed, 8 not reviewed.
+
+> 6 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 6 file(s)
+
+> 2 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+- [x] `Tests/FoundationModelsExtrasTests/PartialWalkTests.swift:11` `code-hygiene/idioms-swift` — redundantSwiftTestingSuite: Remove redundant @Suite attribute with no arguments.

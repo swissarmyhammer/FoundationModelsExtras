@@ -8,7 +8,7 @@ import Testing
 /// document, then of each ancestor folder, and last of the layer root. The
 /// most specific folder wins. Layer precedence applies only between copies
 /// in the same folder.
-@Suite struct PartialWalkTests {
+struct PartialWalkTests {
   typealias Fixture = DotfolderStackTests.Fixture
 
   /// A body that includes the `sah-x` partial with the leading location, as
