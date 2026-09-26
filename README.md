@@ -11,8 +11,9 @@ templates — `AgentsMd`, discovery of `AGENTS.md`/`AGENT.md`/`CLAUDE.md`
 agent-instructions files with directory-level provenance —
 `MarketplaceStore`, in the separate `Marketplace` product, which fetches a
 remote marketplace into a cached, materialized layer root that a stack
-reads as it reads a local layer — and `GenerationQueue`, the one work queue
-of each resident model in a process.
+reads as it reads a local layer — `GenerationQueue`, the one work queue
+of each resident model in a process — and `ModelPool`, which loads each model
+one time in a process and shares it through holds.
 
 ```swift
 import FoundationModelsExtras
@@ -475,6 +476,58 @@ This example is mirrored in `readmeWorkQueueExample` in
 `Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueuePublicSurfaceTests.swift`,
 kept green by `swift test --filter GenerationQueuePublicSurfaceTests`. The
 test declares `waits` (an `Atomic<Int>`) and `refusedModel` before the block.
+
+## One load for each model: `ModelPool`
+
+In one process, each model loads one time, and all users share it.
+`acquire` gives a `ModelHold`. A resident key adds a hold at once. A new key
+loads as one job in the admission queue of the pool, so two callers of one
+new key cause one load. The first loader of a key wins: a later caller gets
+that container, whatever loader it gives. Thus use the container through a
+protocol, never by a cast to the container type of one loader.
+
+The `deinit` of a hold releases it. After the last hold, the pool puts an
+eviction job in the admission queue. That job checks the hold count again, so
+an `acquire` between the release and the job keeps the model resident.
+
+`admit` runs a job of your own in the same queue. A job that reads the
+footprint and then loads sees no other load or eviction between the two
+steps. Inside the job, acquire through the `ModelPoolAdmission` that the job
+gets, because `ModelPool.acquire` waits for the end of the job:
+
+```swift
+let pool = ModelPool()
+let chat = ModelPoolKey(ref: "mlx-community/Qwen3-8B-4bit", role: .llm)
+let embedding = ModelPoolKey(ref: "mlx-community/bge-small", role: .embedding)
+let chatBytes: Int64 = 5_000_000_000
+let sessionBytes: Int64 = 500_000_000
+let embedderBytes: Int64 = 200_000_000
+let budgetBytes: Int64 = 8_000_000_000
+
+// A resident key adds a hold at once. A new key loads in the admission queue.
+let chatHold = try await pool.acquire(
+    chat, footprintBytes: chatBytes, sessionBytes: sessionBytes, loader: loader)
+
+// One admission job reads the footprint and loads. No other load can
+// run between the read and the load.
+let embedderHold = try await pool.admit { admission -> ModelHold? in
+    let fits = admission.footprint.totalBytes + embedderBytes <= budgetBytes
+    return if fits {
+        try await admission.acquire(embedding, footprintBytes: embedderBytes, sessionBytes: 0, loader: loader)
+    } else {
+        nil
+    }
+}
+```
+
+`footprints` gives a new `AsyncStream` for each call: the current
+`ModelPoolFootprint` first, then each change, with the bytes of a load that
+runs now in `loadingBytes`. `ModelPool.shared` is the pool of the process.
+
+This example is mirrored in `readmeModelPoolExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift`, kept green
+by `swift test --filter ModelPoolTests`. The test declares `loader` (a
+`PooledModelLoader`) before the block.
 
 ## Install
 
