@@ -8,10 +8,11 @@ locating config across defaults/user/project directories, a Stencil-backed
 `TemplateEngine` for rendering the content that lives in them — with a
 whitelist-and-budget sandbox for rendering untrusted, user-authored
 templates — `AgentsMd`, discovery of `AGENTS.md`/`AGENT.md`/`CLAUDE.md`
-agent-instructions files with directory-level provenance — and
+agent-instructions files with directory-level provenance —
 `MarketplaceStore`, in the separate `Marketplace` product, which fetches a
 remote marketplace into a cached, materialized layer root that a stack
-reads as it reads a local layer.
+reads as it reads a local layer — and `GenerationQueue`, the one work queue
+of each resident model in a process.
 
 ```swift
 import FoundationModelsExtras
@@ -417,6 +418,62 @@ This example is mirrored in `readmeStackWatcherExample` in
 `swift test --filter DotfolderWatcherTests`. The test binds
 `workingDirectory` and `userDirectory` to one temporary folder, thus it
 touches no home directory.
+
+## One model, one queue: `GenerationQueue`
+
+One GPU runs one generation at a time. Thus each resident model has one
+`GenerationQueue`, and every caller in the process that uses the model
+submits to that queue. An item is one whole call to the model. One worker
+runs the items one at a time, first in first out. The queue is not a lock: a
+caller waits only for the result of its own item. A cancel of a caller that
+waits removes its item from the queue at once, and a cancel of a caller whose
+item runs cancels the task of that item.
+
+`submit(onQueued:_:)` calls `onQueued` only when the item must wait behind
+another item, thus a session can report the wait. The re-entry guard stops a
+deadlock: a tool body that runs inside an open submission, and that submits
+to the same queue, could never run, because its item waits for the item of
+the tool body. The owner of the model call binds a `ModelCallMark` that
+names the queue and the model (a `SubmissionTarget`), and the queue refuses
+that submission at once with `GenerationQueueError.waitInsideOpenSubmission`:
+
+```swift
+let model: ModelRef = "mlx-community/Qwen3-8B-4bit"
+let queue = GenerationQueue()
+
+// Each call to the model is one item. One worker runs the items one at
+// a time, first in first out. `onQueued` runs only when the item must
+// wait behind another item.
+let answer = try await queue.submit(onQueued: { waits.add(1, ordering: .relaxed) }) {
+    "an answer from \(model.stringValue)"
+}
+
+// A tool body inside an open submission must not wait for the same
+// queue: that submission runs only after the tool body ends. The
+// owner of the call binds a mark, and the queue refuses the wait.
+let mark = ModelCallMark(
+    sessionID: ULID(), submission: SubmissionTarget(queue: queue, model: model))
+do {
+    _ = try await ModelCallMark.$current.withValue(mark) {
+        try await queue.submit { "this item never runs" }
+    }
+} catch GenerationQueueError.waitInsideOpenSubmission(let refused) {
+    refusedModel = refused
+}
+mark.close()
+```
+
+A declared background run is not refused: `ModelCallMark.withBackgroundRunMark`
+gives it a closed mark of the same session, because it does not hold the
+worker. The same folder holds `AsyncSemaphore`, a fair semaphore with a
+cancellable acquire, and `RaceGate`, a continuation that resumes one time.
+These types came from FoundationModelsRouter (decision 2026-09-26), so that
+one process keeps one queue for each model, which each consumer shares.
+
+This example is mirrored in `readmeWorkQueueExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueuePublicSurfaceTests.swift`,
+kept green by `swift test --filter GenerationQueuePublicSurfaceTests`. The
+test declares `waits` (an `Atomic<Int>`) and `refusedModel` before the block.
 
 ## Install
 
