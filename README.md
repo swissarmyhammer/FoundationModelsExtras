@@ -465,10 +465,11 @@ mark.close()
 
 A declared background run is not refused: `ModelCallMark.withBackgroundRunMark`
 gives it a closed mark of the same session, because it does not hold the
-worker. The same folder holds `AsyncSemaphore`, a fair semaphore with a
-cancellable acquire, and `RaceGate`, a continuation that resumes one time.
-These types came from FoundationModelsRouter (decision 2026-09-26), so that
-one process keeps one queue for each model, which each consumer shares.
+worker. Inside, the queue is one worker loop over an `AsyncStream` of items.
+Each item keeps its state (new, waiting, running, finished) under one lock,
+thus a cancel acts at once on the task that cancels, and only one path
+resumes the caller. Each item runs on a detached task, which inherits no
+task-local of its caller.
 
 This example is mirrored in `readmeWorkQueueExample` in
 `Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueuePublicSurfaceTests.swift`,

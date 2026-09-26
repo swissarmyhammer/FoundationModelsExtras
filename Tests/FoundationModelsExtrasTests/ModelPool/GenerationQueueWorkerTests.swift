@@ -3,14 +3,12 @@ import Synchronization
 import Testing
 import ULID
 
-/// The generation queue is a work queue with one worker, not a semaphore.
-/// These tests came from FoundationModelsRouter with the type (decision
-/// 2026-09-26).
+/// The generation queue is a work queue with one worker.
 ///
 /// A submitter gives the queue one item and waits only for the result of that
 /// item. One worker runs the items one at a time, first in first out, on a
 /// task that the worker makes. These tests read the order, the overlap and
-/// the cancel of the items from the items themselves, and read the list of
+/// the cancel of the items from the items themselves, and read the state of
 /// the queue through ``GenerationQueue/isRunning`` and
 /// ``GenerationQueue/waitingCount``.
 ///
@@ -61,17 +59,32 @@ struct GenerationQueueWorkerTests {
         }
     }
 
-    /// A flag that an item sets when its body runs.
-    private final class RanFlag: Sendable {
-        /// Whether the body ran.
-        private let ran = Atomic<Bool>(false)
+    /// A flag that a test or an item sets, and the number of times it was set.
+    private final class Flag: Sendable {
+        /// The number of times the flag was set.
+        private let setCount = Atomic<Int>(0)
 
-        /// Whether the body ran.
-        var isSet: Bool { ran.load(ordering: .sequentiallyConsistent) }
+        /// The number of times the flag was set.
+        var count: Int { setCount.load(ordering: .sequentiallyConsistent) }
 
-        /// Records that the body ran.
+        /// Whether the flag was set.
+        var isSet: Bool { count > 0 }
+
+        /// Sets the flag.
         func set() {
-            ran.store(true, ordering: .sequentiallyConsistent)
+            setCount.add(1, ordering: .sequentiallyConsistent)
+        }
+    }
+
+    /// The time between two readings of a flag that an item waits for.
+    private static let flagPollNanoseconds: UInt64 = 1_000_000
+
+    /// Waits until `flag` is set.
+    ///
+    /// - Parameter flag: The flag to wait for.
+    private static func waitUntilSet(_ flag: Flag) async {
+        while !flag.isSet {
+            try? await Task.sleep(nanoseconds: flagPollNanoseconds)
         }
     }
 
@@ -135,21 +148,21 @@ struct GenerationQueueWorkerTests {
         return error is CancellationError
     }
 
-    /// Starts an item on `queue` that holds the worker until `release` gets a
-    /// signal, and waits until that item runs.
+    /// Starts an item on `queue` that holds the worker until `release` is set,
+    /// and waits until that item runs.
     ///
     /// - Parameters:
     ///   - queue: The queue.
     ///   - log: The log the item enters, as `"holder"`.
-    ///   - release: The semaphore that ends the item.
+    ///   - release: The flag that ends the item.
     /// - Returns: The task of the submitter, and the box of its outcome.
     /// - Throws: An `ExpectationFailedError` when the item never ran.
     private static func startHolder(
-        on queue: GenerationQueue, log: ItemLog, release: AsyncSemaphore
+        on queue: GenerationQueue, log: ItemLog, release: Flag
     ) async throws -> (task: Task<Void, Never>, box: OutcomeBox<String>) {
         let holder = submit(to: queue) {
             await log.enter("holder")
-            await release.wait()
+            await waitUntilSet(release)
             await log.exit()
             return "holder"
         }
@@ -182,13 +195,13 @@ struct GenerationQueueWorkerTests {
     func itemsFromThreeTasksRunInOrderWithNoOverlap() async throws {
         let queue = GenerationQueue()
         let log = ItemLog()
-        let release = AsyncSemaphore(value: 0)
+        let release = Flag()
         let first = try await Self.startHolder(on: queue, log: log, release: release)
         let second = await Self.submitWaiting("second", to: queue, log: log, waiting: 1)
         let third = await Self.submitWaiting("third", to: queue, log: log, waiting: Self.itemsBehindTheFirst)
         let startedBeforeRelease = await log.started
 
-        release.signal()
+        release.set()
         let answers = try await [
             Self.outcome(of: first.box, named: "the first result").get(),
             Self.outcome(of: second.box, named: "the second result").get(),
@@ -207,7 +220,7 @@ struct GenerationQueueWorkerTests {
     func aCancelledWaitingItemNeverRunsAndTheNextItemRuns() async throws {
         let queue = GenerationQueue()
         let log = ItemLog()
-        let release = AsyncSemaphore(value: 0)
+        let release = Flag()
         let holder = try await Self.startHolder(on: queue, log: log, release: release)
         let cancelled = await Self.submitWaiting("cancelled", to: queue, log: log, waiting: 1)
         let next = await Self.submitWaiting("next", to: queue, log: log, waiting: Self.itemsBehindTheFirst)
@@ -216,7 +229,7 @@ struct GenerationQueueWorkerTests {
         let cancelledOutcome = try await Self.outcome(of: cancelled.box, named: "the cancelled result")
         let holderStillRuns = await queue.isRunning && holder.box.outcome == nil
         let waitingAfterCancel = await queue.waitingCount
-        release.signal()
+        release.set()
         let nextAnswer = try await Self.outcome(of: next.box, named: "the next result").get()
 
         #expect(Self.isCancellation(cancelledOutcome))
@@ -232,13 +245,13 @@ struct GenerationQueueWorkerTests {
         for _ in 0..<Self.raceRepetitions {
             let queue = GenerationQueue()
             let log = ItemLog()
-            let release = AsyncSemaphore(value: 0)
+            let release = Flag()
             let holder = try await Self.startHolder(on: queue, log: log, release: release)
             let cancelled = await Self.submitWaiting("cancelled", to: queue, log: log, waiting: 1)
 
             cancelled.task.cancel()
             let waitingAfterCancel = await queue.waitingCount
-            release.signal()
+            release.set()
             let cancelledOutcome = try await Self.outcome(of: cancelled.box, named: "the cancelled result")
             _ = try await Self.outcome(of: holder.box, named: "the holder result")
 
@@ -277,16 +290,16 @@ struct GenerationQueueWorkerTests {
         for _ in 0..<Self.raceRepetitions {
             let queue = GenerationQueue()
             let log = ItemLog()
-            let release = AsyncSemaphore(value: 0)
+            let release = Flag()
             let holder = try await Self.startHolder(on: queue, log: log, release: release)
-            let ran = RanFlag()
+            let ran = Flag()
             let raced = Self.submit(to: queue) {
                 ran.set()
                 return Self.racedValue
             }
             _ = await BoundedWait.conditionReached("the raced item waits") { await queue.waitingCount == 1 }
 
-            release.signal()
+            release.set()
             raced.task.cancel()
             let racedOutcome = try await Self.outcome(of: raced.box, named: "the raced result")
             let next = Self.submit(to: queue) { Self.nextValue }
@@ -305,7 +318,7 @@ struct GenerationQueueWorkerTests {
     @Test("a submitter that is cancelled before it submits gets CancellationError, and its item never runs")
     func anAlreadyCancelledSubmitterNeverRunsItsItem() async throws {
         let queue = GenerationQueue()
-        let ran = RanFlag()
+        let ran = Flag()
         let outcome = await Task {
             withUnsafeCurrentTask { $0?.cancel() }
             return try await queue.submit { ran.set() }
@@ -320,32 +333,32 @@ struct GenerationQueueWorkerTests {
     @Test("a submission reports that it waits only when the worker runs another item")
     func aSubmissionReportsItsWaitOnlyWhenTheWorkerIsBusy() async throws {
         let queue = GenerationQueue()
-        let entered = AsyncSemaphore(value: 0)
-        let release = AsyncSemaphore(value: 0)
-        let holderWaits = AsyncSemaphore(value: 0)
-        let waiterWaits = AsyncSemaphore(value: 0)
+        let entered = Flag()
+        let release = Flag()
+        let holderWaits = Flag()
+        let waiterWaits = Flag()
 
         let holdingSubmission = Task {
-            try await queue.submit(onQueued: { holderWaits.signal() }) {
-                entered.signal()
-                await release.wait()
+            try await queue.submit(onQueued: { holderWaits.set() }) {
+                entered.set()
+                await Self.waitUntilSet(release)
             }
         }
-        let holderInside = await BoundedWait.signalArrived(entered, named: "the holding submission started")
+        let holderInside = await BoundedWait.conditionReached("the holding submission started") { entered.isSet }
         let waitingSubmission = Task {
-            try await queue.submit(onQueued: { waiterWaits.signal() }) {}
+            try await queue.submit(onQueued: { waiterWaits.set() }) {}
         }
         let waiterQueued = await BoundedWait.conditionReached("the second submission waited for the worker") {
             await queue.waitingCount == 1
         }
-        release.signal()
+        release.set()
         try await holdingSubmission.value
         try await waitingSubmission.value
 
         #expect(holderInside)
         #expect(waiterQueued)
-        #expect(holderWaits.availablePermits == 0)
-        #expect(waiterWaits.availablePermits == 1)
+        #expect(holderWaits.count == 0)
+        #expect(waiterWaits.count == 1)
         #expect(await queue.isRunning == false)
     }
 
@@ -361,7 +374,7 @@ struct GenerationQueueWorkerTests {
     ///   - ran: The flag the item sets when it runs.
     /// - Returns: The outcome of the submission.
     private static func submitUnderMark(
-        to queue: GenerationQueue, mark: ModelCallMark, ran: RanFlag
+        to queue: GenerationQueue, mark: ModelCallMark, ran: Flag
     ) async -> Result<Int, any Error> {
         await ModelCallMark.$current.withValue(mark) {
             do {
@@ -379,7 +392,7 @@ struct GenerationQueueWorkerTests {
     @Test("a submission from a task inside an open submission on the same queue is refused at once, and never runs")
     func aSubmissionInsideAnOpenSubmissionOnTheSameQueueIsRefused() async throws {
         let queue = GenerationQueue()
-        let ran = RanFlag()
+        let ran = Flag()
         let mark = ModelCallMark(
             sessionID: ULID(), submission: SubmissionTarget(queue: queue, model: Self.markedModel))
 
@@ -402,8 +415,8 @@ struct GenerationQueueWorkerTests {
         closed.close()
         let otherModel = ModelCallMark(
             sessionID: ULID(), submission: SubmissionTarget(queue: otherQueue, model: Self.markedModel))
-        let ranUnderClosed = RanFlag()
-        let ranUnderOther = RanFlag()
+        let ranUnderClosed = Flag()
+        let ranUnderOther = Flag()
 
         let closedOutcome = await Self.submitUnderMark(to: queue, mark: closed, ran: ranUnderClosed)
         let otherOutcome = await Self.submitUnderMark(to: queue, mark: otherModel, ran: ranUnderOther)
@@ -417,7 +430,7 @@ struct GenerationQueueWorkerTests {
     @Test("a background run of an open submission is not refused a submission on the same queue")
     func aBackgroundRunOfAnOpenSubmissionIsNotRefused() async throws {
         let queue = GenerationQueue()
-        let ran = RanFlag()
+        let ran = Flag()
         let open = ModelCallMark(
             sessionID: ULID(), submission: SubmissionTarget(queue: queue, model: Self.markedModel))
 
@@ -432,14 +445,8 @@ struct GenerationQueueWorkerTests {
     }
 }
 
-/// An item runs on the task of the worker, which inherits no task-local of
-/// its submitter.
-///
-/// In the router, this suite drove a whole `LanguageModelSession` call as the
-/// item. The SDK gives the task-locals of the caller to its executor, so a
-/// pass that saw no task-local proved that the pass ran on a task the worker
-/// made. This package links no model, thus the item here reads the task-local
-/// itself: the same fact, with no SDK between the item and the read.
+/// An item runs on a task that the worker makes, which inherits no task-local
+/// of its submitter.
 @Suite("Generation queue: an item runs on the worker task")
 struct GenerationQueueWorkerTaskTests {
     /// The task-local that the test binds around the submission.

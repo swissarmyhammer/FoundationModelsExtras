@@ -7,17 +7,12 @@
 /// `repo` `"org/repo"` and the `revision` `"rev"`. Without an `@`, the whole
 /// string is the `repo` and `revision` is `nil`.
 ///
-/// Because authored profiles list models inline, `ModelRef` is
-/// `ExpressibleByStringLiteral`: a bare string literal such as
+/// `ModelRef` is `ExpressibleByStringLiteral`: a bare string literal such as
 /// `"mlx-community/Qwen2.5-Coder-32B-Instruct-8bit"` is a valid `ModelRef`.
 ///
-/// The type is pure value semantics — no dependency on MLX — and is `Sendable`,
+/// The type is a value type with no dependency on MLX. It is `Sendable`,
 /// `Hashable`, and `Codable`. It encodes to and decodes from its canonical
 /// string form (`repo` or `repo@revision`).
-///
-/// The type came from FoundationModelsRouter (decision 2026-09-26): the work
-/// queue of a model names its model with it, and the queue is in this package
-/// now, so each consumer of the family shares one model name.
 public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable {
     /// The Hugging Face repository id, e.g. `"org/repo"`. Never includes the
     /// revision suffix.

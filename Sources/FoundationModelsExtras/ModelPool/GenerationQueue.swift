@@ -1,72 +1,37 @@
-/// The work queue of one resident model: one worker runs the items of the
-/// model one at a time, first in first out (the router `generation-queue.md`,
-/// section 5.3).
+import Synchronization
+
+/// A work queue in front of one shared model. One worker runs the jobs one at
+/// a time, first in first out.
 ///
-/// An item is one submission to Foundation: one whole SDK call
-/// (`LanguageModelSession.respond` or `streamResponse`), with all of its steps.
-/// The steps are the generation passes and the tool bodies that the SDK runs
-/// between them. One GPU runs one generation at a time, so all the
-/// submissions on one model go through this one queue. A submission holds the
-/// worker for all of its steps, so a tool body holds the model for every other
-/// session on it (section 5.5). A tool that starts long work is a background
-/// tool: it returns at once, and its result comes back to its session as mail.
-///
-/// The queue is not a lock. A submitter gives the queue its item and waits
-/// only for the result of that item. It never waits for a permission. The
-/// worker of the queue holds the list of the waiting items, and its one
-/// worker task runs them in order, each on a task that it makes for that
-/// item. A task that the worker makes inherits no task-local of the
-/// submitter, so an item binds in its own closure each task-local that it
-/// needs.
-///
-/// There is one queue for each resident model. The owner of the resident
-/// model makes the queue and owns it (in the router, the live container
-/// `MLXFoundationModelsContainer`), and each session over that model submits
-/// each of its SDK calls to it. Two different models have two queues and
-/// generate at the same time.
-///
-/// An owner with no executor seam (a scripted backend that is not a
-/// `LanguageModelSession` over a `LanguageModel`) can own a queue of its own,
-/// and submit each scripted call through ``submit(isolation:_:)`` itself, so
-/// its queue behavior is testable without MLX.
-///
-/// A submission from a task inside an open submission on the same queue could
-/// never run: it waits behind the submission of its own caller. The queue
-/// refuses it at once with
-/// ``GenerationQueueError/waitInsideOpenSubmission(model:)``.
-///
-/// A cancel of the submitter reaches its item. A waiting item leaves the list
-/// at once and never runs, and its submitter gets `CancellationError`. A
-/// running item gets the cancel on the task that runs it. So a cancel of a
-/// session (the router `RoutedSession.cancel()`) ends the wait of a
-/// submission at once.
-///
-/// The type came from FoundationModelsRouter (decision 2026-09-26), so that
-/// one process keeps one queue for each model, which every consumer shares.
+/// A job is one call to the model. A submitter waits only for the result of
+/// its own job. When the submitter is cancelled, a waiting job never starts,
+/// and a running job gets the cancel on its task.
 public final class GenerationQueue: Sendable {
-    /// The worker that holds the list and runs the items.
-    private let worker = GenerationWorker()
+    /// The input of the worker loop.
+    private let jobs: AsyncStream<any QueuedJob>.Continuation
 
-    /// Makes an idle queue.
-    public init() {}
+    /// The number of jobs that are not finished: the running job and the
+    /// waiting jobs.
+    fileprivate let unfinished = Atomic<Int>(0)
 
-    /// Submits `body` as one item, and waits for its result.
-    ///
-    /// `body` runs on a task that the worker makes, after every item that
-    /// joined the queue before it. A submitter that is cancelled while its
-    /// item waits gets `CancellationError` at once, and the item never runs.
-    /// A submitter that is cancelled while its item runs cancels the task
-    /// that runs it, and gets what `body` then gives.
-    ///
-    /// - Parameters:
-    ///   - isolation: The actor isolation of the caller, which defaults to
-    ///     the caller's own. The caller waits and resumes there.
-    ///   - body: One submission.
-    /// - Returns: What `body` returns.
-    /// - Throws: ``GenerationQueueError/waitInsideOpenSubmission(model:)`` when
-    ///   the calling task is inside an open submission on this queue,
-    ///   `CancellationError` when the calling task is cancelled before its item
-    ///   runs, or what `body` throws.
+    /// Makes an idle queue and starts its worker loop.
+    public init() {
+        let (stream, jobs) = AsyncStream.makeStream(of: (any QueuedJob).self)
+        self.jobs = jobs
+        Task.detached {
+            for await job in stream {
+                await job.run()
+            }
+        }
+    }
+
+    /// Stops the worker loop.
+    deinit {
+        jobs.finish()
+    }
+
+    /// Runs `body` as one job, and waits for its result. This is
+    /// ``submit(isolation:onQueued:_:)`` with no `onQueued`.
     public func submit<T: Sendable>(
         isolation: isolated (any Actor)? = #isolation,
         _ body: @escaping @Sendable () async throws -> T
@@ -74,61 +39,40 @@ public final class GenerationQueue: Sendable {
         try await submit(isolation: isolation, onQueued: {}, body)
     }
 
-    /// ``submit(isolation:_:)``, which also calls `onQueued` when the item
-    /// must wait: the worker runs another item.
-    ///
-    /// An item that finds the worker idle never calls `onQueued`. A session
-    /// uses it to report the wait of its submission (the router
-    /// `SessionEvent.submissionQueued(_:)`).
+    /// Runs `body` as one job, and waits for its result. Calls `onQueued`
+    /// first when the job must wait behind another job.
     ///
     /// - Parameters:
-    ///   - isolation: The actor isolation of the caller, which defaults to
-    ///     the caller's own. The caller waits and resumes there.
-    ///   - onQueued: Called on the worker when the item joins the list behind
-    ///     another item.
-    ///   - body: One submission.
+    ///   - isolation: The actor isolation of the caller. The caller waits there.
+    ///   - onQueued: Called on the caller when the job must wait.
+    ///   - body: The job.
     /// - Returns: What `body` returns.
-    /// - Throws: ``GenerationQueueError/waitInsideOpenSubmission(model:)`` when
-    ///   the calling task is inside an open submission on this queue,
-    ///   `CancellationError` when the calling task is cancelled before its item
-    ///   runs, or what `body` throws.
+    /// - Throws: ``GenerationQueueError/waitInsideOpenSubmission(model:)``,
+    ///   `CancellationError` when the caller is cancelled before the job
+    ///   starts, or what `body` throws.
     public func submit<T: Sendable>(
         isolation: isolated (any Actor)? = #isolation,
         onQueued: @Sendable () -> Void,
         _ body: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try refuseWaitInsideOpenSubmission()
-        let ticket = GenerationWorker.Ticket()
-        let worker = worker
+        let job = Job(queue: self, priority: Task.currentPriority, body: body)
         return try await withTaskCancellationHandler {
-            try await worker.submit(ticket, onQueued: onQueued, body)
+            try await withCheckedThrowingContinuation { continuation in
+                guard let jobsAhead = job.wait(continuation) else { return }
+                if jobsAhead > 0 {
+                    onQueued()
+                }
+                jobs.yield(job)
+            }
         } onCancel: {
-            ticket.markCancelled()
-            Task { await worker.cancel(ticket) }
+            job.cancel()
         }
     }
 
-    /// Refuses a wait for this queue from a task inside an open submission on
-    /// this queue: an in-band tool body of a running item. An item of that
-    /// task could run only after the item of that tool body ends, which waits
-    /// for it (the router `generation-queue.md`, section 5.5, rule 2).
-    ///
-    /// ``submit(isolation:onQueued:_:)`` calls it for each submission. Each
-    /// helper of a session that waits for an answer calls it on the task of
-    /// its caller (the router `RoutedSessionActor.refuseWaitInsideOpenSubmission()`),
-    /// so a wait for the answer of a session over this queue is refused too,
-    /// also when that session is busy.
-    ///
-    /// The mark that this check reads is set by the owner of the model call
-    /// (the router `RoutedSessionActor.runCancellableModelCall`). For each
-    /// model call, it makes an open ``ModelCallMark`` that names the
-    /// ``SubmissionTarget`` (this queue and its model), and its submission
-    /// binds that mark to ``ModelCallMark/current`` around the SDK call, on
-    /// the task of the worker. The SDK gives the mark to each in-band tool
-    /// body of the call. The mark closes when the model call returns.
-    ///
-    /// A background run has a closed mark (``ModelCallMark/withBackgroundRunMark(_:)``),
-    /// so it is not refused.
+    /// Throws when the current task is inside an open model call on this
+    /// queue. A job from that task waits behind the call that waits for it,
+    /// so it can never start.
     ///
     /// - Throws: ``GenerationQueueError/waitInsideOpenSubmission(model:)``.
     public func refuseWaitInsideOpenSubmission() throws {
@@ -136,19 +80,116 @@ public final class GenerationQueue: Sendable {
         throw GenerationQueueError.waitInsideOpenSubmission(model: open.model)
     }
 
-    /// Whether the worker runs, or is about to run, an item.
-    ///
-    /// Exposed for observability and deterministic testing; not part of the
-    /// queue contract.
+    /// Whether a job runs or waits.
     public var isRunning: Bool {
-        get async { await worker.isRunning }
+        get async { unfinished.load(ordering: .sequentiallyConsistent) > 0 }
     }
 
-    /// The number of items that wait for the worker.
-    ///
-    /// Exposed for observability and deterministic testing; not part of the
-    /// queue contract.
+    /// The number of jobs that wait behind the running job.
     public var waitingCount: Int {
-        get async { await worker.waitingCount }
+        get async { max(unfinished.load(ordering: .sequentiallyConsistent) - 1, 0) }
+    }
+}
+
+/// A job in the input of the worker loop.
+private protocol QueuedJob: Sendable {
+    /// Runs the job to its end. Does nothing when the job is finished.
+    func run() async
+}
+
+/// One submission and its state. Each change of state occurs under one lock,
+/// so exactly one path resumes the submitter.
+private final class Job<T: Sendable>: QueuedJob {
+    /// The steps of a job: new, then waiting, then running, then finished.
+    private enum State: Sendable {
+        case new
+        case waiting(CheckedContinuation<T, any Error>)
+        case running(Task<Void, Never>)
+        case finished
+    }
+
+    /// The queue that counts this job.
+    private let queue: GenerationQueue
+
+    /// The priority of the submitter.
+    private let priority: TaskPriority
+
+    /// The work of the job.
+    private let body: @Sendable () async throws -> T
+
+    /// The state of the job.
+    private let state = Mutex(State.new)
+
+    /// Makes a new job.
+    init(queue: GenerationQueue, priority: TaskPriority, body: @escaping @Sendable () async throws -> T) {
+        self.queue = queue
+        self.priority = priority
+        self.body = body
+    }
+
+    /// Keeps the continuation of the submitter, and counts the job.
+    ///
+    /// - Parameter continuation: The continuation of the submitter.
+    /// - Returns: The number of unfinished jobs before this one, or `nil`
+    ///   when the job was cancelled first. Then the submitter gets
+    ///   `CancellationError` at once.
+    func wait(_ continuation: CheckedContinuation<T, any Error>) -> Int? {
+        let jobsAhead = state.withLock { state -> Int? in
+            guard case .new = state else { return nil }
+            state = .waiting(continuation)
+            return queue.unfinished.add(1, ordering: .sequentiallyConsistent).oldValue
+        }
+        if jobsAhead == nil {
+            continuation.resume(throwing: CancellationError())
+        }
+        return jobsAhead
+    }
+
+    /// Cancels the job on the task that calls it, with no wait. A job that
+    /// did not start is finished, and its submitter gets `CancellationError`.
+    /// A running job gets the cancel on its task.
+    func cancel() {
+        let previous = state.withLock { state -> State in
+            let previous = state
+            if case .running = state { return previous }
+            state = .finished
+            return previous
+        }
+        switch previous {
+        case .waiting(let continuation):
+            queue.unfinished.subtract(1, ordering: .sequentiallyConsistent)
+            continuation.resume(throwing: CancellationError())
+        case .running(let task):
+            task.cancel()
+        case .new, .finished:
+            break
+        }
+    }
+
+    /// Runs the job on a new detached task, which inherits no task-local of
+    /// the submitter, and waits for it. Only the worker loop calls this.
+    func run() async {
+        let task = state.withLock { state -> Task<Void, Never>? in
+            guard case .waiting(let continuation) = state else { return nil }
+            let task = Task.detached(priority: priority) {
+                let result: Result<T, any Error>
+                do {
+                    result = .success(try await self.body())
+                } catch {
+                    result = .failure(error)
+                }
+                self.finish()
+                continuation.resume(with: result)
+            }
+            state = .running(task)
+            return task
+        }
+        await task?.value
+    }
+
+    /// Marks the running job as finished, before its submitter resumes.
+    private func finish() {
+        state.withLock { $0 = .finished }
+        queue.unfinished.subtract(1, ordering: .sequentiallyConsistent)
     }
 }

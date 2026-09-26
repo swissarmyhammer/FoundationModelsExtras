@@ -299,9 +299,11 @@ public enum FrontmatterDocument {
   `FoundationModelsExtras` target, in `Sources/FoundationModelsExtras/ModelPool/`.
   There is no new library product and no new target: a consumer imports
   `FoundationModelsExtras`. The work queue came first, from
-  FoundationModelsRouter: `GenerationQueue`, its worker, the re-entry guard
-  (`ModelCallMark`, `SubmissionTarget`, `GenerationQueueError`), `ModelRef`,
-  `AsyncSemaphore` and `RaceGate`, documented in [`README.md`](README.md).
+  FoundationModelsRouter: `GenerationQueue` (one worker loop over an
+  `AsyncStream` of jobs), the re-entry guard (`ModelCallMark`,
+  `SubmissionTarget`, `GenerationQueueError`) and `ModelRef`, documented in
+  [`README.md`](README.md). The router helpers that the queue does not use
+  (its semaphore, its one-time gate and its worker actor) did not move.
   The queue refuses a submission from inside an open submission on the same
   queue, because that submission could never run. The dependency budget does
   not move: the code needs Foundation, `Synchronization` (a standard-library

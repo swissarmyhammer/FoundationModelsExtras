@@ -1,21 +1,10 @@
 import Foundation
 
-/// A refusal of a submission to a ``GenerationQueue`` that could never run
-/// (the router `generation-queue.md`, section 5.5, rule 2).
-///
-/// This is not a lock error. It names a wait cycle: the item of a queue is one
-/// whole submission to Foundation, and a tool body runs inside its submission.
-/// So a tool body that waits in band for a submission on the same queue waits
-/// for an item that runs only after the item of the tool body ends. A hang is
-/// worse than an error, so the queue refuses such a submission at once.
+/// A refusal of a job that ``GenerationQueue`` could never start.
 public enum GenerationQueueError: Error, Equatable, LocalizedError {
-    /// A task inside an open submission on the queue of `model` submitted to
-    /// that same queue: an in-band tool body asked a session on the same
-    /// model for an answer.
-    ///
-    /// Start the work from a background tool (the router
-    /// `ToolMount(mode: .background)`), and let its result come back as mail,
-    /// or wait for work on a different model.
+    /// A task inside an open model call on the queue of `model` submitted a
+    /// job to that same queue. The job waits behind the call that waits for
+    /// it, so the queue refuses it at once.
     case waitInsideOpenSubmission(model: ModelRef)
 
     /// A localized message that describes the error.
