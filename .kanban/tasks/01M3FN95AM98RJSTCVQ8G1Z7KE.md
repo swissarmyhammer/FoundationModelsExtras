@@ -74,6 +74,35 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift (197 lines, 124 code), Sources/FoundationModelsExtras/ModelPool/ModelPoolKey.swift (34 lines, 18 code), Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, README.md. `swift build --build-tests`: 0 warnings. `swift test`: exit 0, 1107 tests pass (125 + 34 + 44 + 26 + 393 + 485), 0 issues. `swift test --filter ModelPoolTests`: 12 of 12 pass, 20 runs of 20.
     - next: /review
   timestamp: 2026-09-26T21:40:07.941604+00:00
+- actor: claude-code
+  id: 01m3fv1mbbqswqgfsmtkkv12fg
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (d18a77c): 1 finding (1 confirmed, 2 refuted). Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:34 code-hygiene/idioms-swift preferForLoop. No finding asks for a lock, a semaphore, an actor or router complexity, so no conflict with the design of the user.
+    - next: Convert each functional forEach call in ModelPool.swift to a for loop (all of the file, not only line 34). Then review again.
+  timestamp: 2026-09-26T21:48:22.251153+00:00
+- actor: claude-code
+  id: 01m3fv1z0v7fpgfb00q05gr02n
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — ModelPool.swift, ModelPoolKey.swift, 12 tests, README
+    - test: green — swift test, 485 passed, 0 warnings, 0 skipped
+    - commit: d18a77c
+    - review: findings — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:34
+  timestamp: 2026-09-26T21:48:33.179360+00:00
+- actor: claude-code
+  id: 01m3fv2nqcwec1ggtrrf72cx3b
+  text: |-
+    ### Research (implement, finding pass)
+    - A search for `forEach` in the repository finds 2 calls. One is in `ModelPool.swift` (`State.publish`). The other is in `TemplateEngine.swift`, which is out of the scope of this task. `Sources/FoundationModelsExtras/ModelPool/` and `Tests/FoundationModelsExtrasTests/ModelPool/` have no other `forEach`.
+  timestamp: 2026-09-26T21:48:56.428866+00:00
+- actor: claude-code
+  id: 01m3fv513z6jth5k7h51vjhcqe
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift (`State.publish`: `streams.values.forEach { $0.yield(footprint) }` is now a `for stream in streams.values` loop). The finding preferForLoop is marked `- [x]`. `swift build`: exit 0, 0 warnings. `swift test --filter ModelPool`: 12 of 12 tests pass, exit 0.
+    - next: /review
+  timestamp: 2026-09-26T21:50:13.631961+00:00
 depends_on:
 - 01M3FN8WD0G0NJ7QAAKSPZ9RW1
 position_column: doing
@@ -166,3 +195,15 @@ Push the commit of 01M3FN8WD0G0NJ7QAAKSPZ9RW1 before this commit (the router has
 Registry tasks 01M3FNBKG7PTTAGCQNN3CRNN69, 01M3FNC0TX22X4Q7D5A5KEBHZ9. Router tasks 01M3FNB4MCRRBTJNNVZZ6P02R2, 01M3FNBKR2347W659AXFJVZKGM, 01M3FNJS6J7KGAJJ5WFEST00WA, 01M3FNK00PYXP7E102NWNHMD56, 01M3FNBZF74DHSGE70C5339RGT, 01M3FNC92WA10NG6TX59H3RKXF.
 
 #model-pool #cross-repo
+
+## Review Findings (2026-09-26 16:43)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 4 file(s) reviewed, 3 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:34` `code-hygiene/idioms-swift` — preferForLoop: Convert functional forEach calls to for loops.

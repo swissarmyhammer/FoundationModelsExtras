@@ -31,7 +31,9 @@ public final class ModelPool: Sendable {
         /// Sends the footprint to each stream. Each change calls this under the
         /// lock, so each stream sees the changes in order.
         func publish() {
-            streams.values.forEach { $0.yield(footprint) }
+            for stream in streams.values {
+                stream.yield(footprint)
+            }
         }
     }
 
