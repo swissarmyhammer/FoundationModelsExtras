@@ -9,9 +9,11 @@ public final class ModelPool: Sendable {
     public static let shared = ModelPool()
 
     /// One resident model.
-    private struct Entry {
+    fileprivate struct Entry {
         let container: any Sendable
         let loader: any PooledModelLoader
+        /// The one work queue of the model. All holds of the key share it.
+        let queue = GenerationQueue()
         /// The weights, and the session of each hold.
         var bytes: Int64
         var holds = 1
@@ -96,11 +98,11 @@ public final class ModelPool: Sendable {
     /// Adds a hold when `key` is resident.
     fileprivate func holdIfResident(_ key: ModelPoolKey, sessionBytes: Int64) -> ModelHold? {
         state.withLock { state in
-            guard let container = state.entries[key]?.container else { return nil }
+            guard let entry = state.entries[key] else { return nil }
             state.entries[key]?.holds += 1
             state.entries[key]?.bytes += sessionBytes
             state.publish()
-            return ModelHold(pool: self, key: key, container: container, sessionBytes: sessionBytes)
+            return ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes)
         }
     }
 
@@ -116,12 +118,13 @@ public final class ModelPool: Sendable {
             setLoadingBytes(0)
             throw error
         }
+        let entry = Entry(container: container, loader: loader, bytes: footprintBytes)
         state.withLock { state in
             state.loadingBytes = 0
-            state.entries[key] = Entry(container: container, loader: loader, bytes: footprintBytes)
+            state.entries[key] = entry
             state.publish()
         }
-        return ModelHold(pool: self, key: key, container: container, sessionBytes: sessionBytes)
+        return ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes)
     }
 
     /// Sets the bytes of the load that runs now.
@@ -181,16 +184,19 @@ public final class ModelHold: Sendable {
     public let key: ModelPoolKey
     /// The container that the first loader of the key returned.
     public let container: any Sendable
+    /// The one work queue of the model. All holds of the key share it.
+    public let queue: GenerationQueue
     /// The pool that counts this hold.
     private let pool: ModelPool
     /// The bytes of the session of this hold.
     private let sessionBytes: Int64
 
-    /// Makes a hold that `pool` counts already.
-    fileprivate init(pool: ModelPool, key: ModelPoolKey, container: any Sendable, sessionBytes: Int64) {
+    /// Makes a hold of `entry` that `pool` counts already.
+    fileprivate init(pool: ModelPool, key: ModelPoolKey, entry: ModelPool.Entry, sessionBytes: Int64) {
         self.pool = pool
         self.key = key
-        self.container = container
+        self.container = entry.container
+        self.queue = entry.queue
         self.sessionBytes = sessionBytes
     }
 

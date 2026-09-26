@@ -529,6 +529,33 @@ This example is mirrored in `readmeModelPoolExample` in
 by `swift test --filter ModelPoolTests`. The test declares `loader` (a
 `PooledModelLoader`) before the block.
 
+### One queue for each model: `PooledEmbedder`
+
+Each resident model has one `GenerationQueue`, and all holds of its key share
+it as `hold.queue`. The queue keeps its guard: a submission from inside an open
+submission on the same queue is refused.
+
+For a key of the `.embedding` role, the loader returns a container that
+conforms to `PooledEmbedding`. A `PooledEmbedder` keeps the hold, so the model
+stays resident while the embedder exists. Each `embed(texts:)` call is one job
+in the queue of the model. The embedder uses the container only through
+`PooledEmbedding`, so the container of the first loader works for all callers.
+When the container does not conform, `PooledEmbedder(hold:)` throws
+`PooledEmbedderError.notAnEmbedding`:
+
+```swift
+// The handle keeps the hold, so the model stays resident. Each call
+// is one job in the queue that all holds of the key share.
+let hold = try await pool.acquire(embedding, footprintBytes: embedderBytes, sessionBytes: 0, loader: loader)
+let embedder = try PooledEmbedder(hold: hold)
+let vectors = try await embedder.embed(texts: texts)
+```
+
+This example is mirrored in `readmeEmbedderExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift`, kept
+green by `swift test --filter PooledEmbedderTests`. The test declares `pool`,
+`loader`, `embedding`, `embedderBytes` and `texts` before the block.
+
 ## Install
 
 Add the package to `Package.swift`:

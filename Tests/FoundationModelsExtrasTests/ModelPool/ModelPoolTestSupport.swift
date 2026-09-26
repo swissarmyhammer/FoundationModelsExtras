@@ -102,3 +102,76 @@ final class RecordingLoader: PooledModelLoader {
         log.append("evict \(owner)")
     }
 }
+
+/// An embedding model that gives one fixed vector for each text, and writes
+/// each call to a log.
+///
+/// A call writes `"begin <texts>"` and then `"end <texts>"`. The first call
+/// waits between the two writes until `firstCallMayEnd` finishes, and then
+/// throws `CancellationError` when its task is cancelled.
+final class FakeEmbedding: PooledEmbedding {
+    /// The vector of each text.
+    let vector: [Float]
+
+    /// The log of the calls.
+    private let log: Recorder<String>
+
+    /// The first call ends only after this stream finishes.
+    private let firstCallMayEnd: AsyncStream<Void>
+
+    /// The number of calls that started.
+    private let startedCalls = Mutex(0)
+
+    /// The length of ``vector``.
+    var dimension: Int { vector.count }
+
+    /// Makes a model.
+    ///
+    /// - Parameters:
+    ///   - vector: The vector of each text.
+    ///   - log: The log of the calls.
+    ///   - firstCallMayEnd: The first call ends only after this stream
+    ///     finishes. The default stream is finished, so the first call ends at once.
+    init(vector: [Float], log: Recorder<String>, firstCallMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() }) {
+        self.vector = vector
+        self.log = log
+        self.firstCallMayEnd = firstCallMayEnd
+    }
+
+    /// Writes the call to the log, and gives ``vector`` for each text.
+    ///
+    /// - Parameter texts: The texts.
+    /// - Returns: One copy of ``vector`` for each text.
+    /// - Throws: `CancellationError` when the task is cancelled.
+    func embed(texts: [String]) async throws -> [[Float]] {
+        let call = startedCalls.withLock { count in
+            count += 1
+            return count
+        }
+        let name = texts.joined(separator: " ")
+        log.append("begin \(name)")
+        if call == 1 {
+            for await _ in firstCallMayEnd {}
+        }
+        try Task.checkCancellation()
+        log.append("end \(name)")
+        return texts.map { _ in vector }
+    }
+}
+
+/// A loader that gives one container that the test makes. Its eviction does nothing.
+struct FixedLoader: PooledModelLoader {
+    /// The container that each load gives.
+    let container: any Sendable
+
+    /// Gives ``container``.
+    ///
+    /// - Parameter key: The key to load.
+    /// - Returns: ``container``.
+    func load(_ key: ModelPoolKey) async throws -> any Sendable { container }
+
+    /// Does nothing.
+    ///
+    /// - Parameter container: The container to evict.
+    func evict(_ container: any Sendable) async {}
+}
