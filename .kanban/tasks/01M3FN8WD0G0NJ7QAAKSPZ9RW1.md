@@ -121,6 +121,37 @@ comments:
     - evidence: removed AsyncSemaphore.swift, RaceGate.swift, GenerationWorker.swift, AsyncSemaphoreTests.swift, RaceGateTests.swift; rewrote GenerationQueue.swift, GenerationReentry.swift; docs in GenerationQueueError.swift, ModelRef.swift; test helpers BoundedWait.swift, GenerationQueueWorkerTests.swift; README.md; plan.md §5. ModelPool sources 1,040 -> 396 lines (207 code lines). `swift build` 0 warnings, 0 errors (clean rebuild of both targets). `swift test` exit 0: FoundationModelsExtrasTests 473 tests in 39 suites passed; other targets 125 + 34 + 44 + 26 + 393 passed. `rg AsyncSemaphore`: no match. Not committed.
     - next: /review
   timestamp: 2026-09-26T20:47:00.078550+00:00
+- actor: claude-code
+  id: 01m3fr40zg5cpq7a7kjcx273wa
+  text: |-
+    ### review — findings
+    - evidence: `review sha HEAD~2..HEAD` (d682e45, 919caac). Counts: 1 finding, 1 confirmed, 0 refuted. Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift:360 (`code-hygiene/idioms-swift` isEmpty). No finding asks to add back the removed complexity (RaceGate, AsyncSemaphore, GenerationWorker, history comments, router section references). README.md and plan.md had no validator.
+    - next: correct the finding in the whole file, then /review again.
+  timestamp: 2026-09-26T20:57:14.992791+00:00
+- actor: claude-code
+  id: 01m3fr4aby4nh3kavyyb2m6vpr
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — queue rewritten as one worker loop and one job type; RaceGate, AsyncSemaphore, GenerationWorker removed; ModelPool sources 1,040 -> 396 lines
+    - test: green — swift test, 473 passed, 0 warnings, 0 skipped
+    - commit: 919caac
+    - review: findings — Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift:360
+  timestamp: 2026-09-26T20:57:24.606775+00:00
+- actor: claude-code
+  id: 01m3fr9c78c2cvy8tp9kq9rapx
+  text: |-
+    Finding "isEmpty: Prefer isEmpty over comparing count against zero" corrected.
+    - `holderWaits` is a test `Flag` (an Atomic<Int> count), not a collection. It has no `isEmpty`. The flag already has `isSet` (`count > 0`). Thus `#expect(holderWaits.count == 0)` became `#expect(!holderWaits.isSet)`. No new type and no new member.
+    - Whole-file scan: that line was the only `.count` compared with zero. `Flag.isSet` itself is `count > 0`: it is the definition of the Boolean, and the type has no `isEmpty`. The `queue.waitingCount == 0` checks read a public `Int` property, not the `count` of a collection; `isEmpty` does not apply without new public API, thus they stay.
+    - Other files: `rg` over Tests/FoundationModelsExtrasTests/ModelPool/ and Sources/FoundationModelsExtras/ModelPool/ found no other `.count` compared with zero.
+  timestamp: 2026-09-26T21:00:10.344950+00:00
+- actor: claude-code
+  id: 01m3fr9e8m3j7s7pbx0arjmc1b
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift. `swift build --build-tests`: 0 warnings, 0 errors. `swift test --filter 'GenerationQueue|ModelRef|ModelCallMark'`: 26 tests in 5 suites passed. Not committed.
+    - next: /review
+  timestamp: 2026-09-26T21:00:12.436620+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'ModelPool: move the work queue from the router into the core target'
@@ -156,3 +187,16 @@ Added (coordinator, 2026-09-26): add the work queue (`GenerationQueue`, the re-e
 
 ## Notes
 The router depends on Extras by git URL. The router tasks cannot start until this work is pushed.
+
+## Review Findings (2026-09-26 15:51)
+
+> Scope: `review sha HEAD~2..HEAD` — reviewed the diffs only — lines this change added or modified. 9 file(s) reviewed, 4 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+> 2 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift:360` `code-hygiene/idioms-swift` — isEmpty: Prefer isEmpty over comparing count against zero.

@@ -357,7 +357,7 @@ struct GenerationQueueWorkerTests {
 
         #expect(holderInside)
         #expect(waiterQueued)
-        #expect(holderWaits.count == 0)
+        #expect(!holderWaits.isSet)
         #expect(waiterWaits.count == 1)
         #expect(await queue.isRunning == false)
     }
