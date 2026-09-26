@@ -14,6 +14,33 @@ comments:
     - notes: No new lock, semaphore or gate type. The re-entry guard is unchanged, because each hold queue is a GenerationQueue. The "not evicted" test reads the footprint just after the handle is made: a hold that the handle did not keep releases at once in deinit and drops the session bytes, so the test fails at once with no race.
     - next: /review
   timestamp: 2026-09-26T22:00:49.226108+00:00
+- actor: claude-code
+  id: 01m3fw5k1sn34r4xndvvn1bkr9
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (a255ea4). 1 finding (1 confirmed, 0 refuted): Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift:112 swift/value-semantics. No finding asks for a lock, semaphore, actor or router-style complexity, so no conflict with the user decision on the pool tasks.
+    - next: change `final class FakeEmbedding` to `struct FakeEmbedding`, and remove the same cause from all of ModelPoolTestSupport.swift. Then run the review again.
+  timestamp: 2026-09-26T22:08:00.569560+00:00
+- actor: claude-code
+  id: 01m3fw5vqfag7vk8821z03nswc
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — ModelPool.swift, PooledEmbedder.swift, 8 tests, test support, README
+    - test: green — swift test, 493 passed, 0 warnings, 0 skipped
+    - commit: a255ea4
+    - review: findings — Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift:112
+  timestamp: 2026-09-26T22:08:09.455460+00:00
+- actor: claude-code
+  id: 01m3fw7zzfww3yyg95g8dtf6vm
+  text: 'Research for the finding ModelPoolTestSupport.swift:112 swift/value-semantics. FakeEmbedding and RecordingLoader are classes only because each keeps a `Mutex<Int>` call counter. A struct cannot keep a `Mutex` field and stay Copyable, and `PooledEmbedding` and `PooledModelLoader` require Copyable (a loader or a container goes into `any Sendable`). Plan: add one `final class Counter` (a shared `Mutex<Int>` that tasks increment, so it needs reference semantics), and make FakeEmbedding and RecordingLoader structs that keep a `Counter`. Copies of a struct share the same Counter and the same Recorder, so the behavior does not change. This also removes the two copies of the same increment block. Classes that stay: FakeModel (tests compare two models with `===`, so it needs identity); Recorder (tasks share it and append to it, so it needs shared mutable state); Counter (tasks share it and increment it). FixedLoader is already a struct.'
+  timestamp: 2026-09-26T22:09:19.343370+00:00
+- actor: claude-code
+  id: 01m3fww1m0kshdeheafsznys8y
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift. FakeEmbedding is now a struct. RecordingLoader is now a struct (same cause: its only reason to be a class was a `Mutex<Int>` load counter). New `final class Counter` keeps the shared call count; FakeEmbedding and RecordingLoader each keep one, and the two copies of the increment block are gone. Classes that stay, and why: FakeModel — tests compare two models with `===` (identity); Recorder — tasks share one log and append to it (shared mutable state); Counter — copies of a fake share one count and tasks increment it (shared mutable state). FixedLoader was already a struct. The finding is marked `- [x]`. `swift build`: Build complete, 0 warnings. `swift test --filter 'ModelPool|PooledEmbedder'`: 20 tests in 2 suites passed, 0 warnings. No commit, no push.
+    - next: /review
+  timestamp: 2026-09-26T22:20:16.384878+00:00
 depends_on:
 - 01M3FN95AM98RJSTCVQ8G1Z7KE
 position_column: doing
@@ -45,3 +72,15 @@ All code goes into the core `FoundationModelsExtras` target, in `Sources/Foundat
 - [x] The public API has doc comments. `swift test` passes.
 
 #model-pool #cross-repo
+
+## Review Findings (2026-09-26 17:03)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 4 file(s) reviewed, 3 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift:112` `swift/value-semantics` — Use struct, not class. FakeEmbedding does not need identity semantics or reference behavior. Change `final class FakeEmbedding` to `struct FakeEmbedding`.

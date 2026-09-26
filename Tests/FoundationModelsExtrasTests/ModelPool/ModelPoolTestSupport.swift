@@ -34,12 +34,29 @@ final class Recorder<Value: Sendable>: Sendable {
     }
 }
 
+/// Counts the calls that tasks start. Each copy of a fake that keeps a counter
+/// shares the same count, so the counter is a class.
+final class Counter: Sendable {
+    /// The number of calls that started.
+    private let count = Mutex(0)
+
+    /// Adds one to the count.
+    ///
+    /// - Returns: The count after the addition. The first call gives 1.
+    func next() -> Int {
+        count.withLock { count in
+            count += 1
+            return count
+        }
+    }
+}
+
 /// A loader that writes each load and each eviction to a log.
 ///
 /// A load writes `"load <ref> by <name>"`, then waits until `loadsMayEnd`
 /// finishes. The first `failingLoads` loads then throw ``FakeLoadError``. An
 /// eviction writes `"evict <name of the loader that made the model>"`.
-final class RecordingLoader: PooledModelLoader {
+struct RecordingLoader: PooledModelLoader {
     /// The name that the log and each model of this loader carry.
     let name: String
 
@@ -53,7 +70,7 @@ final class RecordingLoader: PooledModelLoader {
     private let failingLoads: Int
 
     /// The number of loads that started.
-    private let startedLoads = Mutex(0)
+    private let startedLoads = Counter()
 
     /// Makes a loader.
     ///
@@ -82,10 +99,7 @@ final class RecordingLoader: PooledModelLoader {
     /// - Returns: A new ``FakeModel``.
     /// - Throws: ``FakeLoadError`` for each of the first `failingLoads` loads.
     func load(_ key: ModelPoolKey) async throws -> any Sendable {
-        let attempt = startedLoads.withLock { count in
-            count += 1
-            return count
-        }
+        let attempt = startedLoads.next()
         log.append("load \(key.ref.stringValue) by \(name)")
         for await _ in loadsMayEnd {}
         if attempt <= failingLoads {
@@ -109,7 +123,7 @@ final class RecordingLoader: PooledModelLoader {
 /// A call writes `"begin <texts>"` and then `"end <texts>"`. The first call
 /// waits between the two writes until `firstCallMayEnd` finishes, and then
 /// throws `CancellationError` when its task is cancelled.
-final class FakeEmbedding: PooledEmbedding {
+struct FakeEmbedding: PooledEmbedding {
     /// The vector of each text.
     let vector: [Float]
 
@@ -120,7 +134,7 @@ final class FakeEmbedding: PooledEmbedding {
     private let firstCallMayEnd: AsyncStream<Void>
 
     /// The number of calls that started.
-    private let startedCalls = Mutex(0)
+    private let startedCalls = Counter()
 
     /// The length of ``vector``.
     var dimension: Int { vector.count }
@@ -144,10 +158,7 @@ final class FakeEmbedding: PooledEmbedding {
     /// - Returns: One copy of ``vector`` for each text.
     /// - Throws: `CancellationError` when the task is cancelled.
     func embed(texts: [String]) async throws -> [[Float]] {
-        let call = startedCalls.withLock { count in
-            count += 1
-            return count
-        }
+        let call = startedCalls.next()
         let name = texts.joined(separator: " ")
         log.append("begin \(name)")
         if call == 1 {
