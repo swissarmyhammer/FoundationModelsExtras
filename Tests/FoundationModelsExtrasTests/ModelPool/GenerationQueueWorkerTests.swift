@@ -88,6 +88,25 @@ struct GenerationQueueWorkerTests {
         }
     }
 
+    /// A result that sets a flag when its last reference goes.
+    private final class TrackedResult: Sendable {
+        /// The flag that the deinit sets.
+        private let released: Flag
+
+        /// Makes a result that sets `released` in its deinit.
+        ///
+        /// - Parameter released: The flag to set.
+        init(released: Flag) {
+            self.released = released
+        }
+
+        /// Sets the flag.
+        deinit { released.set() }
+    }
+
+    /// How many times the release test submits an item and drops its result.
+    private static let releaseRepetitions = 1000
+
     /// The number of items that wait behind the first item in the FIFO test.
     private static let itemsBehindTheFirst = 2
 
@@ -242,6 +261,20 @@ struct GenerationQueueWorkerTests {
                 })
 
             try #require(await log.started == ["holder"] + names)
+        }
+    }
+
+    @Test("the result of an item is released at once when its submitter drops it")
+    func theResultOfAnItemIsReleasedWhenItsSubmitterDropsIt() async throws {
+        let queue = GenerationQueue()
+        for _ in 0..<Self.releaseRepetitions {
+            let released = Flag()
+            var result: TrackedResult? = try await queue.submit { TrackedResult(released: released) }
+            #expect(result != nil)
+
+            result = nil
+
+            try #require(released.isSet)
         }
     }
 

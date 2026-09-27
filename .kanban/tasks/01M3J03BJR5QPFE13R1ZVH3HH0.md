@@ -12,8 +12,18 @@ comments:
     - commit: 9c4840e "test(hosting): test a second stop of one tool run".
     - review: 4 findings, all `reuse/reuse` (DeclaredRunKindTests.swift:271; ToolRunStopTests.swift:67, :78, :122). The task stays in review.
   timestamp: 2026-09-27T18:06:52.569313+00:00
-position_column: review
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3j1bvdxshcfrvxj3sca2935
+  text: |-
+    ### finish iteration 2 — review: clean
+
+    - implement: Put the two-stop tests in one parameterized test in ToolRunStopTests.swift (4 routes: ToolCallState.stop, ToolRun.stop, two cancels of a .process run, a cancel and then a sweep). Removed the same tests from DeclaredRunKindTests.swift. Added the shared MountFixtures.GatedProcessTool and CancelOutcome.reportedOutcome. Used the shared MountFixtures.toolRun. All 4 findings are checked. No change to Sources.
+    - test: `swift build --build-tests` has 0 compiler warnings. `swift test`: 737 tests in 72 suites pass. Note: ModelPoolTests.swift:273 fails some of the time also at 9c4840e with no change to ModelPool. Task ^kr6ya6v records it.
+    - commit: 0578085 "test(hosting): use one parameterized test for a second stop".
+    - review: 0 findings. The task moves to done.
+  timestamp: 2026-09-27T18:17:17.501166+00:00
+position_column: done
+position_ordinal: cb80
 title: 'Add tests for ToolRun.stop(using:): a second stop gives the task of the first stop'
 ---
 Sources/FoundationModelsExtras/Hosting/ToolRun.swift:230-240
@@ -40,3 +50,7 @@ Scope: `review sha HEAD~1..HEAD` (commit 9c4840e).
 - [x] `Tests/FoundationModelsExtrasTests/Hosting/ToolRunStopTests.swift:122` `reuse/reuse` — twoRunStopsRunTheCancelerOneTime duplicates test logic at 0.88 similarity to twoCancelsOfOneProcessRunKillOneTime in DeclaredRunKindTests.swift. Both verify that stopping twice runs the canceler once. Extract the shared test logic ('second stop reuses first canceler outcome and runs it once') into a parameterized helper for both test suites to call.
 
 Correction (iteration 2): The two-stop tests are now one parameterized test, `aSecondStopKeepsTheFirstStop(route:)`, in ToolRunStopTests.swift. Its routes are ToolCallState.stop, ToolRun.stop, two cancels of a `.process` run, and a cancel and then a sweep of a `.process` run. The tests in DeclaredRunKindTests.swift are removed. The ToolRun fixture is the shared `MountFixtures.toolRun`, and the process tool is the shared `MountFixtures.GatedProcessTool`.
+
+## Review Findings (2026-09-27 13:15)
+
+Scope: `review sha HEAD~1..HEAD` (commit 0578085). 4 files reviewed. 0 findings. Each prior item is checked.

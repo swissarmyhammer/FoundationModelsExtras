@@ -64,7 +64,15 @@ public final class GenerationQueue: Sendable {
         let job = Job(queue: self, priority: Task.currentPriority, body: body)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let jobsAhead = enqueue(job) { continuation.resume(with: $0) }
+                // Move the value into the continuation. `resume(with:)` only
+                // borrows the result, so the job would keep a reference
+                // after the submitter resumes.
+                let jobsAhead = enqueue(job) { result in
+                    switch consume result {
+                    case .success(let value): continuation.resume(returning: consume value)
+                    case .failure(let error): continuation.resume(throwing: error)
+                    }
+                }
                 if let jobsAhead, jobsAhead > 0 {
                     onQueued()
                 }
@@ -141,8 +149,11 @@ private protocol QueuedJob: Sendable {
 /// One submission and its state. Each change of state occurs under one lock,
 /// so exactly one path resumes the submitter.
 private final class Job<T: Sendable>: QueuedJob {
-    /// Gives the result of the job to its submitter.
-    typealias Resume = @Sendable (Result<T, any Error>) -> Void
+    /// Gives the result of the job to its submitter. The resume takes the
+    /// result, so the job keeps no reference to it after the submitter
+    /// resumes. Thus when the submitter drops the result, that is its last
+    /// reference.
+    typealias Resume = @Sendable (consuming Result<T, any Error>) -> Void
 
     /// The steps of a job: new, then waiting, then running, then finished.
     private enum State: Sendable {
@@ -222,7 +233,7 @@ private final class Job<T: Sendable>: QueuedJob {
                     result = .failure(error)
                 }
                 self.finish()
-                resume(result)
+                resume(consume result)
             }
             state = .running(task)
             return task
