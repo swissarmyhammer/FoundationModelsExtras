@@ -6,6 +6,14 @@ import Testing
 typealias RunLatch = Promise<Void>
 
 extension Promise where Value == Void {
+    /// A new latch that is not open. A test file with a plain import calls
+    /// this, because the initializer of `Promise` is internal.
+    ///
+    /// - Returns: The latch.
+    static func closed() -> RunLatch {
+        RunLatch()
+    }
+
     /// Opens the latch. Each body that waits on it resumes.
     func open() {
         fulfill(())

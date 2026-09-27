@@ -9,12 +9,12 @@ import ULID
 /// `ToolContext.$current.withValue(context)`. A task that does not inherit the
 /// task-local values does not see it, so read the context one time, when the
 /// operation starts.
-struct ToolContext: Sendable {
+public struct ToolContext: Sendable {
     /// The context of the current task, or `nil` outside a tool call.
-    @TaskLocal static var current: ToolContext?
+    @TaskLocal public static var current: ToolContext?
 
     /// The session of the call.
-    let sessionID: ULID
+    public let sessionID: ULID
 
     /// The run plane of the session.
     let runPlane: RunPlane
@@ -29,16 +29,17 @@ struct ToolContext: Sendable {
     private let attachmentSink: @Sendable (ToolCallAttachment) -> Void
 
     /// The tool name on each event of the run. Never empty.
-    let tool: String
+    public let tool: String
 
     /// The `"verb noun"` op on each event of the run. Never empty.
-    let op: String
+    public let op: String
 
     /// The completion token of the run. It is the `correlationID` of each
     /// event of the run.
-    let completionToken: String
+    public let completionToken: String
 
-    /// Makes a context.
+    /// Makes a context. A host makes one to bind around work that it runs
+    /// for a session, for example a model call.
     ///
     /// - Parameters:
     ///   - sessionID: The session of the call.
@@ -49,7 +50,7 @@ struct ToolContext: Sendable {
     ///   - completionToken: The completion token of the run.
     ///   - isCancelled: Tells if a cancel of the run was asked.
     ///   - attachmentSink: Gets each attached record. The default drops it.
-    init(
+    public init(
         sessionID: ULID,
         runPlane: RunPlane,
         sink: any OperationEventSink,
@@ -107,14 +108,14 @@ struct ToolContext: Sendable {
     /// stay.
     ///
     /// - Parameter event: The event to post.
-    func post(_ event: OperationEvent) async {
+    public func post(_ event: OperationEvent) async {
         await sink.post(event: stamped(event.kind, detail: event.detail, outcome: event.outcome, elicitation: event.elicitation))
     }
 
     /// Posts a `.progress` event with `detail`, stamped as ``post(_:)`` does.
     ///
     /// - Parameter detail: The progress detail.
-    func progress(_ detail: String) async {
+    public func progress(_ detail: String) async {
         await sink.post(event: stamped(.progress, detail: detail))
     }
 
@@ -125,7 +126,7 @@ struct ToolContext: Sendable {
     /// become events. A record attached after the call closed is dropped.
     ///
     /// - Parameter attachment: The record.
-    func attach(_ attachment: ToolCallAttachment) {
+    public func attach(_ attachment: ToolCallAttachment) {
         attachmentSink(attachment)
     }
 
@@ -138,7 +139,7 @@ struct ToolContext: Sendable {
     ///
     /// - Parameter request: The question.
     /// - Returns: The answer of the user.
-    func elicit(_ request: ElicitationRequest) async throws -> ElicitationResponse {
+    public func elicit(_ request: ElicitationRequest) async throws -> ElicitationResponse {
         let event = stamped(.elicitation, detail: "", elicitation: request)
         let sink = sink
         return await runPlane.awaitAnswer(to: request) {
@@ -151,34 +152,34 @@ struct ToolContext: Sendable {
     /// Each open background run of the session, in start order.
     ///
     /// - Returns: The runs, with no output.
-    func backgroundRuns() async -> [BackgroundRun] {
+    public func backgroundRuns() async -> [BackgroundRun] {
         await runPlane.backgroundRuns()
     }
 
-    /// Waits until a background run settles. See
-    /// ``RunPlane/wait(completionToken:seconds:)``.
+    /// Waits until a background run settles, with a deadline or with none.
+    ///
+    /// A settled run answers at once. An unknown token does nothing. A cancel
+    /// of the calling task ends the wait with ``WaitOutcome/cancelled``.
     ///
     /// - Parameters:
     ///   - completionToken: The completion token of the run.
     ///   - seconds: The deadline, or `nil` for none.
     /// - Returns: The ``WaitOutcome``.
-    func wait(completionToken: String, seconds: Double?) async -> WaitOutcome {
+    public func wait(completionToken: String, seconds: Double?) async -> WaitOutcome {
         await runPlane.wait(completionToken: completionToken, seconds: seconds)
     }
 
-    /// Asks a background run to stop. See
-    /// ``RunPlane/cancel(completionToken:)``.
+    /// Asks a background run to stop, and reports the outcome that its
+    /// canceler gives. The run stays open until it settles.
     ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: The ``CancelOutcome``.
-    func cancel(completionToken: String) async -> CancelOutcome {
+    public func cancel(completionToken: String) async -> CancelOutcome {
         await runPlane.cancel(completionToken: completionToken)
     }
 
     // MARK: - Mounting
 
-    // Tool hosting 4 (^ebtprdg) makes the mount API public and copies its tests.
-    // periphery:ignore
     /// Mounts `tool` on the session of this run, for a caller that makes its
     /// own inner tool calls, for example a script runner.
     ///
@@ -194,7 +195,7 @@ struct ToolContext: Sendable {
     ///   - op: The op of the mounted runs, or `nil` for the tool name.
     ///   - configuration: The mount when `tool` declares none.
     /// - Returns: The mounted tool, with the `Arguments` and `Output` of `tool`.
-    func mount<T: Tool>(
+    public func mount<T: Tool>(
         _ tool: T,
         op: String? = nil,
         as configuration: ToolMount = .synchronous
@@ -202,8 +203,6 @@ struct ToolContext: Sendable {
         mount(tool, op: op, as: configuration, postingTo: MountedRunUpstreamSink(context: self))
     }
 
-    // Tool hosting 4 (^ebtprdg) makes the mount API public and copies its tests.
-    // periphery:ignore
     /// Mounts `tool` as ``mount(_:op:as:)`` does, but each mounted run posts
     /// its events to `sink` with its own completion token. Use it to tell two
     /// runs of one tool apart. The report of a mounted call does not reach a
@@ -215,7 +214,7 @@ struct ToolContext: Sendable {
     ///   - configuration: The mount when `tool` declares none.
     ///   - sink: The sink of each mounted run.
     /// - Returns: The mounted tool, with the `Arguments` and `Output` of `tool`.
-    func mount<T: Tool>(
+    public func mount<T: Tool>(
         _ tool: T,
         op: String? = nil,
         as configuration: ToolMount = .synchronous,
@@ -228,13 +227,11 @@ struct ToolContext: Sendable {
         return mounted as? any Tool<T.Arguments, T.Output> ?? tool
     }
 
-    // Tool hosting 4 (^ebtprdg) makes this public and copies its tests.
-    // periphery:ignore
     /// A new completion token. In a tool call, use ``completionToken`` of
     /// ``current``: a new token names no tracked run.
     ///
     /// - Returns: A ULID string.
-    static func makeCompletionToken() -> String {
+    public static func makeCompletionToken() -> String {
         RunPlane.makeCompletionToken()
     }
 

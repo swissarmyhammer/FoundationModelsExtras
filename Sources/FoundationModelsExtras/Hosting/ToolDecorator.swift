@@ -3,7 +3,7 @@
 /// A host that casts a mounted tool thus finds a decorator, not the tool
 /// that the caller registered. ``wrapped`` lets a rule go down the chain to
 /// that tool.
-protocol ToolDecorator {
+public protocol ToolDecorator {
     /// The type of the wrapped tool. Each decorator sets it.
     associatedtype Wrapped
 
@@ -14,7 +14,7 @@ protocol ToolDecorator {
 extension SubmissionBoundaryTool where Self: ToolDecorator {
     /// Passes the boundary to the wrapped tool when it conforms, and does
     /// nothing when it does not.
-    func submissionWillBegin() async {
+    public func submissionWillBegin() async {
         await (wrapped as? any SubmissionBoundaryTool)?.submissionWillBegin()
     }
 }

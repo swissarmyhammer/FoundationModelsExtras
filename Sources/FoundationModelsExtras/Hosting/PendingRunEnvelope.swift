@@ -56,6 +56,16 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
         self.next = next
     }
 
+    /// This envelope with `detail` in place of its detail. A layer that cuts
+    /// a long result uses it, and the control fields stay the same.
+    ///
+    /// - Parameter detail: The new report of the run.
+    /// - Returns: The changed envelope, or this envelope when it is pending.
+    public func replacing(detail: String) -> PendingRunEnvelope {
+        guard let outcome else { return self }
+        return PendingRunEnvelope(completionToken: completionToken, outcome: outcome, detail: detail, next: next)
+    }
+
     /// The default `next` text of a pending envelope.
     ///
     /// - Parameter completionToken: The completion token of the run.
@@ -82,7 +92,7 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
     ///
     /// ``decoded(fromRendered:)`` compares a text with this value, so this
     /// property sets the only form that is recognized.
-    var rendered: String {
+    public var rendered: String {
         var fields = [
             "\"pending\":\(pending)",
             "\"completionToken\":" + Self.jsonString(completionToken),
@@ -114,7 +124,7 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
     ///
     /// - Parameter text: The tool output.
     /// - Returns: The decoded envelope, or `nil`.
-    static func decoded(fromRendered text: String) -> PendingRunEnvelope? {
+    public static func decoded(fromRendered text: String) -> PendingRunEnvelope? {
         guard
             let envelope = try? JSONDecoder().decode(Self.self, from: Data(text.utf8)),
             ULID(ulidString: envelope.completionToken) != nil,

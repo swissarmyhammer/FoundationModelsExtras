@@ -7,7 +7,7 @@ import ULID
 /// plane holds events and outcomes, never bulk output. A completion token
 /// names a run: it is a ULID string, and it is also the `correlationID` of
 /// each event of the run.
-actor RunPlane {
+public actor RunPlane {
     /// What ``start(tool:op:kind:completionToken:canceler:body:)`` did.
     enum StartResult: Sendable, Equatable {
         /// The run started, and the run plane tracks it.
@@ -96,10 +96,12 @@ actor RunPlane {
     private weak var settlementObserver: (any BackgroundRunSettlementObserver)?
 
     /// Makes an empty run plane.
-    init() {}
+    public init() {}
 
     /// A new completion token: a ULID string.
-    static func makeCompletionToken() -> String {
+    ///
+    /// - Returns: The token.
+    public static func makeCompletionToken() -> String {
         ULID().ulidString
     }
 
@@ -152,7 +154,7 @@ actor RunPlane {
     /// settles by itself from now on.
     ///
     /// - Parameter settlementObserver: The observer.
-    func attach(settlementObserver: any BackgroundRunSettlementObserver) {
+    public func attach(settlementObserver: any BackgroundRunSettlementObserver) {
         self.settlementObserver = settlementObserver
     }
 
@@ -167,19 +169,17 @@ actor RunPlane {
         runs[index].latestProgressDetail = detail
     }
 
-    // Tool hosting 4 (^ebtprdg) makes this public for the session pump.
-    // periphery:ignore
     /// The completion tokens of the settled runs.
     ///
     /// - Returns: The tokens.
-    func settledRunTokens() -> Set<String> {
+    public func settledRunTokens() -> Set<String> {
         Set(settled.keys)
     }
 
     /// Each open run, in start order.
     ///
     /// - Returns: The runs, with no output.
-    func backgroundRuns() -> [BackgroundRun] {
+    public func backgroundRuns() -> [BackgroundRun] {
         runs.map { run in
             BackgroundRun(
                 completionToken: run.token,
@@ -295,7 +295,7 @@ actor RunPlane {
     ///   - response: The answer.
     /// - Returns: The ``ElicitationAnswerDelivery``.
     @discardableResult
-    func respond(elicitationId: ULID, _ response: ElicitationResponse) -> ElicitationAnswerDelivery {
+    public func respond(elicitationId: ULID, _ response: ElicitationResponse) -> ElicitationAnswerDelivery {
         guard let index = elicitationIndex(of: elicitationId), elicitations[index].accepted == nil else {
             return .noPendingElicitation
         }
@@ -313,7 +313,7 @@ actor RunPlane {
     /// - Parameter elicitationId: The id of the elicitation.
     /// - Returns: The ``ElicitationCompletionDelivery``.
     @discardableResult
-    func complete(elicitationId: ULID) -> ElicitationCompletionDelivery {
+    public func complete(elicitationId: ULID) -> ElicitationCompletionDelivery {
         guard let index = elicitationIndex(of: elicitationId), let accepted = elicitations[index].accepted else {
             return .noPendingElicitation
         }
@@ -329,7 +329,7 @@ actor RunPlane {
     ///
     /// - Returns: One terminal event for each run that was open when the
     ///   sweep started. A sweep while another sweep runs returns nothing.
-    func sweep() async -> [OperationEvent] {
+    public func sweep() async -> [OperationEvent] {
         guard !isSweeping else { return [] }
         isSweeping = true
         defer { isSweeping = false }

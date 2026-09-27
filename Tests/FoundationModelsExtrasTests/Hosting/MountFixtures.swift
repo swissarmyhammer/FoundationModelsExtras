@@ -473,8 +473,7 @@ enum MountFixtures {
         let description = "attaches two records then returns"
 
         func call(arguments: MountArguments) async throws -> String {
-            ToolContext.current?.attach(firstAttachment)
-            ToolContext.current?.attach(secondAttachment)
+            attachInCallOrder()
             return "attached: \(arguments.value)"
         }
     }

@@ -4,7 +4,7 @@ import ULID
 
 /// Where a mounted tool runs: the session, its run plane, the sink of its
 /// events, the op of the registration, and the tracer of its spans.
-struct MountSite: Sendable {
+public struct MountSite: Sendable {
     /// The session of each call.
     let sessionID: ULID
 
@@ -15,29 +15,53 @@ struct MountSite: Sendable {
     let sink: any OperationEventSink
 
     /// The `"verb noun"` op of the registration, or `nil` for the tool name.
-    var op: String? = nil
+    let op: String?
 
     /// The tracer of the session, or `nil` for `InstrumentationSystem.tracer`
     /// at call time.
-    var tracer: (any Tracer)? = nil
+    let tracer: (any Tracer)?
+
+    /// Makes a mount site. Each value must belong to the same session.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The session of each call.
+    ///   - runPlane: The run plane of the session.
+    ///   - sink: The sink of the events and the records of each call.
+    ///   - op: The `"verb noun"` op of the registration, or `nil` for the
+    ///     tool name.
+    ///   - tracer: The tracer of the session, or `nil` for
+    ///     `InstrumentationSystem.tracer` at call time.
+    public init(
+        sessionID: ULID,
+        runPlane: RunPlane,
+        sink: any OperationEventSink,
+        op: String? = nil,
+        tracer: (any Tracer)? = nil
+    ) {
+        self.sessionID = sessionID
+        self.runPlane = runPlane
+        self.sink = sink
+        self.op = op
+        self.tracer = tracer
+    }
 }
 
 /// Mounts a tool of unknown type: it opens the `any Tool` and picks the
 /// decorator.
-enum ToolMounting {
+public enum ToolMounting {
     /// Mounts `tool` on `site`.
     ///
-    /// A `String` tool becomes a ``BackgroundToolRunner`` or a
-    /// ``RunToCompletionRunner``. The mount that the tool declares through
-    /// ``BackgroundTool/mount`` wins over `configuration`. Each other tool
-    /// becomes a ``ContextBindingTool``.
+    /// A `String` tool runs in the background or to completion. The mount
+    /// that the tool declares through ``BackgroundTool/mount`` wins over
+    /// `configuration`. Each other tool only gets a bound ``ToolContext``.
     ///
     /// - Parameters:
     ///   - tool: The tool to mount.
     ///   - site: Where the tool runs.
     ///   - configuration: The mount when the tool declares none.
-    /// - Returns: The mounted tool.
-    static func makeWrapped(tool: any Tool, site: MountSite, configuration: ToolMount) -> any Tool {
+    /// - Returns: The mounted tool, with the `Arguments` and `Output` of
+    ///   `tool`.
+    public static func makeWrapped(tool: any Tool, site: MountSite, configuration: ToolMount) -> any Tool {
         func runner<A: ConvertibleFromGeneratedContent & Sendable>(_: A.Type, for tool: any Tool) -> any Tool {
             guard let typed = tool as? any Tool<A, String> else { return tool }
             let mount = (typed as? any BackgroundTool)?.mount ?? configuration

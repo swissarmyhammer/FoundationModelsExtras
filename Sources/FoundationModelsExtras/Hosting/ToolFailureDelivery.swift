@@ -11,15 +11,15 @@ import FoundationModels
 /// Only the tool list of the model gets this decorator, as the outermost
 /// layer. A caller that is not the model uses ``throwingTool(of:)`` to keep
 /// the throw.
-enum ToolFailureDelivery {
+public enum ToolFailureDelivery {
     /// Wraps `tool` in the decorator that gives a failure to the model.
     ///
-    /// A `String` tool becomes a ``FailureDeliveringTextTool``, so its output
-    /// stays text. Any other tool becomes a ``FailureDeliveringResultTool``.
+    /// The output of a `String` tool stays text, and a failure becomes a text
+    /// that tells the model what failed.
     ///
     /// - Parameter tool: The mounted tool.
     /// - Returns: The decorated tool.
-    static func makeWrapped(tool: any Tool) -> any Tool {
+    public static func makeWrapped(tool: any Tool) -> any Tool {
         func open<T: Tool>(_ tool: T) -> any Tool {
             guard let textTool = tool as? any Tool<T.Arguments, String> else {
                 return FailureDeliveringResultTool<T.Arguments, T.Output>(wrapped: tool)
@@ -34,7 +34,7 @@ enum ToolFailureDelivery {
     /// - Parameter tool: A decorated tool, or any other tool.
     /// - Returns: The tool beneath the decorator, or `tool` when it has no
     ///   decorator.
-    static func throwingTool(of tool: any Tool) -> any Tool {
+    public static func throwingTool(of tool: any Tool) -> any Tool {
         (tool as? any FailureDeliveringTool)?.throwingTool ?? tool
     }
 }
