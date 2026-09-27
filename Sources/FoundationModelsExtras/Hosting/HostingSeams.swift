@@ -14,7 +14,7 @@ public protocol ToolCallReportSink: Sendable {
 
 /// Gets the terminal event of each background run that settles by itself.
 ///
-/// The session mailbox holds its observer weakly, so the observer is a class
+/// The run plane holds its observer weakly, so the observer is a class
 /// or an actor.
 public protocol BackgroundRunSettlementObserver: AnyObject, Sendable {
     /// Gets the terminal event of one settled run.

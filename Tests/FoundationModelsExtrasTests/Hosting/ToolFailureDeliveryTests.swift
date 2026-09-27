@@ -1,6 +1,7 @@
 @testable import FoundationModelsExtras
 import FoundationModels
 import Testing
+import ULID
 
 /// Exercises ``ToolFailureDelivery``: a failed call is a tool result that the
 /// model reads, and only a cancellation throws.
@@ -231,6 +232,33 @@ struct ToolFailureDeliveryTests {
         let tool = try #require(ToolFailureDelivery.throwingTool(of: failing) as? ThrowingTool)
 
         #expect(tool === failing)
+    }
+
+    // MARK: - Over the mount
+
+    /// `ThrowingTool` mounted with ``ToolMount/synchronous``, with the
+    /// decorator outermost, as a host gives it to the model.
+    private static func mountedForTheModel() -> any Tool {
+        let site = MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: DiscardingOperationEventSink())
+        let mounted = ToolMounting.makeWrapped(tool: ThrowingTool(), site: site, configuration: .synchronous)
+        return ToolFailureDelivery.makeWrapped(tool: mounted)
+    }
+
+    @Test("over the mount, the decorator is outermost and the runner is the tool beneath it")
+    func mountPutsTheDecoratorOutermost() {
+        let mounted = Self.mountedForTheModel()
+
+        #expect(mounted is FailureDeliveringTextTool<StepArguments>)
+        #expect(ToolFailureDelivery.throwingTool(of: mounted) is RunToCompletionRunner<StepArguments>)
+    }
+
+    @Test("a failed call through the whole mount is a tool result")
+    func mountedFailureIsAToolResult() async throws {
+        let tool = try #require(Self.mountedForTheModel() as? FailureDeliveringTextTool<StepArguments>)
+
+        let output = try await tool.call(arguments: Self.arguments)
+
+        #expect(output == Self.failureText)
     }
 }
 
