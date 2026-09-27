@@ -37,8 +37,25 @@ actor RunPlane {
         /// Asks the run to stop, and reports the outcome.
         let canceler: @Sendable () async -> OperationOutcome
 
-        /// Gets the terminal event when the run settles.
-        let settlement = Promise<OperationEvent>()
+        /// The waits for this run, by waiter id.
+        var waiters: [UUID: Waiter] = [:]
+    }
+
+    /// One ``wait(completionToken:seconds:)`` that waits for an open run.
+    private struct Waiter {
+        /// Resumes the wait. The run plane resumes it exactly one time.
+        let continuation: CheckedContinuation<WaitOutcome, Never>
+
+        /// Ends the wait at its deadline, or `nil` when it has no deadline.
+        let deadline: Task<Void, Never>?
+
+        /// Stops the deadline task, and resumes the wait with `outcome`.
+        ///
+        /// - Parameter outcome: The outcome of the wait.
+        func resume(with outcome: WaitOutcome) {
+            deadline?.cancel()
+            continuation.resume(returning: outcome)
+        }
     }
 
     /// One elicitation that waits for its answer.
@@ -179,6 +196,10 @@ actor RunPlane {
     /// A settled run answers at once. An unknown token does nothing. A cancel
     /// of the calling task ends the wait with ``WaitOutcome/cancelled``.
     ///
+    /// The run keeps the wait by id until the settlement, the deadline or the
+    /// cancel ends it, and then removes it. The first of the three resumes
+    /// the wait, and the other two find no wait and do nothing.
+    ///
     /// - Parameters:
     ///   - completionToken: The completion token of the run.
     ///   - seconds: The deadline, as given. NaN and a negative value become
@@ -188,10 +209,29 @@ actor RunPlane {
         if let terminal = settled[completionToken] {
             return .settled(terminal)
         }
-        guard let index = index(of: completionToken) else {
+        guard index(of: completionToken) != nil else {
             return .unknownToken
         }
-        return await Self.firstOf(runs[index].settlement, deadline: seconds)
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                addWaiter(waiterID, resuming: continuation, to: completionToken, deadline: seconds)
+            }
+        } onCancel: {
+            // The end runs on this actor after `addWaiter`, so it finds the
+            // wait also when the cancel came first.
+            Task { await self.endWaiter(waiterID, of: completionToken, with: .cancelled) }
+        }
+    }
+
+    /// The number of waits that wait now for the open run of
+    /// `completionToken`. Zero for a settled or unknown token.
+    ///
+    /// - Parameter completionToken: The completion token of the run.
+    /// - Returns: The count.
+    func waiterCount(completionToken: String) -> Int {
+        guard let index = index(of: completionToken) else { return 0 }
+        return runs[index].waiters.count
     }
 
     /// Runs the canceler of a run and reports its outcome as is. The run
@@ -338,33 +378,50 @@ actor RunPlane {
         return UInt64(nanoseconds)
     }
 
-    /// The first of three: the settlement, the deadline, and the cancel of
-    /// the calling task.
-    ///
-    /// A wait that ends before the settlement leaves one task that waits for
-    /// the settlement. That task ends when the run settles, and the sweep
-    /// settles each run at the latest.
+    /// Keeps a wait on the open run of `token` under `id`. A deadline starts
+    /// one task that ends the wait when the deadline elapses; the resume of
+    /// the wait cancels that task. A run that is not open answers at once.
     ///
     /// - Parameters:
-    ///   - settlement: The settlement of the run.
+    ///   - id: The id of the wait.
+    ///   - continuation: Resumes the wait.
+    ///   - token: The completion token of the run.
     ///   - seconds: The deadline, or `nil` for none.
-    /// - Returns: The ``WaitOutcome``.
-    private static func firstOf(_ settlement: Promise<OperationEvent>, deadline seconds: Double?) async -> WaitOutcome {
-        let first = Promise<WaitOutcome>()
-        Task { first.fulfill(.settled(await settlement.value)) }
-        let expiry = seconds.map { seconds in
-            Task {
-                try await Task.sleep(nanoseconds: boundedNanoseconds(clamping: seconds))
-                first.fulfill(.deadlineElapsed)
+    private func addWaiter(
+        _ id: UUID,
+        resuming continuation: CheckedContinuation<WaitOutcome, Never>,
+        to token: String,
+        deadline seconds: Double?
+    ) {
+        guard let index = index(of: token) else {
+            continuation.resume(returning: settled[token].map(WaitOutcome.settled) ?? .unknownToken)
+            return
+        }
+        let deadline = seconds.map { seconds in
+            Task { [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: Self.boundedNanoseconds(clamping: seconds))
+                } catch {
+                    return
+                }
+                await self?.endWaiter(id, of: token, with: .deadlineElapsed)
             }
         }
-        let outcome = await withTaskCancellationHandler {
-            await first.value
-        } onCancel: {
-            first.fulfill(.cancelled)
+        runs[index].waiters[id] = Waiter(continuation: continuation, deadline: deadline)
+    }
+
+    /// Removes the wait `id` from the open run of `token`, and resumes it
+    /// with `outcome`. A wait that already ended does nothing.
+    ///
+    /// - Parameters:
+    ///   - id: The id of the wait.
+    ///   - token: The completion token of the run.
+    ///   - outcome: The outcome of the wait.
+    private func endWaiter(_ id: UUID, of token: String, with outcome: WaitOutcome) {
+        guard let index = index(of: token), let waiter = runs[index].waiters.removeValue(forKey: id) else {
+            return
         }
-        expiry?.cancel()
-        return outcome
+        waiter.resume(with: outcome)
     }
 
     /// Settles a run whose body returned, and gives its terminal event to
@@ -389,7 +446,9 @@ actor RunPlane {
         guard let index = index(of: token) else { return false }
         let run = runs.remove(at: index)
         settled[token] = terminal
-        run.settlement.fulfill(terminal)
+        for waiter in run.waiters.values {
+            waiter.resume(with: .settled(terminal))
+        }
         return true
     }
 

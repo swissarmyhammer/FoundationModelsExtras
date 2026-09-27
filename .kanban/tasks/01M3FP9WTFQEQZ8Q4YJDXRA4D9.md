@@ -74,6 +74,57 @@ comments:
     - evidence: 7 new source files in Sources/FoundationModelsExtras/Hosting/ (1425 lines, router 2030), HostingSeams.swift (1 doc line), 8 new test files + ToolFailureDeliveryTests.swift (2 tests) in Tests/FoundationModelsExtrasTests/Hosting/. RED seen first (test target did not compile: RunPlane missing). `swift build` and `swift build --build-tests`: 0 errors, 0 warnings. `swift test`: all pass (main run 658 tests in 59 suites; the other targets pass). The 7 hosting suites (82 tests) ran 10 times with --skip-build: 10 of 10 green, about 2.2 s each. Router not changed. Not committed.
     - next: /review
   timestamp: 2026-09-27T01:14:48.451053+00:00
+- actor: claude-code
+  id: 01m3g70j9njdg3yjs6pq8e2v6k
+  text: |-
+    ### commit — changed
+    - evidence: 0aa4f36 feat(hosting): add the run-plane core files (RunPlane, ToolRun, ToolContext)
+    - next: none
+  timestamp: 2026-09-27T01:17:30.293844+00:00
+- actor: claude-code
+  id: 01m3g84j61rgpwxf9hbz0p8ehj
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD; engine counts 4 findings (4 confirmed, 1 refuted), plus 1 task-lifetime finding from the check that the caller asked for. Sources/FoundationModelsExtras/Hosting/RunPlaneActor.swift:352, Sources/FoundationModelsExtras/Hosting/ToolContext.swift:283, Sources/FoundationModelsExtras/Hosting/ToolContext.swift:290, Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift:121, Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift:410
+    - next: implement the 5 open items in the "Review Findings (2026-09-26 20:17)" section. The RunPlaneActor fix must remove a waiter at its deadline or cancel with the existing actor or Promise, with no new lock, actor, gate or router. ToolRun.resultOrTimeout has at most one waiting task for each run, which ends when the call returns; no finding there.
+  timestamp: 2026-09-27T01:37:09.825565+00:00
+- actor: claude-code
+  id: 01m3g857kk0gar5j8xcavypwak
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 7 run-plane-core files (2030 -> 1425 lines), 8 test files
+    - test: green — swift test, 658 passed, 0 warnings, 0 skipped
+    - commit: 0aa4f36
+    - review: findings — RunPlaneActor.swift:352, ToolContext.swift:283, ToolContext.swift:290, MountFixtures.swift:121, MountFixtures.swift:410
+
+    ### Decision for the RunPlaneActor.swift:352 finding (the growing wait tasks)
+    Use the first option: `RunPlane` keeps the waiters of each open run by id, in the actor, and resumes each waiter exactly one time.
+    - `wait` registers a continuation under a new id on the run, before its first suspension.
+    - Settlement resumes every waiter of the run with `.settled(terminal)` and removes them.
+    - A deadline starts one task that sleeps for the deadline and then ends that one waiter with `.deadlineElapsed` (a no-op if it is gone). That task ends after the deadline, so it cannot pile up.
+    - A cancel of the caller ends that one waiter with `.cancelled` (through `withTaskCancellationHandler`).
+    - Remove `firstOf` and the per-wait task that waits for `settlement.value`. Do not add a remove call to `Promise`.
+    - Test: after 1,000 deadline waits on one open run, the run has zero waiters, and the run still settles each later waiter.
+  timestamp: 2026-09-27T01:37:31.763223+00:00
+- actor: claude-code
+  id: 01m3g8nb7rz80f6jcha5g2fp32
+  text: |-
+    Review findings (2026-09-26 20:17) fixed. Not committed.
+
+    1. RunPlaneActor.swift (task-lifetime). Done as the decision comment says. Each open `Run` keeps `waiters: [UUID: Waiter]`. A `Waiter` holds the `CheckedContinuation<WaitOutcome, Never>` and the deadline task (or nil). `wait` registers the waiter under a new UUID in `withCheckedContinuation`, which runs on the actor before the first suspension. The settlement (`settle`) resumes each waiter with `.settled` and drops them with the run. The deadline task sleeps, then calls `endWaiter(id, .deadlineElapsed)`. The cancel handler starts `Task { await endWaiter(id, .cancelled) }`; that end runs on the actor after the registration, so it also finds a waiter whose cancel came first. `endWaiter` removes the waiter first and then resumes it, so each waiter resumes exactly one time. The resume also cancels the deadline task, so no sleeping task stays after the wait. `firstOf` and the per-wait settlement task are gone. The `settlement` Promise of `Run` is gone. No change to `Promise`, and no new lock, semaphore or gate type. The doc comment of `wait` tells the new rule.
+       - New internal `RunPlane.waiterCount(completionToken:)` (the tests are its callers, the same as `Promise.waiterCount`).
+       - TDD: 2 new tests in RunPlaneActorTests: 1,000 deadline waits (`seconds: 0`) on one open run, then `waiterCount == 0`, then a later wait still gets `.settled`; and 1,000 cancelled waits, then `waiterCount == 0`. RED first: with `waiterCount` over the old `settlement.waiterCount`, both tests failed on the count. GREEN after the change.
+    2-3. ToolContext.swift. The `// periphery:ignore` marker (and its reason line) on `MountedRunUpstreamSink` spread to its members `post(event:)` and `post(report:)`, which are protocol witnesses and are referenced. I removed that struct marker. Periphery 3.8.0 (swift build --build-tests, index store `.build/out`, --retain-public, --report-exclude of each test target) then reports nothing in `Hosting/`: the struct is referenced, and the other markers in the file (mount x2, makeCompletionToken) and `RunPlane.settledRunTokens` are not superfluous.
+    4-5. MountFixtures.swift. `DecodedEnvelope.pending` -> `isPending`, with a `CodingKeys` entry `isPending = "pending"` (the JSON key of the envelope stays `pending`). `CancellationWitness.observed` -> `isObserved`. Callers updated in BackgroundToolRunnerTests.swift and RunToCompletionRunnerTests.swift. No other Bool name in the file is without an is/has/should prefix (`isAttachmentMentioned(in:)` has one).
+       - Note: PendingRunEnvelopeTests.swift (task ^yqm0) has its own `DecodedEnvelope.pending`. It is outside the finding file, and I did not change it.
+  timestamp: 2026-09-27T01:46:19.768255+00:00
+- actor: claude-code
+  id: 01m3g8nf77kt0axd3gq419bzyb
+  text: |-
+    ### implement — changed
+    - evidence: 6 files, +144 -41 (git diff --stat): Sources/FoundationModelsExtras/Hosting/RunPlaneActor.swift (464 lines, +111 changed), Sources/FoundationModelsExtras/Hosting/ToolContext.swift (-2), Tests/FoundationModelsExtrasTests/Hosting/RunPlaneActorTests.swift (+37), MountFixtures.swift (15), BackgroundToolRunnerTests.swift (18), RunToCompletionRunnerTests.swift (2). `swift build`: 0 warnings, 0 errors. `swift test`: all pass, 0 warnings (main run 660 tests in 59 suites; the other runs 396, 125, 44, 34, 26). Hosting suites (RunPlaneActorTests|RunPlaneTests|RunToCompletionRunnerTests|BackgroundToolRunnerTests|ToolFailureDeliveryTests, 74 tests in 5 suites) 10 of 10 green, about 2.15 s each. Periphery: no finding in Hosting/. All 5 findings marked [x]. Not committed.
+    - next: /review
+  timestamp: 2026-09-27T01:46:23.847871+00:00
 depends_on:
 - 01M3FP9FGARYJFK9NYQMRY5QM0
 position_column: doing
@@ -114,3 +165,16 @@ Source: `/Users/wballard/github/swissarmyhammer/FoundationModelsRouter/Sources/F
 - [ ] The copied tests pass. `swift build` and `swift test` pass.
 
 #tool-hosting #cross-repo
+
+## Review Findings (2026-09-26 20:17)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 17 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsExtras/Hosting/RunPlaneActor.swift:352` `correctness/task-lifetime` (check that the caller of this review asked for) — `firstOf` starts `Task { first.fulfill(.settled(await settlement.value)) }` for each wait. When the wait ends at its deadline or at a cancel, that task stays suspended, and `Promise.value` keeps its continuation in the waiter list of the run settlement. Each later `wait(completionToken:seconds:)` on the same open run adds one more task and one more continuation. A caller that polls a long run with a short deadline thus makes the count grow without limit until the run settles; a run that does not settle, in a session that does not sweep, keeps them for ever. The doc comment of `firstOf` ("leaves one task") is not correct for repeated waits. The router `SessionMailbox.wait` did not have this growth: it kept each waiter by `UUID` and removed it in `endWaiter` at the deadline or cancel. This also fails the acceptance criterion "The cancellation code is the same". Remove the waiter at its deadline or cancel with the structures that are already there (the waiters keyed by id in the `RunPlane` actor, as in the router, or a remove-waiter call on the existing `Promise`, which already has its `Mutex`). Do not add a new lock, actor, gate or router. Add a test that makes many deadline waits on one open run and then shows zero waiters on the settlement (`Promise.waiterCount`).
+- [x] `Sources/FoundationModelsExtras/Hosting/ToolContext.swift:283` `code-hygiene/dead-code-swift` — function.method.instance `post(event:)` is superfluousIgnoreCommand.
+- [x] `Sources/FoundationModelsExtras/Hosting/ToolContext.swift:290` `code-hygiene/dead-code-swift` — function.method.instance `post(report:)` is superfluousIgnoreCommand.
+- [x] `Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift:121` `swift/naming-clarity` — The Boolean property `pending` is a bare adjective without a prefix. Swift conventions and clarity guidance prefer properties like `isEmpty` and `isEnabled` that read as assertions about the receiver's state. At the call site, `envelope.pending` is less clear than `envelope.isPending`. Rename `pending` to `isPending` to match Swift naming conventions and the guidance given in the rule.
+- [x] `Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift:410` `swift/naming-clarity` — The Boolean property `observed` is a bare adjective without a prefix. Swift conventions and clarity guidance prefer properties like `isEmpty` and `isEnabled` that read as assertions about the receiver's state. At the call site, `witness.observed` is less clear than `witness.isObserved`. Rename `observed` to `isObserved` to match Swift naming conventions and the guidance given in the rule.

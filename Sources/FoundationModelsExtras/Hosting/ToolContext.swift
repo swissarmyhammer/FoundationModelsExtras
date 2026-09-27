@@ -267,8 +267,6 @@ extension ToolInvocationRecord {
     }
 }
 
-// Tool hosting 4 (^ebtprdg) copies the tests of the mount API.
-// periphery:ignore
 /// The sink of a run that ``ToolContext/mount(_:op:as:)`` mounted. It posts
 /// each event through the mounting context, so the event gets the correlation
 /// of the mounting run. It also gives each record of a mounted call to the

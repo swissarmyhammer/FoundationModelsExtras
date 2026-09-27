@@ -115,7 +115,7 @@ struct RunToCompletionRunnerTests {
 
         // The race ended as timedOut. The tool polls until the flag that the
         // timeout set reaches it.
-        let observed = try await Fixtures.poll { await witness.observed ? true : nil }
+        let observed = try await Fixtures.poll { await witness.isObserved ? true : nil }
         #expect(observed == true)
 
         let events = await harness.sink.events

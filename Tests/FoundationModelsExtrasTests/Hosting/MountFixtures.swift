@@ -117,8 +117,17 @@ enum MountFixtures {
 
     /// The decoded fields of an envelope.
     struct DecodedEnvelope: Decodable {
+        /// The JSON keys of the envelope.
+        private enum CodingKeys: String, CodingKey {
+            case isPending = "pending"
+            case completionToken
+            case outcome
+            case detail
+            case next
+        }
+
         /// `true` while the run continues.
-        let pending: Bool
+        let isPending: Bool
 
         /// The completion token of the run.
         let completionToken: String
@@ -407,11 +416,11 @@ enum MountFixtures {
     /// Records that a tool saw the cancellation flag of its run.
     actor CancellationWitness {
         /// Whether the tool saw the flag.
-        private(set) var observed = false
+        private(set) var isObserved = false
 
         /// Records that the tool saw the flag.
         func mark() {
-            observed = true
+            isObserved = true
         }
     }
 

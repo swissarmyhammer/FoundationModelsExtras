@@ -136,6 +136,43 @@ struct RunPlaneActorTests {
         _ = await runPlane.wait(completionToken: token, seconds: nil)
     }
 
+    /// The number of waits that the waiter-count tests make on one open run.
+    private static let repeatedWaitCount = 1_000
+
+    @Test("many waits that end at their deadline leave no waiter on the open run, and a later wait still gets the settlement")
+    func deadlineWaitsLeaveNoWaiters() async throws {
+        let runPlane = RunPlane()
+        let latch = RunLatch()
+        let token = await FakeRun.start(on: runPlane, latch: latch)
+
+        for _ in 0..<Self.repeatedWaitCount {
+            #expect(await runPlane.wait(completionToken: token, seconds: 0) == .deadlineElapsed)
+        }
+        #expect(await runPlane.waiterCount(completionToken: token) == 0)
+
+        latch.open()
+        let result = await runPlane.wait(completionToken: token, seconds: nil)
+        let terminal = try #require(result.settledTerminal, "expected .settled, got \(result)")
+        #expect(terminal.correlationID == token)
+    }
+
+    @Test("many waits that end at a cancel leave no waiter on the open run")
+    func cancelledWaitsLeaveNoWaiters() async {
+        let runPlane = RunPlane()
+        let latch = RunLatch()
+        let token = await FakeRun.start(on: runPlane, latch: latch)
+
+        for _ in 0..<Self.repeatedWaitCount {
+            let waiting = Task { await runPlane.wait(completionToken: token, seconds: nil) }
+            waiting.cancel()
+            #expect(await waiting.value == .cancelled)
+        }
+        #expect(await runPlane.waiterCount(completionToken: token) == 0)
+
+        latch.open()
+        _ = await runPlane.wait(completionToken: token, seconds: nil)
+    }
+
     @Test("a settled run answers wait() at once, also with a deadline clamped to zero")
     func settledRunResolvesWaitDespiteZeroDeadline() async throws {
         let runPlane = RunPlane()

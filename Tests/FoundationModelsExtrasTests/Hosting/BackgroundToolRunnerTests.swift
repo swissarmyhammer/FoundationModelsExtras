@@ -62,7 +62,7 @@ struct BackgroundToolRunnerTests {
 
         // The pending envelope: the pending flag and a ULID completion token.
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        #expect(envelope.pending)
+        #expect(envelope.isPending)
         #expect(ULID(ulidString: envelope.completionToken) != nil)
 
         // The run plane holds the run under that token, of kind swiftTask.
@@ -104,7 +104,7 @@ struct BackgroundToolRunnerTests {
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "own sentence"))
 
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        #expect(envelope.pending)
+        #expect(envelope.isPending)
         #expect(envelope.next == Fixtures.CollectSentenceTool.collectInstruction(forCompletionToken: envelope.completionToken))
         #expect(rendered == PendingRunEnvelope(completionToken: envelope.completionToken, next: envelope.next).rendered)
 
@@ -126,7 +126,7 @@ struct BackgroundToolRunnerTests {
 
         #expect(PendingRunEnvelope.isRendered(text: rendered))
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        #expect(!envelope.pending)
+        #expect(!envelope.isPending)
         #expect(envelope.outcome == OperationOutcome.succeeded.rawValue)
         #expect(envelope.detail == Fixtures.InlineGraceTool.output(for: "now"))
         #expect(envelope.next == Fixtures.InlineGraceTool.resultInstruction(forCompletionToken: envelope.completionToken))
@@ -148,7 +148,7 @@ struct BackgroundToolRunnerTests {
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "now"))
 
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        #expect(!envelope.pending)
+        #expect(!envelope.isPending)
         #expect(envelope.detail == Fixtures.DefaultSentenceGraceTool.output(for: "now"))
         #expect(envelope.next == PendingRunEnvelope.defaultResultInstruction(forCompletionToken: envelope.completionToken))
     }
@@ -161,7 +161,7 @@ struct BackgroundToolRunnerTests {
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "later"))
 
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        #expect(envelope.pending)
+        #expect(envelope.isPending)
         #expect(envelope.detail == nil)
         #expect(envelope.outcome == nil)
         #expect(envelope.next == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: envelope.completionToken))
@@ -185,7 +185,7 @@ struct BackgroundToolRunnerTests {
         let rendered = try await inline.call(arguments: MountArguments(value: "inline"))
 
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        #expect(!envelope.pending)
+        #expect(!envelope.isPending)
         #expect(await sink.staged.isEmpty)
 
         // The same sink still stages a run whose result the model does not
@@ -196,7 +196,7 @@ struct BackgroundToolRunnerTests {
         let pendingRendered = try await pendingRun.call(arguments: MountArguments(value: "held"))
 
         let pendingEnvelope = try Fixtures.decodeEnvelope(pendingRendered)
-        #expect(pendingEnvelope.pending)
+        #expect(pendingEnvelope.isPending)
         let staged = await sink.staged
         #expect(staged.count == 1)
         #expect(staged.first?.correlationID == pendingEnvelope.completionToken)
@@ -216,7 +216,7 @@ struct BackgroundToolRunnerTests {
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
 
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        #expect(envelope.pending)
+        #expect(envelope.isPending)
 
         // The run posts its own progress after it returns, and still gets one
         // terminal event when it settles.
@@ -277,7 +277,7 @@ struct BackgroundToolRunnerTests {
         let terminal = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
         #expect(terminal.detail == "observed cancellation")
         #expect(terminal.outcome == .succeeded)
-        #expect(await witness.observed)
+        #expect(await witness.isObserved)
 
         let events = await harness.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
