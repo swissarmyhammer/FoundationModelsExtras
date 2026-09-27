@@ -1,4 +1,4 @@
-@testable import FoundationModelsExtras
+@_spi(Testing) @testable import FoundationModelsExtras
 import Foundation
 import FoundationModels
 import Testing

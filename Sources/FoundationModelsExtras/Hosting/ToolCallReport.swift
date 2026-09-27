@@ -42,10 +42,15 @@ public struct ToolCallReport: Sendable, Equatable {
     /// Makes the report of one closed call, or `nil` when the call attached
     /// nothing.
     ///
+    /// The report takes the tool name, the op, the correlation ID and the
+    /// session ID from `record`, so a host can join the report and the record.
+    /// A host that closes a call and holds its attachments calls this
+    /// initializer, and posts the report only when it is not `nil`.
+    ///
     /// - Parameters:
     ///   - record: The close record of the call.
     ///   - attachments: The records that the call attached, in call order.
-    init?(closing record: ToolInvocationRecord, attachments: [ToolCallAttachment]) {
+    public init?(closing record: ToolInvocationRecord, attachments: [ToolCallAttachment]) {
         guard !attachments.isEmpty else { return nil }
         self.init(
             tool: record.tool,

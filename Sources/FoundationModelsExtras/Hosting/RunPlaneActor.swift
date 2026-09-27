@@ -9,7 +9,11 @@ import ULID
 /// each event of the run.
 public actor RunPlane {
     /// What ``start(tool:op:kind:completionToken:canceler:body:)`` did.
-    enum StartResult: Sendable, Equatable {
+    ///
+    /// A test outside this package reads it through
+    /// `@_spi(Testing) import FoundationModelsExtras`.
+    @_spi(Testing)
+    public enum StartResult: Sendable, Equatable {
         /// The run started, and the run plane tracks it.
         case started
 
@@ -116,6 +120,10 @@ public actor RunPlane {
     /// observer gets it. A run that the sweep removed settles with no
     /// delivery, so each run has one terminal event.
     ///
+    /// A host starts a run through ``ToolMounting``. A test outside this
+    /// package calls this method directly through
+    /// `@_spi(Testing) import FoundationModelsExtras`.
+    ///
     /// - Parameters:
     ///   - tool: The name of the tool that owns the run.
     ///   - op: The `"verb noun"` op of the run.
@@ -127,7 +135,8 @@ public actor RunPlane {
     ///   - body: The work. It returns the terminal event of the run.
     /// - Returns: ``StartResult/duplicateToken`` when the token names a run.
     @discardableResult
-    func start(
+    @_spi(Testing)
+    public func start(
         tool: String,
         op: String,
         kind: RunKind,
@@ -161,10 +170,15 @@ public actor RunPlane {
     /// Records the latest progress detail of a run. An unknown token does
     /// nothing.
     ///
+    /// A run reports its progress through ``ToolContext``. A test outside
+    /// this package calls this method directly through
+    /// `@_spi(Testing) import FoundationModelsExtras`.
+    ///
     /// - Parameters:
     ///   - completionToken: The completion token of the run.
     ///   - detail: The progress detail.
-    func updateProgress(completionToken: String, detail: String) {
+    @_spi(Testing)
+    public func updateProgress(completionToken: String, detail: String) {
         guard let index = index(of: completionToken) else { return }
         runs[index].latestProgressDetail = detail
     }
@@ -205,7 +219,7 @@ public actor RunPlane {
     ///   - seconds: The deadline, as given. NaN and a negative value become
     ///     zero. `nil` sets no deadline.
     /// - Returns: The ``WaitOutcome``.
-    func wait(completionToken: String, seconds: Double?) async -> WaitOutcome {
+    public func wait(completionToken: String, seconds: Double?) async -> WaitOutcome {
         if let terminal = settled[completionToken] {
             return .settled(terminal)
         }
