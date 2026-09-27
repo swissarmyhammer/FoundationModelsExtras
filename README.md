@@ -703,6 +703,18 @@ This example is mirrored in `readmeBackgroundToolExample` in
 `Tests/FoundationModelsExtrasTests/Hosting/ToolHostingReadmeTests.swift`, kept
 green by `swift test --filter ToolHostingReadmeTests`.
 
+## Tests
+
+```sh
+swift test                                   # unit tests
+swift test --package-path IntegrationTests   # real MLX models
+```
+
+The real-model tests are a separate package in `IntegrationTests/`, and only
+that package depends on MLX. The tests download small models from the Hugging
+Face hub on the first run. The model ids are in
+`IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/Support/IntegrationModels.swift`.
+
 ## Install
 
 Add the package to `Package.swift`:

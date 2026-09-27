@@ -13,3 +13,15 @@ concurrency:
 jobs:
   unit:
     uses: swissarmyhammer/workflows/.github/workflows/swift-ci.yaml@main
+    with:
+      # The real-model tests are the nested package `IntegrationTests/`. The
+      # root manifest does not name it, thus a root `swift test` cannot run it.
+      # This input makes the unit job build the package on each run, and makes
+      # the integration job run it. No input selects tests with an environment
+      # variable.
+      integration-package-path: IntegrationTests
+
+      # MLX looks for `mlx.metallib` beside the test binary, and SwiftPM puts
+      # the shader library in the Cmlx bundle. The shared workflow copies the
+      # matched file beside each `.xctest` bundle before the run.
+      integration-metallib-glob: "*Cmlx*/default.metallib"
