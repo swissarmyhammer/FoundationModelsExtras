@@ -1,7 +1,7 @@
 ---
 assignees:
 - claude-code
-position_column: todo
+position_column: review
 position_ordinal: '80'
 title: Add tests for BackgroundToolRunner.canceler(of:) with a canceler that is not a process canceler
 ---

@@ -80,6 +80,40 @@ struct DeclaredRunKindTests {
         }
     }
 
+    /// Goes to the background, declares ``RunKind/swiftTask``, and gives its
+    /// own canceler.
+    ///
+    /// A cancel of a Swift task is only a request, so the canceler reports
+    /// ``OperationOutcome/cancelled``. It records its call, then opens `gate`.
+    /// Only the canceler opens `gate`, so the body then ends as cancelled.
+    private struct DeclaredSwiftTaskTool: Tool, BackgroundTool {
+        let name = "declared_swift_task_tool"
+        let description = "is backgrounded at once as a Swift task run and gives its own canceler"
+
+        /// The wait of the body. Only the canceler opens it.
+        let gate: RunLatch
+
+        /// Gets the completion token of the run each time the canceler runs.
+        let cancels: Recorder<String>
+
+        func call(arguments: DeclaredRunKindArguments) async throws -> String {
+            await gate.waitUntilOpen()
+            throw CancellationError()
+        }
+
+        var runKind: RunKind { .swiftTask }
+
+        func canceler(forCompletionToken completionToken: String) -> (@Sendable () async -> OperationOutcome)? {
+            let cancels = cancels
+            let gate = gate
+            return {
+                cancels.append(completionToken)
+                gate.open()
+                return .cancelled
+            }
+        }
+    }
+
     /// Sleeps until it is cancelled and declares nothing.
     private struct UndeclaredKindTool: Tool {
         let name = "undeclared_kind_tool"
@@ -225,6 +259,30 @@ struct DeclaredRunKindTests {
 
         #expect(retained.outcome == .stopped)
         #expect(await harness.context.cancel(completionToken: run.completionToken) == .alreadySettled(retained))
+    }
+
+    // MARK: - A declared Swift task run with its own canceler
+
+    @Test("a cancel of a .swiftTask run whose tool gave its own canceler runs that canceler one time and settles with its outcome")
+    func cancellingADeclaredSwiftTaskRunCallsTheToolsCancelerOnce() async throws {
+        let cancels = Recorder<String>()
+        let harness = Self.makeHarness(backgroundMounting: DeclaredSwiftTaskTool(gate: RunLatch(), cancels: cancels))
+
+        let run = try await Self.backgroundOneRun(through: harness)
+        #expect(run.kind == .swiftTask)
+
+        let cancelOutcome = await harness.context.cancel(completionToken: run.completionToken)
+        let reported = try #require(cancelOutcome.reportedOutcome, "the cancel did not reach a canceler: \(cancelOutcome)")
+        let terminal = try await Self.settledTerminal(of: run, through: harness)
+
+        // The cooperative canceler of the run plane never calls the tool, so
+        // this record shows that the canceler of the tool ran.
+        #expect(cancels.values == [run.completionToken])
+        #expect(reported == .cancelled)
+        #expect(terminal.outcome == reported)
+        #expect(terminal.correlationID == run.completionToken)
+        let events = await harness.sink.events
+        #expect(events.filter { $0.kind == .completed }.count == 1)
     }
 
     // MARK: - A tool that declares nothing
