@@ -135,18 +135,19 @@ public final class ModelPool: Sendable {
         }
     }
 
-    /// Removes one hold. After the last hold, submits an eviction job.
+    /// Removes one hold. The last hold puts an eviction job in the admission
+    /// queue in the same step, so each admission job after it runs after the
+    /// eviction job.
     fileprivate func release(_ key: ModelPoolKey, sessionBytes: Int64) {
-        let isIdle = state.withLock { state in
+        // Lock order: the pool lock, then the queue lock. No queue code
+        // takes the pool lock.
+        state.withLock { state in
             state.entries[key]?.holds -= 1
             state.entries[key]?.bytes -= sessionBytes
             state.publish()
-            return state.entries[key]?.holds == 0
+            guard state.entries[key]?.holds == 0 else { return }
+            admissions.enqueue { await self.evictIfIdle(key) }
         }
-        guard isIdle else { return }
-        // `submit` throws only in a cancelled task or in an open model call.
-        // This new detached task is in neither.
-        Task.detached { try? await self.admissions.submit { await self.evictIfIdle(key) } }
     }
 
     /// The eviction job: evicts the model of `key` when it still has no hold.

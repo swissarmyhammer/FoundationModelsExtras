@@ -29,6 +29,10 @@ struct ModelPoolTests {
     /// The bytes of the weights of ``key``.
     private static let weightsBytes = footprintBytes - sessionBytes
 
+    /// How many times the release test releases the last hold and then
+    /// submits an admit job at once.
+    private static let releaseRepetitions = 200
+
     /// Acquires ``key`` from `pool` with ``footprintBytes`` and `sessionBytes`.
     ///
     /// - Parameters:
@@ -252,6 +256,23 @@ struct ModelPoolTests {
         #expect(log.values == [Self.loadByA, "job begins", "resident acquired", "job ends"])
         #expect(pool.isResident(Self.key))
         #expect(secondHold.key == Self.key)
+    }
+
+    @Test("an admit job submitted at once after the last release runs after the eviction")
+    func anAdmitJobAfterTheLastReleaseRunsAfterTheEviction() async throws {
+        for _ in 0..<Self.releaseRepetitions {
+            let pool = ModelPool()
+            let log = Recorder<String>()
+            let loader = RecordingLoader(name: "A", log: log)
+            var hold: ModelHold? = try await Self.acquire(from: pool, with: loader)
+            #expect(hold?.key == Self.key)
+
+            hold = nil
+            let residentInTheJob = try await pool.admit { admission in admission.footprint.resident }
+
+            #expect(residentInTheJob.isEmpty)
+            #expect(log.values == [Self.loadByA, Self.evictionOfA])
+        }
     }
 
     @Test("a failed load throws to its caller, and a later acquire loads again")

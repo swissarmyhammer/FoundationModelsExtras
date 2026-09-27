@@ -13,8 +13,8 @@ public final class GenerationQueue: Sendable {
     /// The number of jobs that are not finished: the running job and the
     /// waiting jobs.
     ///
-    /// `submit` counts a job and puts it in the worker input under this one
-    /// lock. Thus when ``waitingCount`` shows a job, each job that is
+    /// `submit` and `enqueue` count a job and put it in the worker input under
+    /// this one lock. Thus when ``waitingCount`` shows a job, each job that is
     /// submitted after that runs after it. Lock order: this lock, then the
     /// lock of a job. No code takes this lock while it holds the lock of a job.
     private let unfinished = Mutex<Int>(0)
@@ -64,18 +64,39 @@ public final class GenerationQueue: Sendable {
         let job = Job(queue: self, priority: Task.currentPriority, body: body)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let jobsAhead = unfinished.withLock { count -> Int? in
-                    guard job.wait(continuation) else { return nil }
-                    jobs.yield(job)
-                    count += 1
-                    return count - 1
-                }
+                let jobsAhead = enqueue(job) { continuation.resume(with: $0) }
                 if let jobsAhead, jobsAhead > 0 {
                     onQueued()
                 }
             }
         } onCancel: {
             job.cancel()
+        }
+    }
+
+    /// Puts `body` in the queue as one job, and returns at once. Nothing waits
+    /// for the job, and nothing cancels it. A job that `submit` or `enqueue`
+    /// puts in the queue after this call runs after this job.
+    ///
+    /// - Parameter body: The job.
+    func enqueue(_ body: @escaping @Sendable () async -> Void) {
+        _ = enqueue(Job(queue: self, priority: Task.currentPriority, body: body)) { _ in }
+    }
+
+    /// Counts `job` and puts it in the worker input, in one step under the
+    /// lock of the count.
+    ///
+    /// - Parameters:
+    ///   - job: The new job.
+    ///   - resume: Gives the result of the job to its submitter.
+    /// - Returns: The number of jobs ahead of `job`, or `nil` when the job was
+    ///   cancelled first.
+    private func enqueue<T>(_ job: Job<T>, resume: @escaping Job<T>.Resume) -> Int? {
+        unfinished.withLock { count -> Int? in
+            guard job.wait(resume) else { return nil }
+            jobs.yield(job)
+            count += 1
+            return count - 1
         }
     }
 
@@ -120,10 +141,13 @@ private protocol QueuedJob: Sendable {
 /// One submission and its state. Each change of state occurs under one lock,
 /// so exactly one path resumes the submitter.
 private final class Job<T: Sendable>: QueuedJob {
+    /// Gives the result of the job to its submitter.
+    typealias Resume = @Sendable (Result<T, any Error>) -> Void
+
     /// The steps of a job: new, then waiting, then running, then finished.
     private enum State: Sendable {
         case new
-        case waiting(CheckedContinuation<T, any Error>)
+        case waiting(Resume)
         case running(Task<Void, Never>)
         case finished
     }
@@ -147,19 +171,19 @@ private final class Job<T: Sendable>: QueuedJob {
         self.body = body
     }
 
-    /// Keeps the continuation of the submitter. The caller counts the job.
+    /// Keeps the resume of the submitter. The caller counts the job.
     ///
-    /// - Parameter continuation: The continuation of the submitter.
+    /// - Parameter resume: Gives the result of the job to its submitter.
     /// - Returns: `true` when the job now waits, or `false` when the job was
     ///   cancelled first. Then the submitter gets `CancellationError` at once.
-    func wait(_ continuation: CheckedContinuation<T, any Error>) -> Bool {
+    func wait(_ resume: @escaping Resume) -> Bool {
         let waits = state.withLock { state -> Bool in
             guard case .new = state else { return false }
-            state = .waiting(continuation)
+            state = .waiting(resume)
             return true
         }
         if !waits {
-            continuation.resume(throwing: CancellationError())
+            resume(.failure(CancellationError()))
         }
         return waits
     }
@@ -175,9 +199,9 @@ private final class Job<T: Sendable>: QueuedJob {
             return previous
         }
         switch previous {
-        case .waiting(let continuation):
+        case .waiting(let resume):
             queue.releaseJobCount()
-            continuation.resume(throwing: CancellationError())
+            resume(.failure(CancellationError()))
         case .running(let task):
             task.cancel()
         case .new, .finished:
@@ -189,7 +213,7 @@ private final class Job<T: Sendable>: QueuedJob {
     /// the submitter, and waits for it. Only the worker loop calls this.
     func run() async {
         let task = state.withLock { state -> Task<Void, Never>? in
-            guard case .waiting(let continuation) = state else { return nil }
+            guard case .waiting(let resume) = state else { return nil }
             let task = Task.detached(priority: priority) {
                 let result: Result<T, any Error>
                 do {
@@ -198,7 +222,7 @@ private final class Job<T: Sendable>: QueuedJob {
                     result = .failure(error)
                 }
                 self.finish()
-                continuation.resume(with: result)
+                resume(result)
             }
             state = .running(task)
             return task
