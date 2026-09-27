@@ -48,6 +48,37 @@ comments:
     - evidence: 12 new files. Sources/FoundationModelsExtras/Hosting/{SubmissionBoundaryTool,ToolDecorator,ToolFailureDelivery,PendingRunEnvelope,ToolMount,BackgroundTool}.swift (494 lines, router 641). Tests/FoundationModelsExtrasTests/Hosting/{PendingRunEnvelopeTests,ToolFailureDeliveryTests,SubmissionBoundaryToolTests,SubmissionBoundaryToolPublicSurfaceTests,BackgroundToolPublicSurfaceTests}.swift and Tests/FoundationModelsExtrasTests/ElicitationEnvelopeTests.swift. `swift build --build-tests`: 0 errors, 0 warnings. `swift test`: all pass (main run 587 tests in 53 suites; the 6 new suites: 44 tests pass). Router not changed. Not committed.
     - next: /review
   timestamp: 2026-09-27T00:33:31.114601+00:00
+- actor: claude-code
+  id: 01m3g4pes7cj9jjjz54mbkzn02
+  text: |-
+    ### commit — changed
+    - evidence: 5875d06 feat(hosting): move the leaf tool-hosting files from the router
+    - files: the 6 Hosting source files, 6 test files, and this task record. Other kanban files (ModelPool tasks, Tool hosting 1 and 4, the model-pool tag) stay unstaged — they are not part of this task's work.
+    - next: /review
+  timestamp: 2026-09-27T00:37:01.863262+00:00
+- actor: claude-code
+  id: 01m3g565tqcfet17h8hmvjpq2g
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (5875d06). 1 finding (1 confirmed, 2 refuted). Tests/FoundationModelsExtrasTests/ElicitationEnvelopeTests.swift:309 code-hygiene/idioms-swift noForceUnwrapInTests. No finding asks for a lock, semaphore, gate, actor or router complexity, so there is no conflict with the user decision.
+    - next: Use XCTUnwrap or #require instead of each force unwrap in ElicitationEnvelopeTests.swift (all of the file, not only that line). Then run /review again.
+  timestamp: 2026-09-27T00:45:36.983315+00:00
+- actor: claude-code
+  id: 01m3g56e9yetmgsakfb50bh6v9
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 6 hosting files (641 -> 494 lines), 6 test files
+    - test: green — swift test, 587 passed, 0 warnings, 0 skipped
+    - commit: 5875d06
+    - review: findings — Tests/FoundationModelsExtrasTests/ElicitationEnvelopeTests.swift:309
+  timestamp: 2026-09-27T00:45:45.662564+00:00
+- actor: claude-code
+  id: 01m3g59ndx0ssa40dbcknqv9wp
+  text: |-
+    ### implement — changed
+    - evidence: Tests/FoundationModelsExtrasTests/ElicitationEnvelopeTests.swift: urlRequestRoundTrips now uses `let flowURL = try #require(URL(string: ...))` in place of `URL(string: ...)!` (the test was already `throws`). A search of the 6 new test files found no other force unwrap (the other `!` hits are logical NOT). Finding marked `- [x]`. `swift build`: 0 warnings, 0 errors. `swift test --filter 'Elicitation|PendingRunEnvelope|ToolFailureDelivery|SubmissionBoundary|BackgroundTool'`: 44 tests in 6 suites pass, 0 warnings. Not committed.
+    - next: /review
+  timestamp: 2026-09-27T00:47:31.261038+00:00
 depends_on:
 - 01M3FP9700G1GWA15B0GEZQGMD
 position_column: doing
@@ -79,3 +110,12 @@ Source: `/Users/wballard/github/swissarmyhammer/FoundationModelsRouter/Sources/F
 - [x] The copied tests pass. `swift build` and `swift test` pass.
 
 #tool-hosting #cross-repo
+
+## Review Findings (2026-09-26 19:37)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 12 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/ElicitationEnvelopeTests.swift:309` `code-hygiene/idioms-swift` — noForceUnwrapInTests: Use XCTUnwrap or in test cases, rather than force unwrapping.

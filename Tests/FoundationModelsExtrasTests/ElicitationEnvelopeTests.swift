@@ -303,10 +303,11 @@ struct ElicitationEnvelopeTests {
 
     @Test("a url request built through the typed API round-trips through Codable")
     func urlRequestRoundTrips() throws {
+        let flowURL = try #require(URL(string: "https://example.com/flow"))
         let request = ElicitationRequest(
             message: "Open this",
             elicitationId: ULID(),
-            url: URL(string: "https://example.com/flow")!
+            url: flowURL
         )
 
         let data = try JSONEncoder().encode(request)
