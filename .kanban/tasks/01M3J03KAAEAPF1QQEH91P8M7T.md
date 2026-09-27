@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8480'
+position_column: review
+position_ordinal: '80'
 title: Add tests for @Operation with no argument list, and for the @OperationParam peer expansion
 ---
 Sources/OperationsMacros/OperationsMacros.swift:431-433, 927-929

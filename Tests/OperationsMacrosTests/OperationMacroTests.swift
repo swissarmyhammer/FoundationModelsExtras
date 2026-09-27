@@ -14,6 +14,12 @@ private let operationMacroSpecs: [String: MacroSpec] = [
     "Operation": MacroSpec(type: OperationMacro.self, conformances: ["OperationDefinition", "HasCLICommand"])
 ]
 
+/// `MacroSpec` for `@OperationParam` alone. The real `@attached(peer)`
+/// declaration in `Operations.swift` gives it no conformances.
+private let operationParamMacroSpecs: [String: MacroSpec] = [
+    "OperationParam": MacroSpec(type: OperationParamMacro.self)
+]
+
 @Suite struct OperationMacroTests {
 
     // MARK: - Simple op
@@ -1243,6 +1249,56 @@ private let operationMacroSpecs: [String: MacroSpec] = [
                 )
             ],
             macroSpecs: operationMacroSpecs
+        )
+    }
+
+    // MARK: - No argument list
+
+    /// `@Operation` with no parentheses has no argument list, so the
+    /// expansion adds no extension. It also gives no diagnostic.
+    @Test func operationWithNoArgumentListAddsNoExtensionAndNoDiagnostic() {
+        assertMacroExpansion(
+            """
+            @Operation
+            struct AddNote {
+            }
+            """,
+            expandedSource: """
+                struct AddNote {
+                }
+                """,
+            diagnostics: [],
+            macroSpecs: operationMacroSpecs
+        )
+    }
+
+    // MARK: - `@OperationParam` peer expansion
+
+    /// `@OperationParam` attributes that `@Operation` reads. Alone, each one
+    /// expands to no peer declaration.
+    static let operationParamAttributes: [String] = [
+        #"@OperationParam(short: "t")"#,
+        #"@OperationParam(aliases: ["name"])"#,
+        #"@OperationParam(short: "t", aliases: ["name"])"#,
+        "@OperationParam(allowedValues: [])",
+    ]
+
+    @Test(arguments: operationParamAttributes)
+    func operationParamAloneAddsNoPeerDeclarationAndNoDiagnostic(_ attribute: String) {
+        assertMacroExpansion(
+            """
+            struct AddNote {
+                \(attribute)
+                var title: String
+            }
+            """,
+            expandedSource: """
+                struct AddNote {
+                    var title: String
+                }
+                """,
+            diagnostics: [],
+            macroSpecs: operationParamMacroSpecs
         )
     }
 }
