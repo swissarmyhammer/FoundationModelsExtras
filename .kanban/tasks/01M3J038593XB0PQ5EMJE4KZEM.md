@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8180'
+position_column: review
+position_ordinal: '80'
 title: 'Add tests for the MountRunner forwarders: name, description, parameters and includesSchemaInInstructions'
 ---
 Sources/FoundationModelsExtras/Hosting/ToolMounting.swift:121-130

@@ -78,6 +78,19 @@ extension MountFixtures {
         }
     }
 
+    /// Returns at once, and keeps its schema out of the instructions. A
+    /// forwarder that gives the default of `Tool` does not agree with it.
+    struct SchemaOmittingTool: Tool {
+        let name = "schema_omitting_tool"
+        let description = "returns immediately and keeps its schema out of the instructions"
+
+        var includesSchemaInInstructions: Bool { false }
+
+        func call(arguments: MountArguments) async throws -> String {
+            "schema omitted: \(arguments.value)"
+        }
+    }
+
     /// Returns a text that is not `String` output, and posts nothing.
     struct NonStringOutputTool: Tool {
         let name = "non_string_output_tool"

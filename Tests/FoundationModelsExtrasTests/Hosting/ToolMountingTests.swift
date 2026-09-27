@@ -90,6 +90,39 @@ struct ToolMountingTests {
         #expect(terminal.outcome == .succeeded)
     }
 
+    // MARK: - The metadata that the model sees
+
+    /// The JSON of `schema`, with sorted keys. `GenerationSchema` is not
+    /// `Equatable`, so the test compares this text.
+    private static func encodedSchema(_ schema: GenerationSchema) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return String(decoding: try encoder.encode(schema), as: UTF8.self)
+    }
+
+    @Test(
+        "a runner in each mode gives the name, description, parameters and schema choice of the tool it wraps",
+        arguments: [ToolMount.Mode.background, .runToCompletion]
+    )
+    func runnerForwardsTheMetadataOfTheWrappedTool(mode: ToolMount.Mode) throws {
+        let tool = Fixtures.SchemaOmittingTool()
+        let wrapped = ToolMounting.makeWrapped(
+            tool: tool,
+            site: Fixtures.site(runPlane: RunPlane(), sink: Fixtures.RecordingSink()),
+            configuration: ToolMount(mode: mode)
+        )
+
+        let runner = try #require(wrapped as? any MountRunner)
+        #expect(type(of: runner).defaultMode == mode)
+        #expect(runner.name == tool.name)
+        #expect(runner.description == tool.description)
+        #expect(try Self.encodedSchema(runner.parameters) == Self.encodedSchema(tool.parameters))
+        // The tool keeps its schema out of the instructions, so a forwarder
+        // that gives the default of `Tool` fails here.
+        #expect(runner.includesSchemaInInstructions == tool.includesSchemaInInstructions)
+        #expect(!runner.includesSchemaInInstructions)
+    }
+
     // MARK: - The non-String-output path
 
     @Test("a non-String-output tool mounts in the binding-only ContextBindingTool")
