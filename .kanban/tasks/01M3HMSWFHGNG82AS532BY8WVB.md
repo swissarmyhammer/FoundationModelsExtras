@@ -30,9 +30,32 @@ comments:
     - files: Sources/Operations/{ToolMount.swift (new), OperationDefinition.swift, AnyOperation.swift, OperationTool.swift, Operations.swift}, Sources/OperationsMacros/OperationsMacros.swift, README.md, docs/GUIDE.md, CHANGELOG.md.
     - next: review
   timestamp: 2026-09-27T15:45:35.895635+00:00
+- actor: claude-code
+  id: 01m3hrxn0991jbmcm2fyyzcwaj
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (9a7914e); 1 finding (1 confirmed, 0 refuted) — Tests/OperationsMacrosTests/MountCompileTests.swift:40 `code-hygiene/idioms-swift` redundantSwiftTestingSuite.
+    - next: remove the redundant `@Suite` attribute with no arguments. Remove all instances of this cause in the file. Then review again.
+  timestamp: 2026-09-27T15:49:43.561177+00:00
+- actor: claude-code
+  id: 01m3hrxxv4vmx4bk4c5dza78j0
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 12 files (Operations, OperationsMacros, tests, docs)
+    - test: green — swift test, 1365 passed
+    - commit: 9a7914e
+    - review: findings — Tests/OperationsMacrosTests/MountCompileTests.swift:40
+  timestamp: 2026-09-27T15:49:52.612145+00:00
+- actor: claude-code
+  id: 01m3hs1df852ynxmt0v4a0k3sr
+  text: |-
+    ### implement — changed
+    - evidence: removed the `@Suite` attribute with no arguments from `MountCompileTests` in Tests/OperationsMacrosTests/MountCompileTests.swift. That was the only empty `@Suite` in the file. OperationMountTests.swift has one `@Suite`, and it has arguments. The empty `@Suite` in OperationMacroTests.swift was there before 9a7914e, thus it is not in the scope of this finding. swift build: 0 warnings. swift test: 1365 tests pass (131+37+44+26+396+731), 0 failures.
+    - next: review
+  timestamp: 2026-09-27T15:51:46.920552+00:00
 depends_on:
 - 01M3HMSR0XDGD54R903GZHCJP3
-position_column: doing
+position_column: review
 position_ordinal: '80'
 title: 'Operations: each operation declares its mount, and OperationTool chooses it for each call'
 ---
@@ -52,3 +75,17 @@ Read the `Operations` module (Sources/Operations*, the `@Operation` macro in the
 - [x] `swift build` 0 warnings; `swift test` passes.
 
 #tool-hosting #cross-repo
+
+## Review Findings (2026-09-27 10:46)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 9 file(s) reviewed, 7 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 3 file(s) not reviewed — no validator matched:
+> - `CHANGELOG.md` — no validator matches this file
+> - `README.md` — no validator matches this file
+> - `docs/GUIDE.md` — no validator matches this file
+
+- [x] `Tests/OperationsMacrosTests/MountCompileTests.swift:40` `code-hygiene/idioms-swift` — redundantSwiftTestingSuite: Remove redundant @Suite attribute with no arguments.

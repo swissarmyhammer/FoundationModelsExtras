@@ -37,7 +37,7 @@ extension ListJobsMountFixture {
     }
 }
 
-@Suite struct MountCompileTests {
+struct MountCompileTests {
     @Test func mountArgumentBecomesTheMountOfTheOperation() {
         #expect(StartJobMountFixture.mount == ToolMount(mode: .background))
     }
