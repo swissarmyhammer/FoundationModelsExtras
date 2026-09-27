@@ -46,7 +46,8 @@ enum ToolSession {
     /// - Returns: The answer, and each tool output of the session so far.
     /// - Throws: The error of the generation.
     static func answer(to prompt: String, in session: LanguageModelSession) async throws -> Answer {
-        let text = try await respond(to: prompt, in: session)
+        let text = try await Generation.respond(
+            to: prompt, in: session, maximumResponseTokens: maximumResponseTokens)
         return Answer(text: text, toolOutputs: session.transcript.toolOutputTexts)
     }
 
@@ -77,18 +78,6 @@ enum ToolSession {
                 model: model, tools: tools, instructions: "\(instructions) \(noReasoningSwitch)")
             return try await body(session)
         }
-    }
-
-    /// Asks `prompt` in `session`, with greedy sampling.
-    ///
-    /// - Parameters:
-    ///   - prompt: The request of the user.
-    ///   - session: The session.
-    /// - Returns: The text of the answer.
-    /// - Throws: The error of the generation.
-    static func respond(to prompt: String, in session: LanguageModelSession) async throws -> String {
-        let options = GenerationOptions(samplingMode: .greedy, maximumResponseTokens: maximumResponseTokens)
-        return try await session.respond(to: prompt, options: options).content
     }
 }
 

@@ -160,9 +160,9 @@ extension RealModelSuites {
                 instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], in: pool
             ) { session in
                 let first = try await ToolSession.answer(to: "Open the archive named \(archive).", in: session)
-                let followUp = try await ToolSession.respond(
+                let followUp = try await ToolSession.answer(
                     to: "What error code did the tool give? Reply with the error code only.", in: session)
-                return (first, followUp)
+                return (first, followUp.text)
             }
             await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 

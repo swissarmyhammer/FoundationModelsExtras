@@ -25,7 +25,23 @@ enum Generation {
     static func respond(
         to prompt: String, with model: any LanguageModel, maximumResponseTokens: Int
     ) async throws -> String {
-        let session = LanguageModelSession(model: model)
+        try await respond(
+            to: prompt, in: LanguageModelSession(model: model), maximumResponseTokens: maximumResponseTokens)
+    }
+
+    /// Asks `prompt` in `session`, with greedy sampling.
+    ///
+    /// - Parameters:
+    ///   - prompt: The question.
+    ///   - session: The session. It keeps the question and the answer in its
+    ///     transcript.
+    ///   - maximumResponseTokens: The most tokens of the answer.
+    /// - Returns: The text of the answer.
+    /// - Throws: The error of the generation, or `CancellationError` when the
+    ///   task is cancelled.
+    static func respond(
+        to prompt: String, in session: LanguageModelSession, maximumResponseTokens: Int
+    ) async throws -> String {
         let options = GenerationOptions(samplingMode: .greedy, maximumResponseTokens: maximumResponseTokens)
         return try await session.respond(to: prompt, options: options).content
     }
