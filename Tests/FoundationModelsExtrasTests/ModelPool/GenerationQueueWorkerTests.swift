@@ -95,6 +95,12 @@ struct GenerationQueueWorkerTests {
     /// item.
     private static let raceRepetitions = 300
 
+    /// How many times the order test submits a line of items.
+    private static let orderRepetitions = 200
+
+    /// The number of items in one line of the order test.
+    private static let itemsInLine = 8
+
     /// The value the raced item returns when its body runs.
     private static let racedValue = 7
 
@@ -214,6 +220,29 @@ struct GenerationQueueWorkerTests {
         #expect(await log.peak == 1)
         #expect(await queue.isRunning == false)
         #expect(await queue.waitingCount == 0)
+    }
+
+    @Test("an item submitted after the count shows the item before it runs after that item")
+    func anItemSubmittedAfterTheCountShowsThePreviousItemRunsAfterIt() async throws {
+        for _ in 0..<Self.orderRepetitions {
+            let queue = GenerationQueue()
+            let log = ItemLog()
+            let release = Flag()
+            let holder = try await Self.startHolder(on: queue, log: log, release: release)
+            let names = (1...Self.itemsInLine).map { "item \($0)" }
+            for (index, name) in names.enumerated() {
+                _ = await Self.submitWaiting(name, to: queue, log: log, waiting: index + 1)
+            }
+
+            release.set()
+            _ = try await Self.outcome(of: holder.box, named: "the holder result")
+            try #require(
+                await BoundedWait.conditionReached("every item in the line runs") {
+                    await log.started.count == names.count + 1
+                })
+
+            try #require(await log.started == ["holder"] + names)
+        }
     }
 
     @Test("a cancelled waiting item never runs, its submitter gets CancellationError at once, and the next item runs")

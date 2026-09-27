@@ -67,10 +67,26 @@ comments:
     - evidence: 5 files — IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/GenerationQueueIntegrationTests.swift, Support/IntegrationModels.swift, Support/Waiting.swift, ModelPoolIntegrationTests.swift, ModelPoolSmokeTests.swift. `swift build --package-path IntegrationTests --build-tests`: build complete, 0 compiler warnings (only the accepted SwiftPM Cmlx bundle warning). `swift test --package-path IntegrationTests` (1 run): 9 tests in 4 suites passed after 24.2 s. 6 of 6 findings marked `- [x]`.
     - next: /review
   timestamp: 2026-09-27T13:23:35.099295+00:00
+- actor: claude-code
+  id: 01m3hgrs9yde0h68kqensqwfhd
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (5c7b937); 0 findings, 0 confirmed, 0 refuted; 5 files reviewed; all 6 prior findings are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-09-27T13:27:15.518081+00:00
+- actor: claude-code
+  id: 01m3hgs1jps8pb0kczpbpsnhhf
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — named constants and argument labels in 5 test files
+    - test: green — IntegrationTests 9/9 passed
+    - commit: 5c7b937
+    - review: clean — task is done. Commits of this task, in order: a4dfe5d, 5c7b937.
+  timestamp: 2026-09-27T13:27:23.990897+00:00
 depends_on:
 - 01M3HD6T6P13MA52XSVQ8EEGJF
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c480
 title: 'Integration tests 2: real-model tests of ModelPool and GenerationQueue'
 ---
 ## Why

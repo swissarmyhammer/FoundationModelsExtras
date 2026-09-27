@@ -45,8 +45,31 @@ comments:
     ### Decision on the build warning (2026-09-27)
     The one warning in `swift build --package-path IntegrationTests --build-tests` is `missing creator for mutated node ... mlx-swift_Cmlx.bundle/Contents/MacOS`. It is a SwiftPM build-system warning from the mlx-swift shader bundle, not a compiler warning in a file of this package, and the Router's nested package shows the same warning with the same pins. The criterion "0 warnings" means 0 compiler warnings in the sources of this repository. This warning is accepted. It is not a stuck state.
   timestamp: 2026-09-27T12:45:35.009247+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3hehj8va5y8tc48sj6fg4eq
+  text: |-
+    ### commit — changed
+    - evidence: root build: 0 errors, 0 warnings. root test: 726 tests, 69 suites, 0 failures. IntegrationTests build: 1 accepted warning (mlx-swift_Cmlx.bundle). IntegrationTests test: 2 tests, 1 suite, 0 failures. Commit c425a30 "test(integration): add the IntegrationTests package and real MLX loader".
+    - next: none
+  timestamp: 2026-09-27T12:48:21.787322+00:00
+- actor: claude-code
+  id: 01m3hesmj42reg0e344dqdch7j
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit c425a30). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. 8 files reviewed. README.md has no matching validator. The .kanban files are excluded by .reviewignore. The task has no prior review findings.
+    - next: the task is in done. Tasks 2, 3 and 4 of the integration tests are no longer blocked by this task.
+  timestamp: 2026-09-27T12:52:46.276867+00:00
+- actor: claude-code
+  id: 01m3hesyeaqrgerh24jdv4any4
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — nested IntegrationTests package, MLXPooledLoader, 2 smoke tests, CI inputs, CIWorkflowTests, README
+    - test: green — root 726 passed, 0 warnings; IntegrationTests 2 passed (1 accepted SwiftPM bundle warning)
+    - commit: c425a30
+    - review: clean — task is done. The CI criterion is checked after the next push.
+  timestamp: 2026-09-27T12:52:56.394407+00:00
+position_column: done
+position_ordinal: c380
 title: 'Integration tests 1: add the nested IntegrationTests package, a real MLX loader, and the CI input'
 ---
 ## Why

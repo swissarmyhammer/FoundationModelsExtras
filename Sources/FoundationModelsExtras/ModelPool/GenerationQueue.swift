@@ -12,7 +12,12 @@ public final class GenerationQueue: Sendable {
 
     /// The number of jobs that are not finished: the running job and the
     /// waiting jobs.
-    fileprivate let unfinished = Atomic<Int>(0)
+    ///
+    /// `submit` counts a job and puts it in the worker input under this one
+    /// lock. Thus when ``waitingCount`` shows a job, each job that is
+    /// submitted after that runs after it. Lock order: this lock, then the
+    /// lock of a job. No code takes this lock while it holds the lock of a job.
+    fileprivate let unfinished = Mutex<Int>(0)
 
     /// Makes an idle queue and starts its worker loop.
     public init() {
@@ -59,11 +64,15 @@ public final class GenerationQueue: Sendable {
         let job = Job(queue: self, priority: Task.currentPriority, body: body)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                guard let jobsAhead = job.wait(continuation) else { return }
-                if jobsAhead > 0 {
+                let jobsAhead = unfinished.withLock { count -> Int? in
+                    guard job.wait(continuation) else { return nil }
+                    jobs.yield(job)
+                    count += 1
+                    return count - 1
+                }
+                if let jobsAhead, jobsAhead > 0 {
                     onQueued()
                 }
-                jobs.yield(job)
             }
         } onCancel: {
             job.cancel()
@@ -82,12 +91,12 @@ public final class GenerationQueue: Sendable {
 
     /// Whether a job runs or waits.
     public var isRunning: Bool {
-        get async { unfinished.load(ordering: .sequentiallyConsistent) > 0 }
+        get async { unfinished.withLock { $0 } > 0 }
     }
 
     /// The number of jobs that wait behind the running job.
     public var waitingCount: Int {
-        get async { max(unfinished.load(ordering: .sequentiallyConsistent) - 1, 0) }
+        get async { max(unfinished.withLock { $0 } - 1, 0) }
     }
 }
 
@@ -127,22 +136,21 @@ private final class Job<T: Sendable>: QueuedJob {
         self.body = body
     }
 
-    /// Keeps the continuation of the submitter, and counts the job.
+    /// Keeps the continuation of the submitter. The caller counts the job.
     ///
     /// - Parameter continuation: The continuation of the submitter.
-    /// - Returns: The number of unfinished jobs before this one, or `nil`
-    ///   when the job was cancelled first. Then the submitter gets
-    ///   `CancellationError` at once.
-    func wait(_ continuation: CheckedContinuation<T, any Error>) -> Int? {
-        let jobsAhead = state.withLock { state -> Int? in
-            guard case .new = state else { return nil }
+    /// - Returns: `true` when the job now waits, or `false` when the job was
+    ///   cancelled first. Then the submitter gets `CancellationError` at once.
+    func wait(_ continuation: CheckedContinuation<T, any Error>) -> Bool {
+        let waits = state.withLock { state -> Bool in
+            guard case .new = state else { return false }
             state = .waiting(continuation)
-            return queue.unfinished.add(1, ordering: .sequentiallyConsistent).oldValue
+            return true
         }
-        if jobsAhead == nil {
+        if !waits {
             continuation.resume(throwing: CancellationError())
         }
-        return jobsAhead
+        return waits
     }
 
     /// Cancels the job on the task that calls it, with no wait. A job that
@@ -157,7 +165,7 @@ private final class Job<T: Sendable>: QueuedJob {
         }
         switch previous {
         case .waiting(let continuation):
-            queue.unfinished.subtract(1, ordering: .sequentiallyConsistent)
+            queue.unfinished.withLock { $0 -= 1 }
             continuation.resume(throwing: CancellationError())
         case .running(let task):
             task.cancel()
@@ -190,6 +198,6 @@ private final class Job<T: Sendable>: QueuedJob {
     /// Marks the running job as finished, before its submitter resumes.
     private func finish() {
         state.withLock { $0 = .finished }
-        queue.unfinished.subtract(1, ordering: .sequentiallyConsistent)
+        queue.unfinished.withLock { $0 -= 1 }
     }
 }
