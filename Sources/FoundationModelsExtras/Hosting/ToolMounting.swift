@@ -1,3 +1,4 @@
+import Foundation
 import FoundationModels
 import Tracing
 import ULID
@@ -76,6 +77,68 @@ public struct MountSite: Sendable {
     /// This site, with the sink of the session as the sink of each call.
     var postingToSession: MountSite {
         MountSite(sessionID: sessionID, runPlane: runPlane, sink: sessionSink, sessionSink: sessionSink, op: op, tracer: tracer)
+    }
+}
+
+/// A decorator that runs each call of a `String` tool with the mount of that
+/// call. ``BackgroundToolRunner`` and ``RunToCompletionRunner`` are the two
+/// runners. Each one only sets its ``defaultMode``.
+protocol MountRunner: Tool where Output == String {
+    /// The mode of a call when the tool gives no mount for that call.
+    static var defaultMode: ToolMount.Mode { get }
+
+    /// The tool beneath this decorator.
+    var wrapped: any Tool<Arguments, String> { get }
+
+    /// Where the tool runs.
+    var site: MountSite { get }
+
+    /// The timeout with no progress, or `nil` for none. A timeout that the
+    /// tool gives for one call wins.
+    var timeout: TimeInterval? { get }
+
+    /// Makes the runner. The memberwise initializer of each runner gives it.
+    ///
+    /// - Parameters:
+    ///   - wrapped: The tool.
+    ///   - site: Where the tool runs.
+    ///   - timeout: The timeout with no progress, or `nil` for none.
+    init(wrapped: any Tool<Arguments, String>, site: MountSite, timeout: TimeInterval?)
+}
+
+extension MountRunner where Arguments: Sendable {
+    /// Wraps `wrapped`.
+    ///
+    /// - Parameters:
+    ///   - wrapped: The tool.
+    ///   - site: Where the tool runs.
+    ///   - timeout: The timeout with no progress, or `nil` for none.
+    init(wrapping wrapped: any Tool<Arguments, String>, site: MountSite, timeout: TimeInterval?) {
+        self.init(wrapped: wrapped, site: site, timeout: timeout)
+    }
+
+    /// The name of the wrapped tool.
+    var name: String { wrapped.name }
+
+    /// The description of the wrapped tool.
+    var description: String { wrapped.description }
+
+    /// The parameters of the wrapped tool.
+    var parameters: GenerationSchema { wrapped.parameters }
+
+    /// The schema choice of the wrapped tool.
+    var includesSchemaInInstructions: Bool { wrapped.includesSchemaInInstructions }
+
+    /// Runs one call with the mount that the tool gives for `arguments`, or
+    /// else with ``defaultMode``. See ``ToolMounting/call(_:arguments:site:mount:)``.
+    ///
+    /// - Parameter arguments: The arguments of the call.
+    /// - Returns: The output of the tool, or the envelope of a background call.
+    /// - Throws: The error of a call that runs to completion, or
+    ///   ``ToolMountError/timedOut(tool:timeoutSeconds:)``.
+    func call(arguments: Arguments) async throws -> String {
+        try await ToolMounting.call(
+            wrapped, arguments: arguments, site: site, mount: ToolMount(mode: Self.defaultMode, timeout: timeout))
     }
 }
 

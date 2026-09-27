@@ -11,45 +11,18 @@ import FoundationModels
 /// in a background tool.
 struct RunToCompletionRunner<
     Arguments: ConvertibleFromGeneratedContent & Sendable
->: Tool, SubmissionBoundaryTool, ToolDecorator {
+>: MountRunner, SubmissionBoundaryTool, ToolDecorator {
+    static var defaultMode: ToolMount.Mode { .runToCompletion }
+
     /// The tool beneath this decorator.
     let wrapped: any Tool<Arguments, String>
 
     /// Where the tool runs.
-    private let site: MountSite
+    let site: MountSite
 
     /// The timeout with no progress, or `nil` for none. A timeout that the
     /// tool gives for one call wins.
     let timeout: TimeInterval?
-
-    var name: String { wrapped.name }
-    var description: String { wrapped.description }
-    var parameters: GenerationSchema { wrapped.parameters }
-    var includesSchemaInInstructions: Bool { wrapped.includesSchemaInInstructions }
-
-    /// Wraps `wrapped`.
-    ///
-    /// - Parameters:
-    ///   - wrapped: The tool.
-    ///   - site: Where the tool runs.
-    ///   - timeout: The timeout with no progress, or `nil` for none.
-    init(wrapping wrapped: any Tool<Arguments, String>, site: MountSite, timeout: TimeInterval?) {
-        self.wrapped = wrapped
-        self.site = site
-        self.timeout = timeout
-    }
-
-    /// Runs one call with the mount that the tool gives for `arguments`, or
-    /// else to completion. See ``ToolMounting/call(_:arguments:site:mount:)``.
-    ///
-    /// - Parameter arguments: The arguments of the call.
-    /// - Returns: The output of the tool, or the envelope of a background call.
-    /// - Throws: The error of the tool, or
-    ///   ``ToolMountError/timedOut(tool:timeoutSeconds:)``.
-    func call(arguments: Arguments) async throws -> String {
-        try await ToolMounting.call(
-            wrapped, arguments: arguments, site: site, mount: ToolMount(mode: .runToCompletion, timeout: timeout))
-    }
 
     /// Runs one call and returns the output of the tool. The span of the call
     /// records the outcome of the run, so a timeout is not a failure.

@@ -12,43 +12,18 @@ import FoundationModels
 /// in the same envelope.
 struct BackgroundToolRunner<
     Arguments: ConvertibleFromGeneratedContent & Sendable
->: Tool, SubmissionBoundaryTool, ToolDecorator {
+>: MountRunner, SubmissionBoundaryTool, ToolDecorator {
+    static var defaultMode: ToolMount.Mode { .background }
+
     /// The tool beneath this decorator.
     let wrapped: any Tool<Arguments, String>
 
     /// Where the tool runs.
-    private let site: MountSite
+    let site: MountSite
 
     /// The timeout with no progress, or `nil` for none. A timeout that the
     /// tool gives for one call wins.
     let timeout: TimeInterval?
-
-    var name: String { wrapped.name }
-    var description: String { wrapped.description }
-    var parameters: GenerationSchema { wrapped.parameters }
-    var includesSchemaInInstructions: Bool { wrapped.includesSchemaInInstructions }
-
-    /// Wraps `wrapped`.
-    ///
-    /// - Parameters:
-    ///   - wrapped: The tool.
-    ///   - site: Where the tool runs.
-    ///   - timeout: The timeout with no progress, or `nil` for none.
-    init(wrapping wrapped: any Tool<Arguments, String>, site: MountSite, timeout: TimeInterval?) {
-        self.wrapped = wrapped
-        self.site = site
-        self.timeout = timeout
-    }
-
-    /// Runs one call with the mount that the tool gives for `arguments`, or
-    /// else in the background. See ``ToolMounting/call(_:arguments:site:mount:)``.
-    ///
-    /// - Parameter arguments: The arguments of the call.
-    /// - Returns: The rendered envelope, or the output of a synchronous call.
-    func call(arguments: Arguments) async throws -> String {
-        try await ToolMounting.call(
-            wrapped, arguments: arguments, site: site, mount: ToolMount(mode: .background, timeout: timeout))
-    }
 
     /// Starts one call in the background and returns its envelope.
     ///
