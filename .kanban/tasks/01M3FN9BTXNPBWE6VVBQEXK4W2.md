@@ -41,10 +41,26 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift. FakeEmbedding is now a struct. RecordingLoader is now a struct (same cause: its only reason to be a class was a `Mutex<Int>` load counter). New `final class Counter` keeps the shared call count; FakeEmbedding and RecordingLoader each keep one, and the two copies of the increment block are gone. Classes that stay, and why: FakeModel — tests compare two models with `===` (identity); Recorder — tasks share one log and append to it (shared mutable state); Counter — copies of a fake share one count and tasks increment it (shared mutable state). FixedLoader was already a struct. The finding is marked `- [x]`. `swift build`: Build complete, 0 warnings. `swift test --filter 'ModelPool|PooledEmbedder'`: 20 tests in 2 suites passed, 0 warnings. No commit, no push.
     - next: /review
   timestamp: 2026-09-26T22:20:16.384878+00:00
+- actor: claude-code
+  id: 01m3fxp7y929qqq5nd9cqcqtky
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (00dbc07): 0 findings, 0 confirmed, 0 refuted. 1 file reviewed. The prior finding is checked.
+    - next: none. The task is in done.
+  timestamp: 2026-09-26T22:34:34.825110+00:00
+- actor: claude-code
+  id: 01m3fxpnm422a61nbmvvdmd5ke
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (test fakes as structs with a shared Counter)
+    - test: green — swift test, 493 passed, 0 warnings, 0 skipped
+    - commit: 00dbc07
+    - review: clean — task is done. Commits of this task, in order: a255ea4, 00dbc07. The router pins 00dbc07.
+  timestamp: 2026-09-26T22:34:48.836919+00:00
 depends_on:
 - 01M3FN95AM98RJSTCVQ8G1Z7KE
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: bc80
 title: 'ModelPool: the pool entry owns the work queue, and an embedder handle runs each embed call through it'
 ---
 ## Why

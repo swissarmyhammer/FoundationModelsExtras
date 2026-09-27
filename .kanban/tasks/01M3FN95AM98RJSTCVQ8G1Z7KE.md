@@ -103,10 +103,26 @@ comments:
     - evidence: 1 file — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift (`State.publish`: `streams.values.forEach { $0.yield(footprint) }` is now a `for stream in streams.values` loop). The finding preferForLoop is marked `- [x]`. `swift build`: exit 0, 0 warnings. `swift test --filter ModelPool`: 12 of 12 tests pass, exit 0.
     - next: /review
   timestamp: 2026-09-26T21:50:13.631961+00:00
+- actor: claude-code
+  id: 01m3fva3k8adtr9x76qebdfmbh
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (8c85499): 0 findings, 0 confirmed, 0 refuted; 7 validator runs, 0 failed. The prior item (ModelPool.swift:34 preferForLoop) has a check mark.
+    - next: none. The task moved to done.
+  timestamp: 2026-09-26T21:53:00.008574+00:00
+- actor: claude-code
+  id: 01m3fvae62twtg3kjbm21j0n53
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (forEach to for)
+    - test: green — swift test, 485 passed, 0 warnings, 0 skipped
+    - commit: 8c85499
+    - review: clean — task is done. Commits of this task, in order: d18a77c, 8c85499. Each of the 12 acceptance criteria has a test in ModelPoolTests.swift (see the implement report).
+  timestamp: 2026-09-26T21:53:10.850381+00:00
 depends_on:
 - 01M3FN8WD0G0NJ7QAAKSPZ9RW1
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: bb80
 title: 'ModelPool: add the pool — one load for each model, holds that release in deinit, and one admission queue'
 ---
 ## Why

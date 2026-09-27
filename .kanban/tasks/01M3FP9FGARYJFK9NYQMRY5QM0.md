@@ -79,10 +79,26 @@ comments:
     - evidence: Tests/FoundationModelsExtrasTests/ElicitationEnvelopeTests.swift: urlRequestRoundTrips now uses `let flowURL = try #require(URL(string: ...))` in place of `URL(string: ...)!` (the test was already `throws`). A search of the 6 new test files found no other force unwrap (the other `!` hits are logical NOT). Finding marked `- [x]`. `swift build`: 0 warnings, 0 errors. `swift test --filter 'Elicitation|PendingRunEnvelope|ToolFailureDelivery|SubmissionBoundary|BackgroundTool'`: 44 tests in 6 suites pass, 0 warnings. Not committed.
     - next: /review
   timestamp: 2026-09-27T00:47:31.261038+00:00
+- actor: claude-code
+  id: 01m3g5g9htra4mr661scjm8z3a
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (d799407). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. 1 file reviewed. The prior finding is checked.
+    - next: none. The task moved to done.
+  timestamp: 2026-09-27T00:51:08.474312+00:00
+- actor: claude-code
+  id: 01m3g5gkwsrtv49504b3a11187
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (#require in place of a force unwrap)
+    - test: green — swift test, 587 passed, 0 warnings, 0 skipped
+    - commit: d799407
+    - review: clean — task is done. Commits of this task, in order: 5875d06, d799407.
+  timestamp: 2026-09-27T00:51:19.065900+00:00
 depends_on:
 - 01M3FP9700G1GWA15B0GEZQGMD
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: bf80
 title: 'Tool hosting 2: move the leaf tools (SubmissionBoundaryTool, ToolDecorator, ToolFailureDelivery, PendingRunEnvelope, ToolMount, BackgroundTool)'
 ---
 ## Why

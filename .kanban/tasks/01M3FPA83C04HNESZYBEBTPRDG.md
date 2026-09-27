@@ -94,10 +94,26 @@ comments:
     - evidence: 3 files — Sources/FoundationModelsExtras/Hosting/PendingRunEnvelope.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolHostingPublicSurfaceTests.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolHostingReadmeTests.swift. `swift build`: 0 warnings, 0 errors. `swift test --filter Hosting`: 11 tests in 2 suites passed. All 24 Hosting test files (filter by file name): 173 tests in 21 suites passed. Not committed.
     - next: /review
   timestamp: 2026-09-27T02:36:51.801166+00:00
+- actor: claude-code
+  id: 01m3gbsqbdg7h8esr792pya83d
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (fa43d18). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. 3 files reviewed. The one prior finding is checked.
+    - next: none. The task is in done.
+  timestamp: 2026-09-27T02:41:08.973615+00:00
+- actor: claude-code
+  id: 01m3gbt1exy3txm2ck5623j12y
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — rename decoded(fromRendered:) to makeDecoded(fromRendered:)
+    - test: green — swift test, 720 passed, 0 warnings, 0 skipped
+    - commit: fa43d18
+    - review: clean — task is done. Commits of this task, in order: e0924fb, fa43d18. The router pins fa43d18.
+  timestamp: 2026-09-27T02:41:19.325923+00:00
 depends_on:
 - 01M3FP9WTFQEQZ8Q4YJDXRA4D9
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c180
 title: 'Tool hosting 4: make the tool-hosting API public, copy the ToolContext and mount tests, and document it'
 ---
 ## Why

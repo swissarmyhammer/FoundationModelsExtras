@@ -28,11 +28,27 @@ comments:
     - gap moved: `LostRunErrorTests` and `DeclaredRunKindTests` need the runners and `ToolContext`; recorded as a requirement on ^dxra4d9.
     - next: /review
   timestamp: 2026-09-27T00:16:12.128931+00:00
+- actor: claude-code
+  id: 01m3g3yfrypa1fv5eht19faj1q
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (ffa4058). 0 findings, 0 confirmed, 0 refuted. 7 validator pairs attempted, 0 failed. The engine did not review plan.md (no validator matches it) or the .kanban files (.reviewignore).
+    - next: The task moves to done.
+  timestamp: 2026-09-27T00:23:56.446759+00:00
+- actor: claude-code
+  id: 01m3g3yqbjtr2w55wywk8zyxgr
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — tracing dependency, 8 hosting files, SerialAsyncChain, 16 tests
+    - test: green — swift test, 543 passed in FoundationModelsExtrasTests, 0 warnings, 0 skipped
+    - commit: ffa4058
+    - review: clean — task is done.
+  timestamp: 2026-09-27T00:24:04.210242+00:00
 depends_on:
 - 01M3FN8WD0G0NJ7QAAKSPZ9RW1
 - 01M3FN9KTQA9S37VTZXMMSRS07
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: be80
 title: 'Tool hosting 1: add swift-distributed-tracing, ToolCallSpan, the run value types and the seam protocols'
 ---
 ## Why

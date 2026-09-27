@@ -83,11 +83,27 @@ comments:
     - evidence: 2 files — Sources/FoundationModelsExtras/ModelPool/Mailbox.swift (234 lines, was 204), Tests/FoundationModelsExtrasTests/ModelPool/MailboxTests.swift (667 lines, was 548; 6 new tests). `swift build`: 0 warnings, 0 errors. `swift test --skip-build --filter 'Mailbox|Promise'` repeated 20 times: 20 of 20 pass, 34 tests each, 0 warnings.
     - next: /review. Task stays in `doing`. Not committed, not pushed.
   timestamp: 2026-09-27T00:00:05.843343+00:00
+- actor: claude-code
+  id: 01m3g2xq3mpxt6sragyzj1egch
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (d143763). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. 5 files reviewed. README.md had no validator that matched it. The .kanban files were not reviewed because of .reviewignore.
+    - next: The task is in done.
+  timestamp: 2026-09-27T00:06:02.612725+00:00
+- actor: claude-code
+  id: 01m3g2y2y1ggrpx8trtjmdcwg8
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — Mailbox (with takeJoining), Promise, MessageQueue types, 34 tests, README
+    - test: green — swift test, 527 passed, 0 warnings, 0 skipped
+    - commit: d143763
+    - review: clean — task is done. The router pins d143763.
+  timestamp: 2026-09-27T00:06:14.721438+00:00
 depends_on:
 - 01M3FN8WD0G0NJ7QAAKSPZ9RW1
 - 01M3FN9BTXNPBWE6VVBQEXK4W2
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: bd80
 title: 'ModelPool: add a generic Mailbox that posts messages to a session asynchronously'
 ---
 ## Why

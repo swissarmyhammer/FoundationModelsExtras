@@ -152,8 +152,24 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift. `swift build --build-tests`: 0 warnings, 0 errors. `swift test --filter 'GenerationQueue|ModelRef|ModelCallMark'`: 26 tests in 5 suites passed. Not committed.
     - next: /review
   timestamp: 2026-09-26T21:00:12.436620+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3frmeq1hkjphywbxf6e1qwh
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (a7f4051). 0 findings, 0 confirmed, 1 refuted, 7 attempted, 0 failed. The prior finding is checked.
+    - next: none. The task is in done.
+  timestamp: 2026-09-26T21:06:13.345160+00:00
+- actor: claude-code
+  id: 01m3frmp9ht8gn4vzy25ms19bd
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — 1 file (flag isSet in place of a count compare)
+    - test: green — swift test, 473 passed, 0 warnings, 0 skipped
+    - commit: a7f4051
+    - review: clean — task is done. Commits of this task, in order: d682e45, 919caac, a7f4051. The router pins a7f4051.
+  timestamp: 2026-09-26T21:06:21.105900+00:00
+position_column: done
+position_ordinal: ba80
 title: 'ModelPool: move the work queue from the router into the core target'
 ---
 ## Why

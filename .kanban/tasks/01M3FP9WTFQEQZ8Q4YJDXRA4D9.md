@@ -125,10 +125,26 @@ comments:
     - evidence: 6 files, +144 -41 (git diff --stat): Sources/FoundationModelsExtras/Hosting/RunPlaneActor.swift (464 lines, +111 changed), Sources/FoundationModelsExtras/Hosting/ToolContext.swift (-2), Tests/FoundationModelsExtrasTests/Hosting/RunPlaneActorTests.swift (+37), MountFixtures.swift (15), BackgroundToolRunnerTests.swift (18), RunToCompletionRunnerTests.swift (2). `swift build`: 0 warnings, 0 errors. `swift test`: all pass, 0 warnings (main run 660 tests in 59 suites; the other runs 396, 125, 44, 34, 26). Hosting suites (RunPlaneActorTests|RunPlaneTests|RunToCompletionRunnerTests|BackgroundToolRunnerTests|ToolFailureDeliveryTests, 74 tests in 5 suites) 10 of 10 green, about 2.15 s each. Periphery: no finding in Hosting/. All 5 findings marked [x]. Not committed.
     - next: /review
   timestamp: 2026-09-27T01:46:23.847871+00:00
+- actor: claude-code
+  id: 01m3g8zfz87ym7w47crjjp24gs
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (9006764). 6 files reviewed. Counts: findings 0, confirmed 0, refuted 0, attempted 7, failed 0. All 5 prior findings are checked. The waiter code in RunPlaneActor.swift is correct. addWaiter runs synchronously on the actor before the wait suspends. Thus a cancel that comes before registration finds the wait, because its endWaiter task runs on the actor after that. settle is the only path that removes a run, and it resumes each waiter. endWaiter removes the wait by id before it resumes it, so each wait resumes one time. The resume cancels the deadline task. No lock, gate or new actor was added.
+    - next: none. The task moved to done.
+  timestamp: 2026-09-27T01:51:52.296193+00:00
+- actor: claude-code
+  id: 01m3g8zx66khwcn6shgdf75djm
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — waiters kept by id and resumed exactly once; marker and naming fixes; 2 new 1,000-wait tests
+    - test: green — swift test, 660 passed, 0 warnings, 0 skipped
+    - commit: 9006764
+    - review: clean — task is done. Commits of this task, in order: 0aa4f36, 9006764.
+  timestamp: 2026-09-27T01:52:05.830917+00:00
 depends_on:
 - 01M3FP9FGARYJFK9NYQMRY5QM0
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c080
 title: 'Tool hosting 3: move the run plane core (ToolContext, the run-plane actor, ToolRun, the runners, ContextBindingTool, ToolMounting)'
 ---
 ## Why
