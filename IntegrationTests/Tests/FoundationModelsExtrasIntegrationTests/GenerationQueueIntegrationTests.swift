@@ -15,15 +15,21 @@ private let longAnswerTokens = 256
 /// far past the cancel.
 private let cancelledGenerationTokens = 2048
 
+/// The seconds of ``decodeTimeBeforeCancel``.
+private let decodeSecondsBeforeCancel = 2
+
 /// How long the cancelled generation runs before the cancel: the prefill is
 /// done, and the decode is on the GPU.
-private let decodeTimeBeforeCancel = Duration.seconds(2)
+private let decodeTimeBeforeCancel = Duration.seconds(decodeSecondsBeforeCancel)
+
+/// The seconds of ``cancelledStopLimit``.
+private let cancelledStopLimitSeconds = 5
 
 /// The longest time from the cancel of the running generation to its end. The
 /// full generation takes much longer, thus a stop in this time is a stop well
 /// before the token limit. On 2026-09-27, on an Apple silicon Mac, the stop
 /// took 6 ms.
-private let cancelledStopLimit = Duration.seconds(5)
+private let cancelledStopLimit = Duration.seconds(cancelledStopLimitSeconds)
 
 /// The longest time that the queue may take to refuse a job from inside an
 /// open model call. The refusal is a check, not a wait.
@@ -59,13 +65,13 @@ extension RealModelSuites {
 
             let records = try await Self.withLLM(in: pool) { queue, model in
                 async let paris = Self.submit(turn: 0, to: queue) {
-                    try await JobRecord.run(longParisPrompt, with: model, maximumResponseTokens: longAnswerTokens)
+                    try await JobRecord.run(prompt: longParisPrompt, with: model, maximumResponseTokens: longAnswerTokens)
                 }
                 async let tokyo = Self.submit(turn: 1, to: queue) {
-                    try await JobRecord.run("What is the capital city of Japan?", with: model, maximumResponseTokens: shortAnswerTokens)
+                    try await JobRecord.run(prompt: "What is the capital city of Japan?", with: model, maximumResponseTokens: shortAnswerTokens)
                 }
                 async let rome = Self.submit(turn: 2, to: queue) {
-                    try await JobRecord.run("What is the capital city of Italy?", with: model, maximumResponseTokens: shortAnswerTokens)
+                    try await JobRecord.run(prompt: "What is the capital city of Italy?", with: model, maximumResponseTokens: shortAnswerTokens)
                 }
                 return try await [paris, tokyo, rome]
             }
@@ -164,7 +170,7 @@ extension RealModelSuites {
         private static func useLLM<T: Sendable>(
             in pool: ModelPool, _ body: (GenerationQueue, any LanguageModel) async throws -> T
         ) async throws -> T {
-            let hold = try await IntegrationModels.acquire(IntegrationModels.llm, in: pool)
+            let hold = try await IntegrationModels.acquire(key: IntegrationModels.llm, in: pool)
             let model = try Generation.languageModel(of: hold)
             let result = try await body(hold.queue, model)
             withExtendedLifetime(hold) {}
@@ -179,13 +185,13 @@ extension RealModelSuites {
         private static func submit<T: Sendable>(
             turn: Int, to queue: GenerationQueue, _ body: @escaping @Sendable () async throws -> T
         ) async throws -> T {
-            try await Waiting.until { await isTurn(turn, of: queue) }
+            try await Waiting.until { await isTurn(turn: turn, of: queue) }
             return try await queue.submit(body)
         }
 
         /// Whether the job at place `turn` may go into `queue` now: turn 0 at
         /// once, and a later turn when a job runs and `turn - 1` jobs wait.
-        private static func isTurn(_ turn: Int, of queue: GenerationQueue) async -> Bool {
+        private static func isTurn(turn: Int, of queue: GenerationQueue) async -> Bool {
             guard turn > 0 else { return true }
             let isRunning = await queue.isRunning
             let waitingCount = await queue.waitingCount
@@ -207,7 +213,7 @@ private struct JobRecord: Sendable, CustomStringConvertible {
     var description: String { "JobRecord(start: \(start), end: \(end))" }
 
     /// Runs one generation, and records when it ran.
-    static func run(_ prompt: String, with model: any LanguageModel, maximumResponseTokens: Int) async throws -> JobRecord {
+    static func run(prompt: String, with model: any LanguageModel, maximumResponseTokens: Int) async throws -> JobRecord {
         let start = ContinuousClock.now
         let answer = try await Generation.respond(to: prompt, with: model, maximumResponseTokens: maximumResponseTokens)
         return JobRecord(answer: answer, start: start, end: .now)

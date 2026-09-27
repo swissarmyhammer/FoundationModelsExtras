@@ -37,7 +37,7 @@ extension RealModelSuites {
         /// Acquires the LLM, runs one generation in the queue of the hold, and
         /// releases the hold on return.
         private static func generate(in pool: ModelPool, prompt: String) async throws -> String {
-            let hold = try await IntegrationModels.acquire(IntegrationModels.llm, in: pool)
+            let hold = try await IntegrationModels.acquire(key: IntegrationModels.llm, in: pool)
             let model = try Generation.languageModel(of: hold)
             return try await hold.queue.submit {
                 try await Generation.respond(to: prompt, with: model, maximumResponseTokens: smokeResponseTokens)
@@ -47,7 +47,7 @@ extension RealModelSuites {
         /// Acquires the embedding model, embeds `texts` through a `PooledEmbedder`,
         /// and releases the hold on return.
         private static func embed(_ texts: [String], in pool: ModelPool) async throws -> ([[Float]], Int) {
-            let embedder = try PooledEmbedder(hold: try await IntegrationModels.acquire(IntegrationModels.embedding, in: pool))
+            let embedder = try PooledEmbedder(hold: try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool))
             return (try await embedder.embed(texts: texts), embedder.dimension)
         }
     }

@@ -101,8 +101,8 @@ extension RealModelSuites {
         /// return.
         private static func acquireConcurrently(in pool: ModelPool, loader: RecordingLoader) async throws -> SharedHolds {
             let bytesBefore = ModelMemory.activeBytes
-            async let first = IntegrationModels.acquire(IntegrationModels.llm, in: pool, loader: loader)
-            async let second = IntegrationModels.acquire(IntegrationModels.llm, in: pool, loader: loader)
+            async let first = IntegrationModels.acquire(key: IntegrationModels.llm, in: pool, loader: loader)
+            async let second = IntegrationModels.acquire(key: IntegrationModels.llm, in: pool, loader: loader)
             let holds = try await [first, second]
             return SharedHolds(
                 shareOneEntry: holds[0].queue === holds[1].queue,
@@ -114,7 +114,7 @@ extension RealModelSuites {
         ///
         /// - Returns: The MLX active memory while the hold exists.
         private static func loadAndRelease(in pool: ModelPool) async throws -> Int {
-            let hold = try await IntegrationModels.acquire(IntegrationModels.llm, in: pool)
+            let hold = try await IntegrationModels.acquire(key: IntegrationModels.llm, in: pool)
             return withExtendedLifetime(hold) { ModelMemory.activeBytes }
         }
 
@@ -128,7 +128,7 @@ extension RealModelSuites {
                 let footprint = FootprintStep(admission.footprint)
                 let embedding = Task {
                     let requested = ContinuousClock.now
-                    return (requested, try await IntegrationModels.acquire(IntegrationModels.embedding, in: pool, loader: loader))
+                    return (requested, try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader))
                 }
                 let hold = try await admission.acquire(
                     IntegrationModels.llm, footprintBytes: IntegrationModels.footprintBytes,

@@ -28,7 +28,7 @@ enum IntegrationModels {
     /// - Returns: The hold. The model stays resident while the hold exists.
     /// - Throws: What the load throws.
     static func acquire(
-        _ key: ModelPoolKey, in pool: ModelPool, loader: any PooledModelLoader = MLXPooledLoader()
+        key: ModelPoolKey, in pool: ModelPool, loader: any PooledModelLoader = MLXPooledLoader()
     ) async throws -> ModelHold {
         try await pool.acquire(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
     }
