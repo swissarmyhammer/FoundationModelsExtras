@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8380'
+position_column: review
+position_ordinal: '80'
 title: Add tests for the @Operation diagnostics of an unsupported parameter type
 ---
 Sources/OperationsMacros/OperationsMacros.swift:46-48, 179, 693-694

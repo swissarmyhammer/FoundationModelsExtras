@@ -1,3 +1,4 @@
+import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxMacroExpansion
 import SwiftSyntaxMacros
@@ -946,6 +947,107 @@ private let operationMacroSpecs: [String: MacroSpec] = [
                         "parameter 'tags' has an unsupported type; '@Operation' supports String, Int, Double, Float, Bool, Array of those, and Optional wrapping any of those",
                     line: 3,
                     column: 15
+                )
+            ],
+            macroSpecs: operationMacroSpecs
+        )
+    }
+
+    /// A stored property that `@Operation` rejects, and the part of the
+    /// property that the `unsupportedParameterType` diagnostic points to.
+    struct RejectedParameter: Sendable, CustomTestStringConvertible {
+        /// The name of the stored property.
+        let name: String
+
+        /// The declaration of the stored property, as it is in the struct.
+        let declaration: String
+
+        /// The text in `declaration` where the diagnostic starts.
+        let diagnosedText: String
+
+        var testDescription: String { declaration }
+    }
+
+    /// A tuple type is not an array type and not an identifier type, so
+    /// `primitiveParamTypeExprText(_:)` gets to its last `return nil`. A
+    /// property with no type annotation stops before the type mapping.
+    static let rejectedParameters: [RejectedParameter] = [
+        RejectedParameter(name: "pair", declaration: "var pair: (Int, Int)", diagnosedText: "(Int, Int)"),
+        RejectedParameter(name: "count", declaration: "var count = 1", diagnosedText: "count = 1"),
+    ]
+
+    /// The indent of a stored property in the source of these tests.
+    static let memberIndent = "    "
+
+    /// The line of the stored property in the source of these tests. Line 1
+    /// has the attribute and line 2 has the struct.
+    static let memberLine = 3
+
+    /// The number of the first column of a line. Diagnostic columns start at 1.
+    static let firstColumn = 1
+
+    @Test(arguments: rejectedParameters)
+    func rejectedParameterProducesTheUnsupportedTypeDiagnosticWithItsID(_ parameter: RejectedParameter) throws {
+        let diagnosedRange = try #require(parameter.declaration.range(of: parameter.diagnosedText))
+        let column =
+            Self.memberIndent.count
+            + parameter.declaration.distance(from: parameter.declaration.startIndex, to: diagnosedRange.lowerBound)
+            + Self.firstColumn
+        assertMacroExpansion(
+            """
+            @Operation(verb: "add", noun: "note", description: "Create a new note")
+            struct AddNote {
+            \(Self.memberIndent)\(parameter.declaration)
+            }
+            """,
+            expandedSource: """
+                struct AddNote {
+                \(Self.memberIndent)\(parameter.declaration)
+                }
+
+                extension AddNote: OperationDefinition, HasCLICommand {
+                    static let verb: String = "add"
+                    static let noun: String = "note"
+                    static let operationDescription: String = "Create a new note"
+                    static let parameterMetadata: [ParamMeta] = []
+
+                    struct Command: AsyncParsableCommand, OperationCommand {
+                        static let configuration = CommandConfiguration(commandName: "add", abstract: "Create a new note")
+
+
+
+                        init() {
+                        }
+
+                        /// The canonical `op` + fields payload built from this command's
+                        /// parsed values, in the identical shape `AnyOperation.run`
+                        /// expects and the model path sends.
+                        func operationPayload() -> GeneratedContent {
+                            let payload: [(String, any ConvertibleToGeneratedContent)] = [("op", AddNote.opString)]
+
+                            return GeneratedContent(properties: payload, uniquingKeysWith: { _, new in
+                                    new
+                                })
+                        }
+
+                        mutating func run() async throws {
+                            print(operationPayload().jsonString)
+                        }
+                    }
+
+                    typealias CLICommand = Command
+                }
+                """,
+            diagnostics: [
+                DiagnosticSpec(
+                    id: MessageID(
+                        domain: "OperationsMacros",
+                        id: "Operation.unsupportedParameterType(\"\(parameter.name)\")"
+                    ),
+                    message:
+                        "parameter '\(parameter.name)' has an unsupported type; '@Operation' supports String, Int, Double, Float, Bool, Array of those, and Optional wrapping any of those",
+                    line: Self.memberLine,
+                    column: column
                 )
             ],
             macroSpecs: operationMacroSpecs
