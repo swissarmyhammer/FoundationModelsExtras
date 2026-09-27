@@ -18,15 +18,35 @@ enum IntegrationModels {
     /// The bytes that the pool counts for the session of each hold.
     static let sessionBytes: Int64 = 64 << 20
 
-    /// Gives a hold of `key` in `pool`, and loads the model with
-    /// ``MLXPooledLoader`` when it is not resident.
+    /// Gives a hold of `key` in `pool`, and loads the model with `loader` when
+    /// it is not resident.
     ///
     /// - Parameters:
     ///   - key: One of the models above.
     ///   - pool: The pool of the test.
+    ///   - loader: The loader of the model. The default is ``MLXPooledLoader``.
     /// - Returns: The hold. The model stays resident while the hold exists.
     /// - Throws: What the load throws.
-    static func acquire(_ key: ModelPoolKey, in pool: ModelPool) async throws -> ModelHold {
-        try await pool.acquire(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: MLXPooledLoader())
+    static func acquire(
+        _ key: ModelPoolKey, in pool: ModelPool, loader: any PooledModelLoader = MLXPooledLoader()
+    ) async throws -> ModelHold {
+        try await pool.acquire(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
+    }
+
+    /// Waits until `key` is not resident in `pool`. The release of the last
+    /// hold starts the eviction job, which runs after the release returns.
+    ///
+    /// Each test waits for the eviction of each model that it loaded. The
+    /// weights of an `MLXLanguageModel` are in one model cache for each
+    /// process, thus a late eviction job of one test removes the weights under
+    /// the hold of the next test.
+    ///
+    /// - Parameters:
+    ///   - key: A model of `pool` that has no hold.
+    ///   - pool: The pool of the test.
+    static func waitForEviction(of key: ModelPoolKey, in pool: ModelPool) async {
+        for await footprint in pool.footprints where footprint.resident[key] == nil {
+            return
+        }
     }
 }

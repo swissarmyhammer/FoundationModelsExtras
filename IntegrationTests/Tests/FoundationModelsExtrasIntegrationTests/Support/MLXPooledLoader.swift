@@ -15,7 +15,7 @@ import Tokenizers
 /// `LanguageModel`. An `.embedding` key gives a ``PooledEmbedding``.
 struct MLXPooledLoader: PooledModelLoader {
     /// The revision of a model reference that names no revision.
-    private static let defaultRevision = "main"
+    static let defaultRevision = "main"
 
     /// Downloads the model of `key` when the cache does not hold it, and loads
     /// its weights.
