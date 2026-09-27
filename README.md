@@ -631,12 +631,21 @@ questions that those runs ask the user.
   the user (`elicit(_:)`), read the background runs (`backgroundRuns()`), wait
   for a run (`wait(completionToken:seconds:)`), stop a run
   (`cancel(completionToken:)`), and mount a tool of its own (`mount(_:op:as:)`).
+  A background call of a tool that `mount(_:op:as:)` mounted is a full
+  background run: its terminal goes to the sink of the session under its own
+  completion token, the same as a top-level background run.
 - `BackgroundTool` lets a tool declare its mount (a `ToolMount`: run to
   completion or in the background, with a timeout or none), a timeout for one
   call, a short wait for its own result, the sentences for the model, and a
   canceler. A background
   call answers at once with a `PendingRunEnvelope`: the completion token of
   the run, and what the model must do next.
+- `BackgroundTool.mount(for:)` gives the mount of one call, from its
+  arguments. The host asks for it before each call, and it wins over the
+  mount of the tool and the mount of the site. Thus one tool can start a run
+  in the background for one operation, and give the real result in band for
+  another operation (for example `list`, `check` or `cancel`). The default
+  gives `mount`, the same for each call.
 - `SubmissionBoundaryTool` gets a call before each submission of the session.
   `ToolDecorator` passes that call down to the tool beneath a decorator.
 - `ToolFailureDelivery.makeWrapped(tool:)` gives a failed call to the model as

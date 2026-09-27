@@ -50,13 +50,10 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
 
     /// The timeout that `wrapped` gives for `arguments`, or `nil`.
     private static func timeout(of wrapped: any Tool<Arguments, String>, for arguments: Arguments) -> TimeInterval? {
-        guard
-            let tool = wrapped as? any BackgroundTool,
-            let content = arguments as? any ConvertibleToGeneratedContent
-        else {
+        guard let declared = ToolMounting.backgroundDeclaration(of: wrapped, for: arguments) else {
             return nil
         }
-        return tool.timeout(from: content.generatedContent)
+        return declared.tool.timeout(from: declared.content)
     }
 
     /// Posts the open record of the call.

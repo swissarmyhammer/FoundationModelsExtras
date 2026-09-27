@@ -2,7 +2,8 @@ import Foundation
 import FoundationModels
 
 /// A decorator that runs each call of the tool to completion and returns its
-/// output. A call with no progress for the whole timeout ends with
+/// output, unless the tool gives a background mount for that call. A call
+/// with no progress for the whole timeout ends with
 /// ``ToolMountError/timedOut(tool:timeoutSeconds:)``.
 ///
 /// The body runs inside the model call of its session, so it holds the model
@@ -38,6 +39,18 @@ struct RunToCompletionRunner<
         self.timeout = timeout
     }
 
+    /// Runs one call with the mount that the tool gives for `arguments`, or
+    /// else to completion. See ``ToolMounting/call(_:arguments:site:mount:)``.
+    ///
+    /// - Parameter arguments: The arguments of the call.
+    /// - Returns: The output of the tool, or the envelope of a background call.
+    /// - Throws: The error of the tool, or
+    ///   ``ToolMountError/timedOut(tool:timeoutSeconds:)``.
+    func call(arguments: Arguments) async throws -> String {
+        try await ToolMounting.call(
+            wrapped, arguments: arguments, site: site, mount: ToolMount(mode: .runToCompletion, timeout: timeout))
+    }
+
     /// Runs one call and returns the output of the tool. The span of the call
     /// records the outcome of the run, so a timeout is not a failure.
     ///
@@ -45,7 +58,7 @@ struct RunToCompletionRunner<
     /// - Returns: The output of the tool.
     /// - Throws: The error of the tool, or
     ///   ``ToolMountError/timedOut(tool:timeoutSeconds:)``.
-    func call(arguments: Arguments) async throws -> String {
+    func callToCompletion(arguments: Arguments) async throws -> String {
         try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { span in

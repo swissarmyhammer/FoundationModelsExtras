@@ -22,6 +22,10 @@ public struct ToolContext: Sendable {
     /// The sink that each capability posts to.
     private let sink: any OperationEventSink
 
+    /// The sink of the session. Each background run that this context mounts
+    /// posts to it.
+    private let sessionSink: any OperationEventSink
+
     /// Tells if a cancel of the run was asked.
     private let cancellationProbe: @Sendable () -> Bool
 
@@ -60,11 +64,43 @@ public struct ToolContext: Sendable {
         isCancelled: @escaping @Sendable () -> Bool,
         attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void = { _ in }
     ) {
+        self.init(
+            site: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink),
+            sink: sink,
+            tool: tool,
+            op: op,
+            completionToken: completionToken,
+            isCancelled: isCancelled,
+            attachmentSink: attachmentSink
+        )
+    }
+
+    /// Makes a context on `site`. It posts to `sink`, and each background run
+    /// that it mounts posts to the sink of the session of `site`.
+    ///
+    /// - Parameters:
+    ///   - site: The session, its run plane and its sink.
+    ///   - sink: The sink that each capability posts to.
+    ///   - tool: The tool name of the run. Must not be empty.
+    ///   - op: The op of the run. Must not be empty.
+    ///   - completionToken: The completion token of the run.
+    ///   - isCancelled: Tells if a cancel of the run was asked.
+    ///   - attachmentSink: Gets each attached record.
+    private init(
+        site: MountSite,
+        sink: any OperationEventSink,
+        tool: String,
+        op: String,
+        completionToken: String,
+        isCancelled: @escaping @Sendable () -> Bool,
+        attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void
+    ) {
         precondition(!tool.isEmpty, "the tool name of a ToolContext must not be empty")
         precondition(!op.isEmpty, "the op of a ToolContext must not be empty")
-        self.sessionID = sessionID
-        self.runPlane = runPlane
+        self.sessionID = site.sessionID
+        self.runPlane = site.runPlane
         self.sink = sink
+        self.sessionSink = site.sessionSink
         self.tool = tool
         self.op = op
         self.completionToken = completionToken
@@ -85,8 +121,7 @@ public struct ToolContext: Sendable {
     init(calling tool: any Tool, on site: MountSite, sink: any OperationEventSink, completionToken: String, state: ToolCallState) {
         let name = tool.name.isEmpty ? String(describing: type(of: tool)) : tool.name
         self.init(
-            sessionID: site.sessionID,
-            runPlane: site.runPlane,
+            site: site,
             sink: sink,
             tool: name,
             op: site.op.flatMap { $0.isEmpty ? nil : $0 } ?? name,
@@ -184,11 +219,13 @@ public struct ToolContext: Sendable {
     /// own inner tool calls, for example a script runner.
     ///
     /// The mounted tool works as a tool of the session: each call gets its own
-    /// context and span, and a background mount tracks its run on the run
-    /// plane. Each event of a mounted run goes through ``post(_:)``, so it has
-    /// the correlation of THIS run. Each record that a mounted call attaches
-    /// goes on THIS run. The own token of a mounted run stays on the run
-    /// plane.
+    /// context and span. Each event of a synchronous call goes through
+    /// ``post(_:)``, so it has the correlation of THIS run. Each record that a
+    /// synchronous call attaches goes on THIS run.
+    ///
+    /// A background call is a full background run, the same as a top-level
+    /// one: the run plane tracks it, and its events and its terminal go to
+    /// the sink of the session under its own token.
     ///
     /// - Parameters:
     ///   - tool: The tool to mount.
@@ -200,7 +237,15 @@ public struct ToolContext: Sendable {
         op: String? = nil,
         as configuration: ToolMount = .synchronous
     ) -> any Tool<T.Arguments, T.Output> {
-        mount(tool, op: op, as: configuration, postingTo: MountedRunUpstreamSink(context: self))
+        let site = MountSite(
+            sessionID: sessionID,
+            runPlane: runPlane,
+            sink: MountedRunUpstreamSink(context: self),
+            sessionSink: sessionSink,
+            op: op,
+            tracer: nil
+        )
+        return Self.mount(tool, on: site, as: configuration)
     }
 
     /// Mounts `tool` as ``mount(_:op:as:)`` does, but each mounted run posts
@@ -220,7 +265,21 @@ public struct ToolContext: Sendable {
         as configuration: ToolMount = .synchronous,
         postingTo sink: any OperationEventSink
     ) -> any Tool<T.Arguments, T.Output> {
-        let site = MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink, op: op)
+        Self.mount(tool, on: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink, op: op), as: configuration)
+    }
+
+    /// Mounts `tool` on `site`, and keeps the types of `tool`.
+    ///
+    /// - Parameters:
+    ///   - tool: The tool to mount.
+    ///   - site: Where the tool runs.
+    ///   - configuration: The mount when `tool` declares none.
+    /// - Returns: The mounted tool, with the `Arguments` and `Output` of `tool`.
+    private static func mount<T: Tool>(
+        _ tool: T,
+        on site: MountSite,
+        as configuration: ToolMount
+    ) -> any Tool<T.Arguments, T.Output> {
         let mounted = ToolMounting.makeWrapped(tool: tool, site: site, configuration: configuration)
         // Each mount keeps `Arguments` and `Output`, so the cast does not
         // fail. The fallback calls the tool with no mount.
@@ -264,10 +323,11 @@ extension ToolInvocationRecord {
     }
 }
 
-/// The sink of a run that ``ToolContext/mount(_:op:as:)`` mounted. It posts
-/// each event through the mounting context, so the event gets the correlation
-/// of the mounting run. It also gives each record of a mounted call to the
-/// mounting context, so the records go on the report of the mounting run.
+/// The sink of a synchronous call that ``ToolContext/mount(_:op:as:)``
+/// mounted. It posts each event through the mounting context, so the event
+/// gets the correlation of the mounting run. It also gives each record of a
+/// mounted call to the mounting context, so the records go on the report of
+/// the mounting run.
 private struct MountedRunUpstreamSink: OperationEventSink, ToolCallReportSink {
     /// The mounting context.
     let context: ToolContext

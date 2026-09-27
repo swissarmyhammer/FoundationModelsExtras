@@ -82,10 +82,26 @@ comments:
     - evidence: `swift test --package-path IntegrationTests`: 14 tests in 5 suites passed, 45.641s; only warning is the accepted "missing creator for mutated node ... mlx-swift_Cmlx.bundle".
     - next: review.
   timestamp: 2026-09-27T15:09:20.796718+00:00
+- actor: claude-code
+  id: 01m3hpq7q8p1xh46v75wrrvpbn
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (b00515c): 0 findings, 0 confirmed, 0 refuted; 7 validator runs, 0 failed. All prior review items are checked.
+    - next: none. The task moved to done.
+  timestamp: 2026-09-27T15:11:16.200715+00:00
+- actor: claude-code
+  id: 01m3hpqe9qkbx87z5j6c4rkdhp
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — PooledEmbedderIntegrationTests.swift (lazy.map; reduce on the async stream)
+    - test: green — IntegrationTests 14 passed
+    - commit: b00515c
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-09-27T15:11:22.935607+00:00
 depends_on:
 - 01M3HD6T6P13MA52XSVQ8EEGJF
-position_column: review
-position_ordinal: '80'
+position_column: done
+position_ordinal: c680
 title: 'Integration tests 3: real-model tests of PooledEmbedder, shared by two users'
 ---
 ## Why

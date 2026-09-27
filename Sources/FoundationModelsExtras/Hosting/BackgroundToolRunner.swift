@@ -1,7 +1,8 @@
 import Foundation
 import FoundationModels
 
-/// A decorator that runs each call of the tool in the background. A call
+/// A decorator that runs each call of the tool in the background, unless the
+/// tool gives a synchronous mount for that call. A background call
 /// posts one progress event, starts the run on the run plane, and returns a
 /// ``PendingRunEnvelope``. The run settles later with one terminal event: at
 /// its end, at a cancel, or at the timeout.
@@ -39,6 +40,16 @@ struct BackgroundToolRunner<
         self.timeout = timeout
     }
 
+    /// Runs one call with the mount that the tool gives for `arguments`, or
+    /// else in the background. See ``ToolMounting/call(_:arguments:site:mount:)``.
+    ///
+    /// - Parameter arguments: The arguments of the call.
+    /// - Returns: The rendered envelope, or the output of a synchronous call.
+    func call(arguments: Arguments) async throws -> String {
+        try await ToolMounting.call(
+            wrapped, arguments: arguments, site: site, mount: ToolMount(mode: .background, timeout: timeout))
+    }
+
     /// Starts one call in the background and returns its envelope.
     ///
     /// The span covers only the start. The run settles later on the run
@@ -46,7 +57,7 @@ struct BackgroundToolRunner<
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The rendered envelope.
-    func call(arguments: Arguments) async throws -> String {
+    func callInBackground(arguments: Arguments) async throws -> String {
         try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .background
         ) { span in

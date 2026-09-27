@@ -5,8 +5,9 @@ import FoundationModels
 ///
 /// A call of a tool with a background ``mount`` answers at once with a
 /// ``PendingRunEnvelope``, and the work continues behind it. A `Tool` that
-/// does not conform runs to completion. Each requirement has a default, so a
-/// tool declares only what it needs.
+/// does not conform runs to completion. A tool can also choose the mount of
+/// each call with ``mount(for:)``. Each requirement has a default, so a tool
+/// declares only what it needs.
 ///
 /// The result of a background run is a short report, not the output. The
 /// output stays in the tool. The report tells what ran, how it ended, and
@@ -15,6 +16,14 @@ public protocol BackgroundTool {
     /// The mount that this tool needs, or `nil` to use the mount of the
     /// host. A declared mount wins over the host, the timeout also.
     var mount: ToolMount? { get }
+
+    /// The mount of one call, read from its arguments. The host asks for it
+    /// before the call runs. A synchronous call answers with its output, and
+    /// a background call answers with a ``PendingRunEnvelope``.
+    ///
+    /// - Parameter arguments: The arguments of the call.
+    /// - Returns: The mount of the call, or `nil` to use the mount of the host.
+    func mount(for arguments: GeneratedContent) -> ToolMount?
 
     /// The timeout of one call, read from its arguments.
     ///
@@ -71,6 +80,11 @@ extension BackgroundTool {
 
     /// The default: no declared mount.
     public var mount: ToolMount? { nil }
+
+    /// The default: ``mount``, the same for each call.
+    public func mount(for arguments: GeneratedContent) -> ToolMount? {
+        mount
+    }
 
     /// The default: no wait, so a call answers at once.
     public var inlineSettleGrace: TimeInterval? { nil }

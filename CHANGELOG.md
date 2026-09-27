@@ -5,6 +5,32 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `BackgroundTool.mount(for:)`
+
+A tool now chooses background or synchronous for each call, not one time for
+the whole tool.
+
+**Cause.** The mount was read one time for each tool. A tool with some
+operations that must start a background run and other operations that must
+give their real result in band (for example `list`, `check` and `cancel`) had
+to mount as background, and it could only hope that a fast operation settled
+in `inlineSettleGrace`. That is a timeout, not a choice.
+
+**What changed.**
+
+- `BackgroundTool.mount(for:)` gives the mount of one call, from its
+  arguments. The host asks for it before each call, and it wins over `mount`
+  and over the mount of the host. The default gives `mount`, thus each tool
+  that does not override it keeps its behavior.
+- A synchronous call runs in band and returns its output. It does not wait
+  for a grace. A background call returns the pending envelope, and the run
+  plane tracks the run.
+- A background call of a tool that `ToolContext.mount(_:op:as:)` mounted is a
+  full background run: its terminal goes to the sink of the session under its
+  own completion token, the same as a top-level background run. Before, it
+  went through the mounting run, which took it as its own terminal or dropped
+  it.
+
 ### Added: `DotfolderWatcher`
 
 A consumer that caches a result of a stack can now watch the layer roots with
