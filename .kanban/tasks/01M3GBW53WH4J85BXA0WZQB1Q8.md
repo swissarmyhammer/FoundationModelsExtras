@@ -21,10 +21,33 @@ comments:
     - evidence: 8 files — Sources/FoundationModelsExtras/Hosting/ToolCallReport.swift, Sources/FoundationModelsExtras/Hosting/RunPlaneActor.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolCallReportAndWaitPublicSurfaceTests.swift (new), Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestingSPIPublicSurfaceTests.swift (new), and the import line of RunPlaneTests.swift, RunPlaneActorTests.swift, RunPlaneTestSupport.swift, ToolContextTests.swift. `swift build`: 0 warnings, 0 errors. `swift test`: exit 0, 1350 Swift Testing tests pass (725 + 396 + 125 + 44 + 34 + 26), 0 failures.
     - next: review
   timestamp: 2026-09-27T02:49:44.463198+00:00
+- actor: claude-code
+  id: 01m3gcdd3prq4pqx1dfmxcp5xe
+  text: |-
+    ### commit — changed
+    - evidence: swift build (0 warnings); swift test (725 tests, 0 failures); commit 11404f3 "feat(hosting): open the run-plane and report inits to SPI tests"
+    - next: none
+  timestamp: 2026-09-27T02:51:53.846787+00:00
+- actor: claude-code
+  id: 01m3gcm6vmn4gqsant97mexbrj
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (11404f3); 0 findings, 0 confirmed, 0 refuted; 7 attempted, 0 failed; 8 files reviewed; 2 .kanban files excluded by .reviewignore.
+    - next: none. Task moved to done.
+  timestamp: 2026-09-27T02:55:36.820574+00:00
+- actor: claude-code
+  id: 01m3gcmed240bezsczws0bp0qh
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 source files (access levels), 2 new public-surface test files, 4 test import lines
+    - test: green — swift test, 725 passed in FoundationModelsExtrasTests, 0 warnings (run by the commit step)
+    - commit: 11404f3
+    - review: clean — task is done. The router pins 11404f3 (replaces fa43d18).
+  timestamp: 2026-09-27T02:55:44.546391+00:00
 depends_on:
 - 01M3FPA83C04HNESZYBEBTPRDG
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c280
 title: 'Tool hosting 5: make ToolCallReport.init, RunPlane.wait public, and RunPlane.start and updateProgress SPI for tests'
 ---
 ## Why
