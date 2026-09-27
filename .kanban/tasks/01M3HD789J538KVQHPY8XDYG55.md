@@ -48,6 +48,13 @@ comments:
     - The FIFO test is correct. The order 0,1,2,4,5,3 is a real defect in `GenerationQueue.submit`: the count and the yield are two steps.
     - Task ^38ybj4j fixes the queue. After it is done, run the 5 tests in PooledEmbedderIntegrationTests.swift 3 times in a row, then commit.
   timestamp: 2026-09-27T14:40:52.040278+00:00
+- actor: claude-code
+  id: 01m3hp8kwf0wpt7tx79nmmwg4g
+  text: |-
+    ### test — green
+    - evidence: `swift test --package-path IntegrationTests`, 3 runs in a row, each 14 tests in 5 suites, 0 failures. Run 1: 51.459s. Run 2: 45.764s. Run 3: 55.274s. Each run had only the accepted warning ("missing creator for mutated node ... mlx-swift_Cmlx.bundle"). Root `swift build`: clean, no warnings. Root `swift test`: 727 tests in 69 suites passed, 3.635s, no warnings.
+    - next: commit the test file and .kanban/, then move the task through review.
+  timestamp: 2026-09-27T15:03:17.135179+00:00
 depends_on:
 - 01M3HD6T6P13MA52XSVQ8EEGJF
 position_column: doing
@@ -58,15 +65,15 @@ title: 'Integration tests 3: real-model tests of PooledEmbedder, shared by two u
 The metadata registry and the router will share one embedding model through `PooledEmbedder`. The unit tests use a fake embedding. These tests use a real MLX embedding model in the nested `IntegrationTests/` package.
 
 ## Tests to add
-- [ ] A real embed: `PooledEmbedder` from a real `.embedding` hold gives vectors of `dimension` length, and two similar texts are closer (cosine) than two unrelated texts.
-- [ ] Two users, one model: a "router" loader and a "registry" loader both acquire the same embedding key; the model loads one time; the second user gets the first loader's container and embeds through `PooledEmbedding` with correct results.
-- [ ] One embed at a time: many concurrent `embed(texts:)` calls from both users run one at a time on the entry's queue, in FIFO order, and every call gets the correct vectors (compare with a single serial run).
-- [ ] An embedder handle keeps the model resident: the model is not evicted while a `PooledEmbedder` exists, and it is evicted after the last handle goes away.
-- [ ] An LLM and an embedding model resident at the same time: each has its own queue, so an embed does not wait behind a long generation.
+- [x] A real embed: `PooledEmbedder` from a real `.embedding` hold gives vectors of `dimension` length, and two similar texts are closer (cosine) than two unrelated texts.
+- [x] Two users, one model: a "router" loader and a "registry" loader both acquire the same embedding key; the model loads one time; the second user gets the first loader's container and embeds through `PooledEmbedding` with correct results.
+- [x] One embed at a time: many concurrent `embed(texts:)` calls from both users run one at a time on the entry's queue, in FIFO order, and every call gets the correct vectors (compare with a single serial run).
+- [x] An embedder handle keeps the model resident: the model is not evicted while a `PooledEmbedder` exists, and it is evicted after the last handle goes away.
+- [x] An LLM and an embedding model resident at the same time: each has its own queue, so an embed does not wait behind a long generation.
 - Give each test a time limit. Simple test code; no lock/semaphore/gate types.
 
 ## Acceptance criteria
-- [ ] `swift test --package-path IntegrationTests` passes on this machine, 3 runs in a row.
-- [ ] The root `swift test` is unchanged and passes.
+- [x] `swift test --package-path IntegrationTests` passes on this machine, 3 runs in a row.
+- [x] The root `swift test` is unchanged and passes.
 
 #integration-tests
