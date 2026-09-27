@@ -12,8 +12,9 @@ agent-instructions files with directory-level provenance —
 `MarketplaceStore`, in the separate `Marketplace` product, which fetches a
 remote marketplace into a cached, materialized layer root that a stack
 reads as it reads a local layer — `GenerationQueue`, the one work queue
-of each resident model in a process — and `ModelPool`, which loads each model
-one time in a process and shares it through holds.
+of each resident model in a process — `ModelPool`, which loads each model
+one time in a process and shares it through holds — and `Mailbox`, which lets
+a caller post messages to a session and not wait.
 
 ```swift
 import FoundationModelsExtras
@@ -555,6 +556,62 @@ This example is mirrored in `readmeEmbedderExample` in
 `Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift`, kept
 green by `swift test --filter PooledEmbedderTests`. The test declares `pool`,
 `loader`, `embedding`, `embedderBytes` and `texts` before the block.
+
+## Posting to a session: `Mailbox`
+
+A `Mailbox<Message, Answer>` lets a caller post messages to a session and not
+wait. The messages wait in first-in, first-out order. The session has one pump,
+which takes the messages in batches and gives each message the answer of its
+batch.
+
+- `post(_:)` returns at once, with a `MessageID` and a `MailboxAnswer`. Read
+  `answer.value` later. `postAndWait(_:)` posts and waits in one call, and a
+  cancel of its caller cancels the message.
+- `cancel(_:)` withdraws a message that waits (`.withdrawn`). A message in the
+  running batch gets `CancellationError` at once (`.cancelledInSubmission`);
+  the owner of the pump can then stop the batch. A message that has its answer
+  gives `.alreadyAnswered`.
+- `replace(_:with:)` changes a message that waits, and it keeps its place
+  (`.applied`). After the pump took the message, the result is `.alreadySent`.
+- `pending` gives the messages that wait, and `depth` counts them and names
+  the messages of the running batch.
+- The pump calls `answerNextBatch(joining:_:)` in a loop. The first waiting
+  message starts a batch, and each later message that `joining` accepts comes
+  with it. The result of the body goes to each message of the batch, also when
+  the body throws or the pump is cancelled.
+
+Each message gets exactly one result: its answer, the error of its batch, or
+`CancellationError`. No message is lost. A mailbox that is released gives
+`CancellationError` to each message that still waits:
+
+```swift
+let mailbox = Mailbox<String, String>()
+
+// The one pump takes each batch. Each message of the batch gets the
+// answer of the batch.
+let pump = Task {
+    while await mailbox.answerNextBatch({ letters in
+        "read " + letters.map(\.message).joined(separator: " and ")
+    }) {}
+}
+
+// Post a message, and read its answer later.
+let (id, answer) = mailbox.post("hello")
+
+// Or post, and wait for the answer in one call. A cancel of the
+// caller cancels the message.
+let reply = try await mailbox.postAndWait("how are you?")
+
+// A message that waits can change (`replace`) or leave (`cancel`).
+// The result tells what occurred: here the message has its answer.
+let result = mailbox.cancel(id)
+let greeting = try await answer.value
+pump.cancel()
+```
+
+This example is mirrored in `readmeMailboxExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/MailboxTests.swift`, kept green by
+`swift test --filter MailboxTests`.
 
 ## Install
 
