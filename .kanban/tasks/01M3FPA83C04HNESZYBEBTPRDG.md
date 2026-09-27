@@ -61,6 +61,39 @@ comments:
     - evidence: Sources/FoundationModelsExtras/Hosting/{ToolContext,RunPlaneActor,ToolMounting,ToolFailureDelivery,ToolDecorator,PendingRunEnvelope}.swift (public API, 5 periphery markers removed, replacing(detail:) added); new Tests/FoundationModelsExtrasTests/Hosting/{ToolContextTests,ToolContextMountTests,ToolMountingTests,ToolContextMountSinkPublicSurfaceTests,ToolContextTokenPublicSurfaceTests,ToolHostingPublicSurfaceTests,ToolHostingReadmeTests,MountingFixtures}.swift; MountFixtures.swift and RunPlaneTestSupport.swift (RunLatch.closed()); README.md (Tool hosting section); plan.md §6. RED seen first (plain-import files did not compile: ToolContext/RunPlane not in scope). `swift build`: 0 warnings, 0 errors. `swift test`: all pass (main run 720 tests in 66 suites; the other runs 396, 125, 44, 34, 26). Hosting suites (173 tests in 21 suites) 10 of 10 green with --skip-build, about 3.1 s each. swiftlint (missing_docs, no_magic_numbers, force rules) 0 violations; swiftformat idiom roster 0 findings; periphery: nothing in Hosting/. Router not changed. Not committed.
     - next: /review
   timestamp: 2026-09-27T02:17:53.929602+00:00
+- actor: claude-code
+  id: 01m3gbbek1bmspy784ev1jebra
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD; 1 finding (1 confirmed, 5 refuted) — Sources/FoundationModelsExtras/Hosting/PendingRunEnvelope.swift:127 (swift/fluent-usage). No finding asks for a lock, semaphore, gate, actor or router complexity, so no conflict with the user decision.
+    - next: rename `decoded(fromRendered:)` to `makeDecoded(fromRendered:)` and update each caller; then review again.
+  timestamp: 2026-09-27T02:33:21.249425+00:00
+- actor: claude-code
+  id: 01m3gbbs1q1n9ebsbsnwsnv3hw
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — public tool-hosting API, 5 copied router test files, public-surface and README tests, README, plan.md
+    - test: green — swift test, 720 passed, 0 warnings, 0 skipped
+    - commit: e0924fb
+    - review: findings — Sources/FoundationModelsExtras/Hosting/PendingRunEnvelope.swift:127
+  timestamp: 2026-09-27T02:33:31.959167+00:00
+- actor: claude-code
+  id: 01m3gbhw6s7g9zgkyxenxwte8v
+  text: |-
+    Finding fixed: `PendingRunEnvelope.decoded(fromRendered:)` is now `makeDecoded(fromRendered:)`. Changed: the declaration, the call in `isRendered(text:)`, the doc reference on `rendered`, and the 2 test callers (ToolHostingPublicSurfaceTests, ToolHostingReadmeTests). README.md, plan.md and Examples have no caller. RED seen first: the tests did not compile ("type 'PendingRunEnvelope' has no member 'makeDecoded'").
+
+    Scan of the other public static methods in Sources/FoundationModelsExtras/Hosting/ for the same cause (a factory without `make`):
+    - `ToolFailureDelivery.makeWrapped(tool:)`, `ToolMounting.makeWrapped(tool:site:configuration:)`, `RunPlane.makeCompletionToken()`, `ToolContext.makeCompletionToken()`: they start with `make`.
+    - `ToolFailureDelivery.throwingTool(of:)`: not a factory. It returns the tool that already exists beneath the decorator (an accessor, a noun phrase with no side effect). No change.
+    - `PendingRunEnvelope.defaultCollectInstruction(forCompletionToken:)`, `defaultResultInstruction(forCompletionToken:)`: they return text with no side effect (a noun phrase), not an instance of a type. No change.
+    - `PendingRunEnvelope.isRendered(text:)`: a Boolean query. No change.
+    - `ToolMount.synchronous`, `ToolContext.current`, `ToolResultAppendBoundary.current`: static properties, not methods. No change.
+    Note for the router removal task: the router TokenCappingTool calls `decoded(fromRendered:)`. When the router uses Extras, it must call `makeDecoded(fromRendered:)`.
+
+    ### implement — changed
+    - evidence: 3 files — Sources/FoundationModelsExtras/Hosting/PendingRunEnvelope.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolHostingPublicSurfaceTests.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolHostingReadmeTests.swift. `swift build`: 0 warnings, 0 errors. `swift test --filter Hosting`: 11 tests in 2 suites passed. All 24 Hosting test files (filter by file name): 173 tests in 21 suites passed. Not committed.
+    - next: /review
+  timestamp: 2026-09-27T02:36:51.801166+00:00
 depends_on:
 - 01M3FP9WTFQEQZ8Q4YJDXRA4D9
 position_column: doing
@@ -94,3 +127,16 @@ Fourth and last of the tool-hosting tasks in Extras (decision 2026-09-26: the ro
 The router has public types with the same names (`ToolContext`, `BackgroundTool`, and others). When the router pins an Extras commit that has these public types, the router must remove its own `Hosting/` in the same change, or the names are ambiguous. The router session makes that task.
 
 #tool-hosting #cross-repo
+
+## Review Findings (2026-09-26 21:21)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 16 file(s) reviewed, 4 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+> 2 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsExtras/Hosting/PendingRunEnvelope.swift:127` `swift/fluent-usage` — Factory methods should start with `make`. The static method `decoded(fromRendered:)` reads as a parsing operation that creates a new PendingRunEnvelope instance, which is a factory method. Rename to `makeDecoded(fromRendered:)` to signal that this is a factory method creating a new instance.

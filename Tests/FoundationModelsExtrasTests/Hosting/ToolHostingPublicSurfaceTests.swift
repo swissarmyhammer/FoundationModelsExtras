@@ -176,7 +176,7 @@ struct ToolHostingPublicSurfaceTests {
     /// - Returns: The envelope.
     /// - Throws: When the output is not an envelope.
     private static func envelope(of rendered: String) throws -> PendingRunEnvelope {
-        try #require(PendingRunEnvelope.decoded(fromRendered: rendered))
+        try #require(PendingRunEnvelope.makeDecoded(fromRendered: rendered))
     }
 
     /// A form question with one Boolean field.

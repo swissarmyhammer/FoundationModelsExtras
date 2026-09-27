@@ -90,7 +90,7 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
     /// The envelope as JSON, with the fields always in this order:
     /// `pending`, `completionToken`, `outcome`, `detail`, `next`.
     ///
-    /// ``decoded(fromRendered:)`` compares a text with this value, so this
+    /// ``makeDecoded(fromRendered:)`` compares a text with this value, so this
     /// property sets the only form that is recognized.
     public var rendered: String {
         var fields = [
@@ -113,7 +113,7 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
     /// - Parameter text: The tool output.
     /// - Returns: `true` when `text` is a rendered envelope.
     public static func isRendered(text: String) -> Bool {
-        decoded(fromRendered: text) != nil
+        makeDecoded(fromRendered: text) != nil
     }
 
     /// The envelope that `text` renders, or `nil` when `text` is not one.
@@ -124,7 +124,7 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
     ///
     /// - Parameter text: The tool output.
     /// - Returns: The decoded envelope, or `nil`.
-    public static func decoded(fromRendered text: String) -> PendingRunEnvelope? {
+    public static func makeDecoded(fromRendered text: String) -> PendingRunEnvelope? {
         guard
             let envelope = try? JSONDecoder().decode(Self.self, from: Data(text.utf8)),
             ULID(ulidString: envelope.completionToken) != nil,

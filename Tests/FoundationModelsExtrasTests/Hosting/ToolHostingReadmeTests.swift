@@ -77,7 +77,7 @@ struct ToolHostingReadmeTests {
         let runTests = try #require(tools.first as? any Tool<RunTests.Arguments, String>)
         let wait = try #require(tools.last as? any Tool<Wait.Arguments, String>)
         let rendered = try await runTests.call(arguments: RunTests.Arguments(filter: "Hosting"))
-        let envelope = try #require(PendingRunEnvelope.decoded(fromRendered: rendered))
+        let envelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: rendered))
         let result = try await wait.call(arguments: Wait.Arguments(completionToken: envelope.completionToken))
 
         // README example: begin (the end of the session)
