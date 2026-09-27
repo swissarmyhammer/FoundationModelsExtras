@@ -40,6 +40,13 @@ extension CancelOutcome {
         guard case .alreadySettled(let terminal) = self else { return nil }
         return terminal
     }
+
+    /// The outcome that the canceler of the run reported, or `nil` for each
+    /// other outcome.
+    var reportedOutcome: OperationOutcome? {
+        guard case .reported(let outcome) = self else { return nil }
+        return outcome
+    }
 }
 
 /// A sink that drops each event, for a test that reads the run plane and not

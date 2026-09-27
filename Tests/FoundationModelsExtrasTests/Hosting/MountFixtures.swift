@@ -215,6 +215,29 @@ enum MountFixtures {
         }
     }
 
+    /// Waits on its gate, declares ``RunKind/process``, and gives
+    /// `processCanceler` as the canceler of each run. The canceler does not
+    /// open the gate: the test opens it.
+    struct GatedProcessTool: Tool, BackgroundTool {
+        let name = "gated_process_tool"
+        let description = "blocks until its gate opens, as a process run with its own canceler"
+        let gate: RunLatch
+
+        /// The canceler of each run of this tool.
+        let processCanceler: @Sendable () async -> OperationOutcome
+
+        func call(arguments: MountArguments) async throws -> String {
+            await gate.waitUntilOpen()
+            return "process: \(arguments.value)"
+        }
+
+        var runKind: RunKind { .process }
+
+        func canceler(forCompletionToken _: String) -> (@Sendable () async -> OperationOutcome)? {
+            processCanceler
+        }
+    }
+
     /// Throws ``FixtureError`` at once.
     struct ThrowingTool: Tool {
         let name = "throwing_tool"

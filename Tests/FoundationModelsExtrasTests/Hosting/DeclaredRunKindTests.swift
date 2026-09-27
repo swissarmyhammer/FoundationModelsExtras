@@ -264,42 +264,4 @@ struct DeclaredRunKindTests {
 
         gate.open()
     }
-
-    // MARK: - A second stop of one run
-
-    @Test("two cancels of one open .process run both report .stopped, and the canceler of the tool kills one time")
-    func twoCancelsOfOneProcessRunKillOneTime() async throws {
-        let gate = RunLatch()
-        let witness = KillWitness()
-        let harness = Self.makeHarness(backgroundMounting: DeclaredProcessTool(gate: gate, witness: witness))
-        let run = try await Self.backgroundOneRun(through: harness)
-
-        // The gate is closed, so the run is still open at the second cancel.
-        #expect(await harness.context.cancel(completionToken: run.completionToken) == .reported(.stopped))
-        #expect(await harness.context.cancel(completionToken: run.completionToken) == .reported(.stopped))
-        #expect(await witness.killedTokens == [run.completionToken])
-
-        gate.open()
-        let terminal = try await Self.settledTerminal(of: run, through: harness)
-        #expect(terminal.outcome == .stopped)
-        #expect(await witness.killedTokens == [run.completionToken])
-    }
-
-    @Test("a sweep after a cancel of one open .process run reports .stopped, and the canceler of the tool kills one time")
-    func aSweepAfterACancelOfOneProcessRunKillsOneTime() async throws {
-        let gate = RunLatch()
-        let witness = KillWitness()
-        let harness = Self.makeHarness(backgroundMounting: DeclaredProcessTool(gate: gate, witness: witness))
-        let run = try await Self.backgroundOneRun(through: harness)
-
-        #expect(await harness.context.cancel(completionToken: run.completionToken) == .reported(.stopped))
-        let terminals = await harness.runPlane.sweep()
-
-        #expect(await witness.killedTokens == [run.completionToken])
-        #expect(terminals.count == 1)
-        #expect(terminals.first?.correlationID == run.completionToken)
-        #expect(terminals.first?.outcome == .stopped)
-
-        gate.open()
-    }
 }
