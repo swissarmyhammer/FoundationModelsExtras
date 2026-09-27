@@ -17,7 +17,7 @@ public final class GenerationQueue: Sendable {
     /// lock. Thus when ``waitingCount`` shows a job, each job that is
     /// submitted after that runs after it. Lock order: this lock, then the
     /// lock of a job. No code takes this lock while it holds the lock of a job.
-    fileprivate let unfinished = Mutex<Int>(0)
+    private let unfinished = Mutex<Int>(0)
 
     /// Makes an idle queue and starts its worker loop.
     public init() {
@@ -91,12 +91,23 @@ public final class GenerationQueue: Sendable {
 
     /// Whether a job runs or waits.
     public var isRunning: Bool {
-        get async { unfinished.withLock { $0 } > 0 }
+        get async { unfinishedCount > 0 }
     }
 
     /// The number of jobs that wait behind the running job.
     public var waitingCount: Int {
-        get async { max(unfinished.withLock { $0 } - 1, 0) }
+        get async { max(unfinishedCount - 1, 0) }
+    }
+
+    /// The number of jobs that are not finished, read under the lock.
+    private var unfinishedCount: Int {
+        unfinished.withLock { $0 }
+    }
+
+    /// Subtracts one finished or cancelled job from the count. A job calls
+    /// this only after it releases its own lock.
+    fileprivate func releaseJobCount() {
+        unfinished.withLock { $0 -= 1 }
     }
 }
 
@@ -165,7 +176,7 @@ private final class Job<T: Sendable>: QueuedJob {
         }
         switch previous {
         case .waiting(let continuation):
-            queue.unfinished.withLock { $0 -= 1 }
+            queue.releaseJobCount()
             continuation.resume(throwing: CancellationError())
         case .running(let task):
             task.cancel()
@@ -198,6 +209,6 @@ private final class Job<T: Sendable>: QueuedJob {
     /// Marks the running job as finished, before its submitter resumes.
     private func finish() {
         state.withLock { $0 = .finished }
-        queue.unfinished.withLock { $0 -= 1 }
+        queue.releaseJobCount()
     }
 }
