@@ -55,9 +55,36 @@ comments:
     - evidence: `swift test --package-path IntegrationTests`, 3 runs in a row, each 14 tests in 5 suites, 0 failures. Run 1: 51.459s. Run 2: 45.764s. Run 3: 55.274s. Each run had only the accepted warning ("missing creator for mutated node ... mlx-swift_Cmlx.bundle"). Root `swift build`: clean, no warnings. Root `swift test`: 727 tests in 69 suites passed, 3.635s, no warnings.
     - next: commit the test file and .kanban/, then move the task through review.
   timestamp: 2026-09-27T15:03:17.135179+00:00
+- actor: claude-code
+  id: 01m3hpeqgnc359r2mdp6x8t1d3
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD; 2 findings (2 confirmed, 0 refuted) — PooledEmbedderIntegrationTests.swift:211, PooledEmbedderIntegrationTests.swift:294 (code-hygiene/idioms-swift preferLazyMap)
+    - next: implement — use lazy.map before min() at each finding, and at all other places in the file with the same cause. Then test, commit and review again.
+  timestamp: 2026-09-27T15:06:37.461979+00:00
+- actor: claude-code
+  id: 01m3hpf0zfvznhkgxxemxfjbjx
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — PooledEmbedderIntegrationTests.swift (5 tests)
+    - test: green — IntegrationTests 3 runs, 14 passed each; root 727 passed
+    - commit: ba6415b
+    - review: findings — PooledEmbedderIntegrationTests.swift:211, PooledEmbedderIntegrationTests.swift:294
+  timestamp: 2026-09-27T15:06:47.151647+00:00
+- actor: claude-code
+  id: 01m3hpkq0w9n7n6ymncxfpvgg0
+  text: |-
+    ### implement — changed
+    - Finding at PooledEmbedderIntegrationTests.swift:211: `stream` is an `AsyncStream`. `AsyncSequence` has no `lazy` property, thus `.lazy.map` does not compile there. The `map` of an `AsyncSequence` is already lazy. To remove the cause (a `map` before a single-pass `reduce`), the `map` step is removed: `stream.reduce(into: [])` now calls `vector(of:with:)` and appends in one closure. A `for` loop with a `var` accumulator is not used, because the swift immutability rule forbids it.
+    - Finding at PooledEmbedderIntegrationTests.swift:294: `vector.lazy.map { $0 * $0 }.reduce(0, +)`.
+    - Same cause, same file: `cosineSimilarity` now uses `zip(first, second).lazy.map(*).reduce(0, +)`.
+    - Other `map` calls in the file feed `==`, an argument, or a return value, not a single-pass operation. No change there. No other file in IntegrationTests/Tests changed in this task.
+    - evidence: `swift test --package-path IntegrationTests`: 14 tests in 5 suites passed, 45.641s; only warning is the accepted "missing creator for mutated node ... mlx-swift_Cmlx.bundle".
+    - next: review.
+  timestamp: 2026-09-27T15:09:20.796718+00:00
 depends_on:
 - 01M3HD6T6P13MA52XSVQ8EEGJF
-position_column: doing
+position_column: review
 position_ordinal: '80'
 title: 'Integration tests 3: real-model tests of PooledEmbedder, shared by two users'
 ---
@@ -77,3 +104,13 @@ The metadata registry and the router will share one embedding model through `Poo
 - [x] The root `swift test` is unchanged and passes.
 
 #integration-tests
+
+## Review Findings (2026-09-27 10:03)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 1 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift:211` `code-hygiene/idioms-swift` — preferLazyMap: Prefer lazy.map over map before single-pass operations like min().
+- [x] `IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift:294` `code-hygiene/idioms-swift` — preferLazyMap: Prefer lazy.map over map before single-pass operations like min().

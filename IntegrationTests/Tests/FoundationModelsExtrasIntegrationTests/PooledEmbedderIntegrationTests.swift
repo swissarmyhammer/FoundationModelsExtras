@@ -208,7 +208,9 @@ extension RealModelSuites {
                 continuation.yield(text)
             }
             continuation.finish()
-            return try await stream.map { try await vector(of: $0, with: embedder) }.reduce(into: []) { $0.append($1) }
+            return try await stream.reduce(into: []) { vectors, text in
+                vectors.append(try await vector(of: text, with: embedder))
+            }
         }
 
         /// Makes `calls` concurrently, while a first job runs in `queue`. The
@@ -286,12 +288,12 @@ extension RealModelSuites {
 private enum VectorMath {
     /// The cosine of the angle between two vectors of one length.
     static func cosineSimilarity(of first: [Float], to second: [Float]) -> Float {
-        zip(first, second).map(*).reduce(0, +) / (length(of: first) * length(of: second))
+        zip(first, second).lazy.map(*).reduce(0, +) / (length(of: first) * length(of: second))
     }
 
     /// The Euclidean length of `vector`.
     private static func length(of vector: [Float]) -> Float {
-        vector.map { $0 * $0 }.reduce(0, +).squareRoot()
+        vector.lazy.map { $0 * $0 }.reduce(0, +).squareRoot()
     }
 }
 
