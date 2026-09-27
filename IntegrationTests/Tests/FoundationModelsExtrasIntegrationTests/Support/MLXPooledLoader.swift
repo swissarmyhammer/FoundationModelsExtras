@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import FoundationModelsExtras
 import HuggingFace
 import MLX
@@ -17,6 +18,24 @@ struct MLXPooledLoader: PooledModelLoader {
     /// The revision of a model reference that names no revision.
     static let defaultRevision = "main"
 
+    /// The capabilities that the FoundationModelsRouter declares for each
+    /// LLM that it loads: guided output, tool calls, and a reasoning trace.
+    static let toolCallingCapabilities: [LanguageModelCapabilities.Capability] = [
+        .guidedGeneration, .toolCalling, .reasoning,
+    ]
+
+    /// The capabilities of each `MLXLanguageModel` that this loader makes.
+    let languageModelCapabilities: [LanguageModelCapabilities.Capability]
+
+    /// Makes a loader.
+    ///
+    /// - Parameter languageModelCapabilities: The capabilities of each
+    ///   `MLXLanguageModel` that the loader makes. The default is the default
+    ///   of `MLXLanguageModel`: guided output only.
+    init(languageModelCapabilities: [LanguageModelCapabilities.Capability] = [.guidedGeneration]) {
+        self.languageModelCapabilities = languageModelCapabilities
+    }
+
     /// Downloads the model of `key` when the cache does not hold it, and loads
     /// its weights.
     ///
@@ -28,7 +47,7 @@ struct MLXPooledLoader: PooledModelLoader {
         let configuration = ModelConfiguration(id: key.ref.repo, revision: key.ref.revision ?? Self.defaultRevision)
         switch key.role {
         case .llm:
-            return try await Self.loadLanguageModel(configuration)
+            return try await Self.loadLanguageModel(configuration, capabilities: languageModelCapabilities)
         case .embedding:
             return try await MLXEmbedding.load(configuration)
         }
@@ -43,9 +62,11 @@ struct MLXPooledLoader: PooledModelLoader {
         await (container as? MLXLanguageModel)?.evict()
     }
 
-    /// Makes an `MLXLanguageModel` and loads its weights.
-    private static func loadLanguageModel(_ configuration: ModelConfiguration) async throws -> MLXLanguageModel {
-        let model = MLXLanguageModel(configuration: configuration, weightsLocation: { id in
+    /// Makes an `MLXLanguageModel` with `capabilities` and loads its weights.
+    private static func loadLanguageModel(
+        _ configuration: ModelConfiguration, capabilities: [LanguageModelCapabilities.Capability]
+    ) async throws -> MLXLanguageModel {
+        let model = MLXLanguageModel(configuration: configuration, capabilities: capabilities, weightsLocation: { id in
             HubCache.default.repoDirectory(repo: "\(id)", kind: .model)
         }) { configuration, progress in
             try await loadModelContainer(

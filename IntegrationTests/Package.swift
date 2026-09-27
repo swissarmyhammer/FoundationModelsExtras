@@ -42,6 +42,9 @@ let package = Package(
             name: "\(extrasPackage)IntegrationTests",
             dependencies: [
                 .product(name: extrasPackage, package: extrasPackage),
+                // The `@Operation` macro and `OperationTool`. The tool-hosting
+                // suite mounts one `OperationTool` under a real model session.
+                .product(name: "Operations", package: extrasPackage),
                 // `MLXLLM` and `MLXEmbedders` register the model factories.
                 // `MLXFoundationModels` gives the LLM as a FoundationModels
                 // `LanguageModel`.

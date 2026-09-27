@@ -11,9 +11,21 @@ enum IntegrationModels {
     /// A small embedding model, about 0.3 GB of weights.
     static let embedding = ModelPoolKey(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", role: .embedding)
 
+    /// A 4B instruct LLM that calls tools, about 2.3 GB of weights.
+    ///
+    /// The tool-hosting suite uses it, because the 1B ``llm`` does not call
+    /// tools reliably. The FoundationModelsRouter tool-answer suite loads the
+    /// same model for the same reason, thus the model cache of the CI runner
+    /// holds it already.
+    static let toolCallingLLM = ModelPoolKey(ref: "mlx-community/Qwen3-4B-4bit", role: .llm)
+
     /// The bytes that the pool counts for the weights and one session of each
-    /// model. This is a rough upper limit for both models.
+    /// model. This is a rough upper limit for ``llm`` and ``embedding``.
     static let footprintBytes: Int64 = 1 << 30
+
+    /// The bytes that the pool counts for the weights and one session of
+    /// ``toolCallingLLM``. This is a rough upper limit.
+    static let toolCallingFootprintBytes: Int64 = 3 << 30
 
     /// The bytes that the pool counts for the session of each hold.
     static let sessionBytes: Int64 = 64 << 20
@@ -25,12 +37,17 @@ enum IntegrationModels {
     ///   - key: One of the models above.
     ///   - pool: The pool of the test.
     ///   - loader: The loader of the model. The default is ``MLXPooledLoader``.
+    ///   - footprint: The bytes that the pool counts for the weights and one
+    ///     session of the model. The default is ``footprintBytes``.
     /// - Returns: The hold. The model stays resident while the hold exists.
     /// - Throws: What the load throws.
     static func acquire(
-        key: ModelPoolKey, in pool: ModelPool, loader: any PooledModelLoader = MLXPooledLoader()
+        key: ModelPoolKey,
+        in pool: ModelPool,
+        loader: any PooledModelLoader = MLXPooledLoader(),
+        footprint: Int64 = footprintBytes
     ) async throws -> ModelHold {
-        try await pool.acquire(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
+        try await pool.acquire(key, footprintBytes: footprint, sessionBytes: sessionBytes, loader: loader)
     }
 
     /// Waits until `key` is not resident in `pool`. The release of the last

@@ -53,10 +53,26 @@ comments:
     - evidence: removed the `@Suite` attribute with no arguments from `MountCompileTests` in Tests/OperationsMacrosTests/MountCompileTests.swift. That was the only empty `@Suite` in the file. OperationMountTests.swift has one `@Suite`, and it has arguments. The empty `@Suite` in OperationMacroTests.swift was there before 9a7914e, thus it is not in the scope of this finding. swift build: 0 warnings. swift test: 1365 tests pass (131+37+44+26+396+731), 0 failures.
     - next: review
   timestamp: 2026-09-27T15:51:46.920552+00:00
+- actor: claude-code
+  id: 01m3hs430tagh3v4z4dtcpm453
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (ed5150c). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. All prior finding items are checked.
+    - next: The task is in done.
+  timestamp: 2026-09-27T15:53:14.522188+00:00
+- actor: claude-code
+  id: 01m3hs49hqx3vb97z8dfqzfbbe
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — MountCompileTests.swift (empty @Suite removed)
+    - test: green — swift test, 1365 passed
+    - commit: ed5150c
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-09-27T15:53:21.207185+00:00
 depends_on:
 - 01M3HMSR0XDGD54R903GZHCJP3
-position_column: review
-position_ordinal: '80'
+position_column: done
+position_ordinal: c880
 title: 'Operations: each operation declares its mount, and OperationTool chooses it for each call'
 ---
 ## Why
