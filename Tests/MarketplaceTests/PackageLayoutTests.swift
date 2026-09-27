@@ -6,6 +6,8 @@ import Testing
 /// is a package dependency of the `Marketplace` target only. The core
 /// `FoundationModelsExtras` target does not depend on it, and the git fixture
 /// builder is a product that the `FoundationModelsSkills` tests can import.
+/// It also guards that swift-distributed-tracing links to the core target
+/// only (decision 2026-09-26).
 ///
 /// The suite reads `Package.swift` as text from the package root. A manifest
 /// evaluation through `swift package` starts a process and needs the
@@ -36,6 +38,16 @@ struct PackageLayoutTests {
 
   /// The marketplace library, as a target dependency names it.
   private static let marketplaceDependency = #""Marketplace","#
+
+  /// The pin of the tracing package, as the manifest writes it.
+  private static let tracingPin =
+    #".package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1")"#
+
+  /// The tracing product, as a target dependency names it.
+  private static let tracingProduct = #".product(name: "Tracing", package: "swift-distributed-tracing")"#
+
+  /// The library targets other than the core target. None links tracing.
+  private static let otherLibraryTargetNames = ["Operations", "OperationsCLI", "Marketplace", "MarketplaceFixtures"]
 
   /// The text that starts each target declaration in the manifest.
   private static let targetMarkers = [".target(", ".testTarget(", ".executableTarget(", ".macro("]
@@ -75,6 +87,29 @@ struct PackageLayoutTests {
 
     #expect(fixtures.contains(Self.marketplaceDependency))
     #expect(fixtures.contains(Self.libgit2Product))
+  }
+
+  @Test func theManifestPinsTracingToTheRouterVersion() throws {
+    let manifest = try Self.manifest()
+
+    #expect(manifest.contains(Self.tracingPin))
+  }
+
+  @Test func theCoreTargetDependsOnTracing() throws {
+    let manifest = try Self.manifest()
+
+    let core = try #require(Self.targetDeclaration(named: Self.coreTargetName, in: manifest))
+
+    #expect(core.contains(Self.tracingProduct))
+  }
+
+  @Test(arguments: otherLibraryTargetNames)
+  func noOtherLibraryTargetDependsOnTracing(_ name: String) throws {
+    let manifest = try Self.manifest()
+
+    let target = try #require(Self.targetDeclaration(named: name, in: manifest))
+
+    #expect(!target.contains(Self.tracingProduct))
   }
 
   // MARK: - Support

@@ -65,6 +65,10 @@ let package = Package(
         // same version that `FoundationModelsSkills` pins, in the same style
         // as the Yams pin. The core target does not depend on it.
         .package(url: "https://github.com/danielctull-forks/swift-libgit2.git", exact: "1.9.7"),
+        // The tracing abstraction for the tool span of the tool-hosting code
+        // (plan.md §5). The same pin as FoundationModelsRouter. The core
+        // target links `Tracing`; the core tests link `InMemoryTracing`.
+        .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -77,6 +81,7 @@ let package = Package(
                 "Stencil",
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "ULID", package: "ULID.swift"),
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
             ]
         ),
 
@@ -111,6 +116,9 @@ let package = Package(
                 // first, so the binary is present next to the test bundle
                 // for the subprocess to launch.
                 "extras-demo",
+                // The tool-span tests read the finished spans from an
+                // in-memory tracer.
+                .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
             ],
             resources: [
                 // `CorpusGoldenTests` reads these directly off disk via
