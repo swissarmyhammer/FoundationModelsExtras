@@ -5,6 +5,34 @@ change is at the top.
 
 ## Unreleased
 
+### Added: each operation declares its mount
+
+An `OperationTool` now runs each call with the mount of the called operation.
+
+**Cause.** One `OperationTool` holds several operations. Some operations must
+start a background run (for example `start agent`), and other operations must
+give their real result in band (for example `list agents`, `check agent` and
+`cancel agent`). Before, the tool had one mount for all its operations.
+
+**What changed.**
+
+- `OperationDefinition.mount` is the `ToolMount` of an operation. The default
+  is `ToolMount.synchronous`.
+- `@Operation` takes a `mount` argument, for example
+  `@Operation(verb: "start", noun: "agent", description: "...", mount: ToolMount(mode: .background))`.
+  The macro emits the `mount` static only when the argument is present.
+- `AnyOperation.mount` holds the mount of the erased operation.
+- `OperationTool` conforms to `BackgroundTool`. `mount(for:)` gives the mount
+  of the operation that the `op` of the call names. An unknown operation is
+  synchronous, so its correction comes back in band.
+- `Operations` re-exports `ToolMount` as a typealias, so code that imports only
+  `Operations` can name it.
+
+**Migration.** An `OperationTool` that a host mounts as background now runs
+each call synchronously, unless the called operation declares a background
+mount. Give `mount: ToolMount(mode: .background)` to each operation that must
+run in the background.
+
 ### Added: `BackgroundTool.mount(for:)`
 
 A tool now chooses background or synchronous for each call, not one time for

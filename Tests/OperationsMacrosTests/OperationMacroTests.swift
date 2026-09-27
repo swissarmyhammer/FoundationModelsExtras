@@ -72,6 +72,64 @@ private let operationMacroSpecs: [String: MacroSpec] = [
         )
     }
 
+    // MARK: - Mount
+
+    @Test func mountArgumentSynthesizesTheMountStatic() {
+        assertMacroExpansion(
+            """
+            @Operation(verb: "start", noun: "job", description: "Start a job", mount: ToolMount(mode: .background))
+            struct StartJob {
+                @Guide(description: "The job name")
+                var name: String
+            }
+            """,
+            expandedSource: """
+                struct StartJob {
+                    @Guide(description: "The job name")
+                    var name: String
+                }
+
+                extension StartJob: OperationDefinition, HasCLICommand {
+                    static let verb: String = "start"
+                    static let noun: String = "job"
+                    static let operationDescription: String = "Start a job"
+                    static let parameterMetadata: [ParamMeta] = [
+                        ParamMeta(name: "name", type: .string, required: true, description: "The job name"),
+                    ]
+                    static let mount: ToolMount = ToolMount(mode: .background)
+
+                    struct Command: AsyncParsableCommand, OperationCommand {
+                        static let configuration = CommandConfiguration(commandName: "start", abstract: "Start a job")
+
+                        @Option(help: "The job name")
+                        var name: String
+
+                        init() {
+                        }
+
+                        /// The canonical `op` + fields payload built from this command's
+                        /// parsed values, in the identical shape `AnyOperation.run`
+                        /// expects and the model path sends.
+                        func operationPayload() -> GeneratedContent {
+                            var payload: [(String, any ConvertibleToGeneratedContent)] = [("op", StartJob.opString)]
+                            payload.append(("name", name))
+                            return GeneratedContent(properties: payload, uniquingKeysWith: { _, new in
+                                    new
+                                })
+                        }
+
+                        mutating func run() async throws {
+                            print(operationPayload().jsonString)
+                        }
+                    }
+
+                    typealias CLICommand = Command
+                }
+                """,
+            macroSpecs: operationMacroSpecs
+        )
+    }
+
     // MARK: - Optional / array fields
 
     @Test func optionalAndArrayFieldsMapToNotRequiredAndArrayParamType() {

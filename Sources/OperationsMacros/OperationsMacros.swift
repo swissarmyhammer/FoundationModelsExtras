@@ -389,12 +389,13 @@ private func operationParamInfo(
 /// AsyncParsableCommand` (ArgumentParser leaf) for the dual-use CLI built
 /// from that same property data.
 public struct OperationMacro: ExtensionMacro {
-    /// Expands `@Operation(verb:noun:description:)` into an
+    /// Expands `@Operation(verb:noun:description:mount:)` into an
     /// `OperationDefinition` conformance extension on the annotated struct.
     ///
     /// - Parameters:
     ///   - node: The `@Operation(...)` attribute syntax; its `verb`, `noun`,
-    ///     and `description` arguments seed the synthesized statics.
+    ///     `description` and optional `mount` arguments seed the synthesized
+    ///     statics.
     ///   - declaration: The declaration the attribute is attached to. Must
     ///     be a `StructDeclSyntax`; otherwise `.requiresStruct` is diagnosed
     ///     and expansion produces no extension.
@@ -441,6 +442,7 @@ public struct OperationMacro: ExtensionMacro {
 
         let access = structDecl.modifiers.first(where: \.isNeededAccessLevelModifier)
         let accessText = access.map { "\($0.name.text) " } ?? ""
+        let mountText = mountStaticText(from: arguments, accessText: accessText)
 
         let commandText = commandStructText(
             accessText: accessText,
@@ -458,7 +460,7 @@ public struct OperationMacro: ExtensionMacro {
             \(accessText)static let verb: String = \(verbText)
             \(accessText)static let noun: String = \(nounText)
             \(accessText)static let operationDescription: String = \(descriptionText)
-            \(accessText)static let parameterMetadata: [ParamMeta] = \(parameterMetadataText)
+            \(accessText)static let parameterMetadata: [ParamMeta] = \(parameterMetadataText)\(mountText)
 
             \(commandText)
 
@@ -532,6 +534,21 @@ private func verbNounDescriptionText(
     let descriptionText = descriptionExpr?.trimmedDescription ?? emptyStringLiteralText
 
     return (verbText, nounText, descriptionText)
+}
+
+/// Builds the source text of the `mount` static from the `mount` argument of
+/// an `@Operation(...)` attribute, as a new line after `parameterMetadata`.
+///
+/// - Parameters:
+///   - arguments: The `@Operation(...)` attribute's argument list.
+///   - accessText: The access-level modifier text of the static, or `""`.
+/// - Returns: The declaration text, or `""` when the attribute has no `mount`
+///   argument. Then the default of `OperationDefinition` stands.
+private func mountStaticText(from arguments: LabeledExprListSyntax, accessText: String) -> String {
+    guard let mountExpr = arguments.first(labeled: "mount")?.expression else {
+        return ""
+    }
+    return "\n\(accessText)static let mount: ToolMount = \(mountExpr.trimmedDescription)"
 }
 
 /// Diagnoses `propertyName` (via `context`) as having an unsupported

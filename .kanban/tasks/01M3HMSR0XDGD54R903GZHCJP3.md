@@ -55,8 +55,31 @@ comments:
     - `site` changed from `private` to internal, because the protocol requires it.
     - Note: `review dump validators` gave a rules file of 730K characters. It was too large to read, so I applied the usual rules (doc comments, no copies, small functions).
   timestamp: 2026-09-27T15:34:27.267902+00:00
-position_column: review
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3hr1w0yv8xasz484ttgzenb
+  text: |-
+    ### implement — changed
+    - evidence: ToolMounting.swift, RunToCompletionRunner.swift, BackgroundToolRunner.swift. `swift build --build-tests` and `swift build` give 0 warnings. `swift test` passes: 731 tests in 70 suites, plus 396, 125, 44, 34 and 26 in the other runs. Commit 23e0f9c (local, not pushed). The comment and step record after the commit are not in that commit.
+    - next: /review
+  timestamp: 2026-09-27T15:34:33.246745+00:00
+- actor: claude-code
+  id: 01m3hr61e5es3fh561rz64efvb
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (23e0f9c): 0 findings, 7 validator runs, 0 failed. All prior findings are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-09-27T15:36:49.861707+00:00
+- actor: claude-code
+  id: 01m3hr67zmpxkvh60xs6czfsnk
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — ToolMounting.swift, RunToCompletionRunner.swift, BackgroundToolRunner.swift (one shared call)
+    - test: green — swift test, 731 tests in 70 suites
+    - commit: 23e0f9c
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-09-27T15:36:56.564268+00:00
+position_column: done
+position_ordinal: c780
 title: 'Tool hosting 6: a tool chooses background or synchronous for each call'
 ---
 ## Why

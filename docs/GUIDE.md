@@ -104,6 +104,29 @@ manual-run (`swift run notes --chat`) validation of this end to end: op-call acc
 over a prompt set, rendered schema size via `tokenCount(for:)`, and the retry-cap
 behavior on a deliberately invalid prompt.
 
+## Background and synchronous operations
+
+Each operation declares how a call of it runs: its `mount`, a `ToolMount`. The default
+is `ToolMount.synchronous`: the call answers with the real output of the operation. Give
+the `mount` argument to `@Operation` to start the operation as a background run:
+
+```swift
+@Generable
+@Operation(verb: "start", noun: "agent", description: "Start an agent", mount: ToolMount(mode: .background))
+struct StartAgent {
+    @Guide(description: "The task of the agent")
+    var task: String
+}
+```
+
+A type that conforms to `OperationDefinition` by hand declares `static let mount`.
+`OperationTool` conforms to `BackgroundTool`. Its `mount(for:)` reads the `op` of the
+call and gives the mount of that operation. An unknown `op` is synchronous, so the
+correction comes back in band. Thus, in one tool, `start agent` answers with a
+`PendingRunEnvelope`, and `list agents`, `check agent` and `cancel agent` answer with
+their real output. The host mount does not change this choice: an operation with no
+declared mount is synchronous, also when the host mounts the tool as background.
+
 ## The dual-use CLI
 
 `OperationCLIDriver` assembles a runtime ArgumentParser command tree from one or more

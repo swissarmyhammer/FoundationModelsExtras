@@ -41,6 +41,10 @@ public protocol OperationDefinition: Generable, Sendable {
     /// (e.g. `"add note"`). Defaults to `"\(verb) \(noun)"`.
     static var opString: String { get }
 
+    /// How a call of this operation runs. `OperationTool` gives it to the
+    /// host for each call. Defaults to ``ToolMount/synchronous``.
+    static var mount: ToolMount { get }
+
     /// Runs the operation against the shared context.
     func execute(in context: Context) async throws -> Output
 }
@@ -53,4 +57,8 @@ extension OperationDefinition {
     public static var opString: String {
         "\(verb) \(noun)"
     }
+
+    /// The default `mount`: ``ToolMount/synchronous``, so a call answers
+    /// with the real output of the operation.
+    public static var mount: ToolMount { .synchronous }
 }

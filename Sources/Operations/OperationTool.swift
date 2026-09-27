@@ -284,6 +284,20 @@ extension OperationTool: ForkableTool {
     }
 }
 
+/// `OperationTool` conforms to `BackgroundTool`, so the host runs each call
+/// with the mount of the called operation.
+extension OperationTool: BackgroundTool {
+    /// The mount of the operation that `arguments` names. An unknown
+    /// operation is ``ToolMount/synchronous``, so its correction comes back
+    /// in band.
+    ///
+    /// - Parameter arguments: The payload with the `op` key.
+    /// - Returns: The mount of the called operation.
+    public func mount(for arguments: GeneratedContent) -> ToolMount? {
+        matchOperation(for: arguments)?.mount ?? .synchronous
+    }
+}
+
 /// `OperationTool` conforms to `OperationDescribing` for every `Context`. A
 /// host that holds only `any Tool` can get the operations of the tool as
 /// descriptors, and can dispatch one operation with `perform(_:)`.

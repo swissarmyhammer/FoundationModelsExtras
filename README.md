@@ -646,6 +646,11 @@ questions that those runs ask the user.
   in the background for one operation, and give the real result in band for
   another operation (for example `list`, `check` or `cancel`). The default
   gives `mount`, the same for each call.
+- An `OperationTool` of the `Operations` module is a `BackgroundTool`. Each
+  operation declares its mount (`@Operation(..., mount: ToolMount(mode:
+  .background))`), and the default is `ToolMount.synchronous`. The tool gives
+  the mount of the called operation for each call. An unknown operation is
+  synchronous. See [`docs/GUIDE.md`](docs/GUIDE.md).
 - `SubmissionBoundaryTool` gets a call before each submission of the session.
   `ToolDecorator` passes that call down to the tool beneath a decorator.
 - `ToolFailureDelivery.makeWrapped(tool:)` gives a failed call to the model as

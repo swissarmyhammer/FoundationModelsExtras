@@ -23,6 +23,9 @@ public struct AnyOperation<Context: Sendable>: Sendable {
     /// One entry per parameter, in declaration order.
     public let parameters: [ParamMeta]
 
+    /// How a call of this operation runs, from `OperationDefinition.mount`.
+    public let mount: ToolMount
+
     /// The concrete `OperationDefinition` type this `AnyOperation` erases,
     /// type-erased in turn to `any OperationDefinition.Type`.
     ///
@@ -65,6 +68,7 @@ public struct AnyOperation<Context: Sendable>: Sendable {
         noun = O.noun
         description = O.operationDescription
         parameters = O.parameterMetadata
+        mount = O.mount
         definitionType = O.self
         commandType = (O.self as? any HasCLICommand.Type)?.commandType
         run = { content, context in

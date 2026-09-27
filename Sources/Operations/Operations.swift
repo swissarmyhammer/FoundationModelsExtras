@@ -1,4 +1,5 @@
 import FoundationModels
+import FoundationModelsExtras
 
 /// Re-exported so that any target which imports `Operations` — including
 /// macro-generated `Command` types produced by `@Operation` — has
@@ -32,12 +33,15 @@ import FoundationModels
 ///   - noun: The resource the operation acts on (e.g. `"note"`).
 ///   - description: A human- and model-facing summary of what the operation
 ///     does.
+///   - mount: How a call of the operation runs. When it is present, the
+///     macro emits it as the `mount` static. Defaults to
+///     `ToolMount.synchronous`.
 @attached(
     extension, conformances: OperationDefinition, HasCLICommand,
-    names: named(verb), named(noun), named(operationDescription), named(parameterMetadata), named(Command),
-        named(CLICommand)
+    names: named(verb), named(noun), named(operationDescription), named(parameterMetadata), named(mount),
+        named(Command), named(CLICommand)
 )
-public macro Operation(verb: String, noun: String, description: String) =
+public macro Operation(verb: String, noun: String, description: String, mount: ToolMount = .synchronous) =
     #externalMacro(module: "OperationsMacros", type: "OperationMacro")
 
 /// Marks a stored property of an `@Operation` struct with CLI-facing
