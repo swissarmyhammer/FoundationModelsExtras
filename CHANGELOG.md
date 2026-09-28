@@ -5,6 +5,38 @@ change is at the top.
 
 ## Unreleased
 
+### Added: the `TelemetryTestSupport` product
+
+A test target of each package of the family can prove that its telemetry
+carries no content of the caller.
+
+**Cause.** The OpenTelemetry design of 2026-09-28 has two rules. Rule 4: a span
+attribute, a log message, a log metadata value and a metric dimension carry
+ids, names, counts and sizes only, never a prompt, a response, tool arguments,
+tool output, embed text or an LSP payload. Rule 5: each package proves rule 4
+with a content-safety test that uses one shared helper.
+
+**What changed.**
+
+- `TelemetryCapture.run(forbidding:_:)` runs the code under test with an
+  in-memory tracer, log handler and metrics factory. After the code, it
+  records one issue for each place that contains a forbidden string. Each issue
+  names the place, as `<span>.<key> = <value>`, `log <level>: <message>`,
+  `log metadata <key> = <value>` or `metric <name> <key> = <value>`.
+- `TelemetryCapture.Context` gives the tracer, the logger and the metrics
+  factory of the capture, the recorded spans, log records and metrics, and
+  `leaks(forbidding:)` for a test that inspects the result.
+- The capture binds its tracer with `withTracer` and its metrics factory with
+  `withMetricsFactory`, thus it calls no `InstrumentationSystem.bootstrap` and
+  no `MetricsSystem.bootstrap`. It calls `LoggingSystem.bootstrap` one time for
+  each process, with a handler that sends each record to the capture of its
+  task. Captures that run in parallel do not see the records of each other.
+
+**Migration.** Add
+`.product(name: "TelemetryTestSupport", package: "FoundationModelsExtras")` to
+the test target. A test process that uses the helper must not bootstrap the
+logging system itself.
+
 ### Added: each operation declares its mount
 
 An `OperationTool` now runs each call with the mount of the called operation.

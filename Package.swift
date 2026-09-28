@@ -37,6 +37,11 @@ let package = Package(
         // `FoundationModelsSkills` tests use, so there is one copy
         // (decision 2026-09-19).
         .library(name: "MarketplaceFixtures", targets: ["MarketplaceFixtures"]),
+        // The content-safety helper of the telemetry (the OpenTelemetry design
+        // of 2026-09-28, rule 5): each package of the family proves with this
+        // one helper that no span, log record or metric carries the content
+        // of the caller.
+        .library(name: "TelemetryTestSupport", targets: ["TelemetryTestSupport"]),
     ],
     dependencies: [
         // Templating engine for Pillar 3 (plan.md §4). PathKit rides along
@@ -130,6 +135,9 @@ let package = Package(
                 // The tool-span tests read the finished spans from an
                 // in-memory tracer.
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
+                // The content-safety tests of the telemetry, and the tests of
+                // the helper itself.
+                "TelemetryTestSupport",
             ],
             resources: [
                 // `CorpusGoldenTests` reads these directly off disk via
@@ -296,6 +304,27 @@ let package = Package(
                 .product(name: "libgit2", package: "swift-libgit2"),
             ],
             path: "Tests/MarketplaceFixtures"
+        ),
+
+        // The content-safety helper of the telemetry: `TelemetryCapture` runs
+        // the code under test with an in-memory tracer, log handler and
+        // metrics factory, and records an issue for each span attribute, log
+        // message, log metadata value and metric dimension that carries a
+        // forbidden string. A plain library target and a product, not
+        // test-target code, so that the test targets of the other packages of
+        // the family (Router, Multitool, the metadata registry, ACP) import the
+        // one copy, in the same idiom as `MarketplaceFixtures`.
+        .target(
+            name: "TelemetryTestSupport",
+            dependencies: [
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "InMemoryLogging", package: "swift-log"),
+                .product(name: "Metrics", package: "swift-metrics"),
+                .product(name: "MetricsTestKit", package: "swift-metrics"),
+            ],
+            path: "Tests/TelemetryTestSupport"
         ),
 
         // Tests for the marketplace library. `@testable` so the tests can

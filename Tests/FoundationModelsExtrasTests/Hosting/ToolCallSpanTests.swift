@@ -1,5 +1,6 @@
 @testable import FoundationModelsExtras
 import InMemoryTracing
+import TelemetryTestSupport
 import Testing
 import Tracing
 import ULID
@@ -65,5 +66,28 @@ struct ToolCallSpanTests {
 
         let span = try #require(tracer.finishedSpans.first)
         #expect(span.errors.count == 1)
+    }
+
+    @Test("the tool span carries no tool argument and no tool output")
+    func theToolSpanCarriesNoToolContent() async throws {
+        let argument = "tool-argument-4d1f"
+        let output = "tool-output-7b3a"
+
+        let context = try await TelemetryCapture.run(forbidding: [argument, output]) { context in
+            let value = try await ToolCallSpan.withSpan(
+                tracer: context.tracer, toolName: Self.toolName, sessionID: ULID(), runKind: .foreground
+            ) { span in
+                ToolCallSpan.record(outcome: .succeeded, on: span)
+                return "\(output) for \(argument)"
+            }
+            #expect(value.contains(output))
+            return context
+        }
+
+        // A capture that recorded nothing would pass with no issue, thus the
+        // test states what the capture measured.
+        let span = try #require(context.spans.first)
+        #expect(context.spans.count == 1)
+        #expect(span.attributes.get(ToolCallSpan.AttributeKey.outcome) == .string(OperationOutcome.succeeded.rawValue))
     }
 }
