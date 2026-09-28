@@ -1,0 +1,33 @@
+---
+assignees:
+- claude-code
+depends_on:
+- 01M3MN838VZ4QX57C3965XMGKV
+- 01M3MN8N9P4RPET2V5JZ6JQD9G
+position_column: todo
+position_ordinal: '8280'
+title: 'OTel C: add a shared helper that opens a span and writes one "enter" log record, for hang detection'
+---
+## What
+
+Part C of the OpenTelemetry design that the user approved on 2026-09-28 (copy: /private/tmp/claude-501/-Users-wballard-github-swissarmyhammer/9f4fa2e8-6833-46c6-bb95-5091ae3613fa/scratchpad/otel-design.md). Rule 8, hang detection: a backend exports a span only when the span ends. Thus a call that hangs gives no span. A span on a call that can suspend for a long time must also write one "enter" log record when it starts. Multitool and other packages will use this helper.
+
+Add a public helper in the core target, in a new file `/Users/wballard/github/swissarmyhammer/FoundationModelsExtras/Sources/FoundationModelsExtras/Telemetry/TracedCall.swift` (the name is a proposal):
+
+- [ ] An API like `TracedCall.run<Output>(_ spanName: String, ofKind: SpanKind = .internal, tracer: (any Tracer)? = nil, logger: Logger, attributes: (inout SpanAttributes) -> Void = { _ in }, metadata: Logger.Metadata = [:], _ body: (any Span) async throws -> Output) async throws -> Output`. It opens the span with `tracer ?? InstrumentationSystem.tracer`, sets the attributes, writes one log record at `.debug` or `.info` level (decide, and document it) with the message `enter <spanName>` and metadata that holds only `metadata` plus the trace id and the span id of the new span (when the span context gives them), and then runs `body`. It writes nothing more on exit; the span records the end and the error.
+- [ ] The log record must carry no content: the helper takes only the metadata that the caller gives, and it does not put `body` values or errors into the message. Document rule 4 on the API.
+- [ ] Put the log message text and the metadata keys (for example `span.name`, `trace.id`, `span.id`) in the Extras vocabulary file of task D if that file exists; if not, put them in a small `enum` in this file and let task D move them.
+- [ ] Doc comments in ASD-STE100 Simplified Technical English.
+
+## Acceptance Criteria
+- [ ] One call gives one finished span with the given name and attributes, and exactly one log record that the helper wrote before `body` started.
+- [ ] The "enter" record is written even when `body` never returns during the test (the test cancels `body` after it sees the record).
+- [ ] A thrown error from `body` is recorded on the span and rethrown; the helper writes no second log record.
+
+## Tests
+- [ ] New `Tests/FoundationModelsExtrasTests/Telemetry/TracedCallTests.swift`: use the `TelemetryTestSupport` capture from task B. Tests: (1) one span and one "enter" record, and the record comes before the body runs (the body checks the captured records); (2) a body that waits on a continuation that the test never resumes: the test waits for the "enter" record with a bounded wait on a real signal, then cancels the task; (3) a throwing body; (4) the helper passes the content-safety check of task B with a forbidden string given to `body` only.
+- [ ] `swift test --parallel` passes. With `swift test --filter`, use a regex with the target name and check that the count of tests that ran is not zero.
+
+## Workflow
+- Use `/tdd` — write failing tests first, then implement to make them pass.
+- Do not run `swift format`.

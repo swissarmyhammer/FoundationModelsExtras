@@ -69,6 +69,14 @@ let package = Package(
         // (plan.md §5). The same pin as FoundationModelsRouter. The core
         // target links `Tracing`; the core tests link `InMemoryTracing`.
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1"),
+        // The logging API and the metrics API of the core target (the
+        // OpenTelemetry design of 2026-09-28). API only: no library target
+        // links a backend or calls `LoggingSystem.bootstrap` or
+        // `MetricsSystem.bootstrap`. The executables of the family depend on
+        // swift-otel and bootstrap the backend. Until an executable does,
+        // each logger and each metric of a library does nothing.
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.15.1"),
+        .package(url: "https://github.com/apple/swift-metrics.git", from: "2.11.0"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -82,6 +90,9 @@ let package = Package(
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "ULID", package: "ULID.swift"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
+                // The logger and the tool-call metrics of `ExtrasTelemetry`.
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Metrics", package: "swift-metrics"),
             ]
         ),
 
