@@ -28,8 +28,22 @@ comments:
     - evidence: `swift test --parallel` — 792 tests in 79 suites passed, 0 failed, 0 skipped, 4 known issues (the expected issues of the existing withKnownIssue tests in TelemetryCaptureTests); 0 compiler warnings (only the SwiftPM manifest-cache "disk I/O error" warnings of the environment). Filtered run `swift test --filter 'FoundationModelsExtrasTests\.(W3CInMemoryTracerTests|SpanIdentityTests|TracedCallTests|...)'`: 52 tests ran.
     - next: /commit
   timestamp: 2026-09-28T20:39:47.534502+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3mwaypem77jhh7myds8qkj2
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 53c797f) — 0 findings, 0 confirmed, 0 refuted, 7 validators attempted, 0 failed. 9 files reviewed; .kanban (ignore rule) and CHANGELOG.md (no validator) not reviewed. No prior Review Findings sections.
+    - next: task moved to done
+  timestamp: 2026-09-28T20:47:08.494776+00:00
+- actor: claude-code
+  id: 01m3mwb0bfwhth34f5v65xtd3g
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed (10 files); test: green (`swift test --parallel` 792 tests in 79 suites passed, 0 failed, 0 skipped); commit: 53c797f; review: clean (`review sha HEAD~1..HEAD`, 0 findings).
+    - task moved to done.
+  timestamp: 2026-09-28T20:47:10.191478+00:00
+position_column: done
+position_ordinal: d680
 title: 'OTel E: TelemetryCapture uses a tracer that records spans and injects and extracts W3C traceparent and tracestate'
 ---
 ## What
