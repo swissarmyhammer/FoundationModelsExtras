@@ -27,12 +27,24 @@ comments:
     - evidence: swift test --parallel — Swift Testing runs: 131, 40, 44, 26 and 774 tests passed, 0 failed, 0 skipped. The 4 known issues are the withKnownIssue checks of TelemetryCaptureTests (task B), not new. No compiler warnings. The only other warnings are the SwiftPM "disk I/O error" manifest cache lines of the environment. Filter run before: FoundationModelsExtrasTests.(ToolCallSpanTests|ExtrasContentSafetyTests|ExtrasTelemetryTests|TracedCallTests|TelemetryDependencyTests) — 26 tests passed.
     - next: commit
   timestamp: 2026-09-28T20:15:39.259433+00:00
+- actor: claude-code
+  id: 01m3mttqntd7br6yvde4sn66am
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (927033f) — 0 findings, 0 confirmed, 0 refuted; 12 files reviewed, 7 validator runs attempted, 0 failed. Skipped: .kanban files (ignore rule) and CHANGELOG.md (no validator).
+    - next: done
+
+    ### finish iteration 1 — clean
+    - commit: 927033f feat(telemetry): put the tool span names in ExtrasTelemetry, rename the span to FoundationModelsExtras.tool, and record the tool-call metrics
+    - test: swift test --parallel green (131 + 40 + 44 + 26 + 774 tests passed, 0 failed)
+    - review: clean, task moved to done
+  timestamp: 2026-09-28T20:20:48.442252+00:00
 depends_on:
 - 01M3MN838VZ4QX57C3965XMGKV
 - 01M3MN8N9P4RPET2V5JZ6JQD9G
 - 01M3MN91YK71YVJ9C7WYKGZ2AA
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: d580
 title: 'OTel D: add the ExtrasTelemetry vocabulary file for the tool span and the tool-call metrics'
 ---
 ## What
