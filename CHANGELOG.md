@@ -5,6 +5,45 @@ change is at the top.
 
 ## Unreleased
 
+### Changed: `TelemetryCapture` uses a tracer that injects and extracts W3C `traceparent` and `tracestate`
+
+In a capture, the "enter" record of `TracedCall` holds the `trace.id` and the
+`span.id` of its span, and a test can prove that a `traceparent` value goes
+across a process boundary, for example in the `_meta` of an ACP or MCP request.
+
+**Cause.** The capture bound an `InMemoryTracer`. That tracer injects and
+extracts only its own trace-id and span-id keys, and no W3C `traceparent`
+value. Thus `SpanIdentity` found no ids, and no package could test rule 7 of
+the OpenTelemetry design of 2026-09-28: the `traceparent` value goes across
+each process boundary.
+
+**What changed.**
+
+- New in `TelemetryTestSupport`: `W3CInMemoryTracer`. It keeps its spans in an
+  `InMemoryTracer` (`inMemoryTracer`, `finishedSpans`, `activeSpans`), with ids
+  in the W3C format. `inject` writes `traceparent`
+  (`00-<trace id>-<span id>-<flags>`) and `tracestate` when the context has one.
+  `extract` reads `traceparent` and `tracestate`, ignores a value that the W3C
+  format does not allow, and puts the remote span context into the
+  `ServiceContext`, so that the next span is a child in the same trace.
+  `injectedFields(of:)` and `extractedContext(from:)` do the same with a
+  `[String: String]` carrier. `ServiceContext.w3cTraceFlags` and
+  `ServiceContext.w3cTraceState` hold the extracted flags and `tracestate`.
+- `TelemetryCapture.Context.tracer` is now a `W3CInMemoryTracer`. It was an
+  `InMemoryTracer`. `TelemetryCapture.run` binds it with `withTracer`.
+- `SpanIdentity` is now public, in the core module. It is the one copy of the
+  `traceparent` format: `init?(traceparent:)`, `init?(traceID:spanID:traceFlags:)`,
+  `init?(context:tracer:)`, `traceparent`, `traceFlags`, `injectedFields(of:by:)`,
+  and the carrier keys `traceparentField` and `tracestateField`.
+- `TelemetryTestSupport` now depends on the `FoundationModelsExtras` module.
+
+**Migration.** Code that gives `context.tracer` to an `any Tracer` parameter,
+or reads `context.tracer.finishedSpans` or `context.spans`, needs no change.
+Code that needs the `InMemoryTracer` type itself, for example to read
+`performedContextInjections`, reads `context.tracer.inMemoryTracer`. A test that
+expects the exact metadata of an "enter" record in a capture must now expect
+the `trace.id` and the `span.id` too.
+
 ### Changed: the tool span is `FoundationModelsExtras.tool`, with an "enter" record and tool-call metrics
 
 Each mounted tool call gives one span, one "enter" log record, one count and

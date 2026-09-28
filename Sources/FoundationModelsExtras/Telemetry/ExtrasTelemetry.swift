@@ -2,8 +2,8 @@ import Logging
 import Metrics
 
 /// The telemetry vocabulary of the core target: the span names, the attribute
-/// keys, the metric names and the log metadata keys, and the logger and the
-/// tool-call metrics that use them.
+/// keys, the metric names, the log metadata keys and the carrier keys of the
+/// W3C trace context, and the logger and the tool-call metrics that use them.
 ///
 /// Rule 3 of the OpenTelemetry design of 2026-09-28: each package keeps all of
 /// its telemetry names in one vocabulary file. No other source file of the core
@@ -68,6 +68,19 @@ enum ExtrasTelemetry {
         /// The session that the call runs in. It has the same key as the span
         /// attribute.
         static let sessionID = AttributeKey.sessionID
+    }
+
+    /// The carrier keys of the W3C trace context: the fields that carry the
+    /// span context of a call across a process boundary, for example in an
+    /// HTTP header or in the `_meta` of an ACP or MCP request.
+    enum TraceContextField {
+        /// The key of the W3C `traceparent` value: the version, the trace id,
+        /// the span id and the trace flags.
+        static let traceparent = "traceparent"
+
+        /// The key of the W3C `tracestate` value: the vendor data of the
+        /// trace, as a list of `key=value` members.
+        static let tracestate = "tracestate"
     }
 
     /// The message of the "enter" log record that ``TracedCall`` writes when a

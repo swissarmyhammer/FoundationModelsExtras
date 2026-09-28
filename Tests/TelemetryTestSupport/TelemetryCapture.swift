@@ -17,7 +17,11 @@ import Tracing
 ///
 /// ``run(forbidding:sourceLocation:_:)`` gives the code under test
 /// a new ``Context``, with an in-memory tracer, log handler and metrics
-/// factory. After the code, it records one issue for each place that contains
+/// factory. The tracer is a ``W3CInMemoryTracer``: it injects and extracts
+/// W3C `traceparent` and `tracestate` values, thus the "enter" record of
+/// `TracedCall` holds the `trace.id` and the `span.id` of its span, and a test
+/// can prove that a `traceparent` value goes across a process boundary.
+/// After the code, it records one issue for each place that contains
 /// a forbidden string. The code under test can use the telemetry of the
 /// context in two ways:
 ///
@@ -98,8 +102,11 @@ public enum TelemetryCapture {
 extension TelemetryCapture {
     /// The telemetry objects of one capture, and the records that they hold.
     public struct Context: Sendable {
-        /// The tracer of the capture. It keeps each span that ends.
-        public let tracer: InMemoryTracer
+        /// The tracer of the capture. It keeps each span that ends, and it
+        /// injects and extracts the span context as W3C `traceparent` and
+        /// `tracestate` values. Its ``W3CInMemoryTracer/inMemoryTracer`` is
+        /// the `InMemoryTracer` that keeps the spans.
+        public let tracer: W3CInMemoryTracer
 
         /// The metrics factory of the capture. It keeps each metric that the
         /// code makes.
@@ -117,7 +124,7 @@ extension TelemetryCapture {
             handler.logLevel = .trace
             let recordingHandler = handler
             logHandler = recordingHandler
-            tracer = InMemoryTracer()
+            tracer = W3CInMemoryTracer()
             metricsFactory = TestMetrics()
             logger = Logger(label: TelemetryCapture.loggerLabel) { _ in recordingHandler }
         }

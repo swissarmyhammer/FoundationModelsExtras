@@ -48,9 +48,9 @@ struct TracedCallTests {
 
         #expect(recordsSeenByBody.map(\.level) == [TracedCall.enterLevel])
         #expect(recordsSeenByBody.map(\.message) == ["\(Self.enterMessage)"])
-        #expect(recordsSeenByBody.map(\.metadata) == [Self.callerMetadata])
         #expect(context.logRecords == recordsSeenByBody)
         let span = try #require(context.spans.first)
+        #expect(recordsSeenByBody.map(\.metadata) == [Self.enterMetadata(of: span)])
         #expect(context.spans.count == 1)
         #expect(span.operationName == Self.spanName)
         #expect(span.attributes.get(Self.attributeKey) == .string(Self.attributeValue))
@@ -125,19 +125,33 @@ struct TracedCallTests {
 
     @Test("a tracer that injects a W3C traceparent gives the trace id and the span id to the record")
     func aTraceparentGivesTheIdsToTheRecord() async throws {
-        let tracer = TraceparentTracer()
+        let tracer = W3CInMemoryTracer()
         let context = try await TelemetryCapture.run(forbidding: []) { context in
             try await Self.run(tracer: tracer, logger: context.logger) { _ in }
             return context
         }
 
-        let span = try #require(tracer.inner.finishedSpans.first)
+        let span = try #require(tracer.finishedSpans.first)
         let record = try #require(context.logRecords.first)
+        #expect(context.spans.isEmpty)
         #expect(context.logRecords.count == 1)
-        var expectedMetadata = Self.callerMetadata
-        expectedMetadata[ExtrasTelemetry.LogMetadataKey.traceID] = "\(span.traceID)"
-        expectedMetadata[ExtrasTelemetry.LogMetadataKey.spanID] = "\(span.spanID)"
-        #expect(record.metadata == expectedMetadata)
+        #expect(record.metadata == Self.enterMetadata(of: span))
+    }
+
+    @Test("in a capture with no explicit tracer, the enter record holds the trace id and the span id of its span")
+    func aCaptureGivesTheIdsToTheRecord() async throws {
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            try await Self.run(logger: context.logger) { _ in }
+            return context
+        }
+
+        let span = try #require(context.spans.first)
+        let record = try #require(context.logRecords.first)
+        #expect(context.spans.count == 1)
+        #expect(context.logRecords.count == 1)
+        #expect(record.metadata[ExtrasTelemetry.LogMetadataKey.traceID] == "\(span.traceID)")
+        #expect(record.metadata[ExtrasTelemetry.LogMetadataKey.spanID] == "\(span.spanID)")
+        #expect(SpanIdentity(traceID: span.traceID, spanID: span.spanID) != nil)
     }
 
     @Test("the enter record uses the names of the telemetry vocabulary")
@@ -145,6 +159,18 @@ struct TracedCallTests {
         #expect(ExtrasTelemetry.EnterRecord.message(forSpanNamed: Self.spanName) == Self.enterMessage)
         #expect(ExtrasTelemetry.LogMetadataKey.traceID == "trace.id")
         #expect(ExtrasTelemetry.LogMetadataKey.spanID == "span.id")
+    }
+
+    /// The metadata of the "enter" record of one call: the caller metadata,
+    /// plus the trace id and the span id of the span of the call.
+    ///
+    /// - Parameter span: The finished span of the call.
+    /// - Returns: The metadata that the record must hold.
+    private static func enterMetadata(of span: FinishedInMemorySpan) -> Logger.Metadata {
+        var metadata = callerMetadata
+        metadata[ExtrasTelemetry.LogMetadataKey.traceID] = "\(span.traceID)"
+        metadata[ExtrasTelemetry.LogMetadataKey.spanID] = "\(span.spanID)"
+        return metadata
     }
 
     /// Runs `body` through ``TracedCall`` with the span name, the attribute
@@ -169,45 +195,6 @@ struct TracedCallTests {
             metadata: callerMetadata,
             body
         )
-    }
-}
-
-/// ``SpanIdentity`` reads the trace id and the span id from a W3C
-/// `traceparent` value, and refuses a value that the W3C format does not
-/// allow.
-@Suite("SpanIdentity: the ids of a W3C traceparent value")
-struct SpanIdentityTests {
-    /// A trace id in the W3C format.
-    private static let traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
-
-    /// A span id in the W3C format.
-    private static let spanID = "00f067aa0ba902b7"
-
-    @Test("a valid traceparent gives its trace id and its span id")
-    func aValidTraceparentGivesItsIds() throws {
-        let identity = try #require(SpanIdentity(traceparent: "00-\(Self.traceID)-\(Self.spanID)-01"))
-
-        #expect(identity.traceID == Self.traceID)
-        #expect(identity.spanID == Self.spanID)
-    }
-
-    @Test(
-        "a traceparent that the W3C format does not allow gives no ids",
-        arguments: [
-            "00-4BF92F3577B34DA6A3CE929D0E0E4736-00F067AA0BA902B7-01",
-            "00-\(traceID)-\(spanID)",
-            "00-\(traceID)-\(spanID)-01-00",
-            "00-\(traceID.dropLast())-\(spanID)-01",
-            "00-\(traceID)-\(spanID)0-01",
-            "00-00000000000000000000000000000000-\(spanID)-01",
-            "00-\(traceID)-0000000000000000-01",
-            "ff-\(traceID)-\(spanID)-01",
-            "00-\(traceID)-\(spanID.dropLast())g-01",
-            "",
-        ]
-    )
-    func anInvalidTraceparentGivesNoIds(traceparent: String) {
-        #expect(SpanIdentity(traceparent: traceparent) == nil)
     }
 }
 
@@ -257,115 +244,5 @@ private struct SignalingLogHandler: LogHandler {
             line: event.line
         )
         signal.yield()
-    }
-}
-
-/// A tracer that keeps its spans in an in-memory tracer, and injects the span
-/// context as a W3C `traceparent` value, as an OpenTelemetry tracer does.
-private struct TraceparentTracer: Tracer {
-    /// The count of hexadecimal digits in one 64-bit part of an id.
-    private static let hexDigitsPerPart = 16
-
-    /// The radix of hexadecimal digits.
-    private static let hexRadix = 16
-
-    /// The in-memory tracer that makes and keeps the spans. Its ids have the
-    /// W3C format.
-    let inner = InMemoryTracer(idGenerator: .init(
-        nextTraceID: { hex(randomPart()) + hex(randomPart()) },
-        nextSpanID: { hex(randomPart()) }
-    ))
-
-    /// Starts a span in the in-memory tracer.
-    ///
-    /// - Parameters:
-    ///   - operationName: The name of the span.
-    ///   - context: The parent context.
-    ///   - kind: The kind of the span.
-    ///   - instant: The start time.
-    ///   - function: The function that starts the span.
-    ///   - fileID: The file that starts the span.
-    ///   - line: The line that starts the span.
-    /// - Returns: The span.
-    func startSpan<Instant: TracerInstant>(
-        _ operationName: String,
-        context: @autoclosure () -> ServiceContext,
-        ofKind kind: SpanKind,
-        at instant: @autoclosure () -> Instant,
-        function: String,
-        file fileID: String,
-        line: UInt
-    ) -> InMemorySpan {
-        inner.startSpan(
-            operationName,
-            context: context(),
-            ofKind: kind,
-            at: instant(),
-            function: function,
-            file: fileID,
-            line: line
-        )
-    }
-
-    /// Gives the active span that `context` names.
-    ///
-    /// - Parameter context: The context of the span.
-    /// - Returns: The span, or `nil` when no active span has that context.
-    func activeSpan(identifiedBy context: ServiceContext) -> InMemorySpan? {
-        inner.activeSpan(identifiedBy: context)
-    }
-
-    /// Flushes the in-memory tracer.
-    func forceFlush() {
-        inner.forceFlush()
-    }
-
-    /// Reads a context from `carrier` through the in-memory tracer.
-    ///
-    /// - Parameters:
-    ///   - carrier: The carrier.
-    ///   - context: The context to fill.
-    ///   - extractor: The reader of the carrier.
-    func extract<Carrier, Extract: Extractor>(
-        _ carrier: Carrier,
-        into context: inout ServiceContext,
-        using extractor: Extract
-    ) where Extract.Carrier == Carrier {
-        inner.extract(carrier, into: &context, using: extractor)
-    }
-
-    /// Writes the span context of `context` into `carrier` as a W3C
-    /// `traceparent` value.
-    ///
-    /// - Parameters:
-    ///   - context: The context that holds the span context.
-    ///   - carrier: The carrier.
-    ///   - injector: The writer of the carrier.
-    func inject<Carrier, Inject: Injector>(
-        _ context: ServiceContext,
-        into carrier: inout Carrier,
-        using injector: Inject
-    ) where Inject.Carrier == Carrier {
-        guard let spanContext = context.inMemorySpanContext else {
-            return
-        }
-        let traceparent = "00-\(spanContext.traceID)-\(spanContext.spanID)-01"
-        injector.inject(traceparent, forKey: SpanIdentity.traceparentField, into: &carrier)
-    }
-
-    /// Gives a random part of an id that is not zero.
-    ///
-    /// - Returns: The part.
-    private static func randomPart() -> UInt64 {
-        UInt64.random(in: 1 ... UInt64.max)
-    }
-
-    /// Gives `part` as lowercase hexadecimal digits, with leading zeros.
-    ///
-    /// - Parameter part: The part of an id.
-    /// - Returns: The digits.
-    private static func hex(_ part: UInt64) -> String {
-        let digits = String(part, radix: hexRadix)
-        return String(repeating: "0", count: hexDigitsPerPart - digits.count) + digits
     }
 }

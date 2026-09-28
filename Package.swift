@@ -316,10 +316,14 @@ let package = Package(
         // forbidden string. A plain library target and a product, not
         // test-target code, so that the test targets of the other packages of
         // the family (Router, Multitool, the metadata registry, ACP) import the
-        // one copy, in the same idiom as `MarketplaceFixtures`.
+        // one copy, in the same idiom as `MarketplaceFixtures`. The tracer of
+        // the capture, `W3CInMemoryTracer`, injects and extracts W3C
+        // `traceparent` and `tracestate` values. It depends on the core module
+        // for `SpanIdentity`, the one copy of the `traceparent` format.
         .target(
             name: "TelemetryTestSupport",
             dependencies: [
+                "FoundationModelsExtras",
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
                 .product(name: "Logging", package: "swift-log"),
