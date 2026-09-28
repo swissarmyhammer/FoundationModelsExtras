@@ -143,6 +143,18 @@ struct SpanIdentity: Equatable {
     /// The digit of an id that is not valid when each digit is this digit.
     private static let zeroDigit: Character = "0"
 
+    /// The count of hexadecimal digits of the version field.
+    private static let versionLength = 2
+
+    /// The count of hexadecimal digits of a W3C trace id.
+    private static let traceIDLength = 32
+
+    /// The count of hexadecimal digits of a W3C span id.
+    private static let spanIDLength = 16
+
+    /// The count of hexadecimal digits of the trace flags field.
+    private static let flagsLength = 2
+
     /// The fields of a `traceparent` value, in their order.
     private enum Field: Int, CaseIterable {
         /// The version of the format.
@@ -160,10 +172,10 @@ struct SpanIdentity: Equatable {
         /// The count of hexadecimal digits of the field.
         var length: Int {
             switch self {
-            case .version: 2
-            case .traceID: 32
-            case .spanID: 16
-            case .flags: 2
+            case .version: SpanIdentity.versionLength
+            case .traceID: SpanIdentity.traceIDLength
+            case .spanID: SpanIdentity.spanIDLength
+            case .flags: SpanIdentity.flagsLength
             }
         }
     }

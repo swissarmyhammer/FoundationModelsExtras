@@ -27,6 +27,32 @@ comments:
     - evidence: `swift test --parallel` — Swift Testing runs: 764 tests in 77 suites passed (4 known issues, all the expected `withKnownIssue` cases of TelemetryCaptureTests), plus 396, 131, 44, 40 and 26 tests in the other test products, 0 failed, 0 skipped; build output has 0 warnings.
     - next: /commit
   timestamp: 2026-09-28T19:55:23.313459+00:00
+- actor: claude-code
+  id: 01m3msptxr9d17ekyac34ajj8z
+  text: |-
+    ### review — findings
+    - evidence: `review sha HEAD~1..HEAD` (commit 736820a): 4 findings, 4 confirmed, 0 refuted — TracedCall.swift:163, :164, :165, :166 `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+    - next: /implement to fix every finding
+  timestamp: 2026-09-28T20:01:12.120149+00:00
+- actor: claude-code
+  id: 01m3mspx3wg39026vhx7v9s5tz
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed (TracedCall.swift, ExtrasTelemetry.swift, TracedCallTests.swift)
+    - test: green (`swift test --parallel`, 0 failed, 0 skipped, 0 warnings)
+    - commit: 736820a feat(telemetry): add TracedCall, which opens a span and writes one enter log record
+    - review: 4 findings — TracedCall.swift:163-166 `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+  timestamp: 2026-09-28T20:01:14.364295+00:00
+- actor: claude-code
+  id: 01m3msv0avqe7zwh9nv8td7b11
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Sources/FoundationModelsExtras/Telemetry/TracedCall.swift: the four field lengths of `SpanIdentity.Field.length` (2, 32, 16, 2) are now the named constants `versionLength`, `traceIDLength`, `spanIDLength` and `flagsLength`. No other unnamed numeric literal stays in the file.
+
+    ### test — green
+    - evidence: `swift test --parallel` — 764 tests in 77 suites passed (4 expected known issues), plus 396, 131, 44, 40 and 26 tests in the other products; 0 failed, 0 skipped, 0 warnings. The TracedCall and SpanIdentity suites passed.
+    - next: /commit
+  timestamp: 2026-09-28T20:03:28.731630+00:00
 depends_on:
 - 01M3MN838VZ4QX57C3965XMGKV
 - 01M3MN8N9P4RPET2V5JZ6JQD9G
@@ -57,3 +83,15 @@ Add a public helper in the core target, in a new file `/Users/wballard/github/sw
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 - Do not run `swift format`.
+
+## Review Findings (2026-09-28 14:55)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 3 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/FoundationModelsExtras/Telemetry/TracedCall.swift:163` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsExtras/Telemetry/TracedCall.swift:164` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsExtras/Telemetry/TracedCall.swift:165` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsExtras/Telemetry/TracedCall.swift:166` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
