@@ -4,7 +4,9 @@ import Metrics
 /// The telemetry names of the core target, and the logger and the tool-call
 /// metrics that use them.
 ///
-/// Each name starts with the module name. The core target uses the swift-log
+/// Each logger label and each metric name starts with the module name. A
+/// metadata key of a log record has the dotted form of an attribute key, for
+/// example `trace.id`. The core target uses the swift-log
 /// and swift-metrics APIs only, and it bootstraps no backend. The executables
 /// of the family bootstrap the backend. Until one does, each logger and each
 /// metric does nothing.
@@ -23,6 +25,31 @@ enum ExtrasTelemetry {
 
         /// The timer that records the duration of each tool call.
         static let toolDuration = "FoundationModelsExtras.tool.duration"
+    }
+
+    /// The names of the "enter" log record that ``TracedCall`` writes when a
+    /// call starts.
+    enum EnterRecord {
+        /// The text before the span name in the message of the record.
+        static let messagePrefix = "enter "
+
+        /// The metadata keys that ``TracedCall`` adds to the metadata of the
+        /// caller.
+        enum MetadataKey {
+            /// The W3C trace id of the span of the call.
+            static let traceID = "trace.id"
+
+            /// The W3C span id of the span of the call.
+            static let spanID = "span.id"
+        }
+
+        /// Gives the message of the record of one call.
+        ///
+        /// - Parameter spanName: The name of the span of the call.
+        /// - Returns: `enter <spanName>`.
+        static func message(forSpanNamed spanName: String) -> String {
+            messagePrefix + spanName
+        }
     }
 
     /// Makes a logger with the label of the core target.

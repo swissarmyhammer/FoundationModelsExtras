@@ -58,10 +58,26 @@ comments:
     - notes: `SpanAttributes` (swift-distributed-tracing 1.5.0) is not a `Sequence`; `forEach(_:)` is its only public walk, thus a `for` loop does not compile. The idioms-swift rule states the recourse for such a line: `// swiftformat:disable:next preferForLoop` with the reason after it. The code now carries that directive with the reason.
     - next: /test
   timestamp: 2026-09-28T19:35:09.111049+00:00
+- actor: claude-code
+  id: 01m3mrhm5s3pbs3nxx879fr18j
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (8539dc0) — 0 findings, 0 confirmed, 0 refuted; each of the 8 prior findings is checked.
+    - next: none — the task moved to done.
+  timestamp: 2026-09-28T19:40:52.793617+00:00
+- actor: claude-code
+  id: 01m3mrhp4j7vsw712fgpqctwgy
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 2 files (TelemetryPlace.swift, TelemetryCapture.swift): hoistPatternLet in 7 places, and the documented swiftformat directive on the one `SpanAttributes.forEach` walk
+    - test: green — `swift test --parallel`, 1393 passed, 0 failed, 0 skipped
+    - commit: changed — 8539dc0
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-09-28T19:40:54.802744+00:00
 depends_on:
 - 01M3MN838VZ4QX57C3965XMGKV
-position_column: review
-position_ordinal: '80'
+position_column: done
+position_ordinal: d380
 title: 'OTel B: add a TelemetryTestSupport product with a content-safety helper for spans, logs and metrics'
 ---
 ## What
@@ -103,11 +119,11 @@ Make a new library target and product `TelemetryTestSupport` at `Tests/Telemetry
 > 1 file(s) not reviewed — no validator matched:
 > - `CHANGELOG.md` — no validator matches this file
 
-- [ ] `Tests/TelemetryTestSupport/TelemetryCapture.swift:181` `code-hygiene/idioms-swift` — preferForLoop: Convert functional forEach calls to for loops.
-- [ ] `Tests/TelemetryTestSupport/TelemetryCapture.swift:195` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
-- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:31` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
-- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:33` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
-- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:35` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
-- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:37` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
-- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:39` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
-- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:41` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [x] `Tests/TelemetryTestSupport/TelemetryCapture.swift:181` `code-hygiene/idioms-swift` — preferForLoop: Convert functional forEach calls to for loops.
+- [x] `Tests/TelemetryTestSupport/TelemetryCapture.swift:195` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [x] `Tests/TelemetryTestSupport/TelemetryPlace.swift:31` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [x] `Tests/TelemetryTestSupport/TelemetryPlace.swift:33` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [x] `Tests/TelemetryTestSupport/TelemetryPlace.swift:35` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [x] `Tests/TelemetryTestSupport/TelemetryPlace.swift:37` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [x] `Tests/TelemetryTestSupport/TelemetryPlace.swift:39` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [x] `Tests/TelemetryTestSupport/TelemetryPlace.swift:41` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
