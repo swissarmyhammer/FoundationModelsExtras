@@ -35,9 +35,9 @@ struct BackgroundToolRunner<
     func callInBackground(arguments: Arguments) async throws -> String {
         try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .background
-        ) { span in
+        ) { call in
             let rendered = await start(arguments: arguments)
-            ToolCallSpan.record(outcome: .succeeded, on: span)
+            ToolCallSpan.record(outcome: .succeeded, on: call)
             return rendered
         }
     }

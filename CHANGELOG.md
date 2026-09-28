@@ -5,6 +5,33 @@ change is at the top.
 
 ## Unreleased
 
+### Changed: the tool span is `FoundationModelsExtras.tool`, with an "enter" record and tool-call metrics
+
+Each mounted tool call gives one span, one "enter" log record, one count and
+one duration.
+
+**Cause.** The OpenTelemetry design of 2026-09-28. Rule 3: each package keeps
+its telemetry names in one vocabulary file, with the module name as the prefix.
+Rule 8: a call that can suspend for a long time writes one log record when it
+starts, so that a call that hangs shows in the logs.
+
+**What changed.**
+
+- The name of the tool span is now `FoundationModelsExtras.tool`. It was
+  `FoundationModelsRouter.tool`. The attribute keys `tool.name`, `session.id`,
+  `tool.run_kind` and `tool.outcome` do not change.
+- Each tool call writes one `.info` log record, `enter FoundationModelsExtras.tool`,
+  with the metadata `tool.name` and `session.id`, and the `trace.id` and
+  `span.id` of the span when the tracer gives them.
+- Each outcome of a tool call adds one count to the counter
+  `FoundationModelsExtras.tool.calls` and one duration to the timer
+  `FoundationModelsExtras.tool.duration`. Both metrics have the dimensions
+  `tool.name` and `tool.outcome` only. For a background call, the duration
+  measures the start of the run only, as the span does.
+
+**Migration.** A dashboard or a query that reads the span
+`FoundationModelsRouter.tool` must read `FoundationModelsExtras.tool`.
+
 ### Added: the `TelemetryTestSupport` product
 
 A test target of each package of the family can prove that its telemetry

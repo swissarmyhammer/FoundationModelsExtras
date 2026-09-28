@@ -135,16 +135,16 @@ struct TracedCallTests {
         let record = try #require(context.logRecords.first)
         #expect(context.logRecords.count == 1)
         var expectedMetadata = Self.callerMetadata
-        expectedMetadata[ExtrasTelemetry.EnterRecord.MetadataKey.traceID] = "\(span.traceID)"
-        expectedMetadata[ExtrasTelemetry.EnterRecord.MetadataKey.spanID] = "\(span.spanID)"
+        expectedMetadata[ExtrasTelemetry.LogMetadataKey.traceID] = "\(span.traceID)"
+        expectedMetadata[ExtrasTelemetry.LogMetadataKey.spanID] = "\(span.spanID)"
         #expect(record.metadata == expectedMetadata)
     }
 
     @Test("the enter record uses the names of the telemetry vocabulary")
     func theEnterRecordUsesTheVocabulary() {
         #expect(ExtrasTelemetry.EnterRecord.message(forSpanNamed: Self.spanName) == Self.enterMessage)
-        #expect(ExtrasTelemetry.EnterRecord.MetadataKey.traceID == "trace.id")
-        #expect(ExtrasTelemetry.EnterRecord.MetadataKey.spanID == "span.id")
+        #expect(ExtrasTelemetry.LogMetadataKey.traceID == "trace.id")
+        #expect(ExtrasTelemetry.LogMetadataKey.spanID == "span.id")
     }
 
     /// Runs `body` through ``TracedCall`` with the span name, the attribute

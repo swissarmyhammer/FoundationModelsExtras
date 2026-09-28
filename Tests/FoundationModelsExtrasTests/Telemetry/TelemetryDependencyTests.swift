@@ -29,6 +29,29 @@ struct TelemetryDependencyTests {
         "OTel.bootstrap",
     ]
 
+    /// The texts that mark logging or signposts through the `os` framework. A
+    /// library source logs through swift-log and traces through
+    /// swift-distributed-tracing only.
+    private static let osLoggingMarkers = [
+        "os.Logger",
+        "import os.log",
+        "Logger(subsystem:",
+        "OSSignposter",
+    ]
+
+    /// The import line of the `os` framework.
+    private static let osImportLine = "import os"
+
+    @Test("no library source logs or writes signposts through the os framework")
+    func noSourceUsesOSLogging() throws {
+        let offenders = try Self.librarySourcePaths { text in
+            Self.osLoggingMarkers.contains { text.contains($0) }
+                || text.split(whereSeparator: \.isNewline).contains { $0 == Self.osImportLine }
+        }
+
+        #expect(offenders == [])
+    }
+
     @Test("the manifest declares swift-log and swift-metrics")
     func theManifestDeclaresTheTelemetryAPIs() throws {
         let urls = try Self.dependencyURLs()
@@ -47,13 +70,24 @@ struct TelemetryDependencyTests {
 
     @Test("no library source bootstraps a logging, metrics or OTel backend")
     func noSourceBootstrapsABackend() throws {
-        let sources = try Self.librarySources()
-
-        #expect(!sources.isEmpty)
-        let offenders = sources.filter { _, text in
+        let offenders = try Self.librarySourcePaths { text in
             Self.backendBootstrapCalls.contains { text.contains($0) }
-        }.keys.sorted()
+        }
+
         #expect(offenders == [])
+    }
+
+    /// Gives the paths of the library sources whose text matches
+    /// `isOffender`. The read of the sources must find at least one file,
+    /// because a scan of no file would pass with no check.
+    ///
+    /// - Parameter isOffender: Tells if the text of a source breaks the rule.
+    /// - Returns: The paths of the sources that break the rule, in order.
+    /// - Throws: The error of a file that cannot be read.
+    private static func librarySourcePaths(where isOffender: (String) -> Bool) throws -> [String] {
+        let sources = try librarySources()
+        #expect(!sources.isEmpty)
+        return sources.filter { isOffender($0.value) }.keys.sorted()
     }
 
     /// Reads each package dependency URL of the manifest.

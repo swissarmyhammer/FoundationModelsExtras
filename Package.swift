@@ -138,6 +138,9 @@ let package = Package(
                 // The content-safety tests of the telemetry, and the tests of
                 // the helper itself.
                 "TelemetryTestSupport",
+                // The tool-call metric tests read the count and the durations
+                // of each metric from the test metrics factory of a capture.
+                .product(name: "MetricsTestKit", package: "swift-metrics"),
             ],
             resources: [
                 // `CorpusGoldenTests` reads these directly off disk via

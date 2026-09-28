@@ -34,12 +34,12 @@ struct RunToCompletionRunner<
     func callToCompletion(arguments: Arguments) async throws -> String {
         try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
-        ) { span in
+        ) { call in
             let run = ToolRun(wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout)
             await run.open()
             let settlement = await run.execute(arguments: arguments)
             if let outcome = settlement.terminal.outcome {
-                ToolCallSpan.record(outcome: outcome, on: span)
+                ToolCallSpan.record(outcome: outcome, on: call)
             }
             return try settlement.result.get()
         }

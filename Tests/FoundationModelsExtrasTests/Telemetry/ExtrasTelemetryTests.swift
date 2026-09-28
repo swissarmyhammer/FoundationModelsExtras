@@ -40,4 +40,15 @@ struct ExtrasTelemetryTests {
         #expect(timer.label == ExtrasTelemetry.MetricName.toolDuration)
         #expect(timer.dimensions.elementsEqual(Self.expectedDimensions, by: ==))
     }
+
+    @Test("the span name has the module name as its prefix, and each key has its dotted name")
+    func theVocabularyHasItsNames() {
+        #expect(ExtrasTelemetry.SpanName.tool == "FoundationModelsExtras.tool")
+        #expect(ExtrasTelemetry.AttributeKey.toolName == "tool.name")
+        #expect(ExtrasTelemetry.AttributeKey.sessionID == "session.id")
+        #expect(ExtrasTelemetry.AttributeKey.runKind == "tool.run_kind")
+        #expect(ExtrasTelemetry.AttributeKey.outcome == "tool.outcome")
+        #expect(ExtrasTelemetry.LogMetadataKey.toolName == ExtrasTelemetry.AttributeKey.toolName)
+        #expect(ExtrasTelemetry.LogMetadataKey.sessionID == ExtrasTelemetry.AttributeKey.sessionID)
+    }
 }

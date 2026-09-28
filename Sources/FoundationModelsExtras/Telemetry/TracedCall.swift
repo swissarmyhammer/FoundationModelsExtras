@@ -53,7 +53,7 @@ public enum TracedCall {
     ///
     /// The metadata of the record is `metadata`, plus the W3C trace id and
     /// span id of the new span under
-    /// ``ExtrasTelemetry/EnterRecord/MetadataKey``, when the tracer injects
+    /// ``ExtrasTelemetry/LogMetadataKey``, when the tracer injects
     /// the span context as a W3C `traceparent` value. An OpenTelemetry tracer
     /// does. The ids replace a caller value with the same key.
     ///
@@ -114,8 +114,8 @@ public enum TracedCall {
             return metadata
         }
         var merged = metadata
-        merged[ExtrasTelemetry.EnterRecord.MetadataKey.traceID] = "\(identity.traceID)"
-        merged[ExtrasTelemetry.EnterRecord.MetadataKey.spanID] = "\(identity.spanID)"
+        merged[ExtrasTelemetry.LogMetadataKey.traceID] = "\(identity.traceID)"
+        merged[ExtrasTelemetry.LogMetadataKey.spanID] = "\(identity.spanID)"
         return merged
     }
 }

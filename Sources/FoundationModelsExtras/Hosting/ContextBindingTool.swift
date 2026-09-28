@@ -37,9 +37,9 @@ struct ContextBindingTool<
     func call(arguments: Arguments) async throws -> Output {
         try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
-        ) { span in
+        ) { call in
             let settlement = await settle(arguments: arguments)
-            ToolCallSpan.record(outcome: settlement.recordedOutcome, on: span)
+            ToolCallSpan.record(outcome: settlement.recordedOutcome, on: call)
             await site.sink.postToolCallReport(closing: settlement.closeRecord, attachments: settlement.attachments)
             return try settlement.outcome.get()
         }
