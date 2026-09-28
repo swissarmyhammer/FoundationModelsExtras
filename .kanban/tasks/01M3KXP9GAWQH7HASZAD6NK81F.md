@@ -21,8 +21,25 @@ comments:
     - evidence: 3 files — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift. `swift build --build-tests` OK with no code warnings. `swift test --filter 'FoundationModelsExtrasTests\.ModelPoolTests/(streamsThatCancelBesideEvictionsDoNotDeadlock|aLiveStreamSeesTheLastFootprintAfterTheStress|oneStreamSeesTwoQuickReleasesInOrder)'`: 3 tests ran, 3 passed, 20 of 20 runs (before the fix: the 2 stress tests failed at the 5 s bound). `swift test --parallel --num-workers 8` 10 times in sequence: 10 of 10 passed, exit 0, 1380 tests passed in each run (6 Swift Testing runs), 0 failures, no hang.
     - next: /review
   timestamp: 2026-09-28T12:25:23.954702+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3kzxemw86zt1wfg2x9fxxpr
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (644b897). 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed. The .reviewignore rule excluded the 2 files in .kanban/.
+    - manual check of the lock order in Sources/FoundationModelsExtras/ModelPool/ModelPool.swift: (1) The only yield is in publish(_:), after state.withLock returns. No code in ModelPool calls finish. (2) The onTermination closure of footprints takes only the state lock. (3) Only publish(_:) takes the publishing lock, and it takes it before the state lock. No step closure and no code under the state lock calls publish, publishToEachStream or release. GenerationQueue.enqueue under the state lock takes only its own locks, and the jobs stream has no onTermination. (4) Under publishing, no ModelHold is released: holdIfResident returns its new hold out of the lock. The yielded value is a ModelPoolFootprint, and the buffer is unbounded, so the yield drops no element. The copies of the continuations that publish drops hold no ModelHold. Thus a ModelHold deinit cannot run on a thread that holds publishing.
+    - next: none. The task is in done.
+  timestamp: 2026-09-28T12:30:25.948420+00:00
+- actor: claude-code
+  id: 01m3kzxx1s6s79p3k0d45k89dr
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files (ModelPool.swift, ModelPoolTests.swift, ModelPoolTestSupport.swift)
+    - test: green — swift test --parallel --num-workers 8, 743 tests passed; the implementer ran the full suite 10 times in parallel, 10 of 10 passed with no hang
+    - commit: 644b897
+    - review: clean — 0 findings
+  timestamp: 2026-09-28T12:30:40.697390+00:00
+position_column: done
+position_ordinal: d180
 title: Fix the lock-order deadlock between ModelPool.publish and the onTermination of footprints
 ---
 ## Problem
