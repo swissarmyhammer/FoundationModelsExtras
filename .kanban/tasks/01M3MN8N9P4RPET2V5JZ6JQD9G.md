@@ -27,9 +27,40 @@ comments:
     - evidence: `swift test --parallel` exit 0 — 1393 tests passed (756 in 75 suites of FoundationModelsExtrasTests with the 4 expected known issues, plus 396, 131, 44, 40 and 26 in the other targets), 0 failed, 0 skipped. No compiler warning. The only `warning:` lines are 26 SwiftPM manifest-cache "disk I/O error" lines of the environment, not of the code.
     - next: /commit
   timestamp: 2026-09-28T19:28:16.335272+00:00
+- actor: claude-code
+  id: 01m3mqtxfv6xhdep3eb089xe1p
+  text: |-
+    ### commit — changed
+    - evidence: 9b97617 feat(telemetry): add the TelemetryTestSupport product with a content-safety helper (local only, not pushed)
+    - next: /review 01M3MN8N9P4RPET2V5JZ6JQD9G HEAD~1..HEAD
+  timestamp: 2026-09-28T19:28:28.667646+00:00
+- actor: claude-code
+  id: 01m3mr66z0s2tc2q7aph5kdazh
+  text: |-
+    ### review — findings
+    - evidence: `review sha HEAD~1..HEAD` — 8 findings (8 confirmed, 0 refuted): Tests/TelemetryTestSupport/TelemetryCapture.swift:181 (preferForLoop), TelemetryCapture.swift:195, TelemetryPlace.swift:31, 33, 35, 37, 39, 41 (hoistPatternLet).
+    - next: /implement to fix each finding
+  timestamp: 2026-09-28T19:34:38.816269+00:00
+- actor: claude-code
+  id: 01m3mr68z4cprrp4fjk7q7qcgs
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 7 files (Package.swift, CHANGELOG.md, 3 files in Tests/TelemetryTestSupport/, TelemetryCaptureTests.swift, ToolCallSpanTests.swift)
+    - test: green — `swift test --parallel`, 1393 passed, 0 failed, 0 skipped
+    - commit: changed — 9b97617
+    - review: findings — 8 (1 preferForLoop, 7 hoistPatternLet)
+  timestamp: 2026-09-28T19:34:40.868613+00:00
+- actor: claude-code
+  id: 01m3mr74hqx9e32csbynjdfh0y
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Tests/TelemetryTestSupport/TelemetryPlace.swift (each `case let .x(a)` is now `case .x(let a)`, 6 cases), Tests/TelemetryTestSupport/TelemetryCapture.swift (`if case .string(let text)`, and the `forEach` walk of `SpanAttributes`).
+    - notes: `SpanAttributes` (swift-distributed-tracing 1.5.0) is not a `Sequence`; `forEach(_:)` is its only public walk, thus a `for` loop does not compile. The idioms-swift rule states the recourse for such a line: `// swiftformat:disable:next preferForLoop` with the reason after it. The code now carries that directive with the reason.
+    - next: /test
+  timestamp: 2026-09-28T19:35:09.111049+00:00
 depends_on:
 - 01M3MN838VZ4QX57C3965XMGKV
-position_column: doing
+position_column: review
 position_ordinal: '80'
 title: 'OTel B: add a TelemetryTestSupport product with a content-safety helper for spans, logs and metrics'
 ---
@@ -61,3 +92,22 @@ Make a new library target and product `TelemetryTestSupport` at `Tests/Telemetry
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 - Do not run `swift format`.
+
+## Review Findings (2026-09-28 14:28)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `CHANGELOG.md` — no validator matches this file
+
+- [ ] `Tests/TelemetryTestSupport/TelemetryCapture.swift:181` `code-hygiene/idioms-swift` — preferForLoop: Convert functional forEach calls to for loops.
+- [ ] `Tests/TelemetryTestSupport/TelemetryCapture.swift:195` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:31` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:33` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:35` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:37` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:39` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.
+- [ ] `Tests/TelemetryTestSupport/TelemetryPlace.swift:41` `code-hygiene/idioms-swift` — hoistPatternLet: Reposition let or var bindings within pattern.

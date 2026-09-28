@@ -176,8 +176,10 @@ extension TelemetryCapture {
         /// - Returns: One place for each attribute.
         private static func attributePlaces(of span: FinishedInMemorySpan) -> [TelemetryPlace] {
             // `SpanAttributes` is not a `Sequence`: `forEach` is its only walk
-            // of the attributes, thus the walk collects them into an array.
+            // of the attributes, thus the walk collects them into an array. A
+            // `for` loop over `SpanAttributes` does not compile.
             var attributes: [(key: String, value: SpanAttribute)] = []
+            // swiftformat:disable:next preferForLoop  SpanAttributes is not a Sequence, thus no for loop compiles
             span.attributes.forEach { key, value in
                 attributes.append((key, value))
             }
@@ -192,7 +194,7 @@ extension TelemetryCapture {
         /// - Returns: The string of a string value, or else the description
         ///   of the value, which holds each of its elements.
         private static func text(of value: SpanAttribute) -> String {
-            if case let .string(text) = value {
+            if case .string(let text) = value {
                 return text
             }
             return String(describing: value)

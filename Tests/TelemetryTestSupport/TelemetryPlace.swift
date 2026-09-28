@@ -28,17 +28,17 @@ public enum TelemetryPlace: Sendable, Equatable, CustomStringConvertible {
     /// The place as text, in the form that the doc comment of its case gives.
     public var description: String {
         switch self {
-        case let .spanName(span):
+        case .spanName(let span):
             "span \(span)"
-        case let .spanAttribute(span, key, value):
+        case .spanAttribute(let span, let key, let value):
             "\(span).\(key) = \(value)"
-        case let .logMessage(level, message):
+        case .logMessage(let level, let message):
             "log \(level): \(message)"
-        case let .logMetadata(key, value):
+        case .logMetadata(let key, let value):
             "log metadata \(key) = \(value)"
-        case let .metricName(metric):
+        case .metricName(let metric):
             "metric \(metric)"
-        case let .metricDimension(metric, key, value):
+        case .metricDimension(let metric, let key, let value):
             "metric \(metric) \(key) = \(value)"
         }
     }
