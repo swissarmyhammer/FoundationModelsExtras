@@ -53,11 +53,24 @@ comments:
     - evidence: `swift test --parallel` — 764 tests in 77 suites passed (4 expected known issues), plus 396, 131, 44, 40 and 26 tests in the other products; 0 failed, 0 skipped, 0 warnings. The TracedCall and SpanIdentity suites passed.
     - next: /commit
   timestamp: 2026-09-28T20:03:28.731630+00:00
+- actor: claude-code
+  id: 01m3msz1zkjtra3qh040pnsga2
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 678e72c): 0 findings, 0 confirmed, 0 refuted; the 4 findings of 2026-09-28 14:55 are checked.
+    - next: none; the task is in done.
+
+    ### finish iteration 2 — clean
+    - implement: changed (TracedCall.swift, the field lengths are named constants)
+    - test: green (`swift test --parallel`, 0 failed, 0 skipped, 0 warnings)
+    - commit: 678e72c refactor(telemetry): name the field lengths of a traceparent value
+    - review: clean; task moved to done.
+  timestamp: 2026-09-28T20:05:41.491882+00:00
 depends_on:
 - 01M3MN838VZ4QX57C3965XMGKV
 - 01M3MN8N9P4RPET2V5JZ6JQD9G
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: d480
 title: 'OTel C: add a shared helper that opens a span and writes one "enter" log record, for hang detection'
 ---
 ## What
