@@ -19,28 +19,39 @@ public final class ModelPool: Sendable {
         var holds = 1
     }
 
+    /// The input end of one footprint stream.
+    private typealias FootprintContinuation = AsyncStream<ModelPoolFootprint>.Continuation
+
     /// All the state of the pool.
     private struct State {
         var entries: [ModelPoolKey: Entry] = [:]
         var loadingBytes: Int64 = 0
-        var streams: [Int: AsyncStream<ModelPoolFootprint>.Continuation] = [:]
+        var streams: [Int: FootprintContinuation] = [:]
         var lastStreamID = 0
 
         var footprint: ModelPoolFootprint {
             ModelPoolFootprint(resident: entries.mapValues(\.bytes), loadingBytes: loadingBytes)
         }
 
-        /// Sends the footprint to each stream. Each change calls this under the
-        /// lock, so each stream sees the changes in order.
-        func publish() {
-            for stream in streams.values {
-                stream.yield(footprint)
-            }
-        }
+        /// A copy of each live stream, to yield to after the state lock.
+        var liveStreams: [FootprintContinuation] { Array(streams.values) }
     }
 
-    /// The state, under one lock.
+    /// The state, under one lock. The termination handler of a footprint
+    /// stream takes only this lock. No code yields to a stream, or finishes a
+    /// stream, while it holds this lock.
     private let state = Mutex(State())
+
+    /// The publish lock. Each change that the streams see takes this lock,
+    /// then the state lock. It yields the new footprint after it releases the
+    /// state lock, and before it releases this lock. Thus each stream sees the
+    /// changes in the order that they occurred, and no value is lost.
+    ///
+    /// Lock order: this lock, then the state lock. No code takes this lock
+    /// while it holds the state lock, and no termination handler takes this
+    /// lock. Thus a yield that waits for a consumer task, while the runtime
+    /// cancels that task and runs its termination handler, cannot deadlock.
+    private let publishing = Mutex(())
 
     /// The queue of the loads and the evictions.
     let admissions = GenerationQueue()
@@ -79,12 +90,14 @@ public final class ModelPool: Sendable {
     /// The current footprint first, then each change. Each call makes a new stream.
     public var footprints: AsyncStream<ModelPoolFootprint> {
         let (stream, continuation) = AsyncStream.makeStream(of: ModelPoolFootprint.self)
-        let id = state.withLock { state in
-            continuation.yield(state.footprint)
+        // The stream registers and gets its first value in one publish step.
+        // Thus no later change comes before its first value.
+        let id = publish { state in
             state.lastStreamID += 1
             state.streams[state.lastStreamID] = continuation
-            return state.lastStreamID
+            return (state.lastStreamID, [continuation])
         }
+        // Takes only the state lock: see ``publishing``.
         continuation.onTermination = { [weak self] _ in self?.state.withLock { $0.streams[id] = nil } }
         return stream
     }
@@ -97,12 +110,11 @@ public final class ModelPool: Sendable {
 
     /// Adds a hold when `key` is resident.
     fileprivate func holdIfResident(_ key: ModelPoolKey, sessionBytes: Int64) -> ModelHold? {
-        state.withLock { state in
-            guard let entry = state.entries[key] else { return nil }
+        publish { state in
+            guard let entry = state.entries[key] else { return (nil, []) }
             state.entries[key]?.holds += 1
             state.entries[key]?.bytes += sessionBytes
-            state.publish()
-            return ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes)
+            return (ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes), state.liveStreams)
         }
     }
 
@@ -119,32 +131,27 @@ public final class ModelPool: Sendable {
             throw error
         }
         let entry = Entry(container: container, loader: loader, bytes: footprintBytes)
-        state.withLock { state in
+        publishToEachStream { state in
             state.loadingBytes = 0
             state.entries[key] = entry
-            state.publish()
         }
         return ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes)
     }
 
     /// Sets the bytes of the load that runs now.
     private func setLoadingBytes(_ bytes: Int64) {
-        state.withLock { state in
-            state.loadingBytes = bytes
-            state.publish()
-        }
+        publishToEachStream { $0.loadingBytes = bytes }
     }
 
     /// Removes one hold. The last hold puts an eviction job in the admission
     /// queue in the same step, so each admission job after it runs after the
     /// eviction job.
     fileprivate func release(_ key: ModelPoolKey, sessionBytes: Int64) {
-        // Lock order: the pool lock, then the queue lock. No queue code
-        // takes the pool lock.
-        state.withLock { state in
+        // Lock order: the publish lock, the state lock, then the queue lock.
+        // No queue code takes a pool lock.
+        publishToEachStream { state in
             state.entries[key]?.holds -= 1
             state.entries[key]?.bytes -= sessionBytes
-            state.publish()
             guard state.entries[key]?.holds == 0 else { return }
             admissions.enqueue { await self.evictIfIdle(key) }
         }
@@ -157,7 +164,40 @@ public final class ModelPool: Sendable {
         }
         guard let idle else { return }
         await idle.loader.evict(idle.container)
-        state.withLock { $0.publish() }
+        publishToEachStream { _ in }
+    }
+
+    /// Runs `step` under the publish lock and the state lock. Then, under the
+    /// publish lock only, yields the new footprint to the streams that `step`
+    /// gives.
+    ///
+    /// - Parameter step: Changes the state. It returns the result for the
+    ///   caller, and the streams that must get the new footprint.
+    /// - Returns: The result that `step` returns.
+    private func publish<Result: Sendable>(
+        _ step: (inout State) -> (result: Result, streams: [FootprintContinuation])
+    ) -> Result {
+        publishing.withLock { _ in
+            let (result, streams, footprint) = state.withLock { state in
+                let (result, streams) = step(&state)
+                return (result, streams, state.footprint)
+            }
+            for stream in streams {
+                stream.yield(footprint)
+            }
+            return result
+        }
+    }
+
+    /// Runs `change` under the publish lock and the state lock. Then yields
+    /// the new footprint to each live stream. See ``publish(_:)``.
+    ///
+    /// - Parameter change: Changes the state.
+    private func publishToEachStream(_ change: (inout State) -> Void) {
+        publish { state in
+            change(&state)
+            return ((), state.liveStreams)
+        }
     }
 }
 
