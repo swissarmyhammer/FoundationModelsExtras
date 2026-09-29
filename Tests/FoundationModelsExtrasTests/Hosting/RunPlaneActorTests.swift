@@ -515,4 +515,47 @@ struct RunPlaneActorTests {
         #expect(firstTerminals.count + secondTerminals.count + third.count == 2)
         latch.open()
     }
+
+    // MARK: - The join of the run bodies
+
+    @Test("joinRunBodies() returns only after the body of a swept run ended", .timeLimit(.minutes(1)))
+    func joinWaitsForTheBodyOfASweptRun() async {
+        let runPlane = RunPlane()
+        let steps = Recorder<String>()
+        let token = RunPlane.makeCompletionToken()
+        await runPlane.start(
+            tool: FakeRun.tool, op: FakeRun.op, kind: .swiftTask, completionToken: token, canceler: nil
+        ) {
+            // The body sees the cancel, and then takes some turns to unwind.
+            try? await Task.sleep(for: .seconds(3600))
+            for _ in 0..<Self.unwindTurns {
+                await Task.yield()
+            }
+            steps.append("body ended")
+            return OperationEvent(
+                tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed, detail: "",
+                outcome: .cancelled)
+        }
+
+        _ = await runPlane.sweep()
+        await runPlane.joinRunBodies()
+        steps.append("joined")
+
+        #expect(steps.values == ["body ended", "joined"])
+    }
+
+    @Test("joinRunBodies() returns at once when no run body runs", .timeLimit(.minutes(1)))
+    func joinWithNoBodyReturns() async {
+        let runPlane = RunPlane()
+        let latch = RunLatch()
+        let token = await FakeRun.start(on: runPlane, latch: latch)
+        latch.open()
+        _ = await runPlane.wait(completionToken: token, seconds: nil)
+
+        await runPlane.joinRunBodies()
+        await RunPlane().joinRunBodies()
+    }
+
+    /// The turns that the body of a swept run takes to unwind.
+    private static let unwindTurns = 100
 }

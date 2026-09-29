@@ -91,6 +91,12 @@ public actor RunPlane {
     /// The pending elicitations, in the order they came.
     private var elicitations: [Elicitation] = []
 
+    /// The task of each run body that did not end, by completion token. A
+    /// run that the sweep settled stays here until its body ends, because a
+    /// cancel of a ``RunKind/swiftTask`` run is only a request.
+    /// ``joinRunBodies()`` waits for each one.
+    private var bodies: [String: Task<Void, Never>] = [:]
+
     /// Whether a ``sweep()`` runs now. A second sweep at the same time
     /// returns nothing.
     private var isSweeping = false
@@ -150,7 +156,11 @@ public actor RunPlane {
         let work = Task { [weak self] in
             let terminal = await body()
             await self?.settleByItself(completionToken, with: terminal)
+            await self?.endBody(completionToken)
         }
+        // No suspension point since the task started, so the task cannot
+        // remove its entry before this line adds it.
+        bodies[completionToken] = work
         let cooperative: @Sendable () async -> OperationOutcome = {
             work.cancel()
             return .cancelled
@@ -377,7 +387,29 @@ public actor RunPlane {
         return terminals
     }
 
+    /// Waits until the body of each run ended: each run that is open, each
+    /// run that the sweep settled while its body continued, and each run that
+    /// starts while this call waits. A body that ended is gone at once.
+    ///
+    /// This call cancels nothing. Call ``sweep()`` first to stop the open
+    /// runs: then this call waits for each body to see its cancel. A body
+    /// that does not stop keeps this call waiting. A cancel of the calling
+    /// task does not end the wait, so a caller that must stop waiting runs
+    /// this call in a task of its own.
+    public func joinRunBodies() async {
+        while let body = bodies.values.first {
+            await body.value
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Removes the task of the body of `token`, which ended.
+    ///
+    /// - Parameter token: The completion token of the run.
+    private func endBody(_ token: String) {
+        bodies[token] = nil
+    }
 
     /// Converts seconds to the nanoseconds that `Task.sleep(nanoseconds:)`
     /// takes. NaN and a negative value give zero, and a value that `UInt64`
