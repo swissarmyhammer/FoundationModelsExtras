@@ -71,9 +71,10 @@ let package = Package(
         // as the Yams pin. The core target does not depend on it.
         .package(url: "https://github.com/danielctull-forks/swift-libgit2.git", exact: "1.9.7"),
         // The tracing abstraction for the tool span of the tool-hosting code
-        // (plan.md §5). The same pin as FoundationModelsRouter. The core
-        // target links `Tracing`; the core tests link `InMemoryTracing`.
-        .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1"),
+        // (plan.md §5). The floor is 1.5.0 because `TelemetryTestSupport`
+        // calls `withTracer`, which starts in 1.5.0. The core target links
+        // `Tracing`; the core tests link `InMemoryTracing`.
+        .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.5.0"),
         // The logging API and the metrics API of the core target (the
         // OpenTelemetry design of 2026-09-28). API only: no library target
         // links a backend or calls `LoggingSystem.bootstrap` or

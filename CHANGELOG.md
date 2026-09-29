@@ -5,6 +5,13 @@ change is at the top.
 
 ## Unreleased
 
+### Changed: the swift-distributed-tracing floor is 1.5.0
+
+The manifest said `from: "1.4.1"`, but `TelemetryCapture.run` calls
+`withTracer`, which starts in 1.5.0. A consumer that resolved 1.4.1 did not
+build `TelemetryTestSupport` ("cannot find 'withTracer' in scope"). The
+manifest now says `from: "1.5.0"`.
+
 ### Changed: `TelemetryCapture` uses a tracer that injects and extracts W3C `traceparent` and `tracestate`
 
 In a capture, the "enter" record of `TracedCall` holds the `trace.id` and the

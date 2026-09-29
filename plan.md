@@ -260,8 +260,9 @@ public enum FrontmatterDocument {
   `YAMLValue.swift`. The budget of the core target does not move: it does
   not depend on libgit2, the same way it does not depend on the swift-syntax
   that `Operations` carries. `PackageLayoutTests` guards the split.)
-  (`swift-distributed-tracing` (`from: "1.4.1"`, the same pin as
-  FoundationModelsRouter) fought its way in 2026-09-26 for the tool-hosting
+  (`swift-distributed-tracing` (`from: "1.5.0"`, because
+  `TelemetryTestSupport` calls `withTracer`, which starts in 1.5.0) fought
+  its way in 2026-09-26 for the tool-hosting
   code (decision 2026-09-26): the hosting code moves from the router into
   the core target, and each mounted tool call opens one tool span, so the
   tool spans move with it. The core target links the `Tracing` product only;

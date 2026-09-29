@@ -41,7 +41,7 @@ struct PackageLayoutTests {
 
   /// The pin of the tracing package, as the manifest writes it.
   private static let tracingPin =
-    #".package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1")"#
+    #".package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.5.0")"#
 
   /// The tracing product, as a target dependency names it.
   private static let tracingProduct = #".product(name: "Tracing", package: "swift-distributed-tracing")"#
@@ -89,7 +89,7 @@ struct PackageLayoutTests {
     #expect(fixtures.contains(Self.libgit2Product))
   }
 
-  @Test func theManifestPinsTracingToTheRouterVersion() throws {
+  @Test func theManifestPinsTracingToTheWithTracerFloor() throws {
     let manifest = try Self.manifest()
 
     #expect(manifest.contains(Self.tracingPin))
