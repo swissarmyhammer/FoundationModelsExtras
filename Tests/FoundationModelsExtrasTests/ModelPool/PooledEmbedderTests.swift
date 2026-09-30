@@ -2,7 +2,8 @@
 import Testing
 
 /// All holds of one key share one queue, and a ``PooledEmbedder`` runs each
-/// embed call as one job in that queue.
+/// embed call as one job in that queue. An embedder made from a name loads its
+/// model on the first embed call.
 @Suite("Pooled embedder: one queue for each model, and each embed call runs in it")
 struct PooledEmbedderTests {
     /// The key that the tests acquire.
@@ -20,6 +21,13 @@ struct PooledEmbedderTests {
     /// The vector of each text for the model of loader B.
     private static let vectorB: [Float] = [0, 1]
 
+    /// The name of the loader that ``embeddingLoader(log:loadsMayEnd:failingLoads:)`` makes.
+    private static let loaderName = "A"
+
+    /// The log entry of one load of ``key`` by the loader that
+    /// ``embeddingLoader(log:loadsMayEnd:failingLoads:)`` makes.
+    private static let loadEntry = "load \(key.ref.stringValue) by \(loaderName)"
+
     /// Acquires ``key`` from `pool`.
     ///
     /// - Parameters:
@@ -29,6 +37,35 @@ struct PooledEmbedderTests {
     /// - Throws: What the load throws.
     private static func acquire(from pool: ModelPool, with loader: any PooledModelLoader) async throws -> ModelHold {
         try await pool.acquire(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
+    }
+
+    /// Makes a loader that writes each load to `log`, and gives a
+    /// ``FakeEmbedding`` of ``vectorA``.
+    ///
+    /// - Parameters:
+    ///   - log: The log of the loads, the measures and the evictions.
+    ///   - loadsMayEnd: A load ends only after this stream finishes. The
+    ///     default stream is finished, so a load ends at once.
+    ///   - failingLoads: The number of first loads that fail.
+    /// - Returns: The loader.
+    private static func embeddingLoader(
+        log: Recorder<String>,
+        loadsMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
+        failingLoads: Int = 0
+    ) -> RecordingLoader {
+        let embedding = FakeEmbedding(vector: vectorA, log: Recorder())
+        return RecordingLoader(
+            name: loaderName, log: log, loadsMayEnd: loadsMayEnd, failingLoads: failingLoads,
+            makeModel: { _ in embedding })
+    }
+
+    /// The loads in `log`.
+    ///
+    /// - Parameter log: The log of a loader that
+    ///   ``embeddingLoader(log:loadsMayEnd:failingLoads:)`` made.
+    /// - Returns: Each load entry, in order.
+    private static func loads(in log: Recorder<String>) -> [String] {
+        log.values.filter { $0.hasPrefix("load ") }
     }
 
     /// Waits until `count` jobs wait in `queue`.
@@ -69,7 +106,7 @@ struct PooledEmbedderTests {
         let embedding = FakeEmbedding(vector: vectorA, log: log, firstCallMayEnd: firstCallMayEnd)
         let hold = try await acquire(from: pool, with: FixedLoader(container: embedding))
         let embedder = try PooledEmbedder(hold: hold)
-        let firstCall = Task { try await embedder.embed(texts: ["one"]) }
+        let firstCall = Task { try await embedder.embed(["one"]) }
         try #require(await BoundedWait.conditionReached("the first call runs") { log.values == ["begin one"] })
         return BlockedModel(hold: hold, embedder: embedder, log: log, endFirstCall: endFirstCall, firstCall: firstCall)
     }
@@ -90,9 +127,9 @@ struct PooledEmbedderTests {
         let pool = ModelPool()
         let model = try await Self.startBlockedCall(on: pool)
 
-        let second = Task { try await model.embedder.embed(texts: ["two"]) }
+        let second = Task { try await model.embedder.embed(["two"]) }
         try await Self.waitForQueuedCalls(1, on: model.hold.queue)
-        let third = Task { try await model.embedder.embed(texts: ["three"]) }
+        let third = Task { try await model.embedder.embed(["three"]) }
         try await Self.waitForQueuedCalls(2, on: model.hold.queue)
         model.endFirstCall.finish()
         _ = try await (model.firstCall.value, second.value, third.value)
@@ -108,10 +145,9 @@ struct PooledEmbedderTests {
 
         let holdA = try await Self.acquire(from: pool, with: loaderA)
         let embedderB = try PooledEmbedder(hold: await Self.acquire(from: pool, with: loaderB))
-        let vectors = try await embedderB.embed(texts: ["one"])
+        let vectors = try await embedderB.embed(["one"])
 
         #expect(vectors == [Self.vectorA])
-        #expect(embedderB.dimension == Self.vectorA.count)
         #expect(holdA.key == Self.key)
     }
 
@@ -122,7 +158,7 @@ struct PooledEmbedderTests {
 
         var embedder: PooledEmbedder? = try PooledEmbedder(hold: await Self.acquire(from: pool, with: loader))
         let footprintWithTheHandle = pool.footprint
-        #expect(embedder?.dimension == Self.vectorA.count)
+        #expect(try await embedder?.embed(["one"]) == [Self.vectorA])
         embedder = nil
 
         #expect(footprintWithTheHandle == ModelPoolFootprint(resident: [Self.key: Self.footprintBytes], loadingBytes: 0))
@@ -134,10 +170,10 @@ struct PooledEmbedderTests {
         let pool = ModelPool()
         let model = try await Self.startBlockedCall(on: pool)
 
-        let cancelled = Task { try await model.embedder.embed(texts: ["two"]) }
+        let cancelled = Task { try await model.embedder.embed(["two"]) }
         try await Self.waitForQueuedCalls(1, on: model.hold.queue)
         cancelled.cancel()
-        let next = Task { try await model.embedder.embed(texts: ["three"]) }
+        let next = Task { try await model.embedder.embed(["three"]) }
         try await Self.waitForQueuedCalls(1, on: model.hold.queue)
         model.endFirstCall.finish()
         let vectors = try await next.value
@@ -153,7 +189,7 @@ struct PooledEmbedderTests {
         let model = try await Self.startBlockedCall(on: pool)
 
         model.firstCall.cancel()
-        let next = Task { try await model.embedder.embed(texts: ["two"]) }
+        let next = Task { try await model.embedder.embed(["two"]) }
         let nextEnded = await BoundedWait.conditionReached("the next call ends") {
             model.log.values.contains("end two")
         }
@@ -174,23 +210,122 @@ struct PooledEmbedderTests {
         #expect(expected.errorDescription?.contains("PooledEmbedding") == true)
     }
 
-    @Test("the README example: embed two texts through a pooled embedder")
+    @Test("an embedder made from a name loads nothing")
+    func aNamedEmbedderLoadsNothing() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: Self.embeddingLoader(log: log))
+
+        let embedder = PooledEmbedder(Self.key.ref, pool: pool)
+        // An admission job ends after each load that is in the admission queue now.
+        try await pool.admit { _ in }
+
+        withExtendedLifetime(embedder) {
+            #expect(pool.footprint == ModelPoolFootprint(resident: [:], loadingBytes: 0))
+            #expect(log.values.isEmpty)
+        }
+    }
+
+    @Test("the first embed call loads the model of the name with the loader of the pool, and gives its vectors")
+    func theFirstEmbedCallLoadsTheModel() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: Self.embeddingLoader(log: log))
+        let embedder = PooledEmbedder(Self.key.ref, pool: pool)
+
+        let vectors = try await embedder.embed(["one", "two"])
+
+        #expect(vectors == [Self.vectorA, Self.vectorA])
+        #expect(pool.isResident(Self.key))
+        #expect(log.values == [Self.loadEntry, "measure \(Self.key.ref.stringValue)"])
+    }
+
+    @Test("two concurrent first embed calls of one embedder make one load")
+    func concurrentFirstCallsMakeOneLoad() async throws {
+        let log = Recorder<String>()
+        let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
+        let pool = ModelPool(loader: Self.embeddingLoader(log: log, loadsMayEnd: loadsMayEnd))
+        let embedder = PooledEmbedder(Self.key.ref, pool: pool)
+
+        let first = Task { try await embedder.embed(["one"]) }
+        let second = Task { try await embedder.embed(["two"]) }
+        try #require(await BoundedWait.conditionReached("the load runs") { Self.loads(in: log) == [Self.loadEntry] })
+        endLoads.finish()
+        let vectors = try await [first.value, second.value]
+
+        #expect(vectors == [[Self.vectorA], [Self.vectorA]])
+        #expect(Self.loads(in: log) == [Self.loadEntry])
+    }
+
+    @Test("two embedders of one name share one resident model")
+    func twoEmbeddersOfOneNameShareOneModel() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: Self.embeddingLoader(log: log))
+        let first = PooledEmbedder(Self.key.ref, pool: pool)
+        let second = PooledEmbedder(Self.key.ref, pool: pool)
+
+        let vectors = try await [first.embed(["one"]), second.embed(["two"])]
+
+        #expect(vectors == [[Self.vectorA], [Self.vectorA]])
+        #expect(pool.residentModelCount == 1)
+        #expect(Self.loads(in: log) == [Self.loadEntry])
+    }
+
+    @Test("the model stays resident while a copy of an embedder exists, and is evicted after the last copy of the last embedder goes")
+    func theLastCopyOfTheLastEmbedderEvictsTheModel() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: Self.embeddingLoader(log: log))
+        var first: PooledEmbedder? = PooledEmbedder(Self.key.ref, pool: pool)
+        var copy = first
+        var second: PooledEmbedder? = PooledEmbedder(Self.key.ref, pool: pool)
+
+        _ = try await first?.embed(["one"])
+        _ = try await second?.embed(["two"])
+        first = nil
+        second = nil
+        // An admission job ends after each eviction job that is in the admission queue now.
+        try await pool.admit { _ in }
+        let residentWhileACopyExists = pool.isResident(Self.key)
+        let copyVectors = try await copy?.embed(["three"])
+        copy = nil
+
+        #expect(residentWhileACopyExists)
+        #expect(copyVectors == [Self.vectorA])
+        #expect(Self.loads(in: log) == [Self.loadEntry])
+        #expect(await BoundedWait.conditionReached("the eviction after the last copy goes") { !pool.isResident(Self.key) })
+    }
+
+    @Test("after a failed load, the next embed call loads the model again")
+    func theNextCallLoadsAgainAfterAFailedLoad() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: Self.embeddingLoader(log: log, failingLoads: 1))
+        let embedder = PooledEmbedder(Self.key.ref, pool: pool)
+
+        await #expect(throws: FakeLoadError.self) { try await embedder.embed(["one"]) }
+        let vectors = try await embedder.embed(["two"])
+
+        #expect(vectors == [Self.vectorA])
+        #expect(Self.loads(in: log) == [Self.loadEntry, Self.loadEntry])
+    }
+
+    @Test("an embed call by name on a container that is not a PooledEmbedding gives a clear error, and keeps no hold")
+    func aNamedContainerThatIsNotAnEmbeddingThrows() async throws {
+        let pool = ModelPool(loader: RecordingLoader(name: Self.loaderName, log: Recorder()))
+        let embedder = PooledEmbedder(Self.key.ref, pool: pool)
+        let expected = PooledEmbedderError.notAnEmbedding(key: Self.key, containerType: "FakeModel")
+
+        await #expect(throws: expected) { try await embedder.embed(["one"]) }
+        #expect(await BoundedWait.conditionReached("the eviction of the model") { !pool.isResident(Self.key) })
+    }
+
+    @Test("the README example: an embedder from a name loads the model on its first call")
     func readmeEmbedderExample() async throws {
-        let pool = ModelPool()
-        let loader = FixedLoader(container: FakeEmbedding(vector: Self.vectorA, log: Recorder()))
-        let embedding = ModelPoolKey(ref: "mlx-community/bge-small", role: .embedding)
-        let embedderBytes: Int64 = 200_000_000
-        let texts = ["first text", "second text"]
+        let pool = ModelPool(loader: FixedLoader(container: FakeEmbedding(vector: Self.vectorA, log: Recorder())))
 
         // README example: begin
-        // The handle keeps the hold, so the model stays resident. Each call
-        // is one job in the queue that all holds of the key share.
-        let hold = try await pool.acquire(embedding, footprintBytes: embedderBytes, sessionBytes: 0, loader: loader)
-        let embedder = try PooledEmbedder(hold: hold)
-        let vectors = try await embedder.embed(texts: texts)
+        // Loads nothing now. The first call loads the model into the pool.
+        let embedder = PooledEmbedder("mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", pool: pool)
+        let vectors = try await embedder.embed(["save my work"])
         // README example: end
 
-        #expect(vectors.count == texts.count)
-        #expect(vectors.allSatisfy { $0.count == embedder.dimension })
+        #expect(vectors == [Self.vectorA])
     }
 }

@@ -29,8 +29,24 @@ comments:
     - evidence: 7 files. Sources/FoundationModelsExtras/ModelPool/ModelPool.swift (the fix and the docs), Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift (2 new tests, 1 helper, 1 wait in theByteTotalsFollowEachChange), Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift (`evictionsMayEnd`), README.md, CHANGELOG.md, IntegrationTests/.../Support/IntegrationModels.swift (doc comment), IntegrationTests/.../EvictionWaitTests.swift (one comment). RED: 1 of 2 new tests failed with 4 issues. GREEN: 2 of 2 passed. `swift test`: 806 tests in 80 suites passed, 4 known issues (the intentional `withKnownIssue` of TelemetryCaptureTests). `swift test --package-path IntegrationTests`: 24 tests in 7 suites passed. The only warning in both runs is the build-system line "missing creator for mutated node ... mlx-swift_Cmlx.bundle/Contents/MacOS", from the mlx-swift resource bundle; it was there before this change.
     - next: /review.
   timestamp: 2026-09-30T03:04:14.900310+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m3r4nszvacfqcwg3658nqn34
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (0b97d97). 5 files reviewed. Counts: 0 findings, 0 confirmed, 0 refuted (7 attempted, 0 failed). No prior review sections. Acceptance criteria checked against the code: (1) Contract is "the footprint counts a model until its evict call returned". `State.evicting` holds the bytes. `footprint`, `isResident(_:)` and `residentModelCount` include `evicting`. `holdIfResident` reads `entries` only, thus an evicting model gives no hold. (2) The tests "the pool counts an evicted model until the evict call of its loader returns" and "an acquire while the evict call runs gets no hold of the evicted model, but a new load after the evict call" use `RecordingLoader.evictionsMayEnd` as the gate. (3) The implement record gives `swift test`: 806 tests passed.
+    - next: none. The task moved to done.
+  timestamp: 2026-09-30T03:10:36.027372+00:00
+- actor: claude-code
+  id: 01m3r4p4hptrge023deenam4vz
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files
+    - test: green — swift test 806 pass; swift test --package-path IntegrationTests 24 pass
+    - commit: 0b97d97
+    - review: clean — 0 findings
+  timestamp: 2026-09-30T03:10:46.838586+00:00
+position_column: done
+position_ordinal: d980
 title: 'ModelPool: the footprint removes an evicted model before the evict call of its loader returns'
 ---
 ## What

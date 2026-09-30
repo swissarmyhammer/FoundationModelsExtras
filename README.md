@@ -580,25 +580,35 @@ it as `hold.queue`. The queue keeps its guard: a submission from inside an open
 submission on the same queue is refused.
 
 For a key of the `.embedding` role, the loader returns a container that
-conforms to `PooledEmbedding`. A `PooledEmbedder` keeps the hold, so the model
-stays resident while the embedder exists. Each `embed(texts:)` call is one job
-in the queue of the model. The embedder uses the container only through
-`PooledEmbedding`, so the container of the first loader works for all callers.
-When the container does not conform, `PooledEmbedder(hold:)` throws
-`PooledEmbedderError.notAnEmbedding`:
+conforms to `PooledEmbedding`. `PooledEmbedder("<Hugging Face name>")` makes an
+embedder and loads nothing. Its first `embed(_:)` call acquires the model from
+the pool, one time only, also when first calls run at the same time. The pool
+is `ModelPool.shared` when you give no `pool:`. Two embedders of one name share
+one resident model. All copies of one embedder share one hold, so the model
+stays resident while a copy exists, and the pool evicts the model after the
+last copy of the last embedder goes. After a failed load, the next call loads
+again. `PooledEmbedder` has no `dimension`, because the dimension is not known
+before the load; the `PooledEmbedding` container keeps `dimension`.
+
+Each `embed(_:)` call is one job in the queue of the model. The embedder uses
+the container only through `PooledEmbedding`, so the container of the first
+loader works for all callers. When the container does not conform, `embed(_:)`
+throws `PooledEmbedderError.notAnEmbedding`:
 
 ```swift
-// The handle keeps the hold, so the model stays resident. Each call
-// is one job in the queue that all holds of the key share.
-let hold = try await pool.acquire(embedding, footprintBytes: embedderBytes, sessionBytes: 0, loader: loader)
-let embedder = try PooledEmbedder(hold: hold)
-let vectors = try await embedder.embed(texts: texts)
+// Loads nothing now. The first call loads the model into the pool.
+let embedder = PooledEmbedder("mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", pool: pool)
+let vectors = try await embedder.embed(["save my work"])
 ```
+
+`PooledEmbedder(hold:)` stays, for a caller that acquires the model with its
+own byte counts. It throws `PooledEmbedderError.notAnEmbedding` at once when
+the container of the hold does not conform.
 
 This example is mirrored in `readmeEmbedderExample` in
 `Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift`, kept
-green by `swift test --filter PooledEmbedderTests`. The test declares `pool`,
-`loader`, `embedding`, `embedderBytes` and `texts` before the block.
+green by `swift test --filter PooledEmbedderTests`. The test declares `pool` (a
+`ModelPool(loader:)` with a test loader) before the block.
 
 ## Posting to a session: `Mailbox`
 

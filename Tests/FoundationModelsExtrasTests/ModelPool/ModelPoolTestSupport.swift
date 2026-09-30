@@ -58,16 +58,20 @@ final class Counter: Sendable {
 /// A loader that writes each load and each eviction to a log.
 ///
 /// A load writes `"load <ref> by <name>"`, then waits until `loadsMayEnd`
-/// finishes. The first `failingLoads` loads then throw ``FakeLoadError``. An
-/// eviction writes `"evict <name of the loader that made the model>"`, then
-/// waits until `evictionsMayEnd` finishes. A footprint measure writes
-/// `"measure <ref>"`, and gives `measuredBytes`.
+/// finishes. The first `failingLoads` loads then throw ``FakeLoadError``, and
+/// each other load gives the model that `makeModel` makes. An eviction writes
+/// `"evict <name of the loader that made the model>"`, then waits until
+/// `evictionsMayEnd` finishes. A footprint measure writes `"measure <ref>"`,
+/// and gives `measuredBytes`.
 struct RecordingLoader: PooledModelLoader {
     /// The name that the log and each model of this loader carry.
     let name: String
 
     /// The log of the loads and the evictions.
     private let log: Recorder<String>
+
+    /// Makes the model of each load from the name of the loader.
+    private let makeModel: @Sendable (_ loaderName: String) -> any Sendable
 
     /// A load ends only after this stream finishes.
     private let loadsMayEnd: AsyncStream<Void>
@@ -102,6 +106,8 @@ struct RecordingLoader: PooledModelLoader {
     ///   - failingLoads: The number of first loads that fail.
     ///   - measuredBytes: The bytes that each footprint measure gives.
     ///   - failingMeasures: The number of first footprint measures that fail.
+    ///   - makeModel: Makes the model of each load from the name of the
+    ///     loader. The default makes a new ``FakeModel``.
     init(
         name: String,
         log: Recorder<String>,
@@ -109,10 +115,12 @@ struct RecordingLoader: PooledModelLoader {
         evictionsMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
         failingLoads: Int = 0,
         measuredBytes: Int64 = 0,
-        failingMeasures: Int = 0
+        failingMeasures: Int = 0,
+        makeModel: @escaping @Sendable (_ loaderName: String) -> any Sendable = { FakeModel(loaderName: $0) }
     ) {
         self.name = name
         self.log = log
+        self.makeModel = makeModel
         self.loadsMayEnd = loadsMayEnd
         self.evictionsMayEnd = evictionsMayEnd
         self.failingLoads = failingLoads
@@ -140,7 +148,7 @@ struct RecordingLoader: PooledModelLoader {
     /// or fails.
     ///
     /// - Parameter key: The key to load.
-    /// - Returns: A new ``FakeModel``.
+    /// - Returns: The model that `makeModel` makes.
     /// - Throws: ``FakeLoadError`` for each of the first `failingLoads` loads.
     func load(_ key: ModelPoolKey) async throws -> any Sendable {
         let attempt = startedLoads.next()
@@ -149,7 +157,7 @@ struct RecordingLoader: PooledModelLoader {
         if attempt <= failingLoads {
             throw FakeLoadError()
         }
-        return FakeModel(loaderName: name)
+        return makeModel(name)
     }
 
     /// Writes the eviction to the log, and waits for `evictionsMayEnd`.

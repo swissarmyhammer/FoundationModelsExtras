@@ -1,8 +1,40 @@
 ---
+comments:
+- actor: claude-code
+  id: 01m3r4vf71p8dqnj58enbbfp11
+  text: |-
+    Research:
+    - `PooledEmbedder` (Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift) is a struct with `init(hold:) throws`, `dimension`, and `embed(texts:)`. The `PooledEmbedding` protocol keeps `embed(texts:)` and `dimension`; only the method of `PooledEmbedder` changes to `embed(_:)`.
+    - `ModelPool.acquire(_ key:)` loads with the loader of the pool, and the pool already makes one load for two concurrent acquires of one key (the second acquire finds the hold in its admission job). Thus the one-hold-for-each-embedder rule comes from a shared reference box in the embedder: one load task, which all concurrent first calls wait for.
+    - `ModelPool.shared` exists (loader `MLXModelLoader()`). `ModelRef` is `ExpressibleByStringLiteral`.
+    - Callers of `embed(texts:)` and `dimension` of `PooledEmbedder`: the unit tests in PooledEmbedderTests.swift, README.md, and in IntegrationTests: PooledEmbedderIntegrationTests.swift and ModelPoolSmokeTests.swift. Each changes with the rename and the removal of `dimension`. The integration tests that have a hold read the dimension from the container of the hold (`PooledEmbedding.dimension`).
+    - Plan: a private final class box holds an enum state (unloaded / loading(task) / loaded). A failed load goes back to unloaded, so the next call tries again. A container that is not a `PooledEmbedding` gives `PooledEmbedderError.notAnEmbedding` from `embed(_:)`.
+  timestamp: 2026-09-30T03:13:41.601672+00:00
+- actor: claude-code
+  id: 01m3r5dpc1mr6bg9c2v73qx5tp
+  text: |-
+    Implementation landed (TDD).
+    - RED: the new PooledEmbedderTests did not compile, because `PooledEmbedder(_:pool:)` and `embed(_:)` did not exist.
+    - GREEN: PooledEmbedderTests 15 of 15 pass.
+    - Design: `PooledEmbedder` keeps a private final class `ResidentEmbedding`. Its state is an enum under a `Mutex`: `unloaded(source)`, `loading(source, Task)`, `loaded(LoadedEmbedding)`. The first call starts one load task, and all concurrent first calls wait for that task. After a failed load, the state goes back to `unloaded`, so the next call loads again. A container that is not a `PooledEmbedding` makes `embed(_:)` throw `notAnEmbedding`; the hold goes at once and the pool evicts the model. `init(hold:)` starts in the `loaded` state.
+    - What did not work: `state.withLock(Self.access)` with a static function reference does not compile in Swift 6 ("sending" result conversion). A closure `{ Self.access(&$0) }` compiles.
+    - Note: the pool already makes one load for two concurrent acquires of one key. Thus the unit test "two concurrent first embed calls make one load" would also pass with a naive embedder. The box is what gives one hold for each embedder.
+    - `dimension` is gone from `PooledEmbedder`. The integration tests that have a hold now read the dimension from the container of the hold, with the new helper `IntegrationModels.embeddingDimension(of:)`. The similarity integration test now uses `PooledEmbedder(IntegrationModels.embedding.ref, pool: ModelPool())`, thus the core `MLXModelLoader`.
+    - API break for callers outside this repo: `embed(texts:)` is now `embed(_:)`, and `dimension` is gone. The FoundationModelsRouter must change when it takes this version.
+    - `RecordingLoader` (unit test support) got a `makeModel` parameter, so a test can give an embedding container through a recording loader.
+    - Not done here, on the orchestrator order: commit, push, and the "CI is green on the pushed commit" item.
+  timestamp: 2026-09-30T03:23:38.753756+00:00
+- actor: claude-code
+  id: 01m3r5dvffcnzz6rw3eyn573kj
+  text: |-
+    ### implement — changed
+    - evidence: 7 files — Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, README.md, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ModelPoolSmokeTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/Support/IntegrationModels.swift. `swift test`: 813 tests in 80 suites pass (4 known issues from the existing withKnownIssue in TelemetryCaptureTests). `swift test --package-path IntegrationTests`: 24 tests in 7 suites pass. No compiler warnings; the only warning is the build-system line "missing creator for mutated node" of the mlx-swift_Cmlx bundle, which each build writes.
+    - next: /review. The orchestrator commits and pushes; the CI acceptance item stays open until then.
+  timestamp: 2026-09-30T03:23:43.983626+00:00
 depends_on:
 - 01M3QMD6V09WGE7MJDV483VHBG
-position_column: todo
-position_ordinal: '8480'
+position_column: doing
+position_ordinal: '8180'
 title: PooledEmbedder from a Hugging Face name
 ---
 ## What
@@ -23,15 +55,15 @@ let test = PooledEmbedder("any", pool: ModelPool(loader: fake))                 
 - Push to `origin main` when green.
 
 ## Acceptance Criteria
-- [ ] `PooledEmbedder("…")` loads nothing (the pool has no entry after init).
-- [ ] Two concurrent first `embed` calls make one load; two embedders with one name share one resident model.
-- [ ] The model is evicted after the last copy of the last embedder goes.
+- [x] `PooledEmbedder("…")` loads nothing (the pool has no entry after init).
+- [x] Two concurrent first `embed` calls make one load; two embedders with one name share one resident model.
+- [x] The model is evicted after the last copy of the last embedder goes.
 - [ ] CI is green on the pushed commit.
 
 ## Tests
-- [ ] `Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift`: with `ModelPool(loader:)` and a test loader: lazy load, one load for concurrent first calls, shared model, eviction.
-- [ ] `IntegrationTests/.../PooledEmbedderIntegrationTests.swift`: a real embed by name gives one vector for each text; a paraphrase has a higher cosine than an unrelated text.
-- [ ] `swift test` and `swift test --package-path IntegrationTests` pass.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift`: with `ModelPool(loader:)` and a test loader: lazy load, one load for concurrent first calls, shared model, eviction.
+- [x] `IntegrationTests/.../PooledEmbedderIntegrationTests.swift`: a real embed by name gives one vector for each text; a paraphrase has a higher cosine than an unrelated text.
+- [x] `swift test` and `swift test --package-path IntegrationTests` pass.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #model-pool

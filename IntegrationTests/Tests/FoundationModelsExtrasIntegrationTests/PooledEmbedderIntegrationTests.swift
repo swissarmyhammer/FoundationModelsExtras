@@ -39,7 +39,7 @@ private enum EmbedderUser {
 
 /// One embed call of the FIFO test: the user that makes it and its one text.
 private struct EmbedCall {
-    /// The user that calls `embed(texts:)`.
+    /// The user that calls `embed(_:)`.
     let user: EmbedderUser
     /// The text of the call.
     let text: String
@@ -62,20 +62,20 @@ extension RealModelSuites {
     /// model, and the residency that the embedder handles keep.
     @Suite("Pooled embedder with a real model", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
     struct PooledEmbedderIntegrationTests {
-        @Test("a real embed gives vectors of the model dimension, and two similar texts are closer than two unrelated texts")
-        func realEmbedPlacesSimilarTextsCloser() async throws {
+        @Test("a real embed by name gives one vector for each text, and a paraphrase has a higher cosine than an unrelated text")
+        func realEmbedByNamePlacesSimilarTextsCloser() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
 
-            let outcome = try await Self.embedSimilarityTexts(in: pool)
+            let outcome = try await Self.embedSimilarityTextsByName(in: pool)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
+            let dimension = try #require(outcome.batch.first).count
             let similar = VectorMath.cosineSimilarity(of: outcome.anchor, to: outcome.paraphrase)
             let unrelated = VectorMath.cosineSimilarity(of: outcome.anchor, to: outcome.unrelated)
-            #expect(outcome.dimension > 0)
-            #expect(outcome.batch.map(\.count) == Array(repeating: outcome.dimension, count: SimilarityTexts.all.count))
-            #expect(
-                [outcome.anchor, outcome.paraphrase, outcome.unrelated].allSatisfy { $0.count == outcome.dimension })
+            #expect(dimension > 0)
+            #expect(outcome.batch.map(\.count) == Array(repeating: dimension, count: SimilarityTexts.all.count))
+            #expect([outcome.anchor, outcome.paraphrase, outcome.unrelated].allSatisfy { $0.count == dimension })
             #expect(similar > unrelated, "similar texts: \(similar); unrelated texts: \(unrelated)")
         }
 
@@ -149,13 +149,14 @@ extension RealModelSuites {
             try PooledEmbedder(hold: try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader))
         }
 
-        /// Embeds the similarity texts one at a time and in one batch. The
-        /// embedder goes on return.
-        private static func embedSimilarityTexts(in pool: ModelPool) async throws -> SimilarityOutcome {
-            let embedder = try await makeEmbedder(in: pool)
+        /// Embeds the similarity texts one at a time and in one batch, through
+        /// an embedder made from the name of the embedding model. The first
+        /// call loads the model with the loader of `pool`. The embedder goes on
+        /// return.
+        private static func embedSimilarityTextsByName(in pool: ModelPool) async throws -> SimilarityOutcome {
+            let embedder = PooledEmbedder(IntegrationModels.embedding.ref, pool: pool)
             return SimilarityOutcome(
-                dimension: embedder.dimension,
-                batch: try await embedder.embed(texts: SimilarityTexts.all),
+                batch: try await embedder.embed(SimilarityTexts.all),
                 anchor: try await vector(of: SimilarityTexts.anchor, with: embedder),
                 paraphrase: try await vector(of: SimilarityTexts.paraphrase, with: embedder),
                 unrelated: try await vector(of: SimilarityTexts.unrelated, with: embedder))
@@ -163,7 +164,7 @@ extension RealModelSuites {
 
         /// Embeds `text` alone, and gives its one vector.
         private static func vector(of text: String, with embedder: PooledEmbedder) async throws -> [Float] {
-            try #require(try await embedder.embed(texts: [text]).first)
+            try #require(try await embedder.embed([text]).first)
         }
 
         /// Acquires the embedding model first for the router and then for the
@@ -178,9 +179,9 @@ extension RealModelSuites {
             let registry = try PooledEmbedder(hold: registryHold)
             return SharedModelOutcome(
                 shareOneQueue: routerHold.queue === registryHold.queue,
-                dimension: registry.dimension,
-                routerVectors: try await router.embed(texts: sharedTexts),
-                registryVectors: try await registry.embed(texts: sharedTexts))
+                dimension: try IntegrationModels.embeddingDimension(of: registryHold),
+                routerVectors: try await router.embed(sharedTexts),
+                registryVectors: try await registry.embed(sharedTexts))
         }
 
         /// Embeds the text of each concurrent call first in a serial run, and
@@ -244,21 +245,22 @@ extension RealModelSuites {
         /// Makes two embedder handles, embeds with each, and releases one of
         /// them. The other handle goes on return.
         private static func releaseOneOfTwoHandles(in pool: ModelPool) async throws -> ResidencyOutcome {
-            let remaining = try await makeEmbedder(in: pool)
+            let remainingHold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool)
+            let remaining = try PooledEmbedder(hold: remainingHold)
             let releasedHandleVectors = try await embedWithShortLivedHandle(in: pool)
             // An eviction job runs in the admission queue. This empty job ends
             // after each eviction job that is in the admission queue now.
             try await pool.admit { _ in }
             return ResidencyOutcome(
                 isResidentAfterFirstRelease: pool.isResident(IntegrationModels.embedding),
-                dimension: remaining.dimension,
+                dimension: try IntegrationModels.embeddingDimension(of: remainingHold),
                 releasedHandleVectors: releasedHandleVectors,
-                remainingHandleVectors: try await remaining.embed(texts: [probeText]))
+                remainingHandleVectors: try await remaining.embed([probeText]))
         }
 
         /// Embeds with a new embedder handle. The handle goes on return.
         private static func embedWithShortLivedHandle(in pool: ModelPool) async throws -> [[Float]] {
-            try await makeEmbedder(in: pool).embed(texts: [probeText])
+            try await makeEmbedder(in: pool).embed([probeText])
         }
 
         /// Starts a long generation on the queue of the LLM, and embeds while
@@ -275,10 +277,11 @@ extension RealModelSuites {
                 return ContinuousClock.now
             }
             try await Waiting.until { await !generationStarts.events.isEmpty }
-            let vectors = try await embedder.embed(texts: [probeText])
+            let vectors = try await embedder.embed([probeText])
             let embedEnd = ContinuousClock.now
             return GenerationOverlapOutcome(
-                shareOneQueue: llmHold.queue === embeddingHold.queue, dimension: embedder.dimension,
+                shareOneQueue: llmHold.queue === embeddingHold.queue,
+                dimension: try IntegrationModels.embeddingDimension(of: embeddingHold),
                 vectors: vectors, embedEnd: embedEnd, generationEnd: try await generationEnd)
         }
     }
@@ -315,8 +318,6 @@ private struct EmbedderUsers: Sendable {
 
 /// The vectors of the similarity test.
 private struct SimilarityOutcome {
-    /// The dimension that the embedder reports.
-    let dimension: Int
     /// The vectors of one call with all the similarity texts.
     let batch: [[Float]]
     /// The vector of ``SimilarityTexts/anchor``, embedded alone.
@@ -331,7 +332,7 @@ private struct SimilarityOutcome {
 private struct SharedModelOutcome {
     /// Whether the holds of the two users share one queue, thus one pool entry.
     let shareOneQueue: Bool
-    /// The dimension that the embedder of the registry reports.
+    /// The dimension that the container of the hold of the registry reports.
     let dimension: Int
     /// The vectors of the shared texts through the embedder of the router.
     let routerVectors: [[Float]]
@@ -351,7 +352,7 @@ private struct ConcurrentOutcome {
 private struct ResidencyOutcome {
     /// Whether the model was resident after the release of the first handle.
     let isResidentAfterFirstRelease: Bool
-    /// The dimension that the remaining embedder reports.
+    /// The dimension that the container of the remaining hold reports.
     let dimension: Int
     /// The vectors of the handle that the test released first.
     let releasedHandleVectors: [[Float]]
@@ -363,7 +364,7 @@ private struct ResidencyOutcome {
 private struct GenerationOverlapOutcome {
     /// Whether the LLM and the embedding model share one queue.
     let shareOneQueue: Bool
-    /// The dimension that the embedder reports.
+    /// The dimension that the container of the embedding hold reports.
     let dimension: Int
     /// The vectors of the embed call.
     let vectors: [[Float]]

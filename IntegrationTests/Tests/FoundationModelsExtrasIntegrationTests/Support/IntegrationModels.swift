@@ -1,4 +1,5 @@
 import FoundationModelsExtras
+import Testing
 
 /// The real models of this suite, in one place.
 ///
@@ -48,6 +49,18 @@ enum IntegrationModels {
         footprint: Int64 = footprintBytes
     ) async throws -> ModelHold {
         try await pool.acquire(key, footprintBytes: footprint, sessionBytes: sessionBytes, loader: loader)
+    }
+
+    /// The length of each vector of the embedding model of `hold`, as its
+    /// container reports it. A `PooledEmbedder` has no dimension, because the
+    /// dimension is not known before the load.
+    ///
+    /// - Parameter hold: A hold of an embedding model.
+    /// - Returns: The dimension of the container.
+    /// - Throws: An `ExpectationFailedError` when the container is not a
+    ///   `PooledEmbedding`.
+    static func embeddingDimension(of hold: ModelHold) throws -> Int {
+        try #require(hold.container as? any PooledEmbedding).dimension
     }
 
     /// Waits until `key` is not resident in `pool`, and until the eviction job

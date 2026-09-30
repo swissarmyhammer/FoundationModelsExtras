@@ -45,10 +45,12 @@ extension RealModelSuites {
         }
 
         /// Acquires the embedding model, embeds `texts` through a `PooledEmbedder`,
-        /// and releases the hold on return.
+        /// and releases the hold on return. The dimension comes from the
+        /// container of the hold.
         private static func embed(_ texts: [String], in pool: ModelPool) async throws -> ([[Float]], Int) {
-            let embedder = try PooledEmbedder(hold: try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool))
-            return (try await embedder.embed(texts: texts), embedder.dimension)
+            let hold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool)
+            let embedder = try PooledEmbedder(hold: hold)
+            return (try await embedder.embed(texts), try IntegrationModels.embeddingDimension(of: hold))
         }
     }
 }
