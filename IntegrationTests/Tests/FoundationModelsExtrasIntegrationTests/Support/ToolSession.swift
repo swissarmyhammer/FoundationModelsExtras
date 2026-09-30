@@ -69,9 +69,7 @@ enum ToolSession {
         _ body: @escaping @Sendable (LanguageModelSession) async throws -> T
     ) async throws -> T {
         let hold = try await IntegrationModels.acquire(
-            key: IntegrationModels.toolCallingLLM, in: pool,
-            loader: MLXPooledLoader(languageModelCapabilities: MLXPooledLoader.toolCallingCapabilities),
-            footprint: IntegrationModels.toolCallingFootprintBytes)
+            key: IntegrationModels.toolCallingLLM, in: pool, footprint: IntegrationModels.toolCallingFootprintBytes)
         let model = try Generation.languageModel(of: hold)
         return try await hold.queue.submit {
             let session = LanguageModelSession(

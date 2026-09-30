@@ -11,6 +11,8 @@ import PackageDescription
 //
 // Nothing reads an environment variable to select tests.
 //
+// The tests load each model with `MLXModelLoader`, the built-in loader of the
+// core, thus this package names only the products that a test file imports.
 // The MLX pins are the pins of the root package and of the
 // FoundationModelsRouter integration package, so the packages resolve the
 // same MLX code.
@@ -18,7 +20,6 @@ import PackageDescription
 let extrasPackage = "FoundationModelsExtras"
 let mlxPackage = "mlx-swift-lm"
 let huggingFacePackage = "swift-huggingface"
-let transformersPackage = "swift-transformers"
 let ulidPackage = "ULID.swift"
 
 let package = Package(
@@ -32,7 +33,6 @@ let package = Package(
         // The controlled fork of mlx-swift-lm.
         .package(url: "https://github.com/swissarmyhammer/\(mlxPackage)", branch: "stable"),
         .package(url: "https://github.com/huggingface/\(huggingFacePackage)", from: "0.9.0"),
-        .package(url: "https://github.com/huggingface/\(transformersPackage)", from: "1.3.0"),
         // The session id of a `ModelCallMark` is a ULID. The same floor as the
         // root package.
         .package(url: "https://github.com/yaslab/\(ulidPackage).git", from: "1.3.1"),
@@ -45,17 +45,13 @@ let package = Package(
                 // The `@Operation` macro and `OperationTool`. The tool-hosting
                 // suite mounts one `OperationTool` under a real model session.
                 .product(name: "Operations", package: extrasPackage),
-                // `MLXLLM` and `MLXEmbedders` register the model factories.
-                // `MLXFoundationModels` gives the LLM as a FoundationModels
-                // `LanguageModel`.
-                .product(name: "MLXLMCommon", package: mlxPackage),
-                .product(name: "MLXLLM", package: mlxPackage),
-                .product(name: "MLXEmbedders", package: mlxPackage),
+                // `MLXLanguageModel`: a pool test reads the model of the
+                // container of a hold. This product also gives the `MLX`
+                // module, whose active memory counter the memory checks read.
                 .product(name: "MLXFoundationModels", package: mlxPackage),
-                // The Hugging Face hub client and the tokenizer loader.
-                .product(name: "MLXHuggingFace", package: mlxPackage),
+                // `HubCache`: the memory checks measure the weight files in the
+                // Hugging Face cache without the loader.
                 .product(name: "HuggingFace", package: huggingFacePackage),
-                .product(name: "Tokenizers", package: transformersPackage),
                 .product(name: "ULID", package: ulidPackage),
             ],
             path: "Tests/\(extrasPackage)IntegrationTests"

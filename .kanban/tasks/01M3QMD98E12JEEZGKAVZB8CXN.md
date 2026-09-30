@@ -40,10 +40,29 @@ comments:
     - evidence: 9 files. New: Sources/FoundationModelsExtras/ModelPool/PooledModel.swift, Sources/FoundationModelsExtras/ModelPool/PooledSession.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift (10 tests), Tests/FoundationModelsExtrasTests/ModelPool/StubLanguageModel.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledModelIntegrationTests.swift (3 tests). Changed: README.md, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift, plus this card. `swift test`: 837 tests in 82 suites passed (4 known issues of TelemetryCaptureTests, which existed before), 0 warnings. `swift test --package-path IntegrationTests`: 29 tests in 8 suites passed.
     - next: /review. Commit, push and the CI check are for the orchestrator. The task stays in doing.
   timestamp: 2026-09-30T04:41:58.162896+00:00
+- actor: claude-code
+  id: 01m3rada6bkdk5r5wks0y7bsz5
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (5e6fe7c). Counts: 0 findings, 0 confirmed, 0 refuted. 7 files attempted, 0 failed. An ignore rule excluded 4 .kanban files. No validator matches README.md.
+    - acceptance check: PooledModel.init(ref:pool:) loads nothing. session(instructions:tools:) calls pool.acquire for the .llm key. respond(to:), respond(to:generating:) and fork() each run as one job on the GenerationQueue of the hold. fork() gets its own hold and continues the transcript. PooledModelTests.swift has tests for: lazy load, one load for two PooledModel values with one name, serialized responds, fork transcript, eviction. PooledModelIntegrationTests.swift uses mlx-community/Qwen3-4B-4bit and has tests for: answer, Generable decode, fork remembers a fact.
+    - open: "CI is green on the pushed commit". The orchestrator pushes after done. This is not a review finding.
+    - next: move to done.
+  timestamp: 2026-09-30T04:50:49.163942+00:00
+- actor: claude-code
+  id: 01m3radqfqd4sjc55a3nwa87ab
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files (labeled contract PooledModel(ref:pool:))
+    - test: green — swift test 837 pass; swift test --package-path IntegrationTests 29 pass
+    - commit: 5e6fe7c
+    - review: clean — 0 findings
+    - push: origin main
+  timestamp: 2026-09-30T04:51:02.775090+00:00
 depends_on:
 - 01M3QMD6V09WGE7MJDV483VHBG
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: dc80
 title: PooledModel and PooledSession for an LLM by Hugging Face name
 ---
 ## What

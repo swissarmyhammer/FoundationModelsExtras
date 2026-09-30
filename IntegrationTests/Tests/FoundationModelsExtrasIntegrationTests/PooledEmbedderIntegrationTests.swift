@@ -144,7 +144,7 @@ extension RealModelSuites {
 
         /// Makes an embedder that keeps a new hold of the embedding model.
         private static func makeEmbedder(
-            in pool: ModelPool, loader: any PooledModelLoader = MLXPooledLoader()
+            in pool: ModelPool, loader: any PooledModelLoader = MLXModelLoader()
         ) async throws -> PooledEmbedder {
             try PooledEmbedder(hold: try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader))
         }
@@ -403,7 +403,7 @@ private struct RecordingEmbedding: PooledEmbedding {
     }
 }
 
-/// A loader that loads the MLX embedding model with ``MLXPooledLoader``, and
+/// A loader that loads the MLX embedding model with `MLXModelLoader`, and
 /// gives it wrapped in a ``RecordingEmbedding``. The first loader of a key gives
 /// the container of all holds, thus each user of the key records its calls here.
 private struct RecordingEmbeddingLoader: PooledModelLoader {
@@ -411,7 +411,7 @@ private struct RecordingEmbeddingLoader: PooledModelLoader {
     let records = EventLog<EmbedRecord>()
 
     /// The loader that does the real work.
-    private let loader = MLXPooledLoader()
+    private let loader = MLXModelLoader()
 
     /// Loads the model of `key`, and wraps it.
     ///
@@ -424,7 +424,7 @@ private struct RecordingEmbeddingLoader: PooledModelLoader {
         return RecordingEmbedding(embedding: embedding, records: records)
     }
 
-    /// Evicts the container with ``MLXPooledLoader``.
+    /// Evicts the container with `MLXModelLoader`.
     ///
     /// - Parameter container: A container that ``load(_:)`` returned.
     func evict(_ container: any Sendable) async {

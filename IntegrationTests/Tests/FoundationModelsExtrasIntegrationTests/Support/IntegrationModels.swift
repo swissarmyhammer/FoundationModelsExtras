@@ -37,7 +37,8 @@ enum IntegrationModels {
     /// - Parameters:
     ///   - key: One of the models above.
     ///   - pool: The pool of the test.
-    ///   - loader: The loader of the model. The default is ``MLXPooledLoader``.
+    ///   - loader: The loader of the model. The default is the built-in
+    ///     `MLXModelLoader` of the core.
     ///   - footprint: The bytes that the pool counts for the weights and one
     ///     session of the model. The default is ``footprintBytes``.
     /// - Returns: The hold. The model stays resident while the hold exists.
@@ -45,7 +46,7 @@ enum IntegrationModels {
     static func acquire(
         key: ModelPoolKey,
         in pool: ModelPool,
-        loader: any PooledModelLoader = MLXPooledLoader(),
+        loader: any PooledModelLoader = MLXModelLoader(),
         footprint: Int64 = footprintBytes
     ) async throws -> ModelHold {
         try await pool.acquire(key, footprintBytes: footprint, sessionBytes: sessionBytes, loader: loader)

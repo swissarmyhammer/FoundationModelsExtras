@@ -1,6 +1,6 @@
 import FoundationModelsExtras
 
-/// A ``MLXPooledLoader`` that records each load that it completes.
+/// An `MLXModelLoader` that records each load that it completes.
 ///
 /// A test counts the loads, and compares the start and the end of a load with
 /// the times of other events.
@@ -19,9 +19,9 @@ struct RecordingLoader: PooledModelLoader {
     let loads = EventLog<Load>()
 
     /// The loader that does the real work.
-    private let loader = MLXPooledLoader()
+    private let loader = MLXModelLoader()
 
-    /// Loads the model of `key` with ``MLXPooledLoader``, and records the load.
+    /// Loads the model of `key` with `MLXModelLoader`, and records the load.
     ///
     /// - Parameter key: The model and its role.
     /// - Returns: The loaded container.
@@ -33,7 +33,7 @@ struct RecordingLoader: PooledModelLoader {
         return container
     }
 
-    /// Evicts the container with ``MLXPooledLoader``.
+    /// Evicts the container with `MLXModelLoader`.
     ///
     /// - Parameter container: A container that ``load(_:)`` returned.
     func evict(_ container: any Sendable) async {

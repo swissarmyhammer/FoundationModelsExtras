@@ -12,6 +12,10 @@ enum ModelMemory {
     /// The file extension of a weight file.
     private static let weightFileExtension = "safetensors"
 
+    /// The revision that `MLXModelLoader` loads for a model reference that
+    /// names no revision.
+    private static let defaultRevision = "main"
+
     /// The bytes of the MLX arrays that are alive now, in the process.
     ///
     /// This is the active memory counter of MLX. It does not count the buffer
@@ -20,10 +24,12 @@ enum ModelMemory {
     static var activeBytes: Int { Memory.activeMemory }
 
     /// The bytes of the weight files of `key` in the Hugging Face cache, at the
-    /// revision that ``MLXPooledLoader`` loads.
+    /// revision that `MLXModelLoader` loads.
     ///
     /// A loaded model keeps each tensor of these files as one MLX array, thus
-    /// this is about the active memory that one load adds.
+    /// this is about the active memory that one load adds. This measure reads
+    /// the cache without `MLXModelLoader`, thus a test can compare it with the
+    /// footprint that the loader measures.
     ///
     /// - Parameter key: One of the models of ``IntegrationModels``.
     /// - Returns: The sum of the sizes of the weight files.
@@ -31,7 +37,7 @@ enum ModelMemory {
     ///   or the error of a file read.
     static func weightBytes(of key: ModelPoolKey) throws -> Int {
         let repo = try #require(Repo.ID(rawValue: key.ref.repo))
-        let revision = key.ref.revision ?? MLXPooledLoader.defaultRevision
+        let revision = key.ref.revision ?? defaultRevision
         let commit = try #require(
             HubCache.default.resolveRevision(repo: repo, kind: .model, ref: revision),
             "The Hugging Face cache holds no \(revision) revision of \(key.ref.stringValue).")
