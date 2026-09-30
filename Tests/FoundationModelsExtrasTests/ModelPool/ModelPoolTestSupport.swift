@@ -1,6 +1,19 @@
 import Dispatch
 @testable import FoundationModelsExtras
 import Synchronization
+import Testing
+
+extension GenerationQueue {
+    /// Waits until `count` jobs wait in this queue.
+    ///
+    /// - Parameter count: The number of waiting jobs.
+    /// - Throws: An `ExpectationFailedError` when the jobs did not wait.
+    func waitForWaitingJobs(count: Int) async throws {
+        try #require(await BoundedWait.conditionReached("\(count) calls wait in the queue") {
+            await self.waitingCount == count
+        })
+    }
+}
 
 /// The model that a ``RecordingLoader`` makes. A test compares two models by
 /// identity.

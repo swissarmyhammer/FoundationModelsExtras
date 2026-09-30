@@ -68,10 +68,26 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ModelPoolSmokeTests.swift, README.md. `swift test`: 827 tests in 81 suites pass (4 known issues from the existing withKnownIssue). `swift test --package-path IntegrationTests`: 26 tests in 7 suites pass. No compiler warnings. The only warning is the build-system line "missing creator for mutated node" of the mlx-swift_Cmlx bundle. Findings: 2 of 2 checked.
     - next: /review. Not committed and not pushed. The CI acceptance item stays open until the push.
   timestamp: 2026-09-30T04:18:46.263622+00:00
+- actor: claude-code
+  id: 01m3r8vf5cnfse6xxdthf3tp3c
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (80fc0a2). 0 findings, 0 confirmed, 0 refuted. 4 files reviewed. The 2 prior `swift/fluent-usage` findings are checked, and the code agrees: `PooledEmbedder.swift` has `init(ref:pool:)` and `embed(texts:)`. The code agrees with the acceptance criteria: `init(hold:)` stays, `dimension` is only on the `PooledEmbedding` protocol, the README uses `PooledEmbedder(ref:pool:)`, and `PooledEmbedderTests` has tests for a lazy load, one load for concurrent first calls, a shared model, and eviction after the last copy.
+    - next: The orchestrator pushes. The criterion "CI is green on the pushed commit" stays open until CI runs on that push.
+  timestamp: 2026-09-30T04:23:35.852416+00:00
+- actor: claude-code
+  id: 01m3r8vty35fb8f518cphemhhm
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 5 files (labeled names init(ref:pool:) and embed(texts:), per the new task contract)
+    - test: green — swift test 827 pass; swift test --package-path IntegrationTests 26 pass
+    - commit: 80fc0a2
+    - review: clean — 0 findings; 2 prior findings checked
+  timestamp: 2026-09-30T04:23:47.907889+00:00
 depends_on:
 - 01M3QMD6V09WGE7MJDV483VHBG
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: db80
 title: PooledEmbedder from a Hugging Face name
 ---
 ## What

@@ -645,6 +645,54 @@ This example is mirrored in `readmeEmbedderExample` in
 green by `swift test --filter PooledEmbedderTests`. The test declares `pool` (a
 `ModelPool(loader:)` with a test loader) before the block.
 
+### Sessions of an LLM by name: `PooledModel` and `PooledSession`
+
+`PooledModel(ref: "<Hugging Face name>")` makes a model of an LLM and loads
+nothing. The pool is `ModelPool.shared` when you give no `pool:`. Each
+`session(instructions:tools:)` call acquires the model from the pool with a key
+of the `.llm` role: the pool loads the model one time for each name, also when
+first calls run at the same time or come from two `PooledModel` values of one
+name, and gives one hold to each session. The call throws the error of the
+load, or `PooledSessionError.notALanguageModel` when the container of the model
+is not a FoundationModels `LanguageModel`.
+
+A `PooledSession` is a FoundationModels `LanguageModelSession` over the
+`LanguageModel` of its hold. `model` is the Hugging Face name of the model.
+`respond(to:)` gives the text of the answer, and `respond(to:generating:)`
+decodes the answer as a `Generable` type. Each respond call is one job in the
+queue of the model, so the calls of all sessions of one model run one at a
+time, first in first out. A tool that the model calls in a respond call must
+not wait for a respond call of a session of the same model: the queue refuses
+that call with `GenerationQueueError.waitInsideOpenSubmission`.
+
+`fork()` makes a new session that continues the transcript of its parent, with
+the same tools and its own hold. The fork reads the transcript as one job in
+the queue, so it waits for a respond call that runs. A later turn of one
+session does not change the transcript of the other. The model stays resident
+while a session or a fork exists, and the pool evicts the model after the last
+one goes:
+
+```swift
+// Loads nothing now. The first session loads the model into the pool.
+let qwen = PooledModel(ref: "mlx-community/Qwen3-4B-4bit", pool: pool)
+let session = try await qwen.session(instructions: "Answer with one number.")
+let text = try await session.respond(to: "How many legs has a cat?")
+let typed = try await session.respond(to: "And a spider?", generating: Answer.self)
+let child = try await session.fork()   // continues the transcript, with its own hold
+```
+
+The loader of a test can return any FoundationModels `LanguageModel` for an
+`.llm` key, so a different package can test with a stub model and
+`ModelPool(loader:)`.
+
+This example is mirrored in `readmePooledModelExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift`, kept green
+by `swift test --filter PooledModelTests`. The test declares `pool` (a
+`ModelPool(loader:)` with a test loader that gives a stub `LanguageModel`) and
+`Answer` (a `@Generable` type) before the block. The integration tests in
+`IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledModelIntegrationTests.swift`
+use the real `mlx-community/Qwen3-4B-4bit`.
+
 ## Posting to a session: `Mailbox`
 
 A `Mailbox<Message, Answer>` lets a caller post messages to a session and not

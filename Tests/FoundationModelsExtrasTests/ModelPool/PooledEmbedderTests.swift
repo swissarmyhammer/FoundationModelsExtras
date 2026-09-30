@@ -21,6 +21,12 @@ struct PooledEmbedderTests {
     /// The vector of each text for the model of loader B.
     private static let vectorB: [Float] = [0, 1]
 
+    /// One call that waits in the queue.
+    private static let oneWaitingCall = 1
+
+    /// Two calls that wait in the queue.
+    private static let twoWaitingCalls = 2
+
     /// The name of the loader that ``embeddingLoader(log:loadsMayEnd:failingLoads:)`` makes.
     private static let loaderName = "A"
 
@@ -66,18 +72,6 @@ struct PooledEmbedderTests {
     /// - Returns: Each load entry, in order.
     private static func loads(in log: Recorder<String>) -> [String] {
         log.values.filter { $0.hasPrefix("load ") }
-    }
-
-    /// Waits until `count` jobs wait in `queue`.
-    ///
-    /// - Parameters:
-    ///   - count: The number of waiting jobs.
-    ///   - queue: The queue.
-    /// - Throws: An `ExpectationFailedError` when the jobs did not wait.
-    private static func waitForQueuedCalls(_ count: Int, on queue: GenerationQueue) async throws {
-        try #require(await BoundedWait.conditionReached("\(count) calls wait in the queue") {
-            await queue.waitingCount == count
-        })
     }
 
     /// A hold of a model that blocks its first call, and its embedder.
@@ -128,9 +122,9 @@ struct PooledEmbedderTests {
         let model = try await Self.startBlockedCall(on: pool)
 
         let second = Task { try await model.embedder.embed(texts: ["two"]) }
-        try await Self.waitForQueuedCalls(1, on: model.hold.queue)
+        try await model.hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
         let third = Task { try await model.embedder.embed(texts: ["three"]) }
-        try await Self.waitForQueuedCalls(2, on: model.hold.queue)
+        try await model.hold.queue.waitForWaitingJobs(count: Self.twoWaitingCalls)
         model.endFirstCall.finish()
         _ = try await (model.firstCall.value, second.value, third.value)
 
@@ -171,10 +165,10 @@ struct PooledEmbedderTests {
         let model = try await Self.startBlockedCall(on: pool)
 
         let cancelled = Task { try await model.embedder.embed(texts: ["two"]) }
-        try await Self.waitForQueuedCalls(1, on: model.hold.queue)
+        try await model.hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
         cancelled.cancel()
         let next = Task { try await model.embedder.embed(texts: ["three"]) }
-        try await Self.waitForQueuedCalls(1, on: model.hold.queue)
+        try await model.hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
         model.endFirstCall.finish()
         let vectors = try await next.value
 
