@@ -13,8 +13,37 @@ public enum TelemetryPlace: Sendable, Equatable, CustomStringConvertible {
     /// One attribute of a span, as `<span>.<key> = <value>`.
     case spanAttribute(span: String, key: String, value: String)
 
+    /// One attribute of a link of a span, as `<span> link.<key> = <value>`.
+    case spanLinkAttribute(span: String, key: String, value: String)
+
+    /// The name of an event of a span, as `span <span> event <event>`.
+    case spanEventName(span: String, event: String)
+
+    /// One attribute of an event of a span, as
+    /// `<span> event <event>.<key> = <value>`.
+    case spanEventAttribute(span: String, event: String, key: String, value: String)
+
+    /// The description of an error that a span records, as
+    /// `span <span> error: <description>`. The description is
+    /// `String(describing:)` of the error, because swift-otel exports that
+    /// text as the `exception.message` of the `exception` event.
+    case spanError(span: String, description: String)
+
+    /// One attribute of an error that a span records, as
+    /// `<span> error.<key> = <value>`.
+    case spanErrorAttribute(span: String, key: String, value: String)
+
+    /// The status message of a span, as `span <span> status: <message>`.
+    case spanStatusMessage(span: String, message: String)
+
     /// The message of a log record, as `log <level>: <message>`.
     case logMessage(level: Logger.Level, message: String)
+
+    /// The description of the error of a log record, as
+    /// `log <level> error: <description>`. The description is
+    /// `String(describing:)` of the error, because a log handler writes that
+    /// text.
+    case logError(level: Logger.Level, description: String)
 
     /// One metadata value of a log record, as `log metadata <key> = <value>`.
     case logMetadata(key: String, value: String)
@@ -32,8 +61,22 @@ public enum TelemetryPlace: Sendable, Equatable, CustomStringConvertible {
             "span \(span)"
         case .spanAttribute(let span, let key, let value):
             "\(span).\(key) = \(value)"
+        case .spanLinkAttribute(let span, let key, let value):
+            "\(span) link.\(key) = \(value)"
+        case .spanEventName(let span, let event):
+            "span \(span) event \(event)"
+        case .spanEventAttribute(let span, let event, let key, let value):
+            "\(span) event \(event).\(key) = \(value)"
+        case .spanError(let span, let description):
+            "span \(span) error: \(description)"
+        case .spanErrorAttribute(let span, let key, let value):
+            "\(span) error.\(key) = \(value)"
+        case .spanStatusMessage(let span, let message):
+            "span \(span) status: \(message)"
         case .logMessage(let level, let message):
             "log \(level): \(message)"
+        case .logError(let level, let description):
+            "log \(level) error: \(description)"
         case .logMetadata(let key, let value):
             "log metadata \(key) = \(value)"
         case .metricName(let metric):

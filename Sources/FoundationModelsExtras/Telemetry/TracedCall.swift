@@ -58,7 +58,10 @@ public enum TracedCall {
     /// does. The ids replace a caller value with the same key.
     ///
     /// Rule 4: give no content in `spanName`, `attributes` or `metadata`.
-    /// The record never holds a value or an error of `body`.
+    /// The record never holds a value or an error of `body`. The span records
+    /// each error of `body`, and a telemetry backend exports the description
+    /// of that error. Thus `body` must throw no error whose description holds
+    /// content.
     ///
     /// - Parameters:
     ///   - spanName: The name of the span. The message of the record is

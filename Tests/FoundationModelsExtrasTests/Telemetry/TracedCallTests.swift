@@ -105,22 +105,42 @@ struct TracedCallTests {
         #expect(span.errors.map { $0.error as? ProbeError } == [.failed])
     }
 
-    @Test("content that only the body holds reaches no span, log record or metric")
-    func contentOfTheBodyReachesNoTelemetry() async throws {
+    @Test("content that the body returns reaches no span, log record or metric")
+    func contentThatTheBodyReturnsReachesNoTelemetry() async throws {
         let context = try await TelemetryCapture.run(forbidding: [Self.forbidden]) { context in
             let output = try await Self.run(logger: Logger(label: Self.loggerLabel)) { _ in Self.forbidden }
             #expect(output == Self.forbidden)
-            await #expect(throws: ProbeError.carrying(Self.forbidden)) {
-                try await Self.run(logger: Logger(label: Self.loggerLabel)) { _ in
-                    throw ProbeError.carrying(Self.forbidden)
-                }
-            }
             return context
         }
 
-        #expect(context.spans.count == 2)
-        #expect(context.logRecords.count == 2)
+        #expect(context.spans.count == 1)
+        #expect(context.logRecords.count == 1)
         #expect(context.leaks(forbidding: [Self.forbidden]).isEmpty)
+    }
+
+    @Test("the span records the description of an error that the body throws, thus the capture finds content in it")
+    func contentInAThrownErrorReachesTheSpan() async throws {
+        let error = ProbeError.carrying(Self.forbidden)
+        let leak = TelemetryLeak(
+            place: .spanError(span: Self.spanName, description: String(describing: error)),
+            forbidden: Self.forbidden
+        )
+        var captured: TelemetryCapture.Context?
+
+        try await withKnownIssue {
+            captured = try await TelemetryCapture.run(forbidding: [Self.forbidden]) { context in
+                await #expect(throws: error) {
+                    try await Self.run(logger: Logger(label: Self.loggerLabel)) { _ in throw error }
+                }
+                return context
+            }
+        } matching: { issue in
+            issue.comments.contains { $0.rawValue == leak.description }
+        }
+
+        let context = try #require(captured)
+        #expect(context.logRecords.count == 1)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [leak])
     }
 
     @Test("a tracer that injects a W3C traceparent gives the trace id and the span id to the record")

@@ -22,8 +22,11 @@ import Tracing
 /// `TracedCall` holds the `trace.id` and the `span.id` of its span, and a test
 /// can prove that a `traceparent` value goes across a process boundary.
 /// After the code, it records one issue for each place that contains
-/// a forbidden string. The code under test can use the telemetry of the
-/// context in two ways:
+/// a forbidden string. The places are the name, the attributes, the link
+/// attributes, the events, the recorded errors and the status message of each
+/// span, the message, the error and the metadata of each log record, and the
+/// name and the dimensions of each metric. The code under test can use the
+/// telemetry of the context in two ways:
 ///
 /// - Explicitly: give ``Context/tracer``, ``Context/logger`` or
 ///   ``Context/metricsFactory`` to the code, for example
@@ -234,11 +237,17 @@ extension TelemetryCapture {
             }
         }
 
-        /// The places of the spans: the name of each span, then each of its
-        /// attributes, in the order of the keys.
+        /// The places of the spans, span by span: the name of the span, its
+        /// attributes, the attributes of its links, its events, its recorded
+        /// errors, then its status message.
         private var spanPlaces: [TelemetryPlace] {
             spans.flatMap { span in
-                [.spanName(span.operationName)] + Self.attributePlaces(of: span)
+                [.spanName(span.operationName)]
+                    + Self.attributePlaces(of: span)
+                    + Self.linkPlaces(of: span)
+                    + Self.eventPlaces(of: span)
+                    + Self.errorPlaces(of: span)
+                    + Self.statusPlaces(of: span)
             }
         }
 
@@ -247,17 +256,81 @@ extension TelemetryCapture {
         /// - Parameter span: The span.
         /// - Returns: One place for each attribute.
         private static func attributePlaces(of span: FinishedInMemorySpan) -> [TelemetryPlace] {
+            texts(of: span.attributes).map { .spanAttribute(span: span.operationName, key: $0.key, value: $0.value) }
+        }
+
+        /// The places of the links of one span, in the order of the links:
+        /// each attribute of each link, in the order of the keys.
+        ///
+        /// - Parameter span: The span.
+        /// - Returns: One place for each attribute of each link.
+        private static func linkPlaces(of span: FinishedInMemorySpan) -> [TelemetryPlace] {
+            span.links.flatMap { link in
+                texts(of: link.attributes).map { .spanLinkAttribute(span: span.operationName, key: $0.key, value: $0.value) }
+            }
+        }
+
+        /// The places of the events of one span, in the order of the events:
+        /// the name of each event, then each of its attributes, in the order
+        /// of the keys.
+        ///
+        /// - Parameter span: The span.
+        /// - Returns: The places of each event.
+        private static func eventPlaces(of span: FinishedInMemorySpan) -> [TelemetryPlace] {
+            span.events.flatMap { event in
+                [.spanEventName(span: span.operationName, event: event.name)]
+                    + texts(of: event.attributes).map {
+                        .spanEventAttribute(span: span.operationName, event: event.name, key: $0.key, value: $0.value)
+                    }
+            }
+        }
+
+        /// The places of the errors that one span recorded, in the order of
+        /// the errors: the description of each error, then each of its
+        /// attributes, in the order of the keys.
+        ///
+        /// The description is `String(describing:)` of the error, because
+        /// swift-otel exports that text as the `exception.message` of the
+        /// `exception` event.
+        ///
+        /// - Parameter span: The span.
+        /// - Returns: The places of each recorded error.
+        private static func errorPlaces(of span: FinishedInMemorySpan) -> [TelemetryPlace] {
+            span.errors.flatMap { recorded in
+                [.spanError(span: span.operationName, description: String(describing: recorded.error))]
+                    + texts(of: recorded.attributes).map {
+                        .spanErrorAttribute(span: span.operationName, key: $0.key, value: $0.value)
+                    }
+            }
+        }
+
+        /// The place of the status message of one span.
+        ///
+        /// - Parameter span: The span.
+        /// - Returns: One place when the span has a status with a message, or
+        ///   else no place.
+        private static func statusPlaces(of span: FinishedInMemorySpan) -> [TelemetryPlace] {
+            [span.status?.message]
+                .compactMap(\.self)
+                .map { .spanStatusMessage(span: span.operationName, message: $0) }
+        }
+
+        /// The key and the text of each attribute, in the order of the keys.
+        ///
+        /// - Parameter attributes: The attributes of a span, an event or a
+        ///   recorded error.
+        /// - Returns: One pair for each attribute. The text is the text that
+        ///   ``text(of:)`` gives.
+        private static func texts(of attributes: SpanAttributes) -> [(key: String, value: String)] {
             // `SpanAttributes` is not a `Sequence`: `forEach` is its only walk
             // of the attributes, thus the walk collects them into an array. A
             // `for` loop over `SpanAttributes` does not compile.
-            var attributes: [(key: String, value: SpanAttribute)] = []
+            var pairs: [(key: String, value: String)] = []
             // swiftformat:disable:next preferForLoop  SpanAttributes is not a Sequence, thus no for loop compiles
-            span.attributes.forEach { key, value in
-                attributes.append((key, value))
+            attributes.forEach { key, value in
+                pairs.append((key, text(of: value)))
             }
-            return attributes
-                .sorted { $0.key < $1.key }
-                .map { .spanAttribute(span: span.operationName, key: $0.key, value: text(of: $0.value)) }
+            return pairs.sorted { $0.key < $1.key }
         }
 
         /// The text of a span attribute value, as a telemetry backend shows it.
@@ -272,13 +345,29 @@ extension TelemetryCapture {
             return String(describing: value)
         }
 
-        /// The places of the log records: the message of each record, then
-        /// each of its metadata values, in the order of the keys.
+        /// The places of the log records: the message of each record, the
+        /// description of its error, then each of its metadata values, in the
+        /// order of the keys.
         private var logPlaces: [TelemetryPlace] {
             logRecords.flatMap { record in
                 [.logMessage(level: record.level, message: "\(record.message)")]
+                    + Self.errorPlaces(of: record)
                     + record.metadata.sorted { $0.key < $1.key }.map { .logMetadata(key: $0.key, value: "\($0.value)") }
             }
+        }
+
+        /// The place of the error of one log record.
+        ///
+        /// The description is `String(describing:)` of the error, because a
+        /// log handler writes that text.
+        ///
+        /// - Parameter record: The log record.
+        /// - Returns: One place when the record has an error, or else no
+        ///   place.
+        private static func errorPlaces(of record: LogRecord) -> [TelemetryPlace] {
+            [record.error]
+                .compactMap(\.self)
+                .map { .logError(level: record.level, description: String(describing: $0)) }
         }
     }
 }

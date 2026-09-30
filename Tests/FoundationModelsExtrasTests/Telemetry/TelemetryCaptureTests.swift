@@ -4,10 +4,12 @@ import TelemetryTestSupport
 import Testing
 import Tracing
 
-/// ``TelemetryCapture`` records an issue for a forbidden string in each of the
-/// four places: a span attribute, a log message, a log metadata value and a
-/// metric dimension. It records no issue for clean telemetry, and each capture
-/// sees only the records of its own task.
+/// ``TelemetryCapture`` records an issue for a forbidden string in each place:
+/// a span attribute, a span link attribute, a span event name, a span event
+/// attribute, the description of an error that a span records, an attribute of
+/// that error, the status message of a span, a log message, the error of a log
+/// record, a log metadata value and a metric dimension. It records no issue
+/// for clean telemetry, and each capture sees only the records of its own task.
 @Suite("TelemetryCapture: a forbidden string in a span, a log record or a metric is an issue")
 struct TelemetryCaptureTests {
     /// The content that no place may carry.
@@ -15,6 +17,9 @@ struct TelemetryCaptureTests {
 
     /// The name of the span that each test opens.
     private static let spanName = "probe.span"
+
+    /// The name of the span event that each test adds.
+    private static let eventName = "probe.event"
 
     /// The attribute key, the metadata key and the dimension key of each test.
     private static let key = "probe.key"
@@ -48,12 +53,111 @@ struct TelemetryCaptureTests {
         #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
     }
 
+    @Test("a forbidden string in a span link attribute is an issue that names the span and the key")
+    func aForbiddenSpanLinkAttributeIsAnIssue() async throws {
+        let place = TelemetryPlace.spanLinkAttribute(span: Self.spanName, key: Self.key, value: Self.forbidden)
+
+        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+            InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
+                span.addLink(SpanLink(context: .topLevel, attributes: [Self.key: .string(Self.forbidden)]))
+            }
+        }
+
+        #expect(context.spans.first?.links.count == 1)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
+    }
+
+    @Test("a forbidden string in a span event name is an issue that names the span")
+    func aForbiddenSpanEventNameIsAnIssue() async throws {
+        let place = TelemetryPlace.spanEventName(span: Self.spanName, event: Self.forbidden)
+
+        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+            InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
+                span.addEvent(SpanEvent(name: Self.forbidden))
+            }
+        }
+
+        #expect(context.spans.first?.events.count == 1)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
+    }
+
+    @Test("a forbidden string in a span event attribute is an issue that names the span, the event and the key")
+    func aForbiddenSpanEventAttributeIsAnIssue() async throws {
+        let place = TelemetryPlace.spanEventAttribute(span: Self.spanName, event: Self.eventName, key: Self.key, value: Self.forbidden)
+
+        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+            InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
+                span.addEvent(SpanEvent(name: Self.eventName, attributes: [Self.key: .string(Self.forbidden)]))
+            }
+        }
+
+        #expect(context.spans.first?.events.count == 1)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
+    }
+
+    @Test("a forbidden string in the description of an error that a span records is an issue that names the span")
+    func aForbiddenRecordedErrorDescriptionIsAnIssue() async throws {
+        let place = TelemetryPlace.spanError(span: Self.spanName, description: Self.forbidden)
+        let error = ProbeError(description: Self.forbidden)
+
+        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+            #expect(throws: error) {
+                try InstrumentationSystem.tracer.withSpan(Self.spanName) { _ in
+                    throw error
+                }
+            }
+        }
+
+        #expect(context.spans.first?.errors.count == 1)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
+    }
+
+    @Test("a forbidden string in an attribute of a recorded error is an issue that names the span and the key")
+    func aForbiddenRecordedErrorAttributeIsAnIssue() async throws {
+        let place = TelemetryPlace.spanErrorAttribute(span: Self.spanName, key: Self.key, value: Self.forbidden)
+
+        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+            InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
+                span.recordError(ProbeError(description: Self.safeValue), attributes: [Self.key: .string(Self.forbidden)])
+            }
+        }
+
+        #expect(context.spans.first?.errors.count == 1)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
+    }
+
+    @Test("a forbidden string in the status message of a span is an issue that names the span")
+    func aForbiddenSpanStatusMessageIsAnIssue() async throws {
+        let place = TelemetryPlace.spanStatusMessage(span: Self.spanName, message: Self.forbidden)
+
+        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+            InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
+                span.setStatus(SpanStatus(code: .error, message: Self.forbidden))
+            }
+        }
+
+        #expect(context.spans.first?.status?.message == Self.forbidden)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
+    }
+
     @Test("a forbidden string in a log message is an issue that names the level and the message")
     func aForbiddenLogMessageIsAnIssue() async throws {
         let place = TelemetryPlace.logMessage(level: .info, message: Self.forbidden)
 
         let context = try await Self.captureWithKnownIssue(at: place) { _ in
             Logger(label: Self.loggerLabel).info("\(Self.forbidden)")
+        }
+
+        #expect(context.logRecords.count == 1)
+        #expect(context.leaks(forbidding: [Self.forbidden]) == [TelemetryLeak(place: place, forbidden: Self.forbidden)])
+    }
+
+    @Test("a forbidden string in the description of the error of a log record is an issue that names the level")
+    func aForbiddenLogErrorIsAnIssue() async throws {
+        let place = TelemetryPlace.logError(level: .error, description: Self.forbidden)
+
+        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+            Logger(label: Self.loggerLabel).error("\(Self.safeMessage)", error: ProbeError(description: Self.forbidden))
         }
 
         #expect(context.logRecords.count == 1)
@@ -188,15 +292,22 @@ struct TelemetryCaptureTests {
         }
     }
 
-    /// Writes `value` into one span attribute, one log message and one metric
-    /// dimension, through the global tracer, a new logger and a new counter.
+    /// Writes `value` into one span attribute, one span link attribute, one
+    /// span event attribute, the description and one attribute of one
+    /// recorded error, the span status message, one log message, the error of
+    /// that log record and one metric dimension, through the global tracer, a
+    /// new logger and a new counter.
     ///
     /// - Parameter value: The value to write.
     private static func recordTelemetry(value: String) {
         InstrumentationSystem.tracer.withSpan(spanName) { span in
             span.attributes[key] = value
+            span.addLink(SpanLink(context: .topLevel, attributes: [key: .string(value)]))
+            span.addEvent(SpanEvent(name: eventName, attributes: [key: .string(value)]))
+            span.recordError(ProbeError(description: value), attributes: [key: .string(value)])
+            span.setStatus(SpanStatus(code: .error, message: value))
         }
-        Logger(label: loggerLabel).info("\(value)")
+        Logger(label: loggerLabel).info("\(value)", error: ProbeError(description: value))
         Metrics.Counter(label: metricLabel, dimensions: [(key, value)]).increment()
     }
 
@@ -209,11 +320,24 @@ struct TelemetryCaptureTests {
         [
             .spanName(spanName),
             .spanAttribute(span: spanName, key: key, value: value),
+            .spanLinkAttribute(span: spanName, key: key, value: value),
+            .spanEventName(span: spanName, event: eventName),
+            .spanEventAttribute(span: spanName, event: eventName, key: key, value: value),
+            .spanError(span: spanName, description: value),
+            .spanErrorAttribute(span: spanName, key: key, value: value),
+            .spanStatusMessage(span: spanName, message: value),
             .logMessage(level: .info, message: value),
+            .logError(level: .info, description: value),
             .metricName(metricLabel),
             .metricDimension(metric: metricLabel, key: key, value: value),
         ]
     }
+}
+
+/// An error whose description is the text that the test gives it.
+private struct ProbeError: Error, Equatable, CustomStringConvertible {
+    /// The text that `String(describing:)` gives for the error.
+    let description: String
 }
 
 /// Holds each caller until the given count of callers arrived.

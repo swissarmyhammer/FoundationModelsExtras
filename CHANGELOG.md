@@ -5,6 +5,43 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): `TelemetryCapture` reads the span links, the span events, the recorded errors, the span status message and the log record errors
+
+A forbidden string in an attribute of a span link, in the name or an attribute
+of a span event, in the description or an attribute of an error that a span
+records, in the status message of a span, or in the description of the error
+of a log record, is now an issue of `TelemetryCapture.run(forbidding:)`.
+
+**Behavior change.** A consumer test that throws an error whose description
+holds a forbidden string through `TracedCall.run` or `withSpan`, inside
+`TelemetryCapture.run(forbidding:)`, now records an issue at `spanError`. The
+same test passed before. A consumer test that logs such an error with
+`error:` now records an issue at `logError`.
+
+**Cause.** The capture read only the name and the attributes of each span, and
+only the message and the metadata of each log record. swift-otel exports
+`span.recordError(error)` as an `exception` event with
+`exception.message = String(describing: error)`, and `withSpan` and
+`TracedCall.run` record each error that they see. A log handler writes the
+error of a log record. Thus an error description that held content went to
+the telemetry backend, and no content-safety test that used the capture found
+it.
+
+**What changed.**
+
+- New `TelemetryPlace` cases: `spanLinkAttribute(span:key:value:)`,
+  `spanEventName(span:event:)`, `spanEventAttribute(span:event:key:value:)`,
+  `spanError(span:description:)`, `spanErrorAttribute(span:key:value:)`,
+  `spanStatusMessage(span:message:)` and `logError(level:description:)`. The
+  description of `spanError` and of `logError` is `String(describing:)` of the
+  error. A `switch` over `TelemetryPlace` in a consumer must add the new cases.
+- `TelemetryCapture.Context.places` gives, for each span: the name, the
+  attributes, the attributes of each link, the name and the attributes of each
+  event, the description and the attributes of each recorded error, then the
+  status message when the status has one. For each log record it gives the
+  message, the description of the error when the record has one, then the
+  metadata.
+
 ### Changed (breaking): each log record of `TelemetryCapture` keeps the label of its logger
 
 `TelemetryCapture.Context.logRecords` is now `[TelemetryCapture.LogRecord]`.
