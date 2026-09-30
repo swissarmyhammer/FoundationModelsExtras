@@ -14,30 +14,30 @@ public protocol PooledEmbedding: Sendable {
 }
 
 /// An embedder that keeps one ``ModelHold``, so the model stays resident while
-/// the embedder exists. Each ``embed(_:)`` call is one job in the queue of the
-/// hold.
+/// the embedder exists. Each ``embed(texts:)`` call is one job in the queue of
+/// the hold.
 ///
 /// An embedder made from a name loads nothing when you make it. Its first
-/// ``embed(_:)`` call acquires the model from the pool, one time only, also
+/// ``embed(texts:)`` call acquires the model from the pool, one time only, also
 /// when first calls run at the same time. All copies of one embedder share
 /// that one hold, and the hold goes with the last copy.
 ///
 /// ```swift
-/// let embedder = PooledEmbedder("mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")   // loads nothing
-/// let vectors = try await embedder.embed(["save my work"])                        // loads the model
+/// let embedder = PooledEmbedder(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")   // loads nothing
+/// let vectors = try await embedder.embed(texts: ["save my work"])                     // loads the model
 /// ```
 public struct PooledEmbedder: Sendable {
     /// The hold of the model, which all copies of this embedder share.
     private let resident: ResidentEmbedding
 
     /// Makes an embedder of the model `ref`. This loads nothing: the first
-    /// ``embed(_:)`` call acquires the model from `pool`.
+    /// ``embed(texts:)`` call acquires the model from `pool`.
     ///
     /// - Parameters:
     ///   - ref: The Hugging Face name of the embedding model.
     ///   - pool: The pool that loads the model with its loader. The default is
     ///     ``ModelPool/shared``.
-    public init(_ ref: ModelRef, pool: ModelPool = .shared) {
+    public init(ref: ModelRef, pool: ModelPool = .shared) {
         resident = ResidentEmbedding(source: EmbeddingSource(pool: pool, key: ModelPoolKey(ref: ref, role: .embedding)))
     }
 
@@ -61,7 +61,7 @@ public struct PooledEmbedder: Sendable {
     ///   ``GenerationQueue/submit(isolation:_:)``, or of the model; or
     ///   ``PooledEmbedderError/notAnEmbedding(key:containerType:)`` when the
     ///   loaded container does not conform to ``PooledEmbedding``.
-    public func embed(_ texts: [String]) async throws -> [[Float]] {
+    public func embed(texts: [String]) async throws -> [[Float]] {
         let loaded = try await resident.loaded()
         return try await loaded.hold.queue.submit { [embedding = loaded.embedding] in
             try await embedding.embed(texts: texts)
@@ -155,11 +155,11 @@ private final class ResidentEmbedding: Sendable {
     /// - Throws: The error of the load. After a failed load, the next call
     ///   loads again.
     func loaded() async throws -> LoadedEmbedding {
-        switch state.withLock({ Self.access(&$0) }) {
+        switch state.withLock({ Self.access(state: &$0) }) {
         case .ready(let loaded):
             return loaded
         case .waiting(let load):
-            return try await finish(load)
+            return try await finish(load: load)
         }
     }
 
@@ -167,7 +167,7 @@ private final class ResidentEmbedding: Sendable {
     ///
     /// - Parameter state: The state of the hold.
     /// - Returns: The hold, or the load to wait for.
-    private static func access(_ state: inout State) -> Access {
+    private static func access(state: inout State) -> Access {
         switch state {
         case .loaded(let loaded):
             return .ready(loaded)
@@ -186,7 +186,7 @@ private final class ResidentEmbedding: Sendable {
     /// - Parameter load: The load that the state holds, or held.
     /// - Returns: The hold of the model.
     /// - Throws: The error of `load`.
-    private func finish(_ load: Task<LoadedEmbedding, any Error>) async throws -> LoadedEmbedding {
+    private func finish(load: Task<LoadedEmbedding, any Error>) async throws -> LoadedEmbedding {
         let result = await load.result
         state.withLock { state in
             guard case .loading(let source, let current) = state, current == load else { return }

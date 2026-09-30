@@ -39,7 +39,7 @@ private enum EmbedderUser {
 
 /// One embed call of the FIFO test: the user that makes it and its one text.
 private struct EmbedCall {
-    /// The user that calls `embed(_:)`.
+    /// The user that calls `embed(texts:)`.
     let user: EmbedderUser
     /// The text of the call.
     let text: String
@@ -154,9 +154,9 @@ extension RealModelSuites {
         /// call loads the model with the loader of `pool`. The embedder goes on
         /// return.
         private static func embedSimilarityTextsByName(in pool: ModelPool) async throws -> SimilarityOutcome {
-            let embedder = PooledEmbedder(IntegrationModels.embedding.ref, pool: pool)
+            let embedder = PooledEmbedder(ref: IntegrationModels.embedding.ref, pool: pool)
             return SimilarityOutcome(
-                batch: try await embedder.embed(SimilarityTexts.all),
+                batch: try await embedder.embed(texts: SimilarityTexts.all),
                 anchor: try await vector(of: SimilarityTexts.anchor, with: embedder),
                 paraphrase: try await vector(of: SimilarityTexts.paraphrase, with: embedder),
                 unrelated: try await vector(of: SimilarityTexts.unrelated, with: embedder))
@@ -164,7 +164,7 @@ extension RealModelSuites {
 
         /// Embeds `text` alone, and gives its one vector.
         private static func vector(of text: String, with embedder: PooledEmbedder) async throws -> [Float] {
-            try #require(try await embedder.embed([text]).first)
+            try #require(try await embedder.embed(texts: [text]).first)
         }
 
         /// Acquires the embedding model first for the router and then for the
@@ -180,8 +180,8 @@ extension RealModelSuites {
             return SharedModelOutcome(
                 shareOneQueue: routerHold.queue === registryHold.queue,
                 dimension: try IntegrationModels.embeddingDimension(of: registryHold),
-                routerVectors: try await router.embed(sharedTexts),
-                registryVectors: try await registry.embed(sharedTexts))
+                routerVectors: try await router.embed(texts: sharedTexts),
+                registryVectors: try await registry.embed(texts: sharedTexts))
         }
 
         /// Embeds the text of each concurrent call first in a serial run, and
@@ -255,12 +255,12 @@ extension RealModelSuites {
                 isResidentAfterFirstRelease: pool.isResident(IntegrationModels.embedding),
                 dimension: try IntegrationModels.embeddingDimension(of: remainingHold),
                 releasedHandleVectors: releasedHandleVectors,
-                remainingHandleVectors: try await remaining.embed([probeText]))
+                remainingHandleVectors: try await remaining.embed(texts: [probeText]))
         }
 
         /// Embeds with a new embedder handle. The handle goes on return.
         private static func embedWithShortLivedHandle(in pool: ModelPool) async throws -> [[Float]] {
-            try await makeEmbedder(in: pool).embed([probeText])
+            try await makeEmbedder(in: pool).embed(texts: [probeText])
         }
 
         /// Starts a long generation on the queue of the LLM, and embeds while
@@ -277,7 +277,7 @@ extension RealModelSuites {
                 return ContinuousClock.now
             }
             try await Waiting.until { await !generationStarts.events.isEmpty }
-            let vectors = try await embedder.embed([probeText])
+            let vectors = try await embedder.embed(texts: [probeText])
             let embedEnd = ContinuousClock.now
             return GenerationOverlapOutcome(
                 shareOneQueue: llmHold.queue === embeddingHold.queue,

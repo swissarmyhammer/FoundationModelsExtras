@@ -65,10 +65,26 @@ comments:
     - evidence: 2 files — Tests/FoundationModelsExtrasTests/ModelPool/MLXModelLoaderTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelLoadProgressTests.swift. `swift test`: 827 tests in 81 suites pass, 0 failures, 4 known issues (TelemetryCaptureTests declares them), 0 compiler warnings. The only build line is the known "missing creator for mutated node ... mlx-swift_Cmlx.bundle". swiftlint no_magic_numbers on the changed Swift files: 0 findings. 2 of 2 review findings are checked.
     - next: review. The push to origin main and "CI is green on the pushed commit" stay open for the commit step.
   timestamp: 2026-09-30T04:04:36.357832+00:00
+- actor: claude-code
+  id: 01m3r84eyf931j0hy1b8dye6pa
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (91c9bd5). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. 2 files reviewed. The 2 prior findings (MLXModelLoaderTests.swift and ModelLoadProgressTests.swift, code-hygiene/magic-numbers-swift) are checked.
+    - next: The task is in done. The orchestrator pushes, then checks CI.
+  timestamp: 2026-09-30T04:11:01.967925+00:00
+- actor: claude-code
+  id: 01m3r84rvs4hyemxpb3261vr0x
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 2 test files (named constants)
+    - test: green — swift test 827 pass; swift test --package-path IntegrationTests 26 pass
+    - commit: 91c9bd5
+    - review: clean — 0 findings; 2 prior findings checked
+  timestamp: 2026-09-30T04:11:12.121983+00:00
 depends_on:
 - 01M3QMD6V09WGE7MJDV483VHBG
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: da80
 title: Load progress stream on the model pool
 ---
 ## What

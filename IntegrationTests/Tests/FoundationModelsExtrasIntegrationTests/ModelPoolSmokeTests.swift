@@ -50,7 +50,7 @@ extension RealModelSuites {
         private static func embed(_ texts: [String], in pool: ModelPool) async throws -> ([[Float]], Int) {
             let hold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool)
             let embedder = try PooledEmbedder(hold: hold)
-            return (try await embedder.embed(texts), try IntegrationModels.embeddingDimension(of: hold))
+            return (try await embedder.embed(texts: texts), try IntegrationModels.embeddingDimension(of: hold))
         }
     }
 }

@@ -615,8 +615,8 @@ it as `hold.queue`. The queue keeps its guard: a submission from inside an open
 submission on the same queue is refused.
 
 For a key of the `.embedding` role, the loader returns a container that
-conforms to `PooledEmbedding`. `PooledEmbedder("<Hugging Face name>")` makes an
-embedder and loads nothing. Its first `embed(_:)` call acquires the model from
+conforms to `PooledEmbedding`. `PooledEmbedder(ref: "<Hugging Face name>")` makes
+an embedder and loads nothing. Its first `embed(texts:)` call acquires the model from
 the pool, one time only, also when first calls run at the same time. The pool
 is `ModelPool.shared` when you give no `pool:`. Two embedders of one name share
 one resident model. All copies of one embedder share one hold, so the model
@@ -625,15 +625,15 @@ last copy of the last embedder goes. After a failed load, the next call loads
 again. `PooledEmbedder` has no `dimension`, because the dimension is not known
 before the load; the `PooledEmbedding` container keeps `dimension`.
 
-Each `embed(_:)` call is one job in the queue of the model. The embedder uses
-the container only through `PooledEmbedding`, so the container of the first
-loader works for all callers. When the container does not conform, `embed(_:)`
-throws `PooledEmbedderError.notAnEmbedding`:
+Each `embed(texts:)` call is one job in the queue of the model. The embedder
+uses the container only through `PooledEmbedding`, so the container of the first
+loader works for all callers. When the container does not conform,
+`embed(texts:)` throws `PooledEmbedderError.notAnEmbedding`:
 
 ```swift
 // Loads nothing now. The first call loads the model into the pool.
-let embedder = PooledEmbedder("mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", pool: pool)
-let vectors = try await embedder.embed(["save my work"])
+let embedder = PooledEmbedder(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", pool: pool)
+let vectors = try await embedder.embed(texts: ["save my work"])
 ```
 
 `PooledEmbedder(hold:)` stays, for a caller that acquires the model with its

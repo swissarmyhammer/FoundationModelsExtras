@@ -48,10 +48,30 @@ comments:
     - review: stuck — Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift:40, Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift:64 (swift/fluent-usage "First argument should be labeled." conflicts with the task contract init(_ ref:pool:) and embed(_:))
     - next: a person must correct the rule or change the task contract.
   timestamp: 2026-09-30T03:34:03.219418+00:00
+- actor: claude-code
+  id: 01m3r8jhb76vcjtr9s5wcvy9zk
+  text: |-
+    The plan owner chose option (b): obey `swift/fluent-usage`. I pulled the task back to `doing` and did the change.
+    - API: `PooledEmbedder(ref:pool:)` and `embed(texts:)`. There is no rename of `embed(texts:)` now, so callers of `embed(texts:)` (for example FoundationModelsRouter) keep working. `init(hold:)` stays.
+    - The rule also applies to the two private helpers in PooledEmbedder.swift. `access(_:)` is now `access(state:)` and `finish(_:)` is now `finish(load:)`, so the file has no unlabeled first argument.
+    - Changed: the doc comments and the example in PooledEmbedder.swift, PooledEmbedderTests.swift, PooledEmbedderIntegrationTests.swift, ModelPoolSmokeTests.swift (one call) and README.md.
+    - RED: before the source change, PooledEmbedderTests did not compile ("extraneous argument label 'texts:'" and "'ref:'").
+    - Check: no `embed(_:)` or unlabeled `PooledEmbedder("…")` remains outside `.kanban`. The private test helper `ModelPoolSmokeTests.embed(_:in:)` is older than 2ed83f5, and it is not a `PooledEmbedder` call. I did not change it.
+    - Task text: I deleted the old blocker note, and I set the two `swift/fluent-usage` findings to `- [x]`.
+    - Tool note: `replace_all` of the `files` edit op changed only one match. Thus I wrote the two test files whole.
+    - For the commit step: the commit message of 2ed83f5 says "BREAKING CHANGE: embed(texts:) is renamed to embed(_:)" and names `PooledEmbedder(_ ref:, pool:)`. This is not correct now. The next commit must correct this record. The init by name is new, `dimension` is gone, and `embed(texts:)` keeps its name.
+  timestamp: 2026-09-30T04:18:43.175693+00:00
+- actor: claude-code
+  id: 01m3r8jmbqngkje5wfnd5wgv3b
+  text: |-
+    ### implement — changed
+    - evidence: 5 files — Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledEmbedderTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ModelPoolSmokeTests.swift, README.md. `swift test`: 827 tests in 81 suites pass (4 known issues from the existing withKnownIssue). `swift test --package-path IntegrationTests`: 26 tests in 7 suites pass. No compiler warnings. The only warning is the build-system line "missing creator for mutated node" of the mlx-swift_Cmlx bundle. Findings: 2 of 2 checked.
+    - next: /review. Not committed and not pushed. The CI acceptance item stays open until the push.
+  timestamp: 2026-09-30T04:18:46.263622+00:00
 depends_on:
 - 01M3QMD6V09WGE7MJDV483VHBG
-position_column: review
-position_ordinal: '80'
+position_column: doing
+position_ordinal: '8180'
 title: PooledEmbedder from a Hugging Face name
 ---
 ## What
@@ -95,28 +115,5 @@ let test = PooledEmbedder(ref: "any", pool: ModelPool(loader: fake))            
 > 1 file(s) not reviewed — no validator matched:
 > - `README.md` — no validator matches this file
 
-- [ ] `Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift:40` `swift/fluent-usage` — First argument should be labeled. Per fluent-usage guidelines, omit the first argument label only for value-preserving conversions (e.g., `Int64(someUInt32)`). This initializer transforms a reference string into an embedder—not a value-preserving conversion—so the ref parameter must be labeled to form a clear grammatical phrase. Change the signature to `public init(ref: ModelRef, pool: ModelPool = .shared)` to include the label on the first argument and improve API fluency.
-- [ ] `Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift:64` `swift/fluent-usage` — First argument should be labeled. Per fluent-usage guidelines, omit the first argument label only for value-preserving conversions (e.g., `Int64(someUInt32)`). The `embed` method performs computation, not a value-preserving conversion, so the texts parameter must be labeled to form a clear grammatical phrase at the call site. Change the signature to `public func embed(texts: [String]) async throws -> [[Float]]` to include the label and maintain API fluency and consistency with the PooledEmbedding protocol.
-
-## Blocker: the rule and the task contract conflict (2026-09-29 21:27)
-
-The two `swift/fluent-usage` findings above conflict with the written API contract of this task. A person must make a decision. Do not change the code before that decision.
-
-- The task tells you to use `public init(ref: ModelRef, pool: ModelPool = .shared)`. The example `PooledEmbedder(ref: "mlx-community/...")` and the acceptance criterion `PooledEmbedder(ref: "…")` use no first label. The finding at `PooledEmbedder.swift:40` tells you to use `init(ref:pool:)`.
-- The task tells you to rename `embed(texts:)` to `embed(_:)` for both inits. The example `embedder.embed(texts: ["save my work"])` uses no label. The finding at `PooledEmbedder.swift:64` tells you to use `embed(texts:)`. That is the name that the task removes.
-- The commit 2ed83f5 is a breaking change for this rename. Callers, for example FoundationModelsRouter, must update to the new names.
-
-Decision that is necessary (one of the two):
-
-1. Keep the task contract. Then a person must correct the `swift/fluent-usage` rule, or write a rule that releases this API from it.
-2. Obey the rule. Then a person must change the contract of this task (the What section, the example, and the acceptance criteria) to `init(ref:pool:)` and `embed(texts:)`, and change the dependent task ^zb8cxn (PooledModel and PooledSession) to match.
-
-Check of the acceptance criteria and the test list against the code (HEAD 2ed83f5):
-
-- "loads nothing": `PooledEmbedderTests` test "an embedder made from a name loads nothing". Present.
-- "two concurrent first calls make one load" and "shared model": tests "two concurrent first embed calls of one embedder make one load" and "two embedders of one name share one resident model". Present.
-- "evicted after the last copy": test "the model stays resident while a copy of an embedder exists, and is evicted after the last copy of the last embedder goes". Present.
-- Integration test "a real embed by name gives one vector for each text, and a paraphrase has a higher cosine than an unrelated text". Present.
-- README example is compiled by the test "the README example: an embedder from a name loads the model on its first call". Present.
-- `PooledEmbedding` keeps `dimension` and `embed(texts:)`. `PooledEmbedder` has no `dimension`. `init(hold:)` stays. Present.
-- The criterion "CI is green on the pushed commit" is for the orchestrator after the push. This review does not record it.
+- [x] `Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift:40` `swift/fluent-usage` — First argument should be labeled. Per fluent-usage guidelines, omit the first argument label only for value-preserving conversions (e.g., `Int64(someUInt32)`). This initializer transforms a reference string into an embedder—not a value-preserving conversion—so the ref parameter must be labeled to form a clear grammatical phrase. Change the signature to `public init(ref: ModelRef, pool: ModelPool = .shared)` to include the label on the first argument and improve API fluency.
+- [x] `Sources/FoundationModelsExtras/ModelPool/PooledEmbedder.swift:64` `swift/fluent-usage` — First argument should be labeled. Per fluent-usage guidelines, omit the first argument label only for value-preserving conversions (e.g., `Int64(someUInt32)`). The `embed` method performs computation, not a value-preserving conversion, so the texts parameter must be labeled to form a clear grammatical phrase at the call site. Change the signature to `public func embed(texts: [String]) async throws -> [[Float]]` to include the label and maintain API fluency and consistency with the PooledEmbedding protocol.
