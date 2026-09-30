@@ -1,3 +1,4 @@
+import Foundation
 import Synchronization
 
 /// Loads each model one time, and shares it through holds.
@@ -36,6 +37,8 @@ public final class ModelPool: Sendable {
         var loadingBytes: Int64 = 0
         var streams: [Int: FootprintContinuation] = [:]
         var lastStreamID = 0
+        /// The progress streams of each model, and the loads that run now.
+        var progress = ModelLoadProgressBoard()
 
         var footprint: ModelPoolFootprint {
             let resident = entries.mapValues(\.bytes).merging(evicting) { held, _ in held }
@@ -48,19 +51,23 @@ public final class ModelPool: Sendable {
         /// Whether the model of `key` uses memory now.
         func isResident(_ key: ModelPoolKey) -> Bool { entries[key] != nil || evicting[key] != nil }
 
+        /// Whether a model of `ref`, in any role, gives holds now.
+        func hasReadyModel(of ref: ModelRef) -> Bool { entries.keys.contains { $0.ref == ref } }
+
         /// A copy of each live stream, to yield to after the state lock.
         var liveStreams: [FootprintContinuation] { Array(streams.values) }
     }
 
     /// The state, under one lock. The termination handler of a footprint
-    /// stream takes only this lock. No code yields to a stream, or finishes a
-    /// stream, while it holds this lock.
+    /// stream or of a progress stream takes only this lock. No code yields to
+    /// a stream, or finishes a stream, while it holds this lock.
     private let state = Mutex(State())
 
     /// The publish lock. Each change that the streams see takes this lock,
-    /// then the state lock. It yields the new footprint after it releases the
-    /// state lock, and before it releases this lock. Thus each stream sees the
-    /// changes in the order that they occurred, and no value is lost.
+    /// then the state lock. It yields the new footprint, or the new progress,
+    /// after it releases the state lock, and before it releases this lock.
+    /// Thus each stream sees the changes in the order that they occurred, and
+    /// no value is lost.
     ///
     /// Lock order: this lock, then the state lock. No code takes this lock
     /// while it holds the state lock, and no termination handler takes this
@@ -146,6 +153,36 @@ public final class ModelPool: Sendable {
         return stream
     }
 
+    /// The progress of the next load of `ref`, or of the load of `ref` that
+    /// runs now. Each call makes a new stream.
+    ///
+    /// The stream gives zero or more ``ModelLoadProgress/downloading(fraction:)``
+    /// values, then ``ModelLoadProgress/loading``, then
+    /// ``ModelLoadProgress/ready`` or ``ModelLoadProgress/failed(_:)``, and
+    /// then ends. All streams of one load get the same values. A stream that
+    /// starts during a load gets the last value of that load first. A stream
+    /// that starts when a model of `ref` is resident, and no load of `ref`
+    /// runs, gives ``ModelLoadProgress/ready`` and ends.
+    ///
+    /// - Parameter ref: The model. A load of `ref` in any role counts.
+    /// - Returns: A new stream of the progress of one load.
+    public func progress(for ref: ModelRef) -> AsyncStream<ModelLoadProgress> {
+        let (stream, observer) = AsyncStream.makeStream(of: ModelLoadProgress.self)
+        // The stream registers and gets its first value in one publish step.
+        // Thus no later value of the load comes before it.
+        let id = deliverProgress { state in
+            let added = state.progress.add(observer: observer, of: ref, isReady: state.hasReadyModel(of: ref))
+            return (added.id, added.delivery)
+        }
+        if let id {
+            // Takes only the state lock: see ``publishing``.
+            observer.onTermination = { [weak self] _ in
+                self?.state.withLock { $0.progress.removeObserver(id: id, of: ref) }
+            }
+        }
+        return stream
+    }
+
     /// The number of resident models. A model is resident until the evict
     /// call of its loader returns.
     public var residentModelCount: Int { state.withLock { $0.residentCount } }
@@ -166,34 +203,70 @@ public final class ModelPool: Sendable {
     }
 
     /// Loads `key` in the running admission job, and gives its first hold.
+    /// The progress streams of the model see the load.
     fileprivate func load(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
-        setLoadingBytes(footprintBytes)
-        let container: any Sendable
-        do {
-            container = try await loader.load(key)
-        } catch {
-            setLoadingBytes(0)
-            throw error
+        try await reportingProgress(of: key.ref) { progressHandler in
+            setLoadingBytes(footprintBytes)
+            let container: any Sendable
+            do {
+                container = try await loader.load(key: key, progressHandler: progressHandler)
+            } catch {
+                setLoadingBytes(0)
+                throw error
+            }
+            return makeResident(
+                key, container: container, loader: loader, bytes: footprintBytes, sessionBytes: sessionBytes)
         }
-        return makeResident(key, container: container, loader: loader, bytes: footprintBytes, sessionBytes: sessionBytes)
     }
 
     /// Loads `key` with ``loader`` in the running admission job, measures its
     /// footprint, and gives its first hold. When the measure fails, the loader
-    /// evicts the model.
+    /// evicts the model. The progress streams of the model see the load.
     fileprivate func loadMeasured(_ key: ModelPoolKey) async throws -> ModelHold {
-        let container = try await loader.load(key)
-        let bytes: Int64
+        try await reportingProgress(of: key.ref) { progressHandler in
+            let container = try await loader.load(key: key, progressHandler: progressHandler)
+            let bytes: Int64
+            do {
+                bytes = try await loader.footprintBytes(of: key)
+            } catch {
+                await loader.evict(container)
+                throw error
+            }
+            return makeResident(
+                key, container: container, loader: loader, bytes: bytes, sessionBytes: Self.measuredSessionBytes)
+        }
+    }
+
+    /// Runs `load` as one load of `ref` that the progress streams of `ref`
+    /// see. `load` gives its progress handler to the loader. The load ends
+    /// with ``ModelLoadProgress/ready`` when `load` returns, after the model
+    /// is resident, or with ``ModelLoadProgress/failed(_:)`` when it throws.
+    ///
+    /// - Parameters:
+    ///   - ref: The model.
+    ///   - load: Loads the model with the progress handler that it gets, and
+    ///     gives the first hold.
+    /// - Returns: The hold that `load` gives.
+    /// - Throws: The error of `load`.
+    private func reportingProgress(
+        of ref: ModelRef,
+        _ load: (@escaping @Sendable (ModelLoadProgress) -> Void) async throws -> ModelHold
+    ) async throws -> ModelHold {
+        let loadID = state.withLock { $0.progress.startLoad(of: ref) }
+        let progressHandler: @Sendable (ModelLoadProgress) -> Void = { [weak self] progress in
+            self?.deliverProgress { ((), $0.progress.report(progress: progress, of: ref, load: loadID)) }
+        }
         do {
-            bytes = try await loader.footprintBytes(of: key)
+            let hold = try await load(progressHandler)
+            deliverProgress { ((), $0.progress.endLoad(id: loadID, of: ref, with: .ready)) }
+            return hold
         } catch {
-            await loader.evict(container)
+            let failure = ModelLoadProgress.failed(error.localizedDescription)
+            deliverProgress { ((), $0.progress.endLoad(id: loadID, of: ref, with: failure)) }
             throw error
         }
-        return makeResident(
-            key, container: container, loader: loader, bytes: bytes, sessionBytes: Self.measuredSessionBytes)
     }
 
     /// Makes `container` the resident model of `key`, ends the load that
@@ -284,6 +357,23 @@ public final class ModelPool: Sendable {
         publish { state in
             change(&state)
             return ((), state.liveStreams)
+        }
+    }
+
+    /// Runs `step` under the publish lock and the state lock. Then, under the
+    /// publish lock only, sends the progress delivery that `step` gives. See
+    /// ``publishing``.
+    ///
+    /// - Parameter step: Changes the state. It returns the result for the
+    ///   caller, and the progress values that some streams must get.
+    /// - Returns: The result that `step` returns.
+    private func deliverProgress<Result: Sendable>(
+        _ step: (inout State) -> (result: Result, delivery: ModelLoadProgressDelivery)
+    ) -> Result {
+        publishing.withLock { _ in
+            let (result, delivery) = state.withLock { step(&$0) }
+            delivery.send()
+            return result
         }
     }
 }

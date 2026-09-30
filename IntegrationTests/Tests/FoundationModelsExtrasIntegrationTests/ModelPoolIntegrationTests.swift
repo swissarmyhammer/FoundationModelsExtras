@@ -103,6 +103,54 @@ extension RealModelSuites {
             #expect(holds.footprintBytes == Int64(try ModelMemory.weightBytes(of: key)))
         }
 
+        @Test("a real load by name through ModelPool() gives its progress in order, and the stream ends with ready")
+        func aLoadEndsWithReady() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+            let key = IntegrationModels.embedding
+            let progress = pool.progress(for: key.ref)
+
+            let steps = try await Self.loadAndReadProgress(of: key, in: pool, progress: progress)
+            try await IntegrationModels.waitForEviction(of: key, in: pool)
+
+            #expect(Array(steps.drop(while: \.isDownload)) == [.loading, .ready])
+        }
+
+        @Test("a load of a repository name that is not valid ends with failed, and gives no other step")
+        func aBadRepositoryNameEndsWithFailed() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+            let key = ModelPoolKey(ref: Self.invalidRepositoryName, role: .embedding)
+            let progress = pool.progress(for: key.ref)
+
+            await #expect(throws: (any Error).self) { try await pool.acquire(key) }
+            let steps = await progress.reduce(into: []) { $0.append($1) }
+
+            #expect(steps.map(\.isFailure) == [true])
+            #expect(!pool.isResident(key))
+        }
+
+        /// A repository name that the Hugging Face downloader refuses before
+        /// it opens a connection: a repository name has no space.
+        private static let invalidRepositoryName: ModelRef = "not a repository"
+
+        /// Acquires `key` by key with the loader of `pool`, releases the hold,
+        /// and reads each step of `progress` until the stream ends.
+        ///
+        /// - Parameters:
+        ///   - key: The model to load by name.
+        ///   - pool: The pool of the test.
+        ///   - progress: A progress stream of `key` that started before the load.
+        /// - Returns: The steps of the load, in order.
+        /// - Throws: What the load or the measure throws.
+        private static func loadAndReadProgress(
+            of key: ModelPoolKey, in pool: ModelPool, progress: AsyncStream<ModelLoadProgress>
+        ) async throws -> [ModelLoadProgress] {
+            let hold = try await pool.acquire(key)
+            let steps = await progress.reduce(into: []) { $0.append($1) }
+            return withExtendedLifetime(hold) { steps }
+        }
+
         /// Acquires `key` two times by key, with the loader of `pool`, and
         /// releases the holds on return.
         ///
@@ -237,5 +285,19 @@ extension FootprintStep {
     /// Makes the step of `footprint`.
     init(_ footprint: ModelPoolFootprint) {
         self.init(resident: Set(footprint.resident.keys), loadingBytes: footprint.loadingBytes)
+    }
+}
+
+extension ModelLoadProgress {
+    /// Whether this step is a part of a download.
+    fileprivate var isDownload: Bool {
+        if case .downloading = self { return true }
+        return false
+    }
+
+    /// Whether this step is a failure.
+    fileprivate var isFailure: Bool {
+        if case .failed = self { return true }
+        return false
     }
 }

@@ -166,6 +166,9 @@ let package = Package(
                 // The footprint tests of `MLXModelLoader` build a small
                 // Hugging Face cache with `HubCache`.
                 .product(name: "HuggingFace", package: "swift-huggingface"),
+                // The download progress tests of `MLXModelLoader` give a fake
+                // `Downloader` to the downloader that reports the progress.
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
             ],
             resources: [
                 // `CorpusGoldenTests` reads these directly off disk via

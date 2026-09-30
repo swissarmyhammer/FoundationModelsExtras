@@ -2,18 +2,21 @@ import FixtureSupport
 import Foundation
 @testable import FoundationModelsExtras
 import HuggingFace
+import MLXLMCommon
 import Testing
 
 /// The built-in MLX loader measures the weight files of a model in the Hugging
-/// Face cache, and makes the MLX metal library available to the test binary.
+/// Face cache, makes the MLX metal library available to the test binary, and
+/// reports the progress of its download.
 ///
 /// Each footprint test builds a small cache in a temporary directory, in the
 /// layout of the Hugging Face hub: a ref file, blobs, and a snapshot of links.
-/// No test downloads or loads a model.
+/// Each download test uses a fake downloader. No test downloads or loads a
+/// model.
 ///
-/// The import is `@testable`, so a test can make a loader over its own cache
-/// and call the metal library step.
-@Suite("MLX model loader: the footprint measure and the metal library")
+/// The import is `@testable`, so a test can make a loader over its own cache,
+/// call the metal library step, and wrap a fake downloader.
+@Suite("MLX model loader: the footprint measure, the metal library and the download progress")
 struct MLXModelLoaderTests {
     /// The repository of the key that each test measures.
     private static let repository = "org/model"
@@ -116,6 +119,34 @@ struct MLXModelLoaderTests {
         #expect(!FileManager.default.fileExists(atPath: link.path))
     }
 
+    @Test("the download of the MLX loader reports each fraction, then loading, and forwards each progress")
+    func downloadReportsEachFractionThenLoading() async throws {
+        let reports = Recorder<ModelLoadProgress>()
+        let forwarded = Recorder<Double>()
+        let downloader = ProgressReportingDownloader(upstream: StepDownloader()) { reports.append($0) }
+
+        _ = try await downloader.download(
+            id: Self.repository, revision: MLXModelLoader.defaultRevision, matching: [], useLatest: false
+        ) { forwarded.append($0.fractionCompleted) }
+
+        #expect(reports.values == StepDownloader.fractions.map { .downloading(fraction: $0) } + [.loading])
+        #expect(forwarded.values == StepDownloader.fractions)
+    }
+
+    @Test("a failed download of the MLX loader reports each fraction, and not loading")
+    func aFailedDownloadDoesNotReportLoading() async throws {
+        let reports = Recorder<ModelLoadProgress>()
+        let downloader = ProgressReportingDownloader(upstream: StepDownloader(fails: true)) { reports.append($0) }
+
+        await #expect(throws: FakeLoadError.self) {
+            try await downloader.download(
+                id: Self.repository, revision: MLXModelLoader.defaultRevision, matching: [], useLatest: false
+            ) { _ in }
+        }
+
+        #expect(reports.values == StepDownloader.fractions.map { .downloading(fraction: $0) })
+    }
+
     /// Makes the folder at `path` below `root`.
     ///
     /// - Parameters:
@@ -158,5 +189,57 @@ struct MLXModelLoaderTests {
             try Data(repeating: 0, count: byteCount).write(to: blob)
             try files.createSymbolicLink(at: snapshot.appendingPathComponent(name), withDestinationURL: blob)
         }
+    }
+}
+
+/// A downloader that downloads nothing: it reports each value of
+/// ``fractions`` as a `Progress`, and then returns a folder or throws
+/// ``FakeLoadError``.
+private struct StepDownloader: Downloader {
+    /// The units of work of the fake download.
+    private static let totalUnits: Int64 = 4
+
+    /// The units that each report of the fake download completed.
+    private static let completedUnits: [Int64] = [1, 3, 4]
+
+    /// The fraction of each report, in order.
+    static let fractions = completedUnits.map { Double($0) / Double(totalUnits) }
+
+    /// Whether the download throws ``FakeLoadError`` after its reports.
+    private let fails: Bool
+
+    /// Makes a downloader.
+    ///
+    /// - Parameter fails: Whether the download throws ``FakeLoadError`` after
+    ///   its reports.
+    init(fails: Bool = false) {
+        self.fails = fails
+    }
+
+    /// Reports each fraction of ``fractions``, and then returns the temporary
+    /// folder or throws.
+    ///
+    /// - Parameters:
+    ///   - id: The repository. The fake does not read it.
+    ///   - revision: The revision. The fake does not read it.
+    ///   - patterns: The file patterns. The fake does not read them.
+    ///   - useLatest: Whether to check for a newer revision. The fake does not
+    ///     read it.
+    ///   - progressHandler: Gets each report.
+    /// - Returns: The temporary folder of the process.
+    /// - Throws: ``FakeLoadError`` when ``fails`` is true.
+    func download(
+        id: String, revision: String?, matching patterns: [String], useLatest: Bool,
+        progressHandler: @Sendable @escaping (Progress) -> Void
+    ) async throws -> URL {
+        for completed in Self.completedUnits {
+            let progress = Progress(totalUnitCount: Self.totalUnits)
+            progress.completedUnitCount = completed
+            progressHandler(progress)
+        }
+        if fails {
+            throw FakeLoadError()
+        }
+        return FileManager.default.temporaryDirectory
     }
 }

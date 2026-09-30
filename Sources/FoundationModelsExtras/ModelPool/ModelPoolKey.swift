@@ -19,6 +19,24 @@ public struct ModelPoolKey: Hashable, Sendable {
 public protocol PooledModelLoader: Sendable {
     /// Loads the model of `key`, and returns its container.
     func load(_ key: ModelPoolKey) async throws -> any Sendable
+    /// Loads the model of `key`, reports each step to `progressHandler`, and
+    /// returns its container. The pool calls this for each load, and gives the
+    /// reports to ``ModelPool/progress(for:)``.
+    ///
+    /// Report ``ModelLoadProgress/downloading(fraction:)`` for each part of a
+    /// download, then ``ModelLoadProgress/loading``. The pool reports
+    /// ``ModelLoadProgress/ready`` or ``ModelLoadProgress/failed(_:)``, and
+    /// drops each report that breaks this order.
+    ///
+    /// - Parameters:
+    ///   - key: The model and its role.
+    ///   - progressHandler: Gets each step of the load. It can run on any
+    ///     thread.
+    /// - Returns: The container of the model.
+    /// - Throws: The error of the load.
+    func load(
+        key: ModelPoolKey, progressHandler: @escaping @Sendable (ModelLoadProgress) -> Void
+    ) async throws -> any Sendable
     /// Removes a container that ``load(_:)`` returned from memory.
     func evict(_ container: any Sendable) async
     /// Measures the bytes of the model of `key` in memory. The pool calls
@@ -37,6 +55,21 @@ extension PooledModelLoader {
     /// - Parameter key: The model that ``load(_:)`` loaded.
     /// - Returns: 0.
     public func footprintBytes(of key: ModelPoolKey) async throws -> Int64 { 0 }
+
+    /// A loader that reports nothing reports ``ModelLoadProgress/loading``,
+    /// and then loads with ``load(_:)``.
+    ///
+    /// - Parameters:
+    ///   - key: The model and its role.
+    ///   - progressHandler: Gets ``ModelLoadProgress/loading``.
+    /// - Returns: The container that ``load(_:)`` returns.
+    /// - Throws: The error of ``load(_:)``.
+    public func load(
+        key: ModelPoolKey, progressHandler: @escaping @Sendable (ModelLoadProgress) -> Void
+    ) async throws -> any Sendable {
+        progressHandler(.loading)
+        return try await load(key)
+    }
 }
 
 /// The memory that the models of a ``ModelPool`` use.

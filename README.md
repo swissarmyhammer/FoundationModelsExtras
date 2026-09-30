@@ -573,6 +573,41 @@ This example is mirrored in `readmeModelPoolExample` in
 by `swift test --filter ModelPoolTests`. The test declares `loader` (a
 `PooledModelLoader`) before the block.
 
+### Load progress: `progress(for:)`
+
+`progress(for:)` gives a new `AsyncStream<ModelLoadProgress>` for each call. It
+shows the next load of a `ModelRef`, or the load that runs now:
+`downloading(fraction:)` values while the model downloads, then `loading`, then
+`ready` or `failed(String)`. The stream then ends. All streams of one load get
+the same values. A stream that starts during a load gets the last value of that
+load first. A stream that starts when the model is resident gives `ready` at
+once and ends.
+
+The loader reports the download and the load through
+`load(key:progressHandler:)` of `PooledModelLoader`. `MLXModelLoader` reports
+the fraction that the Hugging Face downloader gives, then `loading` when the
+download ends. A loader that implements only `load(_:)` reports `loading`. The
+pool reports `ready` or `failed`, and gives `loading` before `ready` when the
+loader did not report it. The pool drops a report that breaks this order, and a
+report of a load that ended:
+
+```swift
+let progress = pool.progress(for: chat.ref)
+async let hold = pool.acquire(chat)
+for await step in progress {
+    show(step)   // downloading(fraction:)..., loading, then ready or failed
+}
+```
+
+This example is mirrored in `readmeProgressExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/ModelLoadProgressTests.swift`,
+kept green by `swift test --filter ModelLoadProgressTests`. The test declares
+`pool` (a `ModelPool(loader:)` with a test loader that reports progress),
+`chat` (a `ModelPoolKey`) and `show` before the block. The integration test
+`aLoadEndsWithReady` in
+`IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ModelPoolIntegrationTests.swift`
+loads a real model and reads its progress.
+
 ### One queue for each model: `PooledEmbedder`
 
 Each resident model has one `GenerationQueue`, and all holds of its key share

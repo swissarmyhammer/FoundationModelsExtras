@@ -50,7 +50,7 @@ public struct MLXModelLoader: PooledModelLoader {
     }
 
     /// Downloads the model of `key` when the cache does not hold it, and loads
-    /// its weights.
+    /// its weights. Reports nothing.
     ///
     /// - Parameter key: The model and its role.
     /// - Returns: An `MLXLanguageModel` for an `.llm` key, or a
@@ -58,13 +58,33 @@ public struct MLXModelLoader: PooledModelLoader {
     /// - Throws: The error of the metal library step, of the download, or of
     ///   the load.
     public func load(_ key: ModelPoolKey) async throws -> any Sendable {
+        try await load(key: key) { _ in }
+    }
+
+    /// Downloads the model of `key` when the cache does not hold it, and loads
+    /// its weights. Reports the fraction of the download that the Hugging Face
+    /// downloader gives, then ``ModelLoadProgress/loading`` when the download
+    /// returns. A model that the model cache of MLX holds already loads with
+    /// no download and no report.
+    ///
+    /// - Parameters:
+    ///   - key: The model and its role.
+    ///   - progressHandler: Gets each step of the download and the load.
+    /// - Returns: An `MLXLanguageModel` for an `.llm` key, or a
+    ///   ``PooledEmbedding`` for an `.embedding` key.
+    /// - Throws: The error of the metal library step, of the download, or of
+    ///   the load.
+    public func load(
+        key: ModelPoolKey, progressHandler: @escaping @Sendable (ModelLoadProgress) -> Void
+    ) async throws -> any Sendable {
         try MetalLibraryBootstrap.install()
         let configuration = ModelConfiguration(id: key.ref.repo, revision: Self.revision(of: key))
+        let downloader = ProgressReportingDownloader(upstream: #hubDownloader(), report: progressHandler)
         switch key.role {
         case .llm:
-            return try await Self.loadLanguageModel(configuration)
+            return try await Self.loadLanguageModel(configuration, downloader: downloader)
         case .embedding:
-            return try await MLXEmbedding.load(configuration)
+            return try await MLXEmbedding.load(configuration, downloader: downloader)
         }
     }
 
@@ -135,16 +155,20 @@ public struct MLXModelLoader: PooledModelLoader {
     /// Makes an `MLXLanguageModel` with ``languageModelCapabilities`` and
     /// loads its weights.
     ///
-    /// - Parameter configuration: The model and its revision.
+    /// - Parameters:
+    ///   - configuration: The model and its revision.
+    ///   - downloader: The downloader of the files of the model.
     /// - Returns: The loaded model.
     /// - Throws: The error of the download or of the load.
-    private static func loadLanguageModel(_ configuration: ModelConfiguration) async throws -> MLXLanguageModel {
+    private static func loadLanguageModel(
+        _ configuration: ModelConfiguration, downloader: ProgressReportingDownloader
+    ) async throws -> MLXLanguageModel {
         let model = MLXLanguageModel(
             configuration: configuration, capabilities: languageModelCapabilities,
             weightsLocation: { id in HubCache.default.repoDirectory(repo: "\(id)", kind: .model) }
         ) { configuration, progress in
             try await loadModelContainer(
-                from: #hubDownloader(), using: #huggingFaceTokenizerLoader(),
+                from: downloader, using: #huggingFaceTokenizerLoader(),
                 configuration: configuration, progressHandler: progress)
         }
         try await model.preload()
@@ -188,12 +212,16 @@ private struct MLXEmbedding: PooledEmbedding {
     /// Loads the model of `configuration`, and finds its dimension with one
     /// embed call.
     ///
-    /// - Parameter configuration: The model and its revision.
+    /// - Parameters:
+    ///   - configuration: The model and its revision.
+    ///   - downloader: The downloader of the files of the model.
     /// - Returns: The loaded model.
     /// - Throws: The error of the download, of the load, or of the embed call.
-    static func load(_ configuration: ModelConfiguration) async throws -> MLXEmbedding {
+    static func load(
+        _ configuration: ModelConfiguration, downloader: ProgressReportingDownloader
+    ) async throws -> MLXEmbedding {
         let container = try await EmbedderModelFactory.shared.loadContainer(
-            from: #hubDownloader(), using: #huggingFaceTokenizerLoader(), configuration: configuration)
+            from: downloader, using: #huggingFaceTokenizerLoader(), configuration: configuration)
         let probe = try await embed(texts: [dimensionProbe], in: container)
         return MLXEmbedding(container: container, dimension: probe.first?.count ?? 0)
     }
