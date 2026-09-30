@@ -28,8 +28,26 @@ comments:
     - evidence: 7 files — Sources/FoundationModelsExtras/ModelPool/MLXModelLoader.swift, Tests/FoundationModelsExtrasTests/ModelPool/MLXModelLoaderTests.swift, IntegrationTests/Package.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/MLXModelLoaderIntegrationTests.swift (new), IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/Support/RecordingTokenizerLoader.swift (new), README.md, CHANGELOG.md. `swift test`: 851 tests in 83 suites pass (4 known issues from TelemetryCaptureTests, from before this change). `swift test --package-path IntegrationTests`: 32 tests in 9 suites pass. No new warnings.
     - next: review. The item "CI is green on the pushed commit" stays open until the orchestrator pushes.
   timestamp: 2026-09-30T08:46:12.159652+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m3rrcwv9dhenke2h8dvtdm03
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (b553bdf). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. The engine reviewed 5 files. `.kanban/` is excluded by `.reviewignore`. No validator matches `README.md` or `CHANGELOG.md`.
+    - acceptance check: `MLXModelLoader.init(tokenizerLoader:)` is public, and `nil` gives `#huggingFaceTokenizerLoader()`. Thus `MLXModelLoader()` loads as before. The LLM load (`loadLanguageModel`) and the embedding load (`MLXEmbedding.load`) both use the stored tokenizer loader. The unit test `loaderKeepsTheGivenTokenizerLoader` and the integration test `aLoadUsesTheGivenTokenizerLoader` (LLM and embedding) are present. README and CHANGELOG document the parameter.
+    - next: the orchestrator pushes to `origin main`, checks CI on the pushed commit, and sends the revision to the Router session.
+  timestamp: 2026-09-30T08:55:15.561679+00:00
+- actor: claude-code
+  id: 01m3rrdast8emy7b9n58d5qkqx
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files
+    - test: green — swift test 851 pass; swift test --package-path IntegrationTests 32 pass
+    - commit: b553bdf
+    - review: clean — 0 findings
+    - push: origin main; revision sent to foundationmodelsrouter-d5
+  timestamp: 2026-09-30T08:55:29.850330+00:00
+position_column: done
+position_ordinal: e080
 title: MLXModelLoader takes an optional tokenizer loader
 ---
 ## What

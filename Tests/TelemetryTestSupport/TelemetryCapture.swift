@@ -100,6 +100,70 @@ public enum TelemetryCapture {
 }
 
 extension TelemetryCapture {
+    /// One log record that a capture keeps: the level, the message, the error
+    /// and the merged metadata of the call, and the label of the logger that
+    /// wrote it.
+    ///
+    /// Two records are equal when their labels are equal and swift-log's
+    /// `InMemoryLogHandler.Entry` finds the other four values equal. That
+    /// comparison finds two errors equal when their types and their
+    /// descriptions are equal.
+    public struct LogRecord: Equatable, Sendable {
+        /// The level of the record.
+        public let level: Logger.Level
+
+        /// The message of the record.
+        public let message: Logger.Message
+
+        /// The error of the record, or `nil` when the call gave no error.
+        public let error: (any Error)?
+
+        /// The merged metadata of the record: the metadata of the logger, then
+        /// the provided metadata, then the metadata of the call.
+        public let metadata: Logger.Metadata
+
+        /// The label of the logger that wrote the record.
+        public let label: String
+
+        /// Makes a log record.
+        ///
+        /// - Parameters:
+        ///   - level: The level of the record.
+        ///   - message: The message of the record.
+        ///   - error: The error of the record, or `nil` for no error.
+        ///   - metadata: The merged metadata of the record.
+        ///   - label: The label of the logger that wrote the record.
+        public init(
+            level: Logger.Level,
+            message: Logger.Message,
+            error: (any Error)? = nil,
+            metadata: Logger.Metadata,
+            label: String
+        ) {
+            self.level = level
+            self.message = message
+            self.error = error
+            self.metadata = metadata
+            self.label = label
+        }
+
+        /// Compares the labels, then the other values as swift-log's
+        /// `InMemoryLogHandler.Entry` compares them.
+        ///
+        /// - Parameters:
+        ///   - lhs: A record.
+        ///   - rhs: A different record.
+        /// - Returns: `true` when the two records are equal.
+        public static func == (lhs: LogRecord, rhs: LogRecord) -> Bool {
+            lhs.label == rhs.label && lhs.entry == rhs.entry
+        }
+
+        /// The record without its label, as swift-log keeps it.
+        private var entry: InMemoryLogHandler.Entry {
+            InMemoryLogHandler.Entry(level: level, message: message, error: error, metadata: metadata)
+        }
+    }
+
     /// The telemetry objects of one capture, and the records that they hold.
     public struct Context: Sendable {
         /// The tracer of the capture. It keeps each span that ends, and it
@@ -115,18 +179,18 @@ extension TelemetryCapture {
         /// A logger that writes each level to the capture.
         public let logger: Logger
 
-        /// The handler that keeps the log records of the capture.
-        let logHandler: InMemoryLogHandler
+        /// The store that keeps the log records of the capture.
+        let logRecordStore: LogRecordStore
 
         /// Makes the telemetry objects of a new capture.
         init() {
-            var handler = InMemoryLogHandler()
-            handler.logLevel = .trace
-            let recordingHandler = handler
-            logHandler = recordingHandler
+            let store = LogRecordStore()
+            logRecordStore = store
             tracer = W3CInMemoryTracer()
             metricsFactory = TestMetrics()
-            logger = Logger(label: TelemetryCapture.loggerLabel) { _ in recordingHandler }
+            logger = Logger(label: TelemetryCapture.loggerLabel) { label in
+                RoutingLogHandler(label: label, destination: .store(store))
+            }
         }
 
         /// The spans that ended in the capture, in the order of their end.
@@ -134,9 +198,10 @@ extension TelemetryCapture {
             tracer.finishedSpans
         }
 
-        /// The log records of the capture, in the order of the calls.
-        public var logRecords: [InMemoryLogHandler.Entry] {
-            logHandler.entries
+        /// The log records of the capture, in the order of the calls. Each
+        /// record has the label of the logger that wrote it.
+        public var logRecords: [LogRecord] {
+            logRecordStore.records
         }
 
         /// The metrics that the code made in the capture, in the order of

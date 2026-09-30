@@ -22,6 +22,9 @@ struct TelemetryCaptureTests {
     /// The label of the logger that each test makes.
     private static let loggerLabel = "probe.logger"
 
+    /// The label of a second logger, which differs from ``loggerLabel``.
+    private static let otherLoggerLabel = "probe.other-logger"
+
     /// The label of the counter that each test makes.
     private static let metricLabel = "probe.calls"
 
@@ -92,6 +95,34 @@ struct TelemetryCaptureTests {
 
         #expect(context.places == Self.places(for: Self.safeValue))
         #expect(context.leaks(forbidding: [Self.forbidden]) == [])
+    }
+
+    @Test("each log record keeps the label of the logger that wrote it")
+    func eachLogRecordKeepsTheLabelOfItsLogger() async throws {
+        let context = try await TelemetryCapture.run(forbidding: [Self.forbidden]) { context in
+            Logger(label: Self.loggerLabel).info("\(Self.safeMessage)")
+            Logger(label: Self.otherLoggerLabel).info("\(Self.safeMessage)")
+            return context
+        }
+
+        #expect(context.logRecords.map(\.label) == [Self.loggerLabel, Self.otherLoggerLabel])
+    }
+
+    @Test("the logger of the context writes its label on each record")
+    func theLoggerOfTheContextWritesItsLabel() async throws {
+        let context = try await TelemetryCapture.run(forbidding: [Self.forbidden]) { context in
+            context.logger.info("\(Self.safeMessage)", metadata: [Self.key: "\(Self.safeValue)"])
+            return context
+        }
+
+        #expect(context.logRecords == [
+            TelemetryCapture.LogRecord(
+                level: .info,
+                message: "\(Self.safeMessage)",
+                metadata: [Self.key: "\(Self.safeValue)"],
+                label: TelemetryCapture.loggerLabel
+            ),
+        ])
     }
 
     @Test("two captures that run at the same time each see only their own records")

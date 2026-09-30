@@ -5,6 +5,30 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): each log record of `TelemetryCapture` keeps the label of its logger
+
+`TelemetryCapture.Context.logRecords` is now `[TelemetryCapture.LogRecord]`.
+It was `[InMemoryLogHandler.Entry]`. The new public struct
+`TelemetryCapture.LogRecord` has `level`, `message`, `error`, `metadata` and
+`label`, and it is `Equatable` and `Sendable`. `label` is the label of the
+logger that wrote the record: the label of a new `Logger(label:)`, or
+`TelemetryCapture.loggerLabel` for `Context.logger`. A test can thus check
+that each record of a package has a label with the module name as a prefix.
+
+**Cause.** swift-log's `InMemoryLogHandler.Entry` has no label, and a package
+cannot add a stored property to it. Thus a test could not check the label of
+a record.
+
+**Migration.** Code that reads `.level`, `.message`, `.error`, `.metadata` or
+`.count`, or that compares two arrays of records, does not change. Code that
+names `InMemoryLogHandler.Entry` must name `TelemetryCapture.LogRecord`: for
+example `[InMemoryLogHandler.Entry]` becomes `[TelemetryCapture.LogRecord]`,
+and `extension InMemoryLogHandler.Entry` becomes
+`extension TelemetryCapture.LogRecord`. An expected record that the test makes
+also needs the label:
+`TelemetryCapture.LogRecord(level:message:error:metadata:label:)`. Two records
+are equal only when their labels are equal too.
+
 ### Added: `MLXModelLoader(tokenizerLoader:)`
 
 `MLXModelLoader` now takes an optional `TokenizerLoader`, and loads the
