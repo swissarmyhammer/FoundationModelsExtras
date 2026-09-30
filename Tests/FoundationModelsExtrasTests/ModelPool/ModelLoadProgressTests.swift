@@ -18,6 +18,9 @@ struct ModelLoadProgressTests {
     /// The bytes of the session of an acquire with its own loader.
     private static let sessionBytes: Int64 = 2
 
+    /// The download fraction of a report that the pool must drop.
+    private static let droppedDownloadFraction = 0.5
+
     /// The progress of a load of a ``ReportingLoader``, then `ready`.
     private static let readySequence = ReportingLoader.reports + [.ready]
 
@@ -131,7 +134,9 @@ struct ModelLoadProgressTests {
 
     @Test("the pool drops a download after loading, and a ready or a failed that the loader reports")
     func thePoolKeepsTheOrderOfTheStages() async throws {
-        let outOfOrder: [ModelLoadProgress] = [.loading, .downloading(fraction: 0.5), .ready, .failed("loader")]
+        let outOfOrder: [ModelLoadProgress] = [
+            .loading, .downloading(fraction: Self.droppedDownloadFraction), .ready, .failed("loader"),
+        ]
         let pool = ModelPool(loader: ReportingLoader(reports: outOfOrder))
         let progress = pool.progress(for: Self.key.ref)
 
@@ -156,7 +161,7 @@ struct ModelLoadProgressTests {
         }
         try #require(await BoundedWait.conditionReached("the later load starts") { !log.values.isEmpty })
 
-        earlierLoader.reportAgain(progress: .downloading(fraction: 0.5))
+        earlierLoader.reportAgain(progress: .downloading(fraction: Self.droppedDownloadFraction))
         endLoad.finish()
         let hold = try await acquire.value
 
@@ -210,8 +215,16 @@ struct ModelLoadProgressTests {
 /// The loader keeps the progress handler of each load, so that a test can
 /// report to a load again after it ended.
 private struct ReportingLoader: PooledModelLoader {
+    /// The fraction of the download in the first default report.
+    private static let firstDownloadFraction = 0.25
+
+    /// The fraction of the download in the second default report.
+    private static let secondDownloadFraction = 0.75
+
     /// The default reports: two parts of a download, then the load.
-    static let reports: [ModelLoadProgress] = [.downloading(fraction: 0.25), .downloading(fraction: 0.75), .loading]
+    static let reports: [ModelLoadProgress] = [
+        .downloading(fraction: firstDownloadFraction), .downloading(fraction: secondDownloadFraction), .loading,
+    ]
 
     /// The reports of each load, in order.
     private let reports: [ModelLoadProgress]

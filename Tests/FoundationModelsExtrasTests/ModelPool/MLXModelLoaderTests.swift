@@ -199,8 +199,12 @@ private struct StepDownloader: Downloader {
     /// The units of work of the fake download.
     private static let totalUnits: Int64 = 4
 
-    /// The units that each report of the fake download completed.
-    private static let completedUnits: [Int64] = [1, 3, 4]
+    /// The units that the second report of the fake download completed.
+    private static let partialUnits: Int64 = 3
+
+    /// The units that each report of the fake download completed. The last
+    /// report completes the download.
+    private static let completedUnits: [Int64] = [1, partialUnits, totalUnits]
 
     /// The fraction of each report, in order.
     static let fractions = completedUnits.map { Double($0) / Double(totalUnits) }
