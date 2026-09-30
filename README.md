@@ -497,6 +497,17 @@ it. An `.llm` key gives an `MLXLanguageModel` (a FoundationModels
 `LanguageModel` with guided output, tool calls and a reasoning trace). An
 `.embedding` key gives a `PooledEmbedding`.
 
+`MLXModelLoader(tokenizerLoader:)` sets the tokenizer loader (a `TokenizerLoader`
+of `MLXLMCommon`) of each load, of an LLM and of an embedding model. For
+example, give a tokenizer loader that loads the chat template with a pinned
+date. `nil`, the default, uses the Hugging Face tokenizer loader
+(`#huggingFaceTokenizerLoader()`), thus `MLXModelLoader()` loads as before.
+Thus a package that needs its own tokenizer does not make its own
+`MLXLanguageModel`. The integration test `aLoadUsesTheGivenTokenizerLoader` in
+`IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/MLXModelLoaderIntegrationTests.swift`
+loads a real LLM and a real embedding model with a tokenizer loader that
+records each call.
+
 `ModelPool(loader:)` sets the loader of the pool. The default is
 `MLXModelLoader()`, and `ModelPool.shared` uses it. `acquire(_ key:)` loads
 with the loader of the pool, and needs no loader and no byte count. After the

@@ -5,6 +5,14 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `MLXModelLoader(tokenizerLoader:)`
+
+`MLXModelLoader` now takes an optional `TokenizerLoader`, and loads the
+tokenizer of each model, an LLM or an embedding model, with it. `nil`, the
+default, uses the Hugging Face tokenizer loader, thus `MLXModelLoader()` loads
+as before. A caller that loads the chat template with a pinned date thus needs
+no `MLXLanguageModel` of its own.
+
 ### Changed (breaking): a download value of `ModelLoadProgress` has real byte counts
 
 `ModelLoadProgress.downloading(fraction:)` is now

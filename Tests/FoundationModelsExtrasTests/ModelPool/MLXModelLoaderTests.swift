@@ -5,9 +5,10 @@ import HuggingFace
 import MLXLMCommon
 import Testing
 
-/// The built-in MLX loader measures the weight files of a model in the Hugging
-/// Face cache, makes the MLX metal library available to the test binary, and
-/// reports the progress of its download.
+/// The built-in MLX loader keeps the tokenizer loader that its init gets,
+/// measures the weight files of a model in the Hugging Face cache, makes the
+/// MLX metal library available to the test binary, and reports the progress
+/// of its download.
 ///
 /// Each footprint test builds a small cache in a temporary directory, in the
 /// layout of the Hugging Face hub: a ref file, blobs, and a snapshot of links.
@@ -52,6 +53,18 @@ struct MLXModelLoaderTests {
 
     /// The bytes of the fake library in the Cmlx bundle.
     private static let bundledLibraryBytes = 4
+
+    /// The mark of the tokenizer loader that a test gives to a loader.
+    private static let tokenizerLoaderMark = "pinned-date chat template"
+
+    @Test("a loader keeps the tokenizer loader that its init gets")
+    func loaderKeepsTheGivenTokenizerLoader() throws {
+        let loader = MLXModelLoader(tokenizerLoader: MarkedTokenizerLoader(mark: Self.tokenizerLoaderMark))
+
+        let kept = try #require(loader.tokenizerLoader as? MarkedTokenizerLoader)
+
+        #expect(kept.mark == Self.tokenizerLoaderMark)
+    }
 
     @Test("the footprint of a key is the sum of the weight files of the snapshot of the main revision")
     func footprintIsTheSumOfTheWeightFiles() async throws {
@@ -299,6 +312,23 @@ private struct SnapshotStep: Sendable {
             return file
         }
         withExtendedLifetime(files) { progressHandler(snapshot) }
+    }
+}
+
+/// A tokenizer loader that a test can know by its mark. It loads no tokenizer:
+/// each load throws ``FakeLoadError``.
+private struct MarkedTokenizerLoader: TokenizerLoader {
+    /// The text that tells this tokenizer loader from a different one.
+    let mark: String
+
+    /// Throws, because the test runs no load.
+    ///
+    /// - Parameter directory: The folder of the tokenizer. The fake does not
+    ///   read it.
+    /// - Returns: No tokenizer.
+    /// - Throws: ``FakeLoadError`` always.
+    func load(from directory: URL) async throws -> any Tokenizer {
+        throw FakeLoadError()
     }
 }
 

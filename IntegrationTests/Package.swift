@@ -20,6 +20,7 @@ import PackageDescription
 let extrasPackage = "FoundationModelsExtras"
 let mlxPackage = "mlx-swift-lm"
 let huggingFacePackage = "swift-huggingface"
+let transformersPackage = "swift-transformers"
 let ulidPackage = "ULID.swift"
 
 let package = Package(
@@ -33,6 +34,8 @@ let package = Package(
         // The controlled fork of mlx-swift-lm.
         .package(url: "https://github.com/swissarmyhammer/\(mlxPackage)", branch: "stable"),
         .package(url: "https://github.com/huggingface/\(huggingFacePackage)", from: "0.9.0"),
+        // The same floor as the root package.
+        .package(url: "https://github.com/huggingface/\(transformersPackage)", from: "1.3.0"),
         // The session id of a `ModelCallMark` is a ULID. The same floor as the
         // root package.
         .package(url: "https://github.com/yaslab/\(ulidPackage).git", from: "1.3.1"),
@@ -52,6 +55,13 @@ let package = Package(
                 // `HubCache`: the memory checks measure the weight files in the
                 // Hugging Face cache without the loader.
                 .product(name: "HuggingFace", package: huggingFacePackage),
+                // The tokenizer loader test wraps `#huggingFaceTokenizerLoader()`:
+                // `MLXLMCommon` gives the `TokenizerLoader` protocol,
+                // `MLXHuggingFace` gives the macro, and the macro expands to
+                // `Tokenizers.AutoTokenizer`.
+                .product(name: "MLXLMCommon", package: mlxPackage),
+                .product(name: "MLXHuggingFace", package: mlxPackage),
+                .product(name: "Tokenizers", package: transformersPackage),
                 .product(name: "ULID", package: ulidPackage),
             ],
             path: "Tests/\(extrasPackage)IntegrationTests"

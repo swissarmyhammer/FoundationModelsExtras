@@ -36,17 +36,29 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The Hugging Face cache that holds the downloaded weights.
     private let cache: HubCache
 
+    /// The tokenizer loader of each load, of an LLM and of an embedding model.
+    let tokenizerLoader: any TokenizerLoader
+
     /// Makes a loader over the default Hugging Face cache, the cache that the
     /// download writes to.
-    public init() {
-        self.init(cache: .default)
+    ///
+    /// - Parameter tokenizerLoader: The tokenizer loader of each load, of an
+    ///   LLM and of an embedding model. For example, a loader that gives a
+    ///   chat template with a pinned date. `nil` uses the Hugging Face
+    ///   tokenizer loader.
+    public init(tokenizerLoader: (any TokenizerLoader)? = nil) {
+        self.init(cache: .default, tokenizerLoader: tokenizerLoader)
     }
 
     /// Makes a loader that measures the weights in `cache`.
     ///
-    /// - Parameter cache: The Hugging Face cache that holds the weights.
-    init(cache: HubCache) {
+    /// - Parameters:
+    ///   - cache: The Hugging Face cache that holds the weights.
+    ///   - tokenizerLoader: The tokenizer loader of each load. `nil` uses the
+    ///     Hugging Face tokenizer loader.
+    init(cache: HubCache, tokenizerLoader: (any TokenizerLoader)? = nil) {
         self.cache = cache
+        self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
     }
 
     /// Downloads the model of `key` when the cache does not hold it, and loads
@@ -83,9 +95,11 @@ public struct MLXModelLoader: PooledModelLoader {
         let downloader = ProgressReportingDownloader(upstream: #hubDownloader(), report: progressHandler)
         switch key.role {
         case .llm:
-            return try await Self.loadLanguageModel(configuration, downloader: downloader)
+            return try await Self.loadLanguageModel(
+                configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
         case .embedding:
-            return try await MLXEmbedding.load(configuration, downloader: downloader)
+            return try await MLXEmbedding.load(
+                configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
         }
     }
 
@@ -159,17 +173,19 @@ public struct MLXModelLoader: PooledModelLoader {
     /// - Parameters:
     ///   - configuration: The model and its revision.
     ///   - downloader: The downloader of the files of the model.
+    ///   - tokenizerLoader: The loader of the tokenizer of the model.
     /// - Returns: The loaded model.
     /// - Throws: The error of the download or of the load.
     private static func loadLanguageModel(
-        _ configuration: ModelConfiguration, downloader: ProgressReportingDownloader
+        configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
+        tokenizerLoader: any TokenizerLoader
     ) async throws -> MLXLanguageModel {
         let model = MLXLanguageModel(
             configuration: configuration, capabilities: languageModelCapabilities,
             weightsLocation: { id in HubCache.default.repoDirectory(repo: "\(id)", kind: .model) }
         ) { configuration, progress in
             try await loadModelContainer(
-                from: downloader, using: #huggingFaceTokenizerLoader(),
+                from: downloader, using: tokenizerLoader,
                 configuration: configuration, progressHandler: progress)
         }
         try await model.preload()
@@ -216,13 +232,15 @@ private struct MLXEmbedding: PooledEmbedding {
     /// - Parameters:
     ///   - configuration: The model and its revision.
     ///   - downloader: The downloader of the files of the model.
+    ///   - tokenizerLoader: The loader of the tokenizer of the model.
     /// - Returns: The loaded model.
     /// - Throws: The error of the download, of the load, or of the embed call.
     static func load(
-        _ configuration: ModelConfiguration, downloader: ProgressReportingDownloader
+        configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
+        tokenizerLoader: any TokenizerLoader
     ) async throws -> MLXEmbedding {
         let container = try await EmbedderModelFactory.shared.loadContainer(
-            from: downloader, using: #huggingFaceTokenizerLoader(), configuration: configuration)
+            from: downloader, using: tokenizerLoader, configuration: configuration)
         let probe = try await embed(texts: [dimensionProbe], in: container)
         return MLXEmbedding(container: container, dimension: probe.first?.count ?? 0)
     }
