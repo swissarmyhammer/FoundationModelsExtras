@@ -5,6 +5,20 @@ change is at the top.
 
 ## Unreleased
 
+### Fixed: an MLX embedding model gives the same vector for a text in a batch and for the text alone
+
+`embed(texts:)` of a `PooledEmbedder` over `MLXModelLoader` now gives each text
+of a batch the vector of the same text embedded alone (cosine ≥ 0.999). Before,
+each text that was shorter than the longest text of the batch got a wrong
+vector: the FoundationModelsRouter measured cosines of 0.438 and 0.275.
+
+**Cause.** The pooling got no mask, thus `.last` pooling (the Qwen3 embedders)
+read the hidden state of a pad token for each short text. The model mask was
+`token != padToken`, and the pad token is the end token, thus that mask also
+removed the real end token of each text. Now the mask of each row comes from
+its length (1 for each real token, the end token included, and 0 for each pad),
+and the model and the pooling both get it.
+
 ### Fixed: `ModelPool` counts an evicted model until the evict call of its loader returns
 
 `footprint`, each value of `footprints`, `isResident(_:)` and

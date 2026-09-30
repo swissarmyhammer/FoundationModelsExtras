@@ -19,10 +19,32 @@ comments:
     - Both builds show the SwiftPM warning "missing creator for mutated node ... mlx-swift_Cmlx.bundle/Contents/MacOS". The root package shows it too, thus this change did not cause it.
     - next: review
   timestamp: 2026-09-30T04:58:33.287980+00:00
+- actor: claude-code
+  id: 01m3rb9sv486ffwrjn20x48z5h
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (fc197f6). Counts: 0 findings, 0 confirmed, 0 refuted. The engine reviewed 8 files. It did not review 6 `.kanban/` files (`.reviewignore`). The notes about the declined items are for the two deleted files `Support/MLXPooledLoader.swift` and `Support/MetalLibraryBootstrap.swift`. These files do not exist, thus there is no code to examine.
+    - Acceptance criteria, examined against the code:
+      - No MLX loader or metal-library code is in `IntegrationTests/`. The two Support files are deleted. `RecordingLoader`, `IntegrationModels.acquire` and `ToolSession` use `MLXModelLoader()`. `ModelAvailability.requireMetalDevice()` does only a Metal device check. It does not load a metal library.
+      - `IntegrationTests/Package.swift` names `FoundationModelsExtras`, `Operations`, `MLXFoundationModels`, `HuggingFace` and `ULID`. Each product has an import in a test file: `MLXFoundationModels` (ModelPoolIntegrationTests), `MLX` through `MLXFoundationModels` and `HuggingFace` (ModelMemory), `Operations` and `ULID` (ToolHostingFixtures, ToolHost, GenerationQueueIntegrationTests).
+      - Test results: the implement comment records `swift test --package-path IntegrationTests` 29 tests passed, and `swift test` 837 tests passed. This review did not run the tests again.
+    - The pad-mask problem in the core `MLXEmbedding` is not part of this commit. Task ^rfa3 has it.
+    - next: done
+  timestamp: 2026-09-30T05:06:22.692820+00:00
+- actor: claude-code
+  id: 01m3rba6k2xn0x5cr5bzzt7gxk
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files (2 deleted)
+    - test: green — swift test 837 pass; swift test --package-path IntegrationTests 29 pass
+    - commit: fc197f6
+    - review: clean — 0 findings
+    - push: origin main
+  timestamp: 2026-09-30T05:06:35.746131+00:00
 depends_on:
 - 01M3QMD6V09WGE7MJDV483VHBG
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: dd80
 title: IntegrationTests use the core MLXModelLoader; delete the test copy and the duplicate dependencies
 ---
 ## What

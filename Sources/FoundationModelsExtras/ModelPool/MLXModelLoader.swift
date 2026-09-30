@@ -235,7 +235,9 @@ private struct MLXEmbedding: PooledEmbedding {
     }
 
     /// Pads the tokens of `texts` to one length, runs the model, and pools the
-    /// output. The same steps as the embedder of the FoundationModelsRouter.
+    /// output. The mask of each row comes from its length, and the model and
+    /// the pooling both get it. Thus a pad token changes no vector, and the end
+    /// token of a text, which can equal the pad token, stays in its vector.
     ///
     /// - Parameters:
     ///   - texts: The texts.
@@ -244,13 +246,14 @@ private struct MLXEmbedding: PooledEmbedding {
     private static func embed(texts: [String], in container: EmbedderModelContainer) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
         return await container.perform { context in
-            let padToken = context.tokenizer.eosTokenId ?? fallbackPadToken
-            let tokens = texts.map { context.tokenizer.encode(text: $0, addSpecialTokens: true) }
-            let length = tokens.map(\.count).max() ?? 0
-            let padded = stacked(tokens.map { MLXArray($0 + Array(repeating: padToken, count: length - $0.count)) })
+            let padding = EmbeddingBatchPadding(
+                rows: texts.map { context.tokenizer.encode(text: $0, addSpecialTokens: true) },
+                padToken: context.tokenizer.eosTokenId ?? fallbackPadToken)
+            let tokens = stacked(padding.tokens.map { MLXArray($0) })
+            let mask = stacked(padding.mask.map { MLXArray($0) })
             let output = context.model(
-                padded, positionIds: nil, tokenTypeIds: MLXArray.zeros(like: padded), attentionMask: padded .!= padToken)
-            let pooled = context.pooling(output, normalize: true, applyLayerNorm: true)
+                tokens, positionIds: nil, tokenTypeIds: MLXArray.zeros(like: tokens), attentionMask: mask)
+            let pooled = context.pooling(output, mask: mask, normalize: true, applyLayerNorm: true)
             pooled.eval()
             return pooled.map { $0.asArray(Float.self) }
         }

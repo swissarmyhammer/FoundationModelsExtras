@@ -26,6 +26,27 @@ private enum SimilarityTexts {
     static let all = [anchor, paraphrase, unrelated]
 }
 
+/// Three texts of different token lengths. One batch of them pads the two
+/// shorter texts to the length of the longest text.
+private enum BatchLengthTexts {
+    /// The shortest text.
+    static let short = "Open the file."
+    /// A text of medium length.
+    static let medium = "Find the tool that lists the files of a folder."
+    /// The longest text.
+    static let long = """
+        Summarize the open pull requests of the repository, and give the name of \
+        the reviewer of each one, with the date of its last change.
+        """
+    /// The three texts, in one list.
+    static let all = [short, medium, long]
+}
+
+/// The lowest cosine between the vector of a text in a batch and the vector of
+/// the same text alone. The pad tokens of a batch must not change a vector, thus
+/// only the rounding of the float math can make the two vectors differ.
+private let batchCosineFloor: Float = 0.999
+
 /// The texts that the two users of one embedding model embed.
 private let sharedTexts = ["Route this question to the best model.", "Find the tool that reads a file."]
 
@@ -77,6 +98,20 @@ extension RealModelSuites {
             #expect(outcome.batch.map(\.count) == Array(repeating: dimension, count: SimilarityTexts.all.count))
             #expect([outcome.anchor, outcome.paraphrase, outcome.unrelated].allSatisfy { $0.count == dimension })
             #expect(similar > unrelated, "similar texts: \(similar); unrelated texts: \(unrelated)")
+        }
+
+        @Test("each text of a batch of texts of different lengths has the vector of the same text embedded alone")
+        func batchVectorEqualsVectorOfTextAlone() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+
+            let outcome = try await Self.embedInBatchAndAlone(texts: BatchLengthTexts.all, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+
+            let cosines = zip(outcome.batch, outcome.alone).map { VectorMath.cosineSimilarity(of: $0, to: $1) }
+            #expect(outcome.batch.count == BatchLengthTexts.all.count)
+            #expect(outcome.alone.count == BatchLengthTexts.all.count)
+            #expect(cosines.allSatisfy { $0 >= batchCosineFloor }, "cosines: \(cosines)")
         }
 
         @Test("a router and a registry acquire one embedding key, the model loads one time, and the registry embeds with the router container")
@@ -160,6 +195,15 @@ extension RealModelSuites {
                 anchor: try await vector(of: SimilarityTexts.anchor, with: embedder),
                 paraphrase: try await vector(of: SimilarityTexts.paraphrase, with: embedder),
                 unrelated: try await vector(of: SimilarityTexts.unrelated, with: embedder))
+        }
+
+        /// Embeds `texts` in one batch, and then each text alone, through one
+        /// embedder. The embedder goes on return.
+        private static func embedInBatchAndAlone(texts: [String], in pool: ModelPool) async throws -> BatchOutcome {
+            let embedder = try await makeEmbedder(in: pool)
+            return BatchOutcome(
+                batch: try await embedder.embed(texts: texts),
+                alone: try await embedSerially(texts, with: embedder))
         }
 
         /// Embeds `text` alone, and gives its one vector.
@@ -326,6 +370,14 @@ private struct SimilarityOutcome {
     let paraphrase: [Float]
     /// The vector of ``SimilarityTexts/unrelated``, embedded alone.
     let unrelated: [Float]
+}
+
+/// The vectors of the batch test.
+private struct BatchOutcome {
+    /// The vector of each text, from one call with all the texts.
+    let batch: [[Float]]
+    /// The vector of each text, from one call for each text.
+    let alone: [[Float]]
 }
 
 /// What the two users of one embedding model observed.

@@ -1,6 +1,36 @@
 ---
-position_column: todo
-position_ordinal: '80'
+comments:
+- actor: claude-code
+  id: 01m3rbd373rdw25hd42ge9053s
+  text: |-
+    Research:
+    - The bug is in `MLXEmbedding.embed(texts:in:)` in Sources/FoundationModelsExtras/ModelPool/MLXModelLoader.swift. The model mask is `padded .!= padToken`, and the pooling gets no mask.
+    - MLXEmbedders `Pooling.callAsFunction(_:mask:normalize:applyLayerNorm:)`: with no mask, the pooling uses a mask of all ones. `.last` then takes the last column, which is a pad token for a short row. With a mask, `.last` takes the index `sum(mask) - 1`, and `.mean` divides by `sum(mask)`.
+    - The Qwen3 embedder reads `attentionMask` as "nonzero = attend, zero = pad", and folds it into the causal mask.
+    - ../FoundationModelsRouter has no copy of the fix in its tree (no match for `attentionMask` or `pooling(`). I do not use it.
+    - Plan: a new internal value type `EmbeddingBatchPadding` in its own file (no MLX import). It right-pads `[[Int]]` rows and makes a `[[Int]]` mask from the length of each row. `MLXEmbedding` makes one Int32 `MLXArray` mask from it, and gives it to the model and to the pooling.
+  timestamp: 2026-09-30T05:08:10.595138+00:00
+- actor: claude-code
+  id: 01m3rbx6er5ag2kryn8wn2xp2h
+  text: |-
+    Implementation landed (TDD):
+    - RED, integration: `swift test --package-path IntegrationTests --filter batchVectorEqualsVectorOfTextAlone` failed with cosines [0.6445217, 0.6907059, 1.0000001] (floor 0.999).
+    - RED, unit: `swift test --filter EmbeddingBatchPaddingTests` did not compile: "cannot find 'EmbeddingBatchPadding' in scope".
+    - GREEN: new internal `EmbeddingBatchPadding(rows:padToken:)` (Sources/FoundationModelsExtras/ModelPool/EmbeddingBatchPadding.swift) gives `tokens` and `mask` ([[Int]]). `MLXEmbedding.embed(texts:in:)` stacks the mask as an MLXArray and gives it to `attentionMask:` and to `context.pooling(output, mask: mask, normalize: true, applyLayerNorm: true)`. The unit tests (3) and the new integration test pass.
+    - CHANGELOG.md has a "Fixed" entry.
+    - Full runs: `swift test` 840 tests in 83 suites passed (4 known issues: the existing `withKnownIssue` checks of TelemetryCaptureTests). `swift test --package-path IntegrationTests` 30 tests in 8 suites passed.
+    - Note: each build prints the SwiftPM warning "missing creator for mutated node: .../mlx-swift_Cmlx.bundle/Contents/MacOS". It was there in the RED run before the code change. It comes from the build of the MLX bundle, not from a source file.
+    - Open: "CI is green on the pushed commit". The orchestrator commits and pushes, then tells the Router session (foundationmodelsrouter-d5) the revision.
+  timestamp: 2026-09-30T05:16:58.200173+00:00
+- actor: claude-code
+  id: 01m3rbxa0r318bw8ngjyzmx066
+  text: |-
+    ### implement — changed
+    - evidence: 5 files — Sources/FoundationModelsExtras/ModelPool/EmbeddingBatchPadding.swift (new), Sources/FoundationModelsExtras/ModelPool/MLXModelLoader.swift, Tests/FoundationModelsExtrasTests/ModelPool/EmbeddingBatchPaddingTests.swift (new), IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift, CHANGELOG.md. `swift test`: 840 tests / 83 suites passed. `swift test --package-path IntegrationTests`: 30 tests / 8 suites passed.
+    - next: /review. Then commit, push, CI, and send the revision to the Router session.
+  timestamp: 2026-09-30T05:17:01.848112+00:00
+position_column: doing
+position_ordinal: '8180'
 title: 'MLXEmbedding: mask pad tokens by row length in the model and in the pooling'
 ---
 **Blocks:** FoundationModelsRouter task 01M3QMDDGWZ7CRAE1P3JKFP5FP (^jkfp5fp) through its task 01M3RAZRZV5JVTFD960AP5256J (^ap5256j, the full bug report). Tell the Router session (foundationmodelsrouter-d5) the pushed revision.
@@ -19,14 +49,14 @@ Fix:
 - Push to `origin main` when green, and send the revision to the Router session.
 
 ## Acceptance Criteria
-- [ ] The mask of each row has one 1 for each real token, the end token included, and 0 for each pad.
-- [ ] A text embedded in a batch with longer texts gives the same vector as the text alone (cosine ≥ 0.999).
+- [x] The mask of each row has one 1 for each real token, the end token included, and 0 for each pad.
+- [x] A text embedded in a batch with longer texts gives the same vector as the text alone (cosine ≥ 0.999).
 - [ ] CI is green on the pushed commit.
 
 ## Tests
-- [ ] `Tests/FoundationModelsExtrasTests/ModelPool/EmbeddingBatchPaddingTests.swift`: the helper on a right-padded batch that includes a row whose last real token equals the pad (end) token: padded rows and mask are correct.
-- [ ] `IntegrationTests/.../PooledEmbedderIntegrationTests.swift`: with `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ`, each text of a batch of three texts of different lengths has cosine ≥ 0.999 with the same text embedded alone.
-- [ ] `swift test` and `swift test --package-path IntegrationTests` pass.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/EmbeddingBatchPaddingTests.swift`: the helper on a right-padded batch that includes a row whose last real token equals the pad (end) token: padded rows and mask are correct.
+- [x] `IntegrationTests/.../PooledEmbedderIntegrationTests.swift`: with `mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ`, each text of a batch of three texts of different lengths has cosine ≥ 0.999 with the same text embedded alone.
+- [x] `swift test` and `swift test --package-path IntegrationTests` pass.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #model-pool
