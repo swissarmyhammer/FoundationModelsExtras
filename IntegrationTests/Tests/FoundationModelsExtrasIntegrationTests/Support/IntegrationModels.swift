@@ -50,20 +50,35 @@ enum IntegrationModels {
         try await pool.acquire(key, footprintBytes: footprint, sessionBytes: sessionBytes, loader: loader)
     }
 
-    /// Waits until `key` is not resident in `pool`. The release of the last
-    /// hold starts the eviction job, which runs after the release returns.
+    /// Waits until `key` is not resident in `pool`, and until the eviction job
+    /// of `key` ended. The release of the last hold starts the eviction job,
+    /// which runs after the release returns.
     ///
     /// Each test waits for the eviction of each model that it loaded. The
     /// weights of an `MLXLanguageModel` are in one model cache for each
     /// process, thus a late eviction job of one test removes the weights under
     /// the hold of the next test.
     ///
+    /// The eviction job removes the key from the footprint before the evict
+    /// call of the loader, thus a footprint without the key does not show that
+    /// the memory is free. `MLXLanguageModel.evict()` frees the prompt cache of
+    /// the model in that call, and on 2026-09-29 about 370 MB of the last
+    /// generation test was still active when the footprint showed no LLM. The
+    /// memory check of the next test then read too much memory before its
+    /// load. Thus this wait also runs an empty admission job: the last release
+    /// puts the eviction job in the admission queue in the same step, and the
+    /// queue runs its jobs first in first out, thus the empty job starts only
+    /// after the evict call returned.
+    ///
     /// - Parameters:
     ///   - key: A model of `pool` that has no hold.
     ///   - pool: The pool of the test.
-    static func waitForEviction(of key: ModelPoolKey, in pool: ModelPool) async {
+    /// - Throws: `CancellationError` when the task is cancelled, for example
+    ///   by the time limit.
+    static func waitForEviction(of key: ModelPoolKey, in pool: ModelPool) async throws {
         for await footprint in pool.footprints where footprint.resident[key] == nil {
-            return
+            break
         }
+        try await pool.admit { _ in }
     }
 }

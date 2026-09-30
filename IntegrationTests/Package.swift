@@ -11,9 +11,9 @@ import PackageDescription
 //
 // Nothing reads an environment variable to select tests.
 //
-// Only this package depends on MLX. The core target of the root package stays
-// free of MLX. The MLX pins are the pins of the FoundationModelsRouter
-// integration package, so the two packages resolve the same MLX code.
+// The MLX pins are the pins of the root package and of the
+// FoundationModelsRouter integration package, so the packages resolve the
+// same MLX code.
 
 let extrasPackage = "FoundationModelsExtras"
 let mlxPackage = "mlx-swift-lm"

@@ -489,6 +489,41 @@ new key cause one load. The first loader of a key wins: a later caller gets
 that container, whatever loader it gives. Thus use the container through a
 protocol, never by a cast to the container type of one loader.
 
+### Load by name: `MLXModelLoader`
+
+`MLXModelLoader` is the built-in loader. It loads an MLX model from its Hugging
+Face name, and downloads the model when the Hugging Face cache does not hold
+it. An `.llm` key gives an `MLXLanguageModel` (a FoundationModels
+`LanguageModel` with guided output, tool calls and a reasoning trace). An
+`.embedding` key gives a `PooledEmbedding`.
+
+`ModelPool(loader:)` sets the loader of the pool. The default is
+`MLXModelLoader()`, and `ModelPool.shared` uses it. `acquire(_ key:)` loads
+with the loader of the pool, and needs no loader and no byte count. After the
+load, the loader measures the model with `footprintBytes(of:)`, and the pool
+counts that footprint. `MLXModelLoader` measures the weight files of the model
+in the Hugging Face cache. A loader that does not implement
+`footprintBytes(of:)` counts 0 bytes. When the measure throws, the loader
+evicts the model, and `acquire` throws:
+
+```swift
+// The shared pool loads with MLXModelLoader: no loader, no byte count.
+let chat = ModelPoolKey(ref: "mlx-community/Qwen3-4B-4bit", role: .llm)
+let chatHold = try await ModelPool.shared.acquire(chat)
+
+// A test gives its own loader. All of this API is public.
+let testPool = ModelPool(loader: fakeLoader)
+let testHold = try await testPool.acquire(chat)
+```
+
+`acquire(_:footprintBytes:sessionBytes:loader:)` stays, for a caller that
+gives its own loader and its own byte counts. The integration test
+`acquireByKeyLoadsEachModelByName` in
+`IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ModelPoolIntegrationTests.swift`
+loads a real LLM and a real embedding model by name through `ModelPool()`.
+
+### Holds, eviction and admission jobs
+
 The `deinit` of a hold releases it. After the last hold, the pool puts an
 eviction job in the admission queue. That job checks the hold count again, so
 an `acquire` between the release and the job keeps the model resident.
@@ -724,9 +759,9 @@ swift test                                   # unit tests
 swift test --package-path IntegrationTests   # real MLX models
 ```
 
-The real-model tests are a separate package in `IntegrationTests/`, and only
-that package depends on MLX. The tests download small models from the Hugging
-Face hub on the first run. The model ids are in
+The real-model tests are a separate package in `IntegrationTests/`, so
+`swift test` at the root loads no real model. The tests download small models
+from the Hugging Face hub on the first run. The model ids are in
 `IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/Support/IntegrationModels.swift`.
 
 ## Install

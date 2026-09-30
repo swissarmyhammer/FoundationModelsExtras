@@ -5,8 +5,12 @@ import Synchronization
 /// Each load and each eviction runs as one job in one admission queue. Thus a
 /// job that reads the footprint and then loads sees no other change of memory.
 public final class ModelPool: Sendable {
-    /// The pool of the process.
+    /// The pool of the process. It loads with ``MLXModelLoader``.
     public static let shared = ModelPool()
+
+    /// An acquire by key counts no session bytes: the loader measures the
+    /// model, and the model only.
+    fileprivate static let measuredSessionBytes: Int64 = 0
 
     /// One resident model.
     fileprivate struct Entry {
@@ -56,8 +60,33 @@ public final class ModelPool: Sendable {
     /// The queue of the loads and the evictions.
     let admissions = GenerationQueue()
 
+    /// The loader of ``acquire(_:)``.
+    public let loader: any PooledModelLoader
+
     /// Makes an empty pool.
-    public init() {}
+    ///
+    /// - Parameter loader: The loader of ``acquire(_:)``. The default is
+    ///   ``MLXModelLoader``, which loads a model from its Hugging Face name.
+    public init(loader: any PooledModelLoader = MLXModelLoader()) {
+        self.loader = loader
+    }
+
+    /// Gives a hold of the model of `key`. A resident key adds a hold at once.
+    /// A new key loads in the admission queue with ``loader``, which then
+    /// measures the footprint of the model. The pool counts that footprint.
+    ///
+    /// The first loader of a key wins, as in
+    /// ``acquire(_:footprintBytes:sessionBytes:loader:)``.
+    ///
+    /// - Parameter key: The model and its role.
+    /// - Returns: A hold of the model. The model stays resident while the hold
+    ///   exists.
+    /// - Throws: The error of the load or of the measure. When the measure
+    ///   fails, the loader evicts the model, and the key is not resident.
+    public func acquire(_ key: ModelPoolKey) async throws -> ModelHold {
+        if let hold = holdIfResident(key, sessionBytes: Self.measuredSessionBytes) { return hold }
+        return try await admit { admission in try await admission.acquire(key) }
+    }
 
     /// Gives a hold of the model of `key`. A resident key adds a hold at once.
     /// A new key loads in the admission queue. `footprintBytes` is the weights
@@ -130,7 +159,40 @@ public final class ModelPool: Sendable {
             setLoadingBytes(0)
             throw error
         }
-        let entry = Entry(container: container, loader: loader, bytes: footprintBytes)
+        return makeResident(key, container: container, loader: loader, bytes: footprintBytes, sessionBytes: sessionBytes)
+    }
+
+    /// Loads `key` with ``loader`` in the running admission job, measures its
+    /// footprint, and gives its first hold. When the measure fails, the loader
+    /// evicts the model.
+    fileprivate func loadMeasured(_ key: ModelPoolKey) async throws -> ModelHold {
+        let container = try await loader.load(key)
+        let bytes: Int64
+        do {
+            bytes = try await loader.footprintBytes(of: key)
+        } catch {
+            await loader.evict(container)
+            throw error
+        }
+        return makeResident(
+            key, container: container, loader: loader, bytes: bytes, sessionBytes: Self.measuredSessionBytes)
+    }
+
+    /// Makes `container` the resident model of `key`, ends the load that
+    /// runs, and gives the first hold.
+    ///
+    /// - Parameters:
+    ///   - key: The model.
+    ///   - container: The container that `loader` returned.
+    ///   - loader: The loader that evicts the model.
+    ///   - bytes: The bytes that the pool counts for the model.
+    ///   - sessionBytes: The bytes of the session of the first hold, which
+    ///     `bytes` includes.
+    /// - Returns: The first hold of the model.
+    private func makeResident(
+        _ key: ModelPoolKey, container: any Sendable, loader: any PooledModelLoader, bytes: Int64, sessionBytes: Int64
+    ) -> ModelHold {
+        let entry = Entry(container: container, loader: loader, bytes: bytes)
         publishToEachStream { state in
             state.loadingBytes = 0
             state.entries[key] = entry
@@ -216,6 +278,17 @@ public struct ModelPoolAdmission: Sendable {
     ) async throws -> ModelHold {
         if let hold = pool.holdIfResident(key, sessionBytes: sessionBytes) { return hold }
         return try await pool.load(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
+    }
+
+    /// Gives a hold of the model of `key`, and loads the model now with the
+    /// loader of the pool when it is not resident. See ``ModelPool/acquire(_:)``.
+    ///
+    /// - Parameter key: The model and its role.
+    /// - Returns: A hold of the model.
+    /// - Throws: The error of the load or of the measure.
+    public func acquire(_ key: ModelPoolKey) async throws -> ModelHold {
+        if let hold = pool.holdIfResident(key, sessionBytes: ModelPool.measuredSessionBytes) { return hold }
+        return try await pool.loadMeasured(key)
     }
 }
 

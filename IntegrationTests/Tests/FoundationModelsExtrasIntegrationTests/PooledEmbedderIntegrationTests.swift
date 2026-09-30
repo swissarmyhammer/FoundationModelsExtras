@@ -68,7 +68,7 @@ extension RealModelSuites {
             let pool = ModelPool()
 
             let outcome = try await Self.embedSimilarityTexts(in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             let similar = VectorMath.cosineSimilarity(of: outcome.anchor, to: outcome.paraphrase)
             let unrelated = VectorMath.cosineSimilarity(of: outcome.anchor, to: outcome.unrelated)
@@ -87,7 +87,7 @@ extension RealModelSuites {
             let registryLoader = RecordingLoader()
 
             let outcome = try await Self.shareOneModel(in: pool, routerLoader: routerLoader, registryLoader: registryLoader)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             #expect(await routerLoader.loads.events.map(\.key) == [IntegrationModels.embedding])
             #expect(await registryLoader.loads.events.isEmpty)
@@ -103,7 +103,7 @@ extension RealModelSuites {
             let loader = RecordingEmbeddingLoader()
 
             let outcome = try await Self.embedConcurrently(in: pool, loader: loader)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             // The serial run made the first records, and the concurrent calls made the rest.
             let records = await Array(loader.records.events.dropFirst(concurrentCalls.count))
@@ -118,7 +118,7 @@ extension RealModelSuites {
             let pool = ModelPool()
 
             let outcome = try await Self.releaseOneOfTwoHandles(in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             #expect(outcome.isResidentAfterFirstRelease)
             #expect(outcome.releasedHandleVectors.map(\.count) == [outcome.dimension])
@@ -132,8 +132,8 @@ extension RealModelSuites {
             let pool = ModelPool()
 
             let outcome = try await Self.embedDuringGeneration(in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             #expect(!outcome.shareOneQueue)
             #expect(outcome.vectors.map(\.count) == [outcome.dimension])

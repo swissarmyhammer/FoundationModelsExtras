@@ -18,6 +18,9 @@ struct ModelPoolTests {
     /// The log line of an eviction of the model of the loader `A`.
     private static let evictionOfA = "evict A"
 
+    /// The log line of one footprint measure of ``key``.
+    private static let measureOfKey = "measure org/a"
+
     /// The bytes of ``key`` for its first hold: the weights and one session.
     private static let footprintBytes: Int64 = 10
 
@@ -530,6 +533,65 @@ struct ModelPoolTests {
         #expect(otherPool.residentModelCount == 0)
         #expect(otherPool.footprint.totalBytes == 0)
         #expect(hold.key == Self.key)
+    }
+
+    @Test("two acquires by key of a pool made with a loader load one time, with the loader of the pool")
+    func acquireByKeyLoadsOneTimeForTwoHolds() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: log))
+
+        let firstHold = try await pool.acquire(Self.key)
+        let secondHold = try await pool.acquire(Self.key)
+
+        #expect(log.values == [Self.loadByA, Self.measureOfKey])
+        #expect(try Self.model(in: firstHold) === Self.model(in: secondHold))
+        #expect(pool.residentModelCount == 1)
+    }
+
+    @Test("after the last release of the holds of an acquire by key, the loader of the pool evicts the model")
+    func acquireByKeyEvictsAfterTheLastRelease() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: log))
+        do {
+            let firstHold = try await pool.acquire(Self.key)
+            let secondHold = try await pool.acquire(Self.key)
+            #expect(firstHold.queue === secondHold.queue)
+        }
+
+        try #require(await BoundedWait.conditionReached("the eviction runs") { log.values.contains(Self.evictionOfA) })
+        try await pool.admit { _ in }
+
+        #expect(log.values == [Self.loadByA, Self.measureOfKey, Self.evictionOfA])
+        #expect(!pool.isResident(Self.key))
+    }
+
+    @Test("an acquire by key counts the bytes that the loader of the pool measures after the load")
+    func acquireByKeyCountsTheMeasuredFootprint() async throws {
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>(), measuredBytes: Self.weightsBytes))
+
+        let firstHold = try await pool.acquire(Self.key)
+        let secondHold = try await pool.acquire(Self.key)
+
+        #expect(pool.footprint == ModelPoolFootprint(resident: [Self.key: Self.weightsBytes], loadingBytes: 0))
+        #expect(firstHold.key == secondHold.key)
+    }
+
+    @Test("a failed footprint measure evicts the loaded model, throws, and leaves the key not resident")
+    func aFailedMeasureEvictsTheModel() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: log, failingMeasures: 1))
+
+        await #expect(throws: FakeMeasureError.self) { try await pool.acquire(Self.key) }
+
+        #expect(log.values == [Self.loadByA, Self.measureOfKey, Self.evictionOfA])
+        #expect(!pool.isResident(Self.key))
+        #expect(pool.footprint == ModelPoolFootprint(resident: [:], loadingBytes: 0))
+    }
+
+    @Test("a pool made with init() and the shared pool load with MLXModelLoader")
+    func theDefaultLoaderIsTheMLXLoader() {
+        #expect(ModelPool().loader is MLXModelLoader)
+        #expect(ModelPool.shared.loader is MLXModelLoader)
     }
 
     @Test("the README example: acquire a model, then admit an embedder that fits the budget")

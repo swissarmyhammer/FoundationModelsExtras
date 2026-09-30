@@ -50,7 +50,7 @@ extension RealModelSuites {
             let answer = try await ToolSession.answer(
                 to: "What is the code of the vault named north?", instructions: SessionInstructions.callingOnce(tool.name),
                 tools: [host.mount(tool)], in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             #expect(answer.text.contains(VaultCodeTool.code), "answer: \(answer.text)")
             let reading = try #require(await readings.events.first)
@@ -74,7 +74,7 @@ extension RealModelSuites {
             let answer = try await ToolSession.answer(
                 to: "Start a scan of the archive named west.", instructions: SessionInstructions.callingOnce(tool.name),
                 tools: [host.mount(tool)], in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
             #expect(envelope.pending)
@@ -96,7 +96,7 @@ extension RealModelSuites {
             let answer = try await ToolSession.answer(
                 to: "Scan the small archive named east, and tell me its report code.",
                 instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let settled = Self.envelopes(in: answer)
             #expect(!settled.isEmpty, "tool outputs: \(answer.toolOutputs)")
@@ -115,7 +115,7 @@ extension RealModelSuites {
             let answer = try await ToolSession.answer(
                 to: "Start a full scan of the archive named south.", instructions: SessionInstructions.callingOnce(tool.name),
                 tools: [host.mount(tool)], in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
             #expect(envelope.pending)
@@ -140,7 +140,7 @@ extension RealModelSuites {
                 let answer = try await ToolSession.answer(to: "Look up the record named alpha.", in: session)
                 return (answer, start.duration(to: .now))
             }
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let timedOut = ToolMountError.timedOut(tool: tool.name, timeoutSeconds: stuckToolTimeoutSeconds).description
             #expect(answer.toolOutputs.contains(timedOut), "tool outputs: \(answer.toolOutputs)")
@@ -164,7 +164,7 @@ extension RealModelSuites {
                     to: "What error code did the tool give? Reply with the error code only.", in: session)
                 return (first, followUp.text)
             }
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let failureText = ArchiveLockedError(archive: archive).description
             #expect(first.toolOutputs.contains(failureText), "tool outputs: \(first.toolOutputs)")
@@ -185,7 +185,7 @@ extension RealModelSuites {
             let answer = try await ToolSession.answer(
                 to: "Run the scan job and the count job, and tell me both results.", instructions: instructions,
                 tools: [host.mount(tool), host.mount(WaitTool())], in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             try await Self.expectPerCallMounts(
                 of: answer, in: host, backgroundResult: JobTool.scanResult, synchronousResult: JobTool.countResult)
@@ -204,7 +204,7 @@ extension RealModelSuites {
             let answer = try await ToolSession.answer(
                 to: "Start a scan of the archive and count its files, and tell me both report codes.",
                 instructions: instructions, tools: [host.mount(tool), host.mount(WaitTool())], in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             try await Self.expectPerCallMounts(
                 of: answer, in: host, backgroundResult: StartScanOperation.code, synchronousResult: CountFilesOperation.code)

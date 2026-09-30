@@ -21,6 +21,22 @@ public protocol PooledModelLoader: Sendable {
     func load(_ key: ModelPoolKey) async throws -> any Sendable
     /// Removes a container that ``load(_:)`` returned from memory.
     func evict(_ container: any Sendable) async
+    /// Measures the bytes of the model of `key` in memory. The pool calls
+    /// this after ``load(_:)`` of `key`, and ``ModelPool/acquire(_:)`` counts
+    /// the result as the footprint of the model.
+    ///
+    /// - Parameter key: The model that ``load(_:)`` loaded.
+    /// - Returns: The bytes of the model.
+    /// - Throws: The error of the measure. The pool then evicts the model.
+    func footprintBytes(of key: ModelPoolKey) async throws -> Int64
+}
+
+extension PooledModelLoader {
+    /// A loader that does not measure its models counts no bytes for them.
+    ///
+    /// - Parameter key: The model that ``load(_:)`` loaded.
+    /// - Returns: 0.
+    public func footprintBytes(of key: ModelPoolKey) async throws -> Int64 { 0 }
 }
 
 /// The memory that the models of a ``ModelPool`` use.

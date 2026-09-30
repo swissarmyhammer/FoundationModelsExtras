@@ -83,6 +83,15 @@ let package = Package(
         // each logger and each metric of a library does nothing.
         .package(url: "https://github.com/apple/swift-log.git", from: "1.15.1"),
         .package(url: "https://github.com/apple/swift-metrics.git", from: "2.11.0"),
+        // The model runtime of `MLXModelLoader`, the built-in loader of
+        // `ModelPool`: a caller loads a model from a Hugging Face name with
+        // no loader of its own. The controlled fork of mlx-swift-lm, on the
+        // branch that the FoundationModelsRouter resolves, thus the family
+        // resolves one MLX. swift-huggingface downloads the weights, and
+        // swift-transformers loads the tokenizer.
+        .package(url: "https://github.com/swissarmyhammer/mlx-swift-lm", branch: "stable"),
+        .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
+        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -99,6 +108,18 @@ let package = Package(
                 // The logger and the tool-call metrics of `ExtrasTelemetry`.
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
+                // `MLXModelLoader`. `MLXLLM` and `MLXEmbedders` register the
+                // model factories. `MLXFoundationModels` gives the LLM as a
+                // FoundationModels `LanguageModel`.
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXEmbedders", package: "mlx-swift-lm"),
+                .product(name: "MLXFoundationModels", package: "mlx-swift-lm"),
+                // The Hugging Face hub client, the hub cache, and the
+                // tokenizer loader of `MLXModelLoader`.
+                .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
+                .product(name: "HuggingFace", package: "swift-huggingface"),
+                .product(name: "Tokenizers", package: "swift-transformers"),
             ]
         ),
 
@@ -142,6 +163,9 @@ let package = Package(
                 // The tool-call metric tests read the count and the durations
                 // of each metric from the test metrics factory of a capture.
                 .product(name: "MetricsTestKit", package: "swift-metrics"),
+                // The footprint tests of `MLXModelLoader` build a small
+                // Hugging Face cache with `HubCache`.
+                .product(name: "HuggingFace", package: "swift-huggingface"),
             ],
             resources: [
                 // `CorpusGoldenTests` reads these directly off disk via

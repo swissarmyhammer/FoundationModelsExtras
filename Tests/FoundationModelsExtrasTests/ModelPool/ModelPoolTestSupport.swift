@@ -19,6 +19,9 @@ final class FakeModel: Sendable {
 /// The error of a load that a ``RecordingLoader`` makes fail.
 struct FakeLoadError: Error {}
 
+/// The error of a footprint measure that a ``RecordingLoader`` makes fail.
+struct FakeMeasureError: Error {}
+
 /// Keeps the values that tasks append, in the order of the appends.
 final class Recorder<Value: Sendable>: Sendable {
     /// The values, in order.
@@ -56,7 +59,8 @@ final class Counter: Sendable {
 ///
 /// A load writes `"load <ref> by <name>"`, then waits until `loadsMayEnd`
 /// finishes. The first `failingLoads` loads then throw ``FakeLoadError``. An
-/// eviction writes `"evict <name of the loader that made the model>"`.
+/// eviction writes `"evict <name of the loader that made the model>"`. A
+/// footprint measure writes `"measure <ref>"`, and gives `measuredBytes`.
 struct RecordingLoader: PooledModelLoader {
     /// The name that the log and each model of this loader carry.
     let name: String
@@ -70,8 +74,17 @@ struct RecordingLoader: PooledModelLoader {
     /// The number of first loads that fail.
     private let failingLoads: Int
 
+    /// The bytes that each footprint measure gives.
+    private let measuredBytes: Int64
+
+    /// The number of first footprint measures that fail.
+    private let failingMeasures: Int
+
     /// The number of loads that started.
     private let startedLoads = Counter()
+
+    /// The number of footprint measures that started.
+    private let startedMeasures = Counter()
 
     /// Makes a loader.
     ///
@@ -81,16 +94,38 @@ struct RecordingLoader: PooledModelLoader {
     ///   - loadsMayEnd: A load ends only after this stream finishes. The
     ///     default stream is finished, so a load ends at once.
     ///   - failingLoads: The number of first loads that fail.
+    ///   - measuredBytes: The bytes that each footprint measure gives.
+    ///   - failingMeasures: The number of first footprint measures that fail.
     init(
         name: String,
         log: Recorder<String>,
         loadsMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
-        failingLoads: Int = 0
+        failingLoads: Int = 0,
+        measuredBytes: Int64 = 0,
+        failingMeasures: Int = 0
     ) {
         self.name = name
         self.log = log
         self.loadsMayEnd = loadsMayEnd
         self.failingLoads = failingLoads
+        self.measuredBytes = measuredBytes
+        self.failingMeasures = failingMeasures
+    }
+
+    /// Writes the measure to the log, and gives the bytes of the loader or
+    /// fails.
+    ///
+    /// - Parameter key: The key to measure.
+    /// - Returns: The bytes that the loader was made with.
+    /// - Throws: ``FakeMeasureError`` for each of the first `failingMeasures`
+    ///   measures.
+    func footprintBytes(of key: ModelPoolKey) async throws -> Int64 {
+        let attempt = startedMeasures.next()
+        log.append("measure \(key.ref.stringValue)")
+        if attempt <= failingMeasures {
+            throw FakeMeasureError()
+        }
+        return measuredBytes
     }
 
     /// Writes the load to the log, waits for `loadsMayEnd`, and makes a model

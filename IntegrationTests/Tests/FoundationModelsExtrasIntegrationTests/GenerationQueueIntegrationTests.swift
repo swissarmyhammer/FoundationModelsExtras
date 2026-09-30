@@ -161,7 +161,7 @@ extension RealModelSuites {
             in pool: ModelPool, _ body: (GenerationQueue, any LanguageModel) async throws -> T
         ) async throws -> T {
             let result = try await useLLM(in: pool, body)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
             return result
         }
 

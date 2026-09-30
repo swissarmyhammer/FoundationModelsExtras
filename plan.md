@@ -314,10 +314,18 @@ public enum FrontmatterDocument {
   [`README.md`](README.md). The router helpers that the queue does not use
   (its semaphore, its one-time gate and its worker actor) did not move.
   The queue refuses a submission from inside an open submission on the same
-  queue, because that submission could never run. The dependency budget does
-  not move: the code needs Foundation, `Synchronization` (a standard-library
-  module, not a package) and the ULID package, which the core target has
-  already. The pool links no model runtime; MLX stays out of this package.
+  queue, because that submission could never run. The queue and the pool
+  need Foundation, `Synchronization` (a standard-library module, not a
+  package) and the ULID package, which the core target has already.
+- **A built-in MLX loader in the core target (decision 2026-09-29).** The
+  pool has its own loader, `MLXModelLoader`, so a caller loads a model from
+  its Hugging Face name with no loader and no byte count:
+  `ModelPool(loader:)` has the default `MLXModelLoader()`, and
+  `acquire(_ key:)` counts the footprint that the loader measures after the
+  load. The core target thus depends on the controlled fork of mlx-swift-lm
+  (branch `stable`, the branch that the FoundationModelsRouter resolves),
+  swift-huggingface and swift-transformers. A test in any package injects a
+  fake loader through the public `PooledModelLoader` protocol.
 - **Coordination point.** Changes ripple to all conformers and adapters at
   once — additive evolution, breaking changes are a family event.
 - **Trust boundary documented at the type.** `.action` bodies require linked

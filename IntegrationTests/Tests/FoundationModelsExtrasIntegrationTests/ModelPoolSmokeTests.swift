@@ -17,7 +17,7 @@ extension RealModelSuites {
             let answer = try await Self.generate(in: pool, prompt: "What is the capital city of France?")
 
             #expect(answer.contains("Paris"), "answer: \(answer)")
-            await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
             #expect(!pool.isResident(IntegrationModels.llm))
         }
 
@@ -30,7 +30,7 @@ extension RealModelSuites {
 
             #expect(dimension > 0)
             #expect(vectors.map(\.count) == [dimension, dimension])
-            await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
             #expect(!pool.isResident(IntegrationModels.embedding))
         }
 

@@ -34,7 +34,7 @@ extension RealModelSuites {
             let weightBytes = try ModelMemory.weightBytes(of: IntegrationModels.llm)
 
             let holds = try await Self.acquireConcurrently(in: pool, loader: loader)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
 
             #expect(await loader.loads.events.map(\.key) == [IntegrationModels.llm])
             #expect(holds.shareOneEntry)
@@ -53,7 +53,7 @@ extension RealModelSuites {
             let bytesBefore = ModelMemory.activeBytes
 
             let bytesWhileResident = try await Self.loadAndRelease(in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
             let bytesAfter = ModelMemory.activeBytes
 
             #expect(!pool.isResident(IntegrationModels.llm))
@@ -73,8 +73,8 @@ extension RealModelSuites {
             let footprints = pool.footprints
 
             let timeline = try await Self.admitLLMWhileAcquiringEmbedding(in: pool, loader: loader)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
-            await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             let loads = await loader.loads.events
             let llmLoad = try #require(loads.first)
@@ -85,6 +85,39 @@ extension RealModelSuites {
             #expect(llmLoad.end <= timeline.jobEnd)
             #expect(embeddingLoad.start > timeline.jobEnd)
             #expect(await Self.firstSteps(of: footprints) == Self.oneLoadAtATime)
+        }
+
+        @Test(
+            "two acquires by key through ModelPool() load the real model by name one time, and count the weight files",
+            arguments: [IntegrationModels.embedding, IntegrationModels.toolCallingLLM])
+        func acquireByKeyLoadsEachModelByName(_ key: ModelPoolKey) async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+
+            let holds = try await Self.acquireTwiceByKey(key, in: pool)
+            try await IntegrationModels.waitForEviction(of: key, in: pool)
+
+            #expect(holds.shareOneEntry)
+            #expect(holds.residentModelCount == 1)
+            #expect(holds.footprintBytes > 0)
+            #expect(holds.footprintBytes == Int64(try ModelMemory.weightBytes(of: key)))
+        }
+
+        /// Acquires `key` two times by key, with the loader of `pool`, and
+        /// releases the holds on return.
+        ///
+        /// - Parameters:
+        ///   - key: The model to load by name.
+        ///   - pool: The pool of the test.
+        /// - Returns: What the two holds gave.
+        /// - Throws: What the load or the measure throws.
+        private static func acquireTwiceByKey(_ key: ModelPoolKey, in pool: ModelPool) async throws -> ByKeyHolds {
+            let first = try await pool.acquire(key)
+            let second = try await pool.acquire(key)
+            return ByKeyHolds(
+                shareOneEntry: first.queue === second.queue,
+                residentModelCount: pool.residentModelCount,
+                footprintBytes: pool.footprint.resident[key] ?? 0)
         }
 
         /// The first footprints of a new pool in which one admission job loads
@@ -157,6 +190,17 @@ private struct SharedHolds {
     let modelIDs: [String]
     /// The change of the MLX active memory from before the acquires to after them.
     let activeGrowth: Int
+}
+
+/// What two acquires by key of one model gave.
+private struct ByKeyHolds {
+    /// Whether the holds share one pool entry: the pool gives each hold of an
+    /// entry its queue.
+    let shareOneEntry: Bool
+    /// The number of resident models while the two holds exist.
+    let residentModelCount: Int
+    /// The bytes that the pool counts for the model while the two holds exist.
+    let footprintBytes: Int64
 }
 
 /// What the admission job returns.
