@@ -30,8 +30,24 @@ comments:
     - evidence: 7 files. New: IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/EvictionWaitTests.swift. Changed: Support/IntegrationModels.swift (the fix), and the `try await` call sites in GenerationQueueIntegrationTests.swift, ModelPoolIntegrationTests.swift, ModelPoolSmokeTests.swift, PooledEmbedderIntegrationTests.swift, ToolHostingIntegrationTests.swift. RED 1 fail, then GREEN 1 pass (`--filter EvictionWaitTests`). Filtered loop: 0 failures in 12 runs. `swift test --package-path IntegrationTests`: 3 of 3 passed, 24 tests each. `swift test`: 804 passed (4 intentional known issues).
     - next: /review. New task ^7zpkqhy holds the pool footprint contract.
   timestamp: 2026-09-30T02:35:39.197901+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m3r3a7vvv56vkfavctmd5c5q
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit b22ba99). The engine reviewed 16 files and found 0 findings (0 confirmed, 0 refuted). The files of this task in IntegrationTests are EvictionWaitTests.swift, Support/IntegrationModels.swift, GenerationQueueIntegrationTests.swift, ModelPoolIntegrationTests.swift, ModelPoolSmokeTests.swift, PooledEmbedderIntegrationTests.swift and ToolHostingIntegrationTests.swift. The engine found no findings in these files. The task had no prior review findings.
+    - next: none. The task is in done.
+  timestamp: 2026-09-30T02:46:48.443067+00:00
+- actor: claude-code
+  id: 01m3r3agsq41kx2y8e53kg61em
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files in IntegrationTests
+    - test: green — swift test 804 pass; swift test --package-path IntegrationTests 24 pass
+    - commit: b22ba99 (holds the work of ^483vhbg also)
+    - review: clean — 0 findings
+  timestamp: 2026-09-30T02:46:57.591685+00:00
+position_column: done
+position_ordinal: d780
 title: 'ModelPoolIntegrationTests: the memory check of "two concurrent acquires of the real LLM" fails some of the time'
 ---
 ## What

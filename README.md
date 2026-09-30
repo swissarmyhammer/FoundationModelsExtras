@@ -528,6 +528,12 @@ The `deinit` of a hold releases it. After the last hold, the pool puts an
 eviction job in the admission queue. That job checks the hold count again, so
 an `acquire` between the release and the job keeps the model resident.
 
+The pool counts an evicted model until the `evict` call of its loader
+returns, because the model uses its memory until then. While that call runs,
+`footprint`, each value of `footprints`, `isResident` and `residentModelCount`
+still show the model, but the model gives no hold: an `acquire` of its key
+loads the model again after the eviction job.
+
 `admit` runs a job of your own in the same queue. A job that reads the
 footprint and then loads sees no other load or eviction between the two
 steps. Inside the job, acquire through the `ModelPoolAdmission` that the job

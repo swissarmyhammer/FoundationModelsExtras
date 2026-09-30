@@ -59,16 +59,17 @@ enum IntegrationModels {
     /// process, thus a late eviction job of one test removes the weights under
     /// the hold of the next test.
     ///
-    /// The eviction job removes the key from the footprint before the evict
-    /// call of the loader, thus a footprint without the key does not show that
-    /// the memory is free. `MLXLanguageModel.evict()` frees the prompt cache of
-    /// the model in that call, and on 2026-09-29 about 370 MB of the last
-    /// generation test was still active when the footprint showed no LLM. The
-    /// memory check of the next test then read too much memory before its
-    /// load. Thus this wait also runs an empty admission job: the last release
-    /// puts the eviction job in the admission queue in the same step, and the
-    /// queue runs its jobs first in first out, thus the empty job starts only
-    /// after the evict call returned.
+    /// The memory of a model is free only after the evict call of its loader
+    /// returns. `MLXLanguageModel.evict()` frees the prompt cache of the model
+    /// in that call, and on 2026-09-29 about 370 MB of the last generation
+    /// test was still active when the footprint showed no LLM. The memory
+    /// check of the next test then read too much memory before its load. The
+    /// pool now counts an evicted model until its evict call returns, thus a
+    /// footprint without the key shows that the call returned. This wait also
+    /// runs an empty admission job: the last release puts the eviction job in
+    /// the admission queue in the same step, and the queue runs its jobs first
+    /// in first out, thus the empty job starts only after the eviction job
+    /// ended.
     ///
     /// - Parameters:
     ///   - key: A model of `pool` that has no hold.

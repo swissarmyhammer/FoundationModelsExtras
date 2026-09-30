@@ -5,6 +5,19 @@ change is at the top.
 
 ## Unreleased
 
+### Fixed: `ModelPool` counts an evicted model until the evict call of its loader returns
+
+`footprint`, each value of `footprints`, `isResident(_:)` and
+`residentModelCount` now show an evicted model until `evict` of its loader
+returns. While that call runs, the model gives no hold: an `acquire` of its
+key loads the model again after the eviction job.
+
+**Cause.** The eviction job removed the model from the pool state, and only
+then called `evict`. A caller that read the footprint outside an admission job
+saw the memory as free while the loader still freed it. On 2026-09-29, about
+370 MB of the prompt cache of an `MLXLanguageModel` was still active when a
+new `footprints` stream showed no LLM.
+
 ### Changed: the swift-distributed-tracing floor is 1.5.0
 
 The manifest said `from: "1.4.1"`, but `TelemetryCapture.run` calls

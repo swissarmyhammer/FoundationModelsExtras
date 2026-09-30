@@ -30,7 +30,7 @@ struct EvictionWaitTests {
         let gate = EvictionGate()
         let pool = ModelPool()
         try await Self.acquireAndRelease(in: pool, loader: GatedEvictionLoader(gate: gate))
-        // The eviction job removed the entry, and the evict call waits at the gate.
+        // The eviction job runs, and its evict call waits at the gate.
         try await Waiting.until { await gate.hasStarted }
 
         async let evictionEndedAtReturn = Self.evictionEndedAtReturn(of: gate, in: pool)

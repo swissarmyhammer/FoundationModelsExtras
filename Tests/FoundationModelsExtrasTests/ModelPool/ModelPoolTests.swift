@@ -328,6 +328,74 @@ struct ModelPoolTests {
         }
     }
 
+    /// An eviction that the test holds inside the evict call of the loader.
+    private struct BlockedEviction {
+        /// The loader whose evict call waits.
+        let loader: RecordingLoader
+
+        /// The model that the evict call evicts.
+        let model: FakeModel
+
+        /// Finish this to end the evict call.
+        let end: AsyncStream<Void>.Continuation
+    }
+
+    /// Acquires ``key`` from `pool` with a loader whose evict call waits,
+    /// releases the hold, and returns when the evict call runs.
+    ///
+    /// - Parameters:
+    ///   - pool: The pool.
+    ///   - log: The log of the loader.
+    /// - Returns: The eviction, which waits inside the evict call.
+    /// - Throws: An `ExpectationFailedError` when the evict call never ran, or
+    ///   what the load throws.
+    private static func startBlockedEviction(on pool: ModelPool, log: Recorder<String>) async throws -> BlockedEviction {
+        let (evictionsMayEnd, end) = AsyncStream.makeStream(of: Void.self)
+        let loader = RecordingLoader(name: "A", log: log, evictionsMayEnd: evictionsMayEnd)
+        let evictedModel = try model(in: try await acquire(from: pool, with: loader))
+        try #require(await BoundedWait.conditionReached("the evict call runs") { log.values.contains(evictionOfA) })
+        return BlockedEviction(loader: loader, model: evictedModel, end: end)
+    }
+
+    @Test("the pool counts an evicted model until the evict call of its loader returns")
+    func thePoolCountsTheModelUntilTheEvictCallReturns() async throws {
+        let pool = ModelPool()
+        let eviction = try await Self.startBlockedEviction(on: pool, log: Recorder<String>())
+        let weightsOnly = ModelPoolFootprint(resident: [Self.key: Self.weightsBytes], loadingBytes: 0)
+
+        let footprintInTheEvictCall = pool.footprint
+        let firstValueOfANewStream = try await Self.first(1, of: pool.footprints)
+        let isResidentInTheEvictCall = pool.isResident(Self.key)
+        let residentCountInTheEvictCall = pool.residentModelCount
+        eviction.end.finish()
+        try await pool.admit { _ in }
+
+        #expect(footprintInTheEvictCall == weightsOnly)
+        #expect(firstValueOfANewStream == [weightsOnly])
+        #expect(isResidentInTheEvictCall)
+        #expect(residentCountInTheEvictCall == 1)
+        #expect(pool.footprint == ModelPoolFootprint(resident: [:], loadingBytes: 0))
+        #expect(!pool.isResident(Self.key))
+    }
+
+    @Test("an acquire while the evict call runs gets no hold of the evicted model, but a new load after the evict call")
+    func anAcquireInTheEvictCallLoadsAfterIt() async throws {
+        let pool = ModelPool()
+        let log = Recorder<String>()
+        let eviction = try await Self.startBlockedEviction(on: pool, log: log)
+
+        let acquiring = Task { try await Self.acquire(from: pool, with: eviction.loader) }
+        try await Self.waitForOneQueuedJob(on: pool)
+        let logInTheEvictCall = log.values
+        eviction.end.finish()
+        let hold = try await acquiring.value
+
+        #expect(logInTheEvictCall == [Self.loadByA, Self.evictionOfA])
+        #expect(log.values == [Self.loadByA, Self.evictionOfA, Self.loadByA])
+        #expect(try Self.model(in: hold) !== eviction.model)
+        #expect(pool.isResident(Self.key))
+    }
+
     @Test("a failed load throws to its caller, and a later acquire loads again")
     func aFailedLoadThrowsAndALaterAcquireLoadsAgain() async throws {
         let pool = ModelPool()
@@ -514,6 +582,9 @@ struct ModelPoolTests {
             #expect(firstHold.key == Self.key)
         }
         try #require(await BoundedWait.conditionReached("the eviction runs") { log.values.contains(Self.evictionOfA) })
+        // The pool counts the model until the evict call returns. The admit
+        // job runs after the eviction job, thus after that call.
+        try await pool.admit { _ in }
         totals.append(pool.footprint.totalBytes)
 
         let afterTheSecondHold = Self.footprintBytes + Self.secondSessionBytes

@@ -28,14 +28,25 @@ public final class ModelPool: Sendable {
 
     /// All the state of the pool.
     private struct State {
+        /// The models that can give holds.
         var entries: [ModelPoolKey: Entry] = [:]
+        /// The bytes of each model whose evict call runs now. The model uses
+        /// its memory until that call returns, but it gives no more holds.
+        var evicting: [ModelPoolKey: Int64] = [:]
         var loadingBytes: Int64 = 0
         var streams: [Int: FootprintContinuation] = [:]
         var lastStreamID = 0
 
         var footprint: ModelPoolFootprint {
-            ModelPoolFootprint(resident: entries.mapValues(\.bytes), loadingBytes: loadingBytes)
+            let resident = entries.mapValues(\.bytes).merging(evicting) { held, _ in held }
+            return ModelPoolFootprint(resident: resident, loadingBytes: loadingBytes)
         }
+
+        /// The number of models that use memory now.
+        var residentCount: Int { entries.count + evicting.count }
+
+        /// Whether the model of `key` uses memory now.
+        func isResident(_ key: ModelPoolKey) -> Bool { entries[key] != nil || evicting[key] != nil }
 
         /// A copy of each live stream, to yield to after the state lock.
         var liveStreams: [FootprintContinuation] { Array(streams.values) }
@@ -113,10 +124,14 @@ public final class ModelPool: Sendable {
         try await admissions.submit { try await job(ModelPoolAdmission(pool: self)) }
     }
 
-    /// The memory that the models use now.
+    /// The memory that the models use now. The pool counts an evicted model
+    /// until the evict call of its loader returns, because the model uses its
+    /// memory until then.
     public var footprint: ModelPoolFootprint { state.withLock { $0.footprint } }
 
-    /// The current footprint first, then each change. Each call makes a new stream.
+    /// The current footprint first, then each change. Each call makes a new
+    /// stream. An evicted model stays in each value until the evict call of
+    /// its loader returns, as in ``footprint``.
     public var footprints: AsyncStream<ModelPoolFootprint> {
         let (stream, continuation) = AsyncStream.makeStream(of: ModelPoolFootprint.self)
         // The stream registers and gets its first value in one publish step.
@@ -131,13 +146,16 @@ public final class ModelPool: Sendable {
         return stream
     }
 
-    /// The number of resident models.
-    public var residentModelCount: Int { state.withLock { $0.entries.count } }
+    /// The number of resident models. A model is resident until the evict
+    /// call of its loader returns.
+    public var residentModelCount: Int { state.withLock { $0.residentCount } }
 
-    /// Whether the model of `key` is resident.
-    public func isResident(_ key: ModelPoolKey) -> Bool { state.withLock { $0.entries[key] != nil } }
+    /// Whether the model of `key` is resident. A model is resident until the
+    /// evict call of its loader returns. While that call runs, the model gives
+    /// no hold: an acquire of `key` loads the model again after the eviction.
+    public func isResident(_ key: ModelPoolKey) -> Bool { state.withLock { $0.isResident(key) } }
 
-    /// Adds a hold when `key` is resident.
+    /// Adds a hold when `key` is resident and not in its evict call.
     fileprivate func holdIfResident(_ key: ModelPoolKey, sessionBytes: Int64) -> ModelHold? {
         publish { state in
             guard let entry = state.entries[key] else { return (nil, []) }
@@ -220,13 +238,20 @@ public final class ModelPool: Sendable {
     }
 
     /// The eviction job: evicts the model of `key` when it still has no hold.
+    ///
+    /// The model moves from the entries to the evicting models, so it gives
+    /// no more holds. The footprint does not change, because the model uses
+    /// its memory until the evict call returns. After that call, the pool
+    /// removes the model and publishes the new footprint.
     private func evictIfIdle(_ key: ModelPoolKey) async {
-        let idle = state.withLock { state in
-            state.entries[key]?.holds == 0 ? state.entries.removeValue(forKey: key) : nil
+        let idle = state.withLock { state -> Entry? in
+            guard state.entries[key]?.holds == 0, let idle = state.entries.removeValue(forKey: key) else { return nil }
+            state.evicting[key] = idle.bytes
+            return idle
         }
         guard let idle else { return }
         await idle.loader.evict(idle.container)
-        publishToEachStream { _ in }
+        publishToEachStream { $0.evicting[key] = nil }
     }
 
     /// Runs `step` under the publish lock and the state lock. Then, under the

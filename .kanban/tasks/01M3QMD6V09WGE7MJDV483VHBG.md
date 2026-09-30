@@ -52,8 +52,29 @@ comments:
     - test: not run. commit: not run. review: not run. push: not done.
     - next: a person must decide if ^8erseht blocks this task. The uncommitted changes stay in the working tree.
   timestamp: 2026-09-30T02:07:50.819835+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3r3p56h8radd2g555hwbpq5
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (b22ba99): 0 findings, 0 confirmed, 0 refuted; 14 of 14 validator runs completed, 0 failed. The engine reviewed 16 files. It did not review `.kanban/` (ignore rule), `README.md` and `plan.md` (no validator matches these files).
+    - acceptance check: `public struct MLXModelLoader`, `public static let shared = ModelPool()`, `public init(loader: any PooledModelLoader = MLXModelLoader())`, `public func acquire(_ key: ModelPoolKey)` and `footprintBytes(of:)` (with a default of 0) are in `Sources/FoundationModelsExtras/ModelPool/`. `Package.swift` has the MLX, `HuggingFace` and `Tokenizers` products in the core target. No Extras source, comment, test or README line forbids MLX.
+    - test check: `ModelPoolTests` has tests for one load with two holds, eviction after the last release, the measured footprint, and a failed measure. `ModelPoolIntegrationTests.acquireByKeyLoadsEachModelByName` loads both models by name through `ModelPool()` and checks that the footprint is more than 0.
+    - note: the comment "finish iteration 1 — stuck" is out of date. ^8erseht (done) fixed the flaky memory check, and the tree is green.
+    - not in scope: the push and CI items. The orchestrator pushes after the task is done.
+    - next: the task is in `done`.
+  timestamp: 2026-09-30T02:53:18.929829+00:00
+- actor: claude-code
+  id: 01m3r3pg41swqx4xv2pm83ky7k
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: done in iteration 1; ^8erseht fixed the flaky memory check
+    - test: green — swift test 804 pass; swift test --package-path IntegrationTests 24 pass
+    - commit: b22ba99
+    - review: clean — 0 findings
+    - push: origin main (the user approved the push)
+  timestamp: 2026-09-30T02:53:30.113230+00:00
+position_column: done
+position_ordinal: d880
 title: 'Built-in MLX loader in the core: MLXModelLoader, ModelPool(loader:), acquire by key'
 ---
 ## What

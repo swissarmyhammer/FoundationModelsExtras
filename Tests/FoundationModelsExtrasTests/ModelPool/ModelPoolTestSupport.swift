@@ -59,8 +59,9 @@ final class Counter: Sendable {
 ///
 /// A load writes `"load <ref> by <name>"`, then waits until `loadsMayEnd`
 /// finishes. The first `failingLoads` loads then throw ``FakeLoadError``. An
-/// eviction writes `"evict <name of the loader that made the model>"`. A
-/// footprint measure writes `"measure <ref>"`, and gives `measuredBytes`.
+/// eviction writes `"evict <name of the loader that made the model>"`, then
+/// waits until `evictionsMayEnd` finishes. A footprint measure writes
+/// `"measure <ref>"`, and gives `measuredBytes`.
 struct RecordingLoader: PooledModelLoader {
     /// The name that the log and each model of this loader carry.
     let name: String
@@ -70,6 +71,9 @@ struct RecordingLoader: PooledModelLoader {
 
     /// A load ends only after this stream finishes.
     private let loadsMayEnd: AsyncStream<Void>
+
+    /// An eviction ends only after this stream finishes.
+    private let evictionsMayEnd: AsyncStream<Void>
 
     /// The number of first loads that fail.
     private let failingLoads: Int
@@ -93,6 +97,8 @@ struct RecordingLoader: PooledModelLoader {
     ///   - log: The log of the loads and the evictions.
     ///   - loadsMayEnd: A load ends only after this stream finishes. The
     ///     default stream is finished, so a load ends at once.
+    ///   - evictionsMayEnd: An eviction ends only after this stream finishes.
+    ///     The default stream is finished, so an eviction ends at once.
     ///   - failingLoads: The number of first loads that fail.
     ///   - measuredBytes: The bytes that each footprint measure gives.
     ///   - failingMeasures: The number of first footprint measures that fail.
@@ -100,6 +106,7 @@ struct RecordingLoader: PooledModelLoader {
         name: String,
         log: Recorder<String>,
         loadsMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
+        evictionsMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
         failingLoads: Int = 0,
         measuredBytes: Int64 = 0,
         failingMeasures: Int = 0
@@ -107,6 +114,7 @@ struct RecordingLoader: PooledModelLoader {
         self.name = name
         self.log = log
         self.loadsMayEnd = loadsMayEnd
+        self.evictionsMayEnd = evictionsMayEnd
         self.failingLoads = failingLoads
         self.measuredBytes = measuredBytes
         self.failingMeasures = failingMeasures
@@ -144,12 +152,13 @@ struct RecordingLoader: PooledModelLoader {
         return FakeModel(loaderName: name)
     }
 
-    /// Writes the eviction to the log.
+    /// Writes the eviction to the log, and waits for `evictionsMayEnd`.
     ///
     /// - Parameter container: The model to evict.
     func evict(_ container: any Sendable) async {
         let owner = (container as? FakeModel)?.loaderName ?? "an unknown model"
         log.append("evict \(owner)")
+        for await _ in evictionsMayEnd {}
     }
 }
 
