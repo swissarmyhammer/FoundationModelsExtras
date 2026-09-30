@@ -18,8 +18,12 @@ struct ModelLoadProgressTests {
     /// The bytes of the session of an acquire with its own loader.
     private static let sessionBytes: Int64 = 2
 
-    /// The download fraction of a report that the pool must drop.
-    private static let droppedDownloadFraction = 0.5
+    /// A download report that the pool must drop.
+    private static let droppedDownload = ModelLoadProgress.downloading(
+        completedBytes: ReportingLoader.firstCompletedBytes, totalBytes: ReportingLoader.totalBytes)
+
+    /// The completed bytes of a download report that has no total bytes.
+    private static let bytesOfADownloadWithNoTotal: Int64 = 5
 
     /// The progress of a load of a ``ReportingLoader``, then `ready`.
     private static let readySequence = ReportingLoader.reports + [.ready]
@@ -132,11 +136,89 @@ struct ModelLoadProgressTests {
         #expect(hold.key == Self.key)
     }
 
+    @Test("an acquire with its own loader publishes the same progress as an acquire by key")
+    func anAcquireWithItsOwnLoaderPublishesAsAnAcquireByKey() async throws {
+        let byKeyPool = ModelPool(loader: ReportingLoader())
+        let byKey = byKeyPool.progress(for: Self.key.ref)
+        let withLoaderPool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>()))
+        let withLoader = withLoaderPool.progress(for: Self.key.ref)
+
+        let byKeyHold = try await byKeyPool.acquire(Self.key)
+        let withLoaderHold = try await withLoaderPool.acquire(
+            Self.key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: ReportingLoader())
+
+        let byKeyValues = await Self.values(of: byKey)
+        #expect(byKeyValues == Self.readySequence)
+        #expect(await Self.values(of: withLoader) == byKeyValues)
+        #expect(byKeyHold.key == withLoaderHold.key)
+    }
+
+    @Test("an acquire inside an admission job publishes the same progress as an acquire by key")
+    func anAdmissionAcquirePublishesAsAnAcquireByKey() async throws {
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>()))
+        let progress = pool.progress(for: Self.key.ref)
+
+        let hold = try await pool.admit { admission in
+            try await admission.acquire(
+                Self.key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes,
+                loader: ReportingLoader())
+        }
+
+        #expect(await Self.values(of: progress) == Self.readySequence)
+        #expect(hold.key == Self.key)
+    }
+
+    @Test("a loader that reports bytes gives those bytes to the stream, with the right fraction")
+    func aLoaderThatReportsBytesGivesThoseBytes() async throws {
+        let pool = ModelPool(loader: ReportingLoader())
+        let progress = pool.progress(for: Self.key.ref)
+
+        let hold = try await pool.acquire(Self.key)
+
+        let values = await Self.values(of: progress)
+        #expect(values == Self.readySequence)
+        #expect(values.compactMap(\.fraction) == ReportingLoader.fractions)
+        #expect(hold.key == Self.key)
+    }
+
+    @Test("the fraction of a download is its completed bytes over its total bytes")
+    func theFractionOfADownloadIsItsBytesOverItsTotal() {
+        let download = ModelLoadProgress.downloading(
+            completedBytes: ReportingLoader.secondCompletedBytes, totalBytes: ReportingLoader.totalBytes)
+
+        #expect(download.fraction == ReportingLoader.secondFraction)
+    }
+
+    @Test("a download with no total bytes has no fraction")
+    func aDownloadWithNoTotalHasNoFraction() {
+        let download = ModelLoadProgress.downloading(completedBytes: Self.bytesOfADownloadWithNoTotal, totalBytes: 0)
+
+        #expect(download.fraction == nil)
+    }
+
+    @Test("a value that is not a download has no fraction")
+    func aValueThatIsNotADownloadHasNoFraction() {
+        let values: [ModelLoadProgress] = [.loading, .ready, .failed("loader")]
+
+        #expect(values.allSatisfy { $0.fraction == nil })
+    }
+
+    @Test("the pool drops a download whose completed bytes are less than those of the last download")
+    func thePoolDropsADownloadThatGoesBack() async throws {
+        let later = ModelLoadProgress.downloading(
+            completedBytes: ReportingLoader.secondCompletedBytes, totalBytes: ReportingLoader.totalBytes)
+        let pool = ModelPool(loader: ReportingLoader(reports: [later, Self.droppedDownload, .loading]))
+        let progress = pool.progress(for: Self.key.ref)
+
+        let hold = try await pool.acquire(Self.key)
+
+        #expect(await Self.values(of: progress) == [later, .loading, .ready])
+        #expect(hold.key == Self.key)
+    }
+
     @Test("the pool drops a download after loading, and a ready or a failed that the loader reports")
     func thePoolKeepsTheOrderOfTheStages() async throws {
-        let outOfOrder: [ModelLoadProgress] = [
-            .loading, .downloading(fraction: Self.droppedDownloadFraction), .ready, .failed("loader"),
-        ]
+        let outOfOrder: [ModelLoadProgress] = [.loading, Self.droppedDownload, .ready, .failed("loader")]
         let pool = ModelPool(loader: ReportingLoader(reports: outOfOrder))
         let progress = pool.progress(for: Self.key.ref)
 
@@ -161,7 +243,7 @@ struct ModelLoadProgressTests {
         }
         try #require(await BoundedWait.conditionReached("the later load starts") { !log.values.isEmpty })
 
-        earlierLoader.reportAgain(progress: .downloading(fraction: Self.droppedDownloadFraction))
+        earlierLoader.reportAgain(progress: Self.droppedDownload)
         endLoad.finish()
         let hold = try await acquire.value
 
@@ -180,7 +262,7 @@ struct ModelLoadProgressTests {
         let progress = pool.progress(for: chat.ref)
         async let hold = pool.acquire(chat)
         for await step in progress {
-            show(step)   // downloading(fraction:)..., loading, then ready or failed
+            show(step)   // downloading(completedBytes:totalBytes:)..., loading, then ready or failed
         }
         // README example: end
 
@@ -215,15 +297,29 @@ struct ModelLoadProgressTests {
 /// The loader keeps the progress handler of each load, so that a test can
 /// report to a load again after it ended.
 private struct ReportingLoader: PooledModelLoader {
-    /// The fraction of the download in the first default report.
-    private static let firstDownloadFraction = 0.25
+    /// The bytes of the whole download of the default reports.
+    static let totalBytes: Int64 = 400
 
-    /// The fraction of the download in the second default report.
-    private static let secondDownloadFraction = 0.75
+    /// The completed bytes of the first default report.
+    static let firstCompletedBytes: Int64 = 100
+
+    /// The completed bytes of the second default report.
+    static let secondCompletedBytes: Int64 = 300
+
+    /// The fraction of the first default report: 100 of 400 bytes.
+    static let firstFraction = 0.25
+
+    /// The fraction of the second default report: 300 of 400 bytes.
+    static let secondFraction = 0.75
+
+    /// The fraction of each download of the default reports, in order.
+    static let fractions = [firstFraction, secondFraction]
 
     /// The default reports: two parts of a download, then the load.
     static let reports: [ModelLoadProgress] = [
-        .downloading(fraction: firstDownloadFraction), .downloading(fraction: secondDownloadFraction), .loading,
+        .downloading(completedBytes: firstCompletedBytes, totalBytes: totalBytes),
+        .downloading(completedBytes: secondCompletedBytes, totalBytes: totalBytes),
+        .loading,
     ]
 
     /// The reports of each load, in order.

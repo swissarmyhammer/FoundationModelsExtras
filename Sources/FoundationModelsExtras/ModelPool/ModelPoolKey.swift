@@ -23,10 +23,14 @@ public protocol PooledModelLoader: Sendable {
     /// returns its container. The pool calls this for each load, and gives the
     /// reports to ``ModelPool/progress(for:)``.
     ///
-    /// Report ``ModelLoadProgress/downloading(fraction:)`` for each part of a
-    /// download, then ``ModelLoadProgress/loading``. The pool reports
+    /// Report ``ModelLoadProgress/downloading(completedBytes:totalBytes:)``
+    /// with the real byte counts of each part of a download, then
+    /// ``ModelLoadProgress/loading``. The pool reports
     /// ``ModelLoadProgress/ready`` or ``ModelLoadProgress/failed(_:)``, and
-    /// drops each report that breaks this order.
+    /// drops each report that breaks this order, and each download with fewer
+    /// completed bytes than the download before it. Each acquire method of
+    /// the pool gives this handler, thus a loader that implements only
+    /// ``load(_:)`` reports only ``ModelLoadProgress/loading``.
     ///
     /// - Parameters:
     ///   - key: The model and its role.

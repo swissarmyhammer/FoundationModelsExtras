@@ -577,25 +577,34 @@ by `swift test --filter ModelPoolTests`. The test declares `loader` (a
 
 `progress(for:)` gives a new `AsyncStream<ModelLoadProgress>` for each call. It
 shows the next load of a `ModelRef`, or the load that runs now:
-`downloading(fraction:)` values while the model downloads, then `loading`, then
-`ready` or `failed(String)`. The stream then ends. All streams of one load get
-the same values. A stream that starts during a load gets the last value of that
-load first. A stream that starts when the model is resident gives `ready` at
-once and ends.
+`downloading(completedBytes:totalBytes:)` values while the model downloads,
+then `loading`, then `ready` or `failed(String)`. The stream then ends. All
+streams of one load get the same values. A stream that starts during a load
+gets the last value of that load first. A stream that starts when the model is
+resident gives `ready` at once and ends. A download value has the real byte
+counts of the download, and its `fraction` property is `completedBytes` over
+`totalBytes`. The `completedBytes` of the download values of a stream do not
+decrease.
 
-The loader reports the download and the load through
-`load(key:progressHandler:)` of `PooledModelLoader`. `MLXModelLoader` reports
-the fraction that the Hugging Face downloader gives, then `loading` when the
-download ends. A loader that implements only `load(_:)` reports `loading`. The
-pool reports `ready` or `failed`, and gives `loading` before `ready` when the
-loader did not report it. The pool drops a report that breaks this order, and a
-report of a load that ended:
+Each load gives its progress to the stream, whatever acquire method started
+it: `acquire(_:)`, `acquire(_:footprintBytes:sessionBytes:loader:)`, or an
+acquire inside `admit(_:)`. The loader reports the download and the load
+through `load(key:progressHandler:)` of `PooledModelLoader`. `MLXModelLoader`
+reports the completed bytes and the total bytes of the files of the repository
+that the Hugging Face downloader gives, and all the bytes when the download
+ends, then `loading`. A model that the Hugging Face cache holds at a pinned
+commit downloads nothing, and gives no download value. A loader that
+implements only `load(_:)` reports `loading`. The pool reports `ready` or
+`failed`, and gives `loading` before `ready` when the loader did not report it.
+The pool drops a report that breaks this order, a download value with fewer
+completed bytes than the download value before it, and a report of a load that
+ended:
 
 ```swift
 let progress = pool.progress(for: chat.ref)
 async let hold = pool.acquire(chat)
 for await step in progress {
-    show(step)   // downloading(fraction:)..., loading, then ready or failed
+    show(step)   // downloading(completedBytes:totalBytes:)..., loading, then ready or failed
 }
 ```
 

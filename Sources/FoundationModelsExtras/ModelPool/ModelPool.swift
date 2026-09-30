@@ -156,10 +156,13 @@ public final class ModelPool: Sendable {
     /// The progress of the next load of `ref`, or of the load of `ref` that
     /// runs now. Each call makes a new stream.
     ///
-    /// The stream gives zero or more ``ModelLoadProgress/downloading(fraction:)``
-    /// values, then ``ModelLoadProgress/loading``, then
-    /// ``ModelLoadProgress/ready`` or ``ModelLoadProgress/failed(_:)``, and
-    /// then ends. All streams of one load get the same values. A stream that
+    /// The stream gives zero or more
+    /// ``ModelLoadProgress/downloading(completedBytes:totalBytes:)`` values,
+    /// then ``ModelLoadProgress/loading``, then ``ModelLoadProgress/ready`` or
+    /// ``ModelLoadProgress/failed(_:)``, and then ends. Each load gives its
+    /// progress here, whatever acquire method and loader started it: the pool
+    /// gives the progress handler of the stream to the loader of each load.
+    /// All streams of one load get the same values. A stream that
     /// starts during a load gets the last value of that load first. A stream
     /// that starts when a model of `ref` is resident, and no load of `ref`
     /// runs, gives ``ModelLoadProgress/ready`` and ends.

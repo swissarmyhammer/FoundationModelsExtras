@@ -5,6 +5,26 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): a download value of `ModelLoadProgress` has real byte counts
+
+`ModelLoadProgress.downloading(fraction:)` is now
+`downloading(completedBytes:totalBytes:)`, and the new `fraction` property
+gives `completedBytes` over `totalBytes` for a download value (`nil` for the
+other values). `MLXModelLoader` reports the completed bytes and the total bytes
+of the files of the repository that the Hugging Face downloader gives, and all
+the bytes when the download ends. A model that the Hugging Face cache holds at
+a pinned commit gives no download value, because nothing downloads.
+`ModelPool.progress(for:)` drops a download value with fewer completed bytes
+than the download value before it, thus `completedBytes` does not decrease in a
+stream.
+
+**Migration.** Replace `case .downloading(let fraction)` with
+`case .downloading(let completedBytes, let totalBytes)`, or read
+`progress.fraction`. A loader that reports a download gives the real byte
+counts. Each acquire method of the pool gives the progress of its load to
+`progress(for:)`; a loader that implements only `load(_:)` reports only
+`loading`, thus implement `load(key:progressHandler:)` to report a download.
+
 ### Fixed: an MLX embedding model gives the same vector for a text in a batch and for the text alone
 
 `embed(texts:)` of a `PooledEmbedder` over `MLXModelLoader` now gives each text

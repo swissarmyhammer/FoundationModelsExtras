@@ -116,6 +116,27 @@ extension RealModelSuites {
             #expect(Array(steps.drop(while: \.isDownload)) == [.loading, .ready])
         }
 
+        @Test(
+            "a real download by name reports the real bytes of the repository, which grow to the total, and ends with ready"
+        )
+        func aRealDownloadReportsItsBytes() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+            let key = IntegrationModels.embedding
+            let weightBytes = Int64(try ModelMemory.weightBytes(of: key))
+            let progress = pool.progress(for: key.ref)
+
+            let steps = try await Self.loadAndReadProgress(of: key, in: pool, progress: progress)
+            try await IntegrationModels.waitForEviction(of: key, in: pool)
+
+            let downloads = steps.compactMap(\.byteCounts)
+            let last = try #require(downloads.last, "the load reported no download: \(steps)")
+            #expect(last.totalBytes >= weightBytes)
+            #expect(last.completedBytes == last.totalBytes)
+            #expect(zip(downloads, downloads.dropFirst()).allSatisfy { $0.completedBytes <= $1.completedBytes })
+            #expect(steps.last == .ready)
+        }
+
         @Test("a load of a repository name that is not valid ends with failed, and gives no other step")
         func aBadRepositoryNameEndsWithFailed() async throws {
             try ModelAvailability.requireMetalDevice()
@@ -293,6 +314,12 @@ extension ModelLoadProgress {
     fileprivate var isDownload: Bool {
         if case .downloading = self { return true }
         return false
+    }
+
+    /// The byte counts of this step when it is a part of a download.
+    fileprivate var byteCounts: (completedBytes: Int64, totalBytes: Int64)? {
+        guard case .downloading(let completedBytes, let totalBytes) = self else { return nil }
+        return (completedBytes, totalBytes)
     }
 
     /// Whether this step is a failure.

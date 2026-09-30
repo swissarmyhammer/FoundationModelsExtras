@@ -1,13 +1,15 @@
 /// One step of the load of a model in a ``ModelPool``.
 ///
 /// ``ModelPool/progress(for:)`` gives these values in order: zero or more
-/// ``downloading(fraction:)`` values, then ``loading``, then ``ready`` or
-/// ``failed(_:)``. The loader reports the download and the load. The pool
-/// reports ``ready`` and ``failed(_:)``, and the stream then ends.
+/// ``downloading(completedBytes:totalBytes:)`` values, then ``loading``, then
+/// ``ready`` or ``failed(_:)``. The loader reports the download and the load.
+/// The pool reports ``ready`` and ``failed(_:)``, and the stream then ends.
+/// The `completedBytes` of the downloads in a stream do not decrease.
 public enum ModelLoadProgress: Sendable, Equatable {
-    /// The loader downloads the model. `fraction` is the part of the download
-    /// that is done, from 0 to 1.
-    case downloading(fraction: Double)
+    /// The loader downloads the model. `completedBytes` is the bytes that the
+    /// download has now, and `totalBytes` is the bytes of the whole download.
+    /// ``fraction`` is the part of the download that is done.
+    case downloading(completedBytes: Int64, totalBytes: Int64)
     /// The loader loads the model into memory.
     case loading
     /// The model is resident. This is the last value of a stream.
@@ -15,6 +17,14 @@ public enum ModelLoadProgress: Sendable, Equatable {
     /// The load failed. The text is the description of the error. This is the
     /// last value of a stream.
     case failed(String)
+
+    /// The part of a download that is done: `completedBytes` over
+    /// `totalBytes`, from 0 to 1. `nil` for a value that is not a download,
+    /// and for a download with no total bytes.
+    public var fraction: Double? {
+        guard case .downloading(let completedBytes, let totalBytes) = self, totalBytes > 0 else { return nil }
+        return Double(completedBytes) / Double(totalBytes)
+    }
 
     /// Whether this value ends the load: ``ready`` or ``failed(_:)``.
     var endsTheLoad: Bool {
@@ -25,24 +35,29 @@ public enum ModelLoadProgress: Sendable, Equatable {
     }
 
     /// Whether a loader can report this value after `previous`. A download
-    /// comes before the load, and the load comes one time. Only the pool ends
-    /// a load, thus a loader cannot report ``ready`` or ``failed(_:)``.
+    /// comes before the load, and its completed bytes do not decrease. The
+    /// load comes one time. Only the pool ends a load, thus a loader cannot
+    /// report ``ready`` or ``failed(_:)``.
     ///
     /// - Parameter previous: The last value of the load, or `nil` before the
     ///   first value.
     /// - Returns: Whether the value keeps the order of the steps.
     func isAllowed(after previous: ModelLoadProgress?) -> Bool {
         switch self {
-        case .downloading: previous == nil || previous?.isDownload == true
+        case .downloading(let completedBytes, _): previous?.allowsDownload(of: completedBytes) ?? true
         case .loading: previous != .loading
         case .ready, .failed: false
         }
     }
 
-    /// Whether this value is a ``downloading(fraction:)`` value.
-    private var isDownload: Bool {
-        if case .downloading = self { return true }
-        return false
+    /// Whether a download with `completedBytes` can come after this value:
+    /// this value is a download with no more completed bytes.
+    ///
+    /// - Parameter completedBytes: The completed bytes of the next download.
+    /// - Returns: Whether the next download keeps the order of the steps.
+    private func allowsDownload(of completedBytes: Int64) -> Bool {
+        guard case .downloading(let previousBytes, _) = self else { return false }
+        return previousBytes <= completedBytes
     }
 }
 

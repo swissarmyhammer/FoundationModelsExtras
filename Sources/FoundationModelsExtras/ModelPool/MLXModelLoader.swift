@@ -62,10 +62,11 @@ public struct MLXModelLoader: PooledModelLoader {
     }
 
     /// Downloads the model of `key` when the cache does not hold it, and loads
-    /// its weights. Reports the fraction of the download that the Hugging Face
-    /// downloader gives, then ``ModelLoadProgress/loading`` when the download
-    /// returns. A model that the model cache of MLX holds already loads with
-    /// no download and no report.
+    /// its weights. Reports the completed bytes and the total bytes of the
+    /// files of the repository that the Hugging Face downloader gives, then
+    /// ``ModelLoadProgress/loading`` when the download returns. A model that
+    /// the model cache of MLX holds already loads with no download and no
+    /// report.
     ///
     /// - Parameters:
     ///   - key: The model and its role.

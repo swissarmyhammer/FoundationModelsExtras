@@ -29,8 +29,28 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/ModelPool/EmbeddingBatchPadding.swift (new), Sources/FoundationModelsExtras/ModelPool/MLXModelLoader.swift, Tests/FoundationModelsExtrasTests/ModelPool/EmbeddingBatchPaddingTests.swift (new), IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift, CHANGELOG.md. `swift test`: 840 tests / 83 suites passed. `swift test --package-path IntegrationTests`: 30 tests / 8 suites passed.
     - next: /review. Then commit, push, CI, and send the revision to the Router session.
   timestamp: 2026-09-30T05:17:01.848112+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m3rcd4srcm50cnxxg8w2kvsv
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (0b487c6). Counts: 0 findings, 0 confirmed, 0 refuted, 7 validator runs attempted, 0 failed. The engine reviewed 4 files. The `.reviewignore` file excludes the 4 `.kanban/` files. No validator matches CHANGELOG.md.
+    - Acceptance criteria against the code: `EmbeddingBatchPadding(rows:padToken:)` makes the mask from the length of each row (1 for each real token, the end token included, 0 for each pad). `MLXEmbedding.embed(texts:in:)` gives the same mask to `attentionMask:` and to `context.pooling(output, mask: mask, normalize: true, applyLayerNorm: true)`.
+    - Tests against the code: `EmbeddingBatchPaddingTests` has a short row whose last real token equals the pad token, and it checks the padded rows and the mask. `batchVectorEqualsVectorOfTextAlone` embeds three texts of different lengths and checks cosine ≥ 0.999 for each text.
+    - Open: "CI is green on the pushed commit". The orchestrator does the push, the CI check, and the message to the Router session.
+    - next: the orchestrator pushes, checks CI, and sends the revision to the Router session (foundationmodelsrouter-d5).
+  timestamp: 2026-09-30T05:25:40.792446+00:00
+- actor: claude-code
+  id: 01m3rcdgcn667hye426bp5qyat
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test 840 pass; swift test --package-path IntegrationTests 30 pass
+    - commit: 0b487c6
+    - review: clean — 0 findings
+    - push: origin main; revision sent to foundationmodelsrouter-d5
+  timestamp: 2026-09-30T05:25:52.661187+00:00
+position_column: done
+position_ordinal: de80
 title: 'MLXEmbedding: mask pad tokens by row length in the model and in the pooling'
 ---
 **Blocks:** FoundationModelsRouter task 01M3QMDDGWZ7CRAE1P3JKFP5FP (^jkfp5fp) through its task 01M3RAZRZV5JVTFD960AP5256J (^ap5256j, the full bug report). Tell the Router session (foundationmodelsrouter-d5) the pushed revision.
