@@ -48,7 +48,63 @@ struct ExtrasTelemetryTests {
         #expect(ExtrasTelemetry.AttributeKey.sessionID == "session.id")
         #expect(ExtrasTelemetry.AttributeKey.runKind == "tool.run_kind")
         #expect(ExtrasTelemetry.AttributeKey.outcome == "tool.outcome")
+        #expect(ExtrasTelemetry.AttributeKey.errorType == "error.type")
         #expect(ExtrasTelemetry.LogMetadataKey.toolName == ExtrasTelemetry.AttributeKey.toolName)
         #expect(ExtrasTelemetry.LogMetadataKey.sessionID == ExtrasTelemetry.AttributeKey.sessionID)
+    }
+
+    /// A payload that a test error carries. It is not a word of the error
+    /// type, thus an `error.type` value that holds it shows a leak.
+    private static let payload = "/secret/path"
+
+    /// An enum error with one case that has a payload and one case that has
+    /// no payload.
+    private enum LoadError: Error {
+        case missing(String)
+        case empty
+    }
+
+    /// A struct error that holds a payload.
+    private struct ParseError: Error {
+        let path: String
+    }
+
+    /// An enum error with a custom mirror that puts its payload in the label
+    /// of its child, where the case name usually is.
+    private enum CustomError: Error, CustomReflectable {
+        case missing(String)
+
+        var customMirror: Mirror {
+            switch self {
+            case .missing(let path):
+                Mirror(self, children: [(label: path, value: path)], displayStyle: .enum)
+            }
+        }
+    }
+
+    @Test("the error type of an enum case with a payload is the type name, then the case name")
+    func theErrorTypeOfAPayloadCaseHasTheCaseName() {
+        let error = LoadError.missing(Self.payload)
+
+        #expect(ExtrasTelemetry.errorType(of: error) == String(reflecting: LoadError.self) + ".missing")
+    }
+
+    @Test("the error type of an enum case with no payload is the type name only")
+    func theErrorTypeOfACaseWithNoPayloadIsTheTypeName() {
+        #expect(ExtrasTelemetry.errorType(of: LoadError.empty) == String(reflecting: LoadError.self))
+    }
+
+    @Test("the error type of a struct error is the type name only")
+    func theErrorTypeOfAStructIsTheTypeName() {
+        let error = ParseError(path: Self.payload)
+
+        #expect(ExtrasTelemetry.errorType(of: error) == String(reflecting: ParseError.self))
+    }
+
+    @Test("the error type of a custom-reflectable enum error is the type name only, never the label of its mirror")
+    func theErrorTypeOfACustomReflectableErrorIsTheTypeName() {
+        let error = CustomError.missing(Self.payload)
+
+        #expect(ExtrasTelemetry.errorType(of: error) == String(reflecting: CustomError.self))
     }
 }

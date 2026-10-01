@@ -42,6 +42,11 @@ enum ExtrasTelemetry {
 
         /// The ``OperationOutcome`` of the call.
         static let outcome = "tool.outcome"
+
+        /// The type of the error that ended a traced call: the type name, then
+        /// the enum case name when reflection shows one. Never the description
+        /// of the error, because a description can hold content.
+        static let errorType = "error.type"
     }
 
     /// The metric names of the core target.
@@ -96,6 +101,39 @@ enum ExtrasTelemetry {
         static func message(forSpanNamed spanName: String) -> String {
             messagePrefix + spanName
         }
+    }
+
+    /// The text between the type name and the case name in an
+    /// ``AttributeKey/errorType`` value.
+    private static let errorTypeCaseSeparator = "."
+
+    /// Gives the ``AttributeKey/errorType`` value of `error`: the full type
+    /// name, then the enum case name when reflection shows one.
+    ///
+    /// Reflection shows the case name of an enum case that has a payload. It
+    /// shows no case name for a case with no payload, thus the value of such a
+    /// case is the type name only. The value never holds the description or
+    /// the payload of the error, because they can hold content.
+    ///
+    /// The value of a `CustomReflectable` error is the type name only.
+    /// `Mirror(reflecting:)` uses the `customMirror` of such an error, and a
+    /// custom mirror can put any text, also a payload, in the label of a
+    /// child.
+    ///
+    /// - Parameter error: The error that ended a traced call.
+    /// - Returns: The type name, with its module, for example
+    ///   `MyModule.LoadError`, then the case name, for example
+    ///   `MyModule.LoadError.missing` for `LoadError.missing(path)`.
+    static func errorType(of error: any Error) -> String {
+        let typeName = String(reflecting: type(of: error))
+        guard !(error is any CustomReflectable) else {
+            return typeName
+        }
+        let mirror = Mirror(reflecting: error)
+        guard mirror.displayStyle == .enum, let caseName = mirror.children.first?.label else {
+            return typeName
+        }
+        return typeName + errorTypeCaseSeparator + caseName
     }
 
     /// Makes a logger with the label of the core target.

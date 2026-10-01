@@ -2,12 +2,15 @@ import FoundationModels
 @testable import FoundationModelsExtras
 import TelemetryTestSupport
 import Testing
+import Tracing
 
 /// Rule 4 and rule 5 of the OpenTelemetry design of 2026-09-28: no span, log
 /// record or metric of a tool call carries the tool arguments or the tool
 /// output. Each test runs one tool call through one of the three runners with
 /// a distinctive argument and a distinctive output, and forbids both strings
-/// in the capture of ``TelemetryCapture``.
+/// in the capture of ``TelemetryCapture``. One test gives both strings to the
+/// description of an error that the tool throws, because the span of the call
+/// sees that error.
 @Suite("ExtrasContentSafety: no tool argument and no tool output in the telemetry of a tool call")
 struct ExtrasContentSafetyTests {
     /// The shared fixtures of the runner suites.
@@ -24,6 +27,10 @@ struct ExtrasContentSafetyTests {
 
     /// The count of spans, and of "enter" log records, of one tool call.
     private static let recordsOfOneCall = 1
+
+    /// The `error.type` of ``ContentError/carrying(_:)``: the type name and
+    /// the case name, never the payload.
+    private static let contentErrorType = "\(String(reflecting: ContentError.self)).carrying"
 
     @Test("a run-to-completion call carries no content in its telemetry")
     func aRunToCompletionCallCarriesNoContent() async throws {
@@ -66,6 +73,23 @@ struct ExtrasContentSafetyTests {
         Self.expectOneCall(in: context)
     }
 
+    @Test("a run-to-completion call of a tool that throws an error with content carries no content in its telemetry")
+    func aThrowingCallCarriesNoContent() async throws {
+        let harness = Fixtures.runToCompletionHarness(wrapping: ContentThrowingTool())
+
+        let context = try await TelemetryCapture.run(forbidding: Self.forbidden) { context in
+            await #expect(throws: ContentError.self) {
+                try await harness.mounted.call(arguments: MountArguments(value: Self.argument))
+            }
+            return context
+        }
+
+        Self.expectOneCall(in: context)
+        let span = try #require(context.spans.first)
+        #expect(span.status == SpanStatus(code: .error))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == .string(Self.contentErrorType))
+    }
+
     /// Expects that the capture measured one tool call. A capture that
     /// recorded nothing passes the content check with no issue, thus each
     /// test states what the capture measured.
@@ -100,5 +124,23 @@ private struct DistinctNonStringOutputTool: Tool {
 
     func call(arguments: MountArguments) async throws -> NonStringToolOutput {
         NonStringToolOutput(text: "\(ExtrasContentSafetyTests.output) for \(arguments.value)")
+    }
+}
+
+/// The error of ``ContentThrowingTool``. Its description holds the content
+/// of the call.
+private enum ContentError: Error {
+    /// A failure that carries the output and the argument of the call.
+    case carrying(String)
+}
+
+/// Throws an error whose description holds the distinctive output of the
+/// suite and the argument of the call.
+private struct ContentThrowingTool: Tool {
+    let name = "content_throwing_tool"
+    let description = "throws an error that holds content"
+
+    func call(arguments: MountArguments) async throws -> String {
+        throw ContentError.carrying("\(ExtrasContentSafetyTests.output) for \(arguments.value)")
     }
 }

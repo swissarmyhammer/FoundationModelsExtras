@@ -13,7 +13,8 @@ import Tracing
 ///
 /// ``run(_:ofKind:tracer:logger:attributes:metadata:_:)`` writes the record
 /// before the body starts, and it writes nothing more. The span records the
-/// end, the duration and the error of the call.
+/// end and the duration of the call, and, when the call throws, the error
+/// status and the ``ExtrasTelemetry/AttributeKey/errorType`` of the error.
 ///
 /// Rule 4 of the same design: a span attribute, a log message and a log
 /// metadata value carry ids, names, counts and sizes only. They never carry a
@@ -22,8 +23,10 @@ import Tracing
 /// backend of the host. The helper obeys rule 4 for the parts that it writes:
 /// the message holds only the span name, and the metadata holds only the
 /// metadata of the caller and the ids of the span. It never puts a value or an
-/// error of the body into the record. The caller must obey rule 4 for the
-/// span name, the attributes and the metadata that it gives.
+/// error of the body into the record. The span never gets the description of
+/// an error of the body: a description can hold content, and a telemetry
+/// backend exports each error that a span records. The caller must obey rule 4
+/// for the span name, the attributes and the metadata that it gives.
 ///
 /// ```swift
 /// let answer = try await TracedCall.run(
@@ -48,8 +51,11 @@ public enum TracedCall {
     /// the span.
     ///
     /// The span ends when `body` returns or throws. When `body` throws, the
-    /// span records the error, and this function throws the same error. This
-    /// function writes no log record on exit.
+    /// span gets the error status and an `error.type` attribute, and this
+    /// function throws the same error. The `error.type` is the type name of the
+    /// error, then its enum case name when reflection shows one. The span
+    /// records no error event, no status message and no description of the
+    /// error. This function writes no log record on exit.
     ///
     /// The metadata of the record is `metadata`, plus the W3C trace id and
     /// span id of the new span under
@@ -58,10 +64,9 @@ public enum TracedCall {
     /// does. The ids replace a caller value with the same key.
     ///
     /// Rule 4: give no content in `spanName`, `attributes` or `metadata`.
-    /// The record never holds a value or an error of `body`. The span records
-    /// each error of `body`, and a telemetry backend exports the description
-    /// of that error. Thus `body` must throw no error whose description holds
-    /// content.
+    /// The record never holds a value or an error of `body`, and the span
+    /// never holds the description of an error of `body`. Thus `body` can
+    /// throw an error whose description holds content.
     ///
     /// - Parameters:
     ///   - spanName: The name of the span. The message of the record is
@@ -78,7 +83,8 @@ public enum TracedCall {
     ///   - body: The call. It gets the open span, and it runs on the actor of
     ///     the caller.
     /// - Returns: The value of `body`.
-    /// - Throws: The error of `body`. The span records it first.
+    /// - Throws: The error of `body`. The span gets the error status and the
+    ///   `error.type` of the error first, never its description.
     public nonisolated(nonsending) static func run<Output>(
         _ spanName: String,
         ofKind kind: SpanKind = .internal,
@@ -89,15 +95,39 @@ public enum TracedCall {
         _ body: nonisolated(nonsending) (any Span) async throws -> Output
     ) async throws -> Output {
         let activeTracer = tracer ?? InstrumentationSystem.tracer
-        return try await activeTracer.withSpan(spanName, ofKind: kind) { span in
+        // The body gives its error back as a value, so `withSpan` sees no
+        // error. `withSpan` records each error that it sees with
+        // `recordError`, and a telemetry backend exports the description of
+        // that error.
+        let result: Result<Output, any Error> = await activeTracer.withSpan(spanName, ofKind: kind) { span in
             span.updateAttributes(attributes)
             logger.log(
                 level: enterLevel,
                 "\(ExtrasTelemetry.EnterRecord.message(forSpanNamed: spanName))",
                 metadata: enterMetadata(metadata, of: span.context, from: activeTracer)
             )
-            return try await body(span)
+            do {
+                return .success(try await body(span))
+            } catch {
+                recordFailure(of: error, on: span)
+                return .failure(error)
+            }
         }
+        return try result.get()
+    }
+
+    /// Gives `span` the error status and the
+    /// ``ExtrasTelemetry/AttributeKey/errorType`` of `error`.
+    ///
+    /// The span gets no error event, no status message and no description of
+    /// the error, because a description can hold content.
+    ///
+    /// - Parameters:
+    ///   - error: The error that `body` threw.
+    ///   - span: The span of the call.
+    private static func recordFailure(of error: any Error, on span: any Span) {
+        span.setStatus(SpanStatus(code: .error))
+        span.attributes[ExtrasTelemetry.AttributeKey.errorType] = ExtrasTelemetry.errorType(of: error)
     }
 
     /// Gives the metadata of the "enter" record of one span.

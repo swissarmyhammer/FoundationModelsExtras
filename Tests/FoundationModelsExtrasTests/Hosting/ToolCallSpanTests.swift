@@ -89,8 +89,8 @@ struct ToolCallSpanTests {
         try Self.expectOneCall(in: context, toolName: Self.toolName, outcome: .timedOut)
     }
 
-    @Test("an error of the body is recorded on the span and thrown again")
-    func anErrorIsRecordedAndThrown() async throws {
+    @Test("an error of the body gives the span the error status and error.type, no recorded error, and is thrown again")
+    func anErrorSetsTheErrorStatusAndIsThrown() async throws {
         let tracer = InMemoryTracer()
 
         await #expect(throws: Boom.self) {
@@ -100,7 +100,9 @@ struct ToolCallSpanTests {
         }
 
         let span = try #require(tracer.finishedSpans.first)
-        #expect(span.errors.count == 1)
+        #expect(span.errors.isEmpty)
+        #expect(span.status == SpanStatus(code: .error))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == .string(String(reflecting: Boom.self)))
     }
 
     @Test("a run-to-completion call that succeeds gives one count and one duration of success")

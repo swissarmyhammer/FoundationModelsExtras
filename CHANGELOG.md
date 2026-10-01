@@ -5,6 +5,38 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): `TracedCall.run` records the error type on the span, never the error description
+
+When the body of `TracedCall.run` throws, the span now gets the error status
+and an `error.type` attribute. The span records no error event, no status
+message and no description of the error. Each mounted tool call goes through
+`TracedCall.run` (by way of the tool span), thus the same holds for the error
+of a tool.
+
+**Cause.** `TracedCall.run` opened its span with `withSpan`, and `withSpan`
+records each error that it sees with `span.recordError(error)`. swift-otel
+exports that error as an `exception` event with
+`exception.message = String(describing: error)`. The description of an error
+can hold content: a path, a part of a prompt or a tool argument. Thus that
+content went to the telemetry backend. A rule in a doc comment does not
+protect the telemetry.
+
+**What changed.**
+
+- The value of `error.type` is the full type name of the error, for example
+  `MyModule.LoadError`. For an enum case with a payload, the case name
+  follows, for example `MyModule.LoadError.missing`. Reflection shows no case
+  name for an enum case with no payload, thus that value is the type name
+  only. The value of a `CustomReflectable` error is the type name only,
+  because a custom mirror can put a payload in the label of a child. The
+  value never holds the payload.
+- A span of `TracedCall.run` has no recorded error. A consumer test that reads
+  the `errors` of such a span must read the status and `error.type` in place
+  of them.
+- A body can now throw an error whose description holds content. The
+  content-safety tests of `TracedCall` and of a tool that throws such an error
+  prove that no span, log record or metric holds it.
+
 ### Changed (breaking): `TelemetryCapture` reads the span links, the span events, the recorded errors, the span status message and the log record errors
 
 A forbidden string in an attribute of a span link, in the name or an attribute
@@ -13,19 +45,21 @@ records, in the status message of a span, or in the description of the error
 of a log record, is now an issue of `TelemetryCapture.run(forbidding:)`.
 
 **Behavior change.** A consumer test that throws an error whose description
-holds a forbidden string through `TracedCall.run` or `withSpan`, inside
-`TelemetryCapture.run(forbidding:)`, now records an issue at `spanError`. The
-same test passed before. A consumer test that logs such an error with
-`error:` now records an issue at `logError`.
+holds a forbidden string through `withSpan`, the helper of
+swift-distributed-tracing, inside `TelemetryCapture.run(forbidding:)`, now
+records an issue at `spanError`. The same test passed before. A consumer test
+that logs such an error with `error:` now records an issue at `logError`.
+`TracedCall.run` records no error on its span (see the entry above), thus an
+error that it throws gives no issue at `spanError`.
 
 **Cause.** The capture read only the name and the attributes of each span, and
 only the message and the metadata of each log record. swift-otel exports
 `span.recordError(error)` as an `exception` event with
-`exception.message = String(describing: error)`, and `withSpan` and
-`TracedCall.run` record each error that they see. A log handler writes the
-error of a log record. Thus an error description that held content went to
-the telemetry backend, and no content-safety test that used the capture found
-it.
+`exception.message = String(describing: error)`, and `withSpan`, the helper of
+swift-distributed-tracing, records each error that it sees. `TracedCall.run`
+records no error (see the entry above). A log handler writes the error of a
+log record. Thus an error description that held content went to the
+telemetry backend, and no content-safety test that used the capture found it.
 
 **What changed.**
 

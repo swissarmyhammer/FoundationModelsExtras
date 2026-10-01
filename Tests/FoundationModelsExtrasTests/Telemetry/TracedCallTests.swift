@@ -34,6 +34,17 @@ struct TracedCallTests {
     /// The message of each "enter" record.
     private static let enterMessage = "enter probe.call"
 
+    /// The `error.type` of ``ProbeError/failed``: the type name only, because
+    /// a case with no payload shows no case label to reflection.
+    private static let probeErrorType = String(reflecting: ProbeError.self)
+
+    /// The `error.type` of ``ProbeError/carrying(_:)``: the type name and the
+    /// case name, never the payload.
+    private static let carryingErrorType = "\(probeErrorType).carrying"
+
+    /// The `error.type` of the cancel of a call.
+    private static let cancellationErrorType = String(reflecting: CancellationError.self)
+
     /// The metadata that each caller gives.
     private static var callerMetadata: Logger.Metadata {
         [metadataKey: "\(metadataValue)"]
@@ -86,12 +97,13 @@ struct TracedCallTests {
             #expect(context.logRecords.count == 1)
             let span = try #require(context.spans.first)
             #expect(context.spans.count == 1)
-            #expect(span.errors.count == 1)
+            #expect(span.status?.code == .error)
+            #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == .string(Self.cancellationErrorType))
         }
     }
 
-    @Test("a thrown error is recorded on the span and rethrown, with no second log record")
-    func aThrownErrorIsRecordedAndRethrown() async throws {
+    @Test("a thrown error gives the span the error status and error.type, and no recorded error, and is rethrown with no second log record")
+    func aThrownErrorSetsTheErrorStatusAndIsRethrown() async throws {
         let context = try await TelemetryCapture.run(forbidding: []) { context in
             await #expect(throws: ProbeError.failed) {
                 try await Self.run(logger: context.logger) { _ in throw ProbeError.failed }
@@ -102,7 +114,9 @@ struct TracedCallTests {
         #expect(context.logRecords.map(\.message) == ["\(Self.enterMessage)"])
         let span = try #require(context.spans.first)
         #expect(context.spans.count == 1)
-        #expect(span.errors.map { $0.error as? ProbeError } == [.failed])
+        #expect(span.errors.isEmpty)
+        #expect(span.status == SpanStatus(code: .error))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == .string(Self.probeErrorType))
     }
 
     @Test("content that the body returns reaches no span, log record or metric")
@@ -118,29 +132,23 @@ struct TracedCallTests {
         #expect(context.leaks(forbidding: [Self.forbidden]).isEmpty)
     }
 
-    @Test("the span records the description of an error that the body throws, thus the capture finds content in it")
-    func contentInAThrownErrorReachesTheSpan() async throws {
+    @Test("an error with content that the body throws reaches no span, log record or metric, and the span keeps the error status and error.type")
+    func contentOfTheBodyReachesNoTelemetry() async throws {
         let error = ProbeError.carrying(Self.forbidden)
-        let leak = TelemetryLeak(
-            place: .spanError(span: Self.spanName, description: String(describing: error)),
-            forbidden: Self.forbidden
-        )
-        var captured: TelemetryCapture.Context?
 
-        try await withKnownIssue {
-            captured = try await TelemetryCapture.run(forbidding: [Self.forbidden]) { context in
-                await #expect(throws: error) {
-                    try await Self.run(logger: Logger(label: Self.loggerLabel)) { _ in throw error }
-                }
-                return context
+        let context = try await TelemetryCapture.run(forbidding: [Self.forbidden]) { context in
+            await #expect(throws: error) {
+                try await Self.run(logger: Logger(label: Self.loggerLabel)) { _ in throw error }
             }
-        } matching: { issue in
-            issue.comments.contains { $0.rawValue == leak.description }
+            return context
         }
 
-        let context = try #require(captured)
+        let span = try #require(context.spans.first)
+        #expect(context.spans.count == 1)
         #expect(context.logRecords.count == 1)
-        #expect(context.leaks(forbidding: [Self.forbidden]) == [leak])
+        #expect(span.status == SpanStatus(code: .error))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == .string(Self.carryingErrorType))
+        #expect(context.leaks(forbidding: [Self.forbidden]).isEmpty)
     }
 
     @Test("a tracer that injects a W3C traceparent gives the trace id and the span id to the record")

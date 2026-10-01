@@ -5,8 +5,11 @@ import ULID
 /// metrics of the call.
 ///
 /// The span has the tool name, the session and the run kind. It has no tool
-/// arguments and no tool output: a span leaves the process through the
-/// tracing backend of the host, so it carries names and identifiers only.
+/// arguments, no tool output and no description of a tool error: a span
+/// leaves the process through the tracing backend of the host, so it carries
+/// names and identifiers only. When the tool throws, the span gets the error
+/// status and the ``ExtrasTelemetry/AttributeKey/errorType`` of the error from
+/// ``TracedCall``, never the description of the error.
 /// ``withSpan(tracer:toolName:sessionID:runKind:_:)`` opens the span through
 /// ``TracedCall``, so each call also writes one "enter" log record when it
 /// starts. A tool call can suspend for a long time, and the record shows a
@@ -58,7 +61,8 @@ enum ToolCallSpan {
     ///   - runKind: How much of the call the span measures.
     ///   - body: The call. It gets the open call, to record the outcome.
     /// - Returns: The value of `body`.
-    /// - Throws: The error of `body`. The span records it first.
+    /// - Throws: The error of `body`. The span gets the error status and the
+    ///   `error.type` of the error first, never its description.
     nonisolated(nonsending) static func withSpan<Output>(
         tracer: (any Tracer)?,
         toolName: String,
