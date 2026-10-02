@@ -3,7 +3,8 @@ import FoundationModels
 /// Forgiving resolution of a model- or CLI-supplied payload to a specific
 /// registered operation and its canonically-keyed parameters.
 ///
-/// Layered per plan.md's "Forgiving input": an explicit `op` value tolerant
+/// Models and people make small errors in the names they send, so the
+/// resolution has layers: an explicit `op` value tolerant
 /// of case, `_`/`-`/space separators (or no separators in a multi-word
 /// verb or noun), and "noun verb" reordering; a shared verb-alias table
 /// (`create`/`new` → `add`, …) callers can extend per tool; an optional
@@ -201,9 +202,8 @@ extension OperationResolver {
     internal struct ParameterResolution {
         /// A new payload containing only the recognized parameters, under
         /// their canonical names — dropping `op` and any other unrecognized
-        /// key, which also sidesteps whether the target operation's
-        /// `Generable` initializer tolerates extra keys (see plan.md's
-        /// "`GeneratedContent` behavior with extra keys").
+        /// key. Thus the result does not depend on whether the target
+        /// operation's `Generable` initializer accepts extra keys.
         internal let content: GeneratedContent
 
         /// The canonical names of every required parameter this resolution

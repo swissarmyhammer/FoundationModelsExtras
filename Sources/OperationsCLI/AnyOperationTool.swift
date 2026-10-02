@@ -9,8 +9,7 @@ import Operations
 /// `dispatch` erases `Context` without needing an existential or a second
 /// generic parameter anywhere else in `OperationsCLI`. This is what lets
 /// `OperationCLIDriver` combine tools with different `Context` types into
-/// one multi-tool tree (plan.md's `<executable> <tool> <noun> <verb>`
-/// grammar).
+/// one multi-tool tree (the `<executable> <tool> <noun> <verb>` grammar).
 public struct AnyOperationTool: Sendable {
     /// The tool's model- and CLI-facing name — the `<tool>` segment of the
     /// multi-tool grammar.
@@ -64,9 +63,9 @@ internal struct CLIOperation: Sendable {
     internal let definitionType: any OperationDefinition.Type
 
     /// The macro-generated CLI leaf command for this operation, if one
-    /// exists — `nil` for the manual escape hatch, which
-    /// `CLIRegistryBuilder` synthesizes a `FallbackOperationCommand` for
-    /// instead.
+    /// exists — `nil` for an operation that conforms by hand, without
+    /// `@Operation`. `CLIRegistryBuilder` synthesizes a
+    /// `FallbackOperationCommand` for it instead.
     internal let commandType: (any OperationCommand.Type)?
 
     /// Captures `operation`'s CLI-facing metadata, erasing its `Context`.

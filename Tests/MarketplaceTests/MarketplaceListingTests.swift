@@ -7,7 +7,7 @@ import Testing
 
 /// Tests for ``MarketplaceListing`` and for
 /// ``MarketplaceStore/listings(of:cacheDirectory:)``: the public read of one
-/// marketplace list (marketplace.md §5.3 and §7.2).
+/// marketplace list.
 ///
 /// The call reads the state file of the cache and opens no connection, thus
 /// each test writes a record on the disk, or calls a pin that writes one, and
@@ -48,7 +48,7 @@ struct MarketplaceListingTests {
   /// The text that starts a `file://` URL.
   private static let fileURLPrefix = "file://"
 
-  // MARK: - Whether the marketplace holds one commit (§8.3)
+  // MARK: - Whether the marketplace holds one commit
 
   @Test func aPinOfTheHostSaysThatTheMarketplaceHoldsOneCommit() async throws {
     let source = MarketplaceSource(Self.gitURL)
@@ -92,7 +92,7 @@ struct MarketplaceListingTests {
     #expect(!listing.holdsOneCommit)
   }
 
-  // MARK: - What the snapshot gives (§7.2)
+  // MARK: - What the snapshot gives
 
   @Test func aMarketplaceWithNoSnapshotCarriesNoCommit() throws {
     let source = MarketplaceSource(Self.gitURL)
@@ -125,7 +125,7 @@ struct MarketplaceListingTests {
     #expect(listing.catalogVersion == Self.catalogVersion)
   }
 
-  // MARK: - The name of the marketplace (§5.3)
+  // MARK: - The name of the marketplace
 
   @Test func aListingCarriesTheDisplayIDOfTheCatalog() throws {
     let source = MarketplaceSource(Self.gitURL)
@@ -151,7 +151,7 @@ struct MarketplaceListingTests {
     #expect(listing.key == Self.gitKey)
   }
 
-  // MARK: - A folder on this computer (§5.1)
+  // MARK: - A folder on this computer
 
   @Test func aFolderOnThisComputerSaysSo() throws {
     let folder = try TemporaryDirectory.make()
@@ -176,7 +176,7 @@ struct MarketplaceListingTests {
     #expect(listing.url == Self.gitURL)
   }
 
-  // MARK: - What went wrong (§6.2)
+  // MARK: - What went wrong
 
   @Test func aListingCarriesTheMessageOfTheLastFailure() throws {
     let source = MarketplaceSource(Self.gitURL)
@@ -238,7 +238,7 @@ struct MarketplaceListingTests {
     #expect(listings.map(\.id) == [Self.gitKey, Self.unsupportedAlias])
   }
 
-  // MARK: - The environment variables of the cache (§7.1 and §7.5)
+  // MARK: - The environment variables of the cache
 
   @Test func theStoreNamesTheCacheVariableAndTheSeedVariable() {
     #expect(MarketplaceStore.cacheDirectoryVariable == "SKILLS_MARKETPLACE_CACHE")

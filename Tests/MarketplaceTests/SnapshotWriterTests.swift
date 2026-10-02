@@ -4,8 +4,8 @@ import Testing
 
 @testable import Marketplace
 
-/// Proves the snapshot writer of marketplace.md §7.3 steps 3 and 4: one flat
-/// folder that holds `<entry>/` for each selected entry and the partials
+/// Proves the snapshot writer, which builds a snapshot after the fetch: one
+/// flat folder that holds `<entry>/` for each selected entry and the partials
 /// folder that the layout names, the execute bit, the validation rules, and
 /// the diagnostics.
 ///

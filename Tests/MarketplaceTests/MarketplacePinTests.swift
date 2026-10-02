@@ -6,8 +6,7 @@ import Testing
 @testable import Marketplace
 
 /// Tests for the pins of ``MarketplaceStore`` and for
-/// ``MarketplacePolicy/ApplyUpdates/nextLaunch`` (marketplace.md §8.3 and
-/// §8.4).
+/// ``MarketplacePolicy/ApplyUpdates/nextLaunch``.
 ///
 /// The package holds no time value of its own. A pending snapshot is a flag
 /// in `state.json` that the next ``MarketplaceStore/start()`` reads, thus no
@@ -51,7 +50,7 @@ struct MarketplacePinTests {
   /// A pin that is no commit at all.
   private static let malformedCommit = "not-a-commit"
 
-  // MARK: - The pin of a source (§8.3)
+  // MARK: - The pin of a source
 
   @Test func theShaFieldOfASourceInstallsThatCommitAndNotTheHead() async throws {
     let pinned = try PinFixture(pinToFirstCommit: true)
@@ -72,7 +71,7 @@ struct MarketplacePinTests {
     #expect(statuses.first?.updateAvailable == true)
   }
 
-  // MARK: - pin and unpin (§8.3)
+  // MARK: - pin and unpin
 
   @Test func pinStopsTheNextUpdateAtTheNamedCommit() async throws {
     let fixture = try PinFixture()
@@ -160,7 +159,7 @@ struct MarketplacePinTests {
     }
   }
 
-  // MARK: - .nextLaunch (§8.4)
+  // MARK: - .nextLaunch
 
   @Test func nextLaunchLeavesTheServedSnapshotWhereItIs() async throws {
     let fixture = try PinFixture(policy: MarketplacePolicy(applyUpdates: .nextLaunch))
@@ -218,7 +217,7 @@ struct MarketplacePinTests {
     #expect(restarted.store.marketplaceLayers().first?.provenance.sha == later)
   }
 
-  // MARK: - A staged snapshot that another process deleted (§8.4)
+  // MARK: - A staged snapshot that another process deleted
 
   @Test func adoptRefusesAStagedSnapshotThatAnotherProcessDeleted() async throws {
     let pruned = try await Self.makePrunedStagedFixture()
@@ -249,7 +248,7 @@ struct MarketplacePinTests {
     #expect(restarted.store.marketplaceLayers().first?.provenance.sha == pruned.fixture.head)
   }
 
-  // MARK: - Two passes over one writer lock (§7.6)
+  // MARK: - Two passes over one writer lock
 
   @Test func aSecondStartFinishesWhileAPassHoldsTheWriterLock() async throws {
     let gate = GatedGitTransport(wrapping: LibGit2Transport())
@@ -380,7 +379,7 @@ struct MarketplacePinTests {
   }
 
   /// Writes a pending snapshot into the state file of a fixture, as a
-  /// second process over the same cache would (marketplace.md §8.4).
+  /// second process over the same cache would.
   ///
   /// - Parameters:
   ///   - sha: The commit of a snapshot that the cache already holds.

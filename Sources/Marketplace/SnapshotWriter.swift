@@ -1,6 +1,6 @@
 import Foundation
 
-/// Why the writer refused a tree (marketplace.md §7.3 step 4).
+/// Why the writer refused a tree.
 ///
 /// The writer deletes the staged folder before it throws, so a refused tree
 /// leaves nothing on the disk.
@@ -43,7 +43,7 @@ extension SnapshotError: CustomStringConvertible {
   }
 }
 
-/// What one snapshot write copied, and what it found (marketplace.md §7.3).
+/// What one snapshot write copied, and what it found.
 internal struct SnapshotReport: Sendable, Hashable {
   /// The number of files that the write copied. A symbolic link counts as
   /// one file.
@@ -56,8 +56,7 @@ internal struct SnapshotReport: Sendable, Hashable {
   var diagnostics: [MarketplaceDiagnostic]
 }
 
-/// Writes the selected skills of one resolved catalog into one flat folder
-/// (marketplace.md §7.3 steps 3 and 4, and §4.2).
+/// Writes the selected skills of one resolved catalog into one flat folder.
 ///
 /// The result is a layer root: `<skill>/…` for each selected skill,
 /// `agents/<name>` for each selected agent file, plus the partials folder
@@ -109,8 +108,9 @@ internal enum SnapshotWriter {
   ///     partials folder from it.
   ///   - limits: The policy limits of the write.
   /// - Returns: The counts and the findings of the write.
-  /// - Throws: ``SnapshotError`` when the tree breaks a rule of §7.3 step
-  ///   4, else the error of a read or of a write.
+  /// - Throws: ``SnapshotError`` when the tree breaks a rule of the write:
+  ///   an unsafe name, a link that leaves its skill folder, a submodule, or
+  ///   a policy limit. Else the error of a read or of a write.
   static func write(
     catalog: ResolvedCatalog, from source: any CatalogFileSource, to temporaryDirectory: URL,
     layout: MarketplaceLayout, limits: SnapshotLimits

@@ -4,9 +4,9 @@ import Testing
 @testable import Marketplace
 
 /// Proves that the allowlist and the blocklist of ``MarketplacePolicy`` decide
-/// with no store and no I/O (marketplace.md §6.7 and §10 item 2), that the
-/// policy reads `SKILLS_MARKETPLACE_AUTOUPDATE` from its environment
-/// (marketplace.md §8.3), and that a new policy has the documented defaults.
+/// with no store and no I/O, that the policy reads
+/// `SKILLS_MARKETPLACE_AUTOUPDATE` from its environment, and that a new
+/// policy has the documented defaults.
 ///
 /// Every value here is pure: no test makes a cache folder or opens a
 /// connection.

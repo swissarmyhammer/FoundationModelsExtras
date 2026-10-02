@@ -7,10 +7,10 @@ import Testing
 /// Behavioral tests for `AgentsMd.documents(from:upTo:)`: alias preference
 /// per directory, one-file-per-directory, outermost-first/nearest-last
 /// ordering, `.git` root detection vs an explicit `root:`, the walk
-/// stopping at `root`, symlinked-alias dedupe, and empty results (plan.md
-/// §10). Every test builds its own throwaway directory tree under a temp
-/// directory so nothing ever touches the real home directory or a real
-/// `.git` repository above the fixture.
+/// stopping at `root`, symlinked-alias dedupe, and empty results. Every test
+/// builds its own throwaway directory tree under a temp directory so nothing
+/// ever touches the real home directory or a real `.git` repository above the
+/// fixture.
 @Suite struct AgentsMdTests {
   /// A throwaway directory tree, cleaned up when the OS reclaims the temp
   /// directory. Canonicalized once at creation (see `FixtureSupport`'s

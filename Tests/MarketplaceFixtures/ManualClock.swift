@@ -1,7 +1,6 @@
 import Synchronization
 
-/// A `Clock` that moves only when a test advances it (marketplace.md §8.2 and
-/// decision 13).
+/// A `Clock` that moves only when a test advances it.
 ///
 /// ``MarketplaceStore`` takes a clock, thus its periodic check never waits for
 /// real time: a test advances this clock and the next pass runs at once. The

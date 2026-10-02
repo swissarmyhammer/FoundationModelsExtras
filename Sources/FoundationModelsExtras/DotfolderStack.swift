@@ -1,7 +1,7 @@
 import Foundation
 
-/// The layered dotfolder resolution stack shared across the family (plan.md
-/// §3): shipped defaults, the user's XDG config directory, and the current
+/// The layered dotfolder resolution stack shared across the family: shipped
+/// defaults, the user's XDG config directory, and the current
 /// project's dotfolder, in increasing precedence — `defaults < user
 /// ($XDG_CONFIG_HOME/<name>/, default ~/.config/<name>/) < project
 /// (<cwd>/.<name>/)`.

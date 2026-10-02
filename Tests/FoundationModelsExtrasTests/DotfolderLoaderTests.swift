@@ -5,9 +5,9 @@ import Testing
 @testable import FoundationModelsExtras
 
 /// Behavioral tests for `DotfolderLoader`, exercised end-to-end through
-/// `TemplateEngine.render`'s `{% include %}` support (plan.md §4): the
-/// `_partials/` name-resolution scheme, layered nearest-wins/fall-through
-/// resolution, nested includes, and the missing-partial facade error.
+/// `TemplateEngine.render`'s `{% include %}` support: the `_partials/`
+/// name-resolution scheme, layered nearest-wins/fall-through resolution,
+/// nested includes, and the missing-partial facade error.
 @Suite struct DotfolderLoaderTests {
   /// A throwaway three-layer directory tree, each layer holding its own
   /// `_partials/`, cleaned up when the test ends.

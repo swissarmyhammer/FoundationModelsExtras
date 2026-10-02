@@ -2,26 +2,26 @@ import FixtureSupport
 import Foundation
 import Testing
 
-/// Guards the three documents of the marketplace pillar: `README.md` holds
-/// the section, `plan.md` holds the pillar section with the decision date,
-/// `CHANGELOG.md` holds the entry in the unreleased section, and
-/// no document names a marketplace grant, because there is no
+/// Guards the three documents that describe the marketplace: `README.md`
+/// holds the section, `plan.md` holds the marketplace section with the
+/// decision date, `CHANGELOG.md` holds the entry in the unreleased section,
+/// and no document names a marketplace grant, because there is no
 /// per-marketplace permission.
 ///
 /// The suite reads the documents as text from the package root, as
 /// `PackageLayoutTests` reads the manifest.
 @Suite("Documentation")
 struct DocumentationTests {
-  /// The plan, relative to the package root.
+  /// The design document `plan.md`, relative to the package root.
   private static let planPath = "plan.md"
 
   /// The changelog, relative to the package root.
   private static let changelogPath = "CHANGELOG.md"
 
-  /// The heading of the pillar section of the plan.
+  /// The heading of the marketplace section in `plan.md`.
   private static let planHeading = "## 12. Pillar 6 — Marketplace (a fetched, cached, materialized layer root)"
 
-  /// The date of the decision that the pillar section names.
+  /// The date of the decision that the marketplace section names.
   private static let decisionDate = "2026-09-19"
 
   /// The heading of the unreleased section of the changelog.

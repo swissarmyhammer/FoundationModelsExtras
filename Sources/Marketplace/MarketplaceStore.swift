@@ -3,8 +3,7 @@ import FoundationModelsExtras
 import Synchronization
 
 /// Owns every marketplace of a host: the source list, the cache on the disk,
-/// and the layers that the consumer reads (marketplace.md §6.1, §6.2, §7.3,
-/// and §7.6).
+/// and the layers that the consumer reads.
 ///
 /// ``marketplaceLayers()`` reads only the disk, thus a consumer is built with
 /// no network work at all. ``start()`` then brings each git marketplace to its
@@ -26,16 +25,15 @@ import Synchronization
 /// - A `file://` source that names a folder and not a `.git` repository. The
 ///   folder is the layer itself: the store makes no copy, keeps no cache
 ///   entry, and fetches nothing. A consumer that watches its local layers
-///   watches that root the same way (marketplace.md §5.1 and §7.4).
+///   watches that root the same way.
 /// - A git source that the read-only seed folder serves, when the cache holds
-///   no snapshot of it. The store never writes the seed folder
-///   (marketplace.md §7.5).
+///   no snapshot of it. The store never writes the seed folder.
 public actor MarketplaceStore: MarketplaceLayerProviding {
   /// The ref that a source with no branch, tag, or pin follows.
   private static let defaultRef = "HEAD"
 
   /// The folder of a local marketplace that holds its skill folders, for a
-  /// source that names no `path` (marketplace.md §5.1). It is the
+  /// source that names no `path`. It is the
   /// repository convention of the catalog format.
   ///
   /// ``Preparation`` reads it, thus it is `fileprivate` and not `private`.
@@ -64,12 +62,12 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     case git(GitRemote)
 
     /// A folder on this computer, which is the layer root itself. The
-    /// store makes no copy and keeps no cache entry (marketplace.md §5.1).
+    /// store makes no copy and keeps no cache entry.
     case local(root: URL)
 
     /// A git source that the read-only seed folder serves, because the
     /// cache holds no snapshot of it. The store never updates such a
-    /// marketplace (marketplace.md §7.5).
+    /// marketplace.
     case seed(GitRemote, seed: MarketplaceCache)
   }
 
@@ -101,7 +99,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     var layer: MarketplaceLayer
 
     /// The shared lock on the snapshot that `current` names, so that
-    /// cleanup in another process keeps it (marketplace.md §7.6).
+    /// cleanup in another process keeps it.
     var lease: SnapshotLease?
   }
 
@@ -129,14 +127,14 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// timeout measures with.
   ///
   /// The package names no interval and no timeout of its own: the clock
-  /// runs only when the policy gives a value (marketplace.md §8.2 and
-  /// decision 13). A store test gives a manual clock.
+  /// runs only when the policy gives a value. A store test gives a manual
+  /// clock.
   private let clock: any Clock<Duration>
 
   /// The pass that runs now for each marketplace, by list index.
   ///
   /// A second request for a marketplace joins the pass that is already
-  /// there, thus no second remote connection opens (marketplace.md §8.2).
+  /// there, thus no second remote connection opens.
   private var inFlight: [Int: InFlightPass] = [:]
 
   /// The id that the next pass gets. It tells a finished pass from the
@@ -148,7 +146,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   private var intervalLoop: Task<Void, Never>?
 
   /// What the host asked for the pin of one marketplace, on top of the
-  /// `sha` field of its source (marketplace.md §8.3).
+  /// `sha` field of its source.
   private enum PinOverride: Sendable, Equatable {
     /// ``MarketplaceStore/pin(_:sha:)`` named this commit.
     case pinned(String)
@@ -193,7 +191,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// The initializer does no network work and no fetch. It reads the cache
   /// that is already on the disk, thus a consumer that is built right after
-  /// it holds whatever the last run installed (marketplace.md §7.5).
+  /// it holds whatever the last run installed.
   ///
   /// The initializer runs ``MarketplaceIdentity`` over the pre-fetch keys.
   /// When a source has no usable key, or when two sources have the same key,
@@ -222,8 +220,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
 
   /// Creates a store over a source list and one git transport.
   ///
-  /// A store test gives a counting transport and a manual clock here
-  /// (marketplace.md §13).
+  /// A store test gives a counting transport and a manual clock here.
   ///
   /// - Parameters:
   ///   - sources: The marketplaces, in list order.
@@ -234,7 +231,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   - clock: The clock of the periodic check and of the fetch timeout.
   ///     The default is a `ContinuousClock`.
   ///   - environment: The environment that names the read-only seed folder
-  ///     (marketplace.md §7.5). The default is no variable at all.
+  /// . The default is no variable at all.
   public init(
     sources: [MarketplaceSource], layout: MarketplaceLayout, cacheDirectory: URL,
     policy: MarketplacePolicy, transport: any GitTransport,
@@ -264,8 +261,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
         seedState: seedDirectory.map(Self.state(inDirectory:)) ?? MarketplaceState()))
   }
 
-  /// Reads the pin that the host set in an earlier run out of `state.json`
-  /// (marketplace.md §8.3).
+  /// Reads the pin that the host set in an earlier run out of `state.json`.
   ///
   /// - Parameters:
   ///   - prepared: The sources, in list order.
@@ -290,7 +286,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     return overrides
   }
 
-  /// The cache directory that an environment names (marketplace.md §7.1).
+  /// The cache directory that an environment names.
   ///
   /// The value is `SKILLS_MARKETPLACE_CACHE` when it is set and not empty,
   /// else `~/.cache/skills/marketplaces`. The call is a pure function of the
@@ -305,23 +301,21 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     MarketplaceCache.cacheDirectory(environment: environment)
   }
 
-  /// The environment variable that names the cache directory
-  /// (marketplace.md §7.1).
+  /// The environment variable that names the cache directory.
   ///
   /// A host writes it into the environment of a child process, and a test
   /// gives a temporary folder with it, thus the name is part of the public
   /// contract. ``cacheDirectory(environment:)`` reads it.
   public static let cacheDirectoryVariable = MarketplaceCache.cacheVariable
 
-  /// The environment variable that names the read-only seed folder
-  /// (marketplace.md §7.5).
+  /// The environment variable that names the read-only seed folder.
   ///
   /// The folder has the layout of a cache directory. The store reads a
   /// snapshot from it for an offline or a CI install, and never writes it.
   public static let seedDirectoryVariable = MarketplaceCache.seedVariable
 
   /// Reads one listing for each source out of the state file of a cache
-  /// directory (marketplace.md §5.3).
+  /// directory.
   ///
   /// This is the read behind a list command. The call opens no connection,
   /// starts no fetch, and writes nothing, thus it needs no store and no
@@ -374,7 +368,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     updateSubscribers.subscribe()
   }
 
-  /// What the store did with each marketplace (marketplace.md §6.2).
+  /// What the store did with each marketplace.
   ///
   /// Each access registers a subscription of its own, thus two readers each
   /// see every event. A host takes the stream before it calls ``start()``.
@@ -392,7 +386,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
 
   // MARK: - Pins
 
-  /// Pins one marketplace to a commit (marketplace.md §8.3).
+  /// Pins one marketplace to a commit.
   ///
   /// A pinned marketplace never moves to the remote head: an automatic
   /// update and an ``update(_:force:)`` both bring it to the pinned commit
@@ -420,7 +414,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     }
   }
 
-  /// Drops the pin of one marketplace (marketplace.md §8.3).
+  /// Drops the pin of one marketplace.
   ///
   /// The call beats the `sha` field of the source too, thus the next update
   /// fetches the remote head again. It goes into `state.json`, thus a later
@@ -470,7 +464,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// The commit that one marketplace must hold, or `nil` when it follows
-  /// its ref (marketplace.md §8.3).
+  /// its ref.
   ///
   /// - Parameter index: The marketplace.
   /// - Returns: The pin of the host, else the `sha` field of the source.
@@ -488,7 +482,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   // MARK: - The pending snapshot
 
   /// Makes every snapshot that an earlier pass materialized the one that
-  /// the consumer reads (marketplace.md §8.4).
+  /// the consumer reads.
   ///
   /// ``MarketplacePolicy/ApplyUpdates/nextLaunch`` stages a snapshot and
   /// records it in `state.json`. The swap is thus a flag on the disk and no
@@ -617,8 +611,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Checks every git marketplace one time, installs what the policy lets
-  /// it install, and starts the periodic check of the host
-  /// (marketplace.md §7.5, §8.2, and §8.3).
+  /// it install, and starts the periodic check of the host.
   ///
   /// With the default policy the call fetches, materializes, and swaps
   /// `current` for each source whose remote head differs from the snapshot
@@ -634,15 +627,14 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// The call first makes every snapshot that
   /// ``MarketplacePolicy/ApplyUpdates/nextLaunch`` staged in an earlier
   /// pass, or in an earlier run of the host, the one that the consumer
-  /// reads (marketplace.md §8.4).
+  /// reads.
   public func start() async {
     applyPendingSnapshots()
     await runPassOverEverySource()
     startIntervalLoop()
   }
 
-  /// Ends the periodic check and every fetch that runs now
-  /// (marketplace.md §8.2).
+  /// Ends the periodic check and every fetch that runs now.
   ///
   /// The snapshot that `current` names does not change: a cancelled fetch
   /// is a failure, and a failure keeps the last good snapshot.
@@ -655,7 +647,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Reads the remote head of every git marketplace, and downloads no
-  /// content (marketplace.md §8.1).
+  /// content.
   ///
   /// The call publishes ``MarketplaceEvent/checked(id:current:latest:)``
   /// for each marketplace, and
@@ -677,9 +669,9 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// Brings one marketplace, or every marketplace, to its remote head.
   ///
   /// With ``MarketplacePolicy/checkOnly`` the call is a dry run: it reads
-  /// the remote head, reports it, and fetches nothing (marketplace.md
-  /// §8.3). A local folder needs no update, and a marketplace that the seed
-  /// folder serves is never updated (marketplace.md §7.5).
+  /// the remote head, reports it, and fetches nothing. A local folder needs
+  /// no update, and a marketplace that the seed folder serves is never
+  /// updated.
   ///
   /// - Parameters:
   ///   - id: The pre-fetch key or the display id of one marketplace, or
@@ -701,7 +693,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Runs the pass that the policy wants over every marketplace: an update
-  /// when the automatic update is on, else a check (marketplace.md §8.3).
+  /// when the automatic update is on, else a check.
   private func runPassOverEverySource() async {
     let kind: PassKind = policy.autoUpdate ? .update(force: false) : .check
     for index in prepared.indices {
@@ -710,7 +702,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Runs one pass over a marketplace, or joins the pass that already runs
-  /// for it (marketplace.md §8.2).
+  /// for it.
   ///
   /// The wait needs no debounce time: a second request holds the task of
   /// the first, thus it opens no second remote connection.
@@ -741,8 +733,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// The pass that the policy lets a request run.
   ///
   /// ``MarketplacePolicy/checkOnly`` is a dry run: an update request
-  /// becomes a check, thus the store downloads no content
-  /// (marketplace.md §8.3).
+  /// becomes a check, thus the store downloads no content.
   ///
   /// - Parameter kind: The pass that the caller asks for.
   /// - Returns: The pass that runs.
@@ -783,8 +774,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     }
   }
 
-  /// Runs one pass over a marketplace that the read-only seed folder serves
-  /// (marketplace.md §7.5).
+  /// Runs one pass over a marketplace that the read-only seed folder serves.
   ///
   /// A check reads the remote head and writes nothing, thus it runs as it
   /// does for a git marketplace. An update would write, thus it does nothing
@@ -810,7 +800,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// Gives what a pass over a local folder knows, with no work at all.
   ///
   /// The folder is the layer itself, thus there is nothing to fetch and
-  /// nothing to install (marketplace.md §5.1).
+  /// nothing to install.
   ///
   /// - Parameter index: The marketplace.
   /// - Returns: The status of the folder, and no event.
@@ -821,7 +811,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Records that the store does not update a marketplace that the
-  /// read-only seed folder serves (marketplace.md §7.5).
+  /// read-only seed folder serves.
   ///
   /// - Parameters:
   ///   - index: The marketplace.
@@ -855,8 +845,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     }
   }
 
-  /// Reads the remote head of one marketplace and reports it, with no fetch
-  /// (marketplace.md §8.1).
+  /// Reads the remote head of one marketplace and reports it, with no fetch.
   ///
   /// - Parameters:
   ///   - remote: The remote of the marketplace.
@@ -882,8 +871,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     }
   }
 
-  /// Starts the periodic check, when the host gave an interval
-  /// (marketplace.md §8.2 and decision 13).
+  /// Starts the periodic check, when the host gave an interval.
   ///
   /// The package has no interval of its own: with no
   /// ``MarketplacePolicy/checkInterval``, the store makes no check after
@@ -927,7 +915,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// The whole sync holds the exclusive writer lock of the marketplace
   /// folder, thus one writer works on that folder at a time, also across
-  /// processes (marketplace.md §7.6).
+  /// processes.
   ///
   /// - Parameters:
   ///   - remote: The remote of the marketplace.
@@ -948,7 +936,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Fetches the head of one marketplace and installs it, when it differs
-  /// from the snapshot on the disk (marketplace.md §7.3).
+  /// from the snapshot on the disk.
   ///
   /// The caller holds the writer lock and has made the folders.
   ///
@@ -1008,7 +996,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Fetches one commit, materializes it, and either serves it now or keeps
-  /// it for the next launch (marketplace.md §7.3 and §8.4).
+  /// it for the next launch.
   ///
   /// - Parameters:
   ///   - remote: The remote of the marketplace.
@@ -1056,7 +1044,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// A staged snapshot is not the one that the consumer reads yet, thus it
   /// gives ``MarketplaceEvent/updateAvailable(id:from:to:)`` and no layer
-  /// update (marketplace.md §8.4).
+  /// update.
   ///
   /// - Parameters:
   ///   - index: The marketplace.
@@ -1089,7 +1077,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// The package has no timeout of its own: with no
   /// ``MarketplacePolicy/fetchTimeout`` the fetch runs until it ends, or
-  /// until ``stop()`` cancels it (marketplace.md §5.1).
+  /// until ``stop()`` cancels it.
   ///
   /// - Parameters:
   ///   - remote: The remote of the marketplace to fetch.
@@ -1130,7 +1118,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// Reads the commit that the remote head of one marketplace names.
   ///
   /// A pinned marketplace reads it too: ``check()`` reports a newer commit
-  /// even when the pin stops the update (marketplace.md §8.3).
+  /// even when the pin stops the update.
   ///
   /// - Parameter remote: The remote of the marketplace.
   /// - Returns: The commit that the remote head names.
@@ -1153,7 +1141,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   }
 
   /// Reads the catalog of one fetched commit and writes the selected skills
-  /// into a staged folder (marketplace.md §7.3 steps 2 to 4).
+  /// into a staged folder.
   ///
   /// - Parameters:
   ///   - remote: The remote of the marketplace.
@@ -1176,8 +1164,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
       staged: staged, resolved: resolved, diagnostics: resolved.diagnostics + report.diagnostics)
   }
 
-  /// Records a failed sync, and keeps the snapshot that `current` names
-  /// (marketplace.md §7.5).
+  /// Records a failed sync, and keeps the snapshot that `current` names.
   ///
   /// The text of the event is the description of the error. No error of the
   /// transport, of the cache, or of the writer holds a credential.
@@ -1334,8 +1321,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     sourceDiagnostics.withLock { $0[index] = diagnostics }
   }
 
-  /// Makes the finding for a display id that more than one marketplace uses
-  /// (marketplace.md §5.3).
+  /// Makes the finding for a display id that more than one marketplace uses.
   ///
   /// Each source keeps its own layer and its own cache folder. Only the name
   /// that a row shows is the same, thus the finding is a warning.
@@ -1482,9 +1468,9 @@ fileprivate struct Preparation {
     else {
       return
     }
-    // The policy runs before anything touches the disk or the network
-    // (marketplace.md §6.7 and §10 item 2). A refused source gets no
-    // cache folder and no layer, whatever form its URL has.
+    // The policy runs before anything touches the disk or the network. A
+    // refused source gets no cache folder and no layer, whatever form its
+    // URL has.
     if let refusal = policy.refusal(forNormalizedURL: location.normalizedURL) {
       diagnostics.append(Self.refusalDiagnostic(for: refusal, ofSource: source, key: key))
       return
@@ -1497,8 +1483,7 @@ fileprivate struct Preparation {
     }
   }
 
-  /// Prepares a source that names a folder on this computer
-  /// (marketplace.md §5.1).
+  /// Prepares a source that names a folder on this computer.
   ///
   /// The layer root is `<folder>/<path>`, and the `path` field of the source
   /// names it. A source with no `path` reads the `skills` folder, which is
@@ -1533,7 +1518,7 @@ fileprivate struct Preparation {
   }
 
   /// Prepares a git source, and serves it from the read-only seed folder
-  /// when the cache holds no snapshot of it (marketplace.md §7.5).
+  /// when the cache holds no snapshot of it.
   ///
   /// - Parameters:
   ///   - source: The source, as the host wrote it.
@@ -1550,8 +1535,7 @@ fileprivate struct Preparation {
         source: source, key: key, kind: kind(ofRemote: remote, folderName: folderName)))
   }
 
-  /// Tells whether the read-only seed folder serves one git marketplace
-  /// (marketplace.md §7.5).
+  /// Tells whether the read-only seed folder serves one git marketplace.
   ///
   /// The seed folder has the layout of a cache directory. It serves a
   /// marketplace only when the cache of the store holds no snapshot of it,
@@ -1570,8 +1554,7 @@ fileprivate struct Preparation {
     return seed.currentSha() == nil ? .git(remote) : .seed(remote, seed: seed)
   }
 
-  /// Makes the finding for a source that the policy refuses
-  /// (marketplace.md §6.7).
+  /// Makes the finding for a source that the policy refuses.
   ///
   /// The message names the source and the pattern, thus a host reads which
   /// rule stopped which marketplace. It holds no credential: the parser

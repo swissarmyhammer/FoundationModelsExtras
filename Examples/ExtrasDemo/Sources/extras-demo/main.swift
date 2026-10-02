@@ -1,5 +1,5 @@
 // `extras-demo` — the family's living contract test for
-// `FoundationModelsExtras` (plan.md §7): a small runnable that proves the
+// `FoundationModelsExtras`: a small runnable that proves the
 // package's public surface end-to-end, kept compiling forever. Every
 // subcommand's implementation imports `FoundationModelsExtras` the same way
 // any downstream consumer would — a plain `import`, no `@testable` access —
@@ -8,7 +8,7 @@
 
 import ArgumentParser
 
-/// `extras-demo` — one subcommand per pillar: `stack` (`DotfolderStack`),
+/// `extras-demo` — one subcommand per feature: `stack` (`DotfolderStack`),
 /// `render` (the Stencil-backed `TemplateEngine`), `commands` (the
 /// slash-command vocabulary), `agents` (`AgentsMd` discovery), and `config`
 /// (`LayeredYAMLDocument`) — plus `ignore` (`IgnoreProcessor`) and `doctor`

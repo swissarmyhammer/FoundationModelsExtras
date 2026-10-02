@@ -1,7 +1,7 @@
 import Foundation
 
 /// Conformers contribute slash commands to whatever session context they are
-/// registered in (plan.md §2).
+/// registered in.
 ///
 /// Deliberately independent of `FoundationModels.Tool`: a conformer may be a
 /// tool, a companion object, or a pure discovery engine that ships no tool at

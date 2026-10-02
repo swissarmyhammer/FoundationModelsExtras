@@ -1,7 +1,6 @@
 import Foundation
 
-/// A user-invocable `/name` command contributed to an agent session
-/// (plan.md §2).
+/// A user-invocable `/name` command contributed to an agent session.
 ///
 /// Nothing consumer-shaped appears in this type or its neighbors — this
 /// package sits below every consumer in the family's dependency diamond, and
@@ -37,8 +36,8 @@ public struct SlashCommand: Sendable {
   /// tiers by producer:
   ///
   /// - **Data sources** (template files, MCP prompts) may only ever produce
-  ///   `.prompt` — untrusted text stays confined to the templating pillar's
-  ///   rendering rules.
+  ///   `.prompt` — untrusted text stays confined to the untrusted
+  ///   rendering rules of `TemplateEngine`.
   /// - **Linked Swift conformers** — already trusted because they are
   ///   compiled into the process — may additionally produce `.action`
   ///   (streams text, never touches the model) or `.rendered` (renders a
@@ -49,8 +48,8 @@ public struct SlashCommand: Sendable {
   ///   template.
   public enum Body: Sendable {
     /// Expands into an ordinary model turn: the template (rendered by
-    /// Pillar 3, untrusted) plus the user's arguments become the turn's
-    /// prompt. The only body kind data sources may produce.
+    /// `TemplateEngine` as untrusted) plus the user's arguments become the
+    /// turn's prompt. The only body kind data sources may produce.
     case prompt(template: String)
     /// Runs code, streams text output, never touches the model. Only
     /// linked Swift conformers can construct this.

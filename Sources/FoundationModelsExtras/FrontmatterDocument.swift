@@ -2,7 +2,7 @@
 /// that `FrontmatterDocumentStack` gives back for one file.
 ///
 /// `Metadata` is what the consumer decodes the frontmatter text into. The
-/// split holds no knowledge of YAML (plan.md §4): the consumer gives the
+/// split holds no knowledge of YAML: the consumer gives the
 /// decode, and Extras gives a default decode into `YAMLValue`.
 ///
 /// The split itself is `split(text:)`, a purely textual fence recognition.

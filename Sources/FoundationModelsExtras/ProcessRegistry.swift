@@ -2,7 +2,7 @@ import Foundation
 import Synchronization
 
 /// A lock-based registry of live process-group leader pids — the family's
-/// no-leak backstop for spawned process groups (plan.md §5).
+/// no-leak backstop for spawned process groups.
 ///
 /// The owner of a spawned process registers its pid directly after the spawn,
 /// and deregisters it after its own teardown did the group kill and the reap.

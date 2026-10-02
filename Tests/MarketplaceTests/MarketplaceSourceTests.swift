@@ -3,8 +3,9 @@ import Testing
 
 @testable import Marketplace
 
-/// Proves the marketplace source values, the §5.1 URL forms, and the §5.3
-/// identity rules (marketplace.md §5.1, §5.3, and §6.2).
+/// Proves the marketplace source values, the URL forms that a source accepts
+/// (SSH, HTTPS, and `file://`), and the identity rules that give each source
+/// its normalized URL and its cache folder name.
 ///
 /// Every value here is pure: no test reads the disk or the network.
 @Suite("Marketplace source")
@@ -27,7 +28,7 @@ struct MarketplaceSourceTests {
 
   // MARK: - URL forms
 
-  /// Each §5.1 form with the location that it gives.
+  /// Each accepted URL form with the location that it gives.
   private static let validForms: [(String, MarketplaceLocation)] = [
     (sshURL, .git(url: sshURL, ref: nil)),
     ("git@GitHub.COM:swissarmyhammer/skills.git/", .git(url: sshURL, ref: nil)),

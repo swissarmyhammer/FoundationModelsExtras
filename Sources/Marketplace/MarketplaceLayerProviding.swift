@@ -1,7 +1,7 @@
 import Foundation
 import FoundationModelsExtras
 
-/// Where one marketplace skill came from (marketplace.md §9.1).
+/// Where one marketplace skill came from.
 ///
 /// A diagnostic carries this value, so a surface can say which marketplace,
 /// at which commit, a skill came from. The value never carries a
@@ -9,7 +9,7 @@ import FoundationModelsExtras
 /// transport asks for, and it never becomes part of a URL here.
 public struct MarketplaceProvenance: Sendable, Equatable {
   /// The display id of the marketplace: the `name` field of the catalog
-  /// after a fetch, else the pre-fetch key (marketplace.md §5.3).
+  /// after a fetch, else the pre-fetch key.
   public var id: String
 
   /// The `url` field of the source, as the host wrote it.
@@ -43,7 +43,7 @@ public struct MarketplaceProvenance: Sendable, Equatable {
   private static let shortShaLength = 7
 
   /// The text a display row shows for this marketplace, for example
-  /// `swissarmyhammer-skills@1.2.0` (marketplace.md §9.1).
+  /// `swissarmyhammer-skills@1.2.0`.
   ///
   /// The catalog version names the snapshot when the catalog has one.
   /// Without a version, the short commit names it instead, thus a row
@@ -64,7 +64,7 @@ public struct MarketplaceProvenance: Sendable, Equatable {
 }
 
 /// One marketplace as the consumer sees it: a layer root plus the
-/// provenance of what that root holds (marketplace.md §4.2).
+/// provenance of what that root holds.
 ///
 /// The root is the stable `<cache>/<id>/current` path, thus it stays the
 /// same across an update; only the provenance changes.
@@ -87,14 +87,13 @@ public struct MarketplaceLayer: Sendable {
   public static let agentsDirectoryName = "agents"
 
   /// The layer itself. Its source is ``FoundationModelsExtras/DotfolderStack/Source/marketplace``,
-  /// thus it never renders trusted (marketplace.md §4.3).
+  /// thus it never renders trusted.
   public var layer: DotfolderStack.Layer
 
   /// Where the skills under ``layer`` came from.
   public var provenance: MarketplaceProvenance
 
-  /// Whether a file watcher watches ``layer`` as it watches a local layer
-  /// (marketplace.md §7.4).
+  /// Whether a file watcher watches ``layer`` as it watches a local layer.
   ///
   /// It is `true` for a folder on this computer that the provider reads
   /// directly: an edit in that folder is a file-system event like any other.
@@ -123,8 +122,7 @@ public struct MarketplaceLayer: Sendable {
 }
 
 /// What a consumer needs from a marketplace store: the layers it puts below
-/// its local stack, lowest precedence first, and one signal for each change
-/// (marketplace.md §7.4).
+/// its local stack, lowest precedence first, and one signal for each change.
 ///
 /// The consumer stays a pure disk reader. It never fetches, and it never
 /// waits on the network: it reads the layers that the provider names, and it

@@ -2,7 +2,7 @@ import FixtureSupport
 import Foundation
 import libgit2
 
-/// A git repository that a test builds with libgit2 only (marketplace.md §13).
+/// A git repository that a test builds with libgit2 only.
 ///
 /// The fixture never starts the `git` binary. It makes a bare repository in a
 /// new temporary directory, writes blobs and trees from a map of paths,
@@ -94,8 +94,7 @@ public final class GitFixtureRepository {
   private static let keepExistingTag: Int32 = 0
 
   /// The name of the bare repository folder. It ends in `.git`, thus a
-  /// `file://` URL of it is a git source and not a local folder
-  /// (marketplace.md §5.1).
+  /// `file://` URL of it is a git source and not a local folder.
   private static let repositoryDirectoryName = "fixture.git"
 
   /// The bare repository: `<temporary directory>/fixture.git`.

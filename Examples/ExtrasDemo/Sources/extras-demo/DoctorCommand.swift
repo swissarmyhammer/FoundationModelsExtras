@@ -2,13 +2,13 @@ import ArgumentParser
 import Foundation
 import FoundationModelsExtras
 
-/// `extras-demo doctor` — the doctor surface (doctor-plan.md §7): builds a set
-/// of demo `Doctorable` components, runs them through a `DoctorRunner`, and
-/// reports the findings the way a real `doctor` subcommand does.
+/// `extras-demo doctor` — the doctor surface: builds a set of demo
+/// `Doctorable` components, runs them through a `DoctorRunner`, and reports
+/// the findings the way a real `doctor` subcommand does.
 ///
 /// The components are written in this file rather than read off disk, because
-/// two claims of `doctor-plan.md` cannot be proved by a unit test and are the
-/// whole reason this subcommand exists:
+/// a unit test cannot prove two behaviors of the doctor surface, and this
+/// subcommand exists to show them:
 ///
 /// - **The exit code a script reads.** `0`, `1` and `5` reach a caller only
 ///   through a real process, so `--scenario` selects a set of components whose
@@ -18,8 +18,7 @@ import FoundationModelsExtras
 ///   proves that rule from the far end of a real process.
 ///
 /// The report goes to standard error and the `--json` array goes to standard
-/// output, which is the split of `doctor-plan.md` §6: a report is a diagnostic,
-/// and the array is what a script reads.
+/// output: a report is a diagnostic, and the array is what a script reads.
 struct DoctorCommand: AsyncParsableCommand {
     /// This subcommand's command-line configuration.
     static let configuration = CommandConfiguration(
@@ -62,7 +61,7 @@ struct DoctorCommand: AsyncParsableCommand {
     ///
     /// The run ends by throwing `ExitCode(report.exitCode)`. ArgumentParser
     /// gives an `ExitCode` its raw value directly and writes nothing of its
-    /// own for it, `0` included, so the three codes of `doctor-plan.md` §5
+    /// own for it, `0` included, so the three exit codes `0`, `1` and `5`
     /// reach the caller unchanged.
     func run() async throws {
         let runner = DoctorRunner(components: Self.components(for: scenario))

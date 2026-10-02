@@ -2,9 +2,8 @@ import Foundation
 import FoundationModelsExtras
 import Testing
 
-/// Behavioral tests for the doctor report of `doctor-plan.md` §4 and §5: the
-/// worst status of the findings, the exit code a script reads, and the JSON
-/// form the `--json` output writes.
+/// Behavioral tests for `DoctorReport`: the worst status of the findings, the
+/// exit code a script reads, and the JSON form the `--json` output writes.
 ///
 /// The suite imports the module plainly rather than with `@testable`, so it
 /// exercises the same surface a consumer package sees — the tests fail to
@@ -23,7 +22,7 @@ import Testing
         ])
     }
 
-    // MARK: - The exit codes of doctor-plan.md §5
+    // MARK: - The exit codes: 0 all passed, 1 broken, 5 needs attention
 
     @Test func `a report of only passing checks exits zero`() {
         let report = DoctorReport(checks: [DoctorTestSupport.finding(.ok, name: "configuration")])
@@ -69,7 +68,7 @@ import Testing
         #expect(decoded == report)
     }
 
-    /// The `--json` output is one array of findings (doctor-plan.md §6), so the
+    /// The `--json` output is one array of findings that a script reads, so the
     /// report encodes as that array and not as an object that wraps it.
     @Test func `an encoded report is the array of its checks`() throws {
         let report = Self.threeStatusReport()

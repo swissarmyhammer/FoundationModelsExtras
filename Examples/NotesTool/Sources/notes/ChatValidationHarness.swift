@@ -2,16 +2,15 @@ import FoundationModels
 import NotesToolCore
 import Operations
 
-/// Drives the scripted live-model validation `notes --chat` runs, per
-/// plan.md's task 7: op-call accuracy over a scripted prompt set, rendered
+/// Drives the scripted live-model validation `notes --chat` runs:
+/// op-call accuracy over a scripted prompt set, rendered
 /// tool-definition size via `tokenCount(for:)` (including the
 /// `includesSchemaInInstructions` on/off delta), and the retry-cap behavior
 /// on a deliberately invalid request.
 ///
 /// Manual-run only, never part of `swift test`: it needs an Apple
-/// Intelligence-enabled device, which CI does not have (plan.md's
-/// "Toolchain" risk) — `run()` degrades to a skip message off-device instead
-/// of failing.
+/// Intelligence-enabled device, which CI does not have — `run()` degrades
+/// to a skip message off-device instead of failing.
 internal enum ChatValidationHarness {
     /// One scripted prompt and the op the notes tool should be dispatched to
     /// in response.
@@ -141,8 +140,7 @@ internal enum ChatValidationHarness {
 
     /// Sends `deliberatelyInvalidPrompt` to `session` three times in a row,
     /// printing each response so a human can observe the retry cap's
-    /// corrective messages give way to its terminal one (plan.md's "Retry
-    /// cap").
+    /// corrective messages give way to its terminal one.
     ///
     /// - Parameter session: The session to send the probe requests to.
     private static func probeRetryCapBehavior(session: LanguageModelSession) async {

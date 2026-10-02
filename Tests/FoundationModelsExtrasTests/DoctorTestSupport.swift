@@ -3,8 +3,10 @@ import FoundationModelsExtras
 /// The stand-in findings and the exit codes the doctor test suites share.
 ///
 /// `DoctorReportTests` and `DoctorRunnerTests` each build findings, and each
-/// reads the exit codes of `doctor-plan.md` §5. The words and the numbers stand
-/// here one time, so no test file holds a copy of its own.
+/// reads the doctor exit codes: `0` when every check passed, `1` when one
+/// check or more is broken, and `5` when one check or more needs attention and
+/// nothing is broken. The words and the numbers stand here one time, so no
+/// test file holds a copy of its own.
 enum DoctorTestSupport {
     /// What a stand-in finding states, because the doctor tests read the name
     /// and the status of a finding and never its prose.
@@ -17,14 +19,15 @@ enum DoctorTestSupport {
     /// The group every stand-in finding belongs to.
     static let findingCategory = "probe"
 
-    /// The code §5 gives a run in which every check passed.
+    /// The exit code of a run in which every check passed.
     static let passingExitCode: Int32 = 0
 
-    /// The code §5 gives a run that holds one broken check or more.
+    /// The exit code of a run that holds one broken check or more.
     static let brokenExitCode: Int32 = 1
 
-    /// The code §5 gives a run that holds one check or more that needs
-    /// attention, and nothing broken.
+    /// The exit code of a run that holds one check or more that needs
+    /// attention, and nothing broken. It is not `2`, because the CLIs already
+    /// use `2` for a usage error.
     ///
     /// The three codes are written out here rather than read off the report,
     /// so a change to the production constants fails the tests in place of

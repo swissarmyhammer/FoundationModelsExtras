@@ -4,7 +4,7 @@ import Testing
 
 /// Behavioral tests for `TemplateContext` / `TemplateValue`: set/overwrite
 /// semantics on the public surface, and a round-trip of nested array/dict
-/// values through the internal Stencil export (plan.md §4).
+/// values through the internal Stencil export.
 @Suite struct TemplateContextTests {
   @Test func setStoresAStringValue() {
     var context = TemplateContext()

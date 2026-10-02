@@ -1,7 +1,7 @@
 import Foundation
 
 /// The catalog file of a marketplace: `.claude-plugin/marketplace.json`, or
-/// the Codex copy `.agents/plugins/marketplace.json` (marketplace.md §5.2).
+/// the Codex copy `.agents/plugins/marketplace.json`.
 ///
 /// The model decodes only the fields that ``CatalogResolver`` uses. It
 /// ignores all other keys, for example `description`, `category`, and the
@@ -161,8 +161,7 @@ internal struct MarketplaceCatalog: Sendable, Hashable, Decodable {
     }
   }
 
-  /// The name of the marketplace. After a fetch, it is the display id
-  /// (marketplace.md §5.3).
+  /// The name of the marketplace. After a fetch, it is the display id.
   var name: String
 
   /// The owner of the marketplace.

@@ -2,8 +2,8 @@ import Testing
 
 @testable import Marketplace
 
-/// Proves the text of ``MarketplaceTimeoutError`` (marketplace.md §8.2): it
-/// names the fetch timeout of the policy, and it names no URL.
+/// Proves the text of ``MarketplaceTimeoutError``: it names the fetch timeout
+/// of the policy, and it names no URL.
 @Suite("Marketplace timeout error")
 struct MarketplaceTimeoutErrorTests {
   /// The text that marks a URL in an error message.

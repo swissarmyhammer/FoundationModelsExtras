@@ -6,11 +6,11 @@ import FoundationModels
 /// canonical dispatch payload without knowing its concrete type.
 ///
 /// `@Operation`'s macro-generated nested `Command` conforms to this — see
-/// `HasCLICommand` for how the driver reaches it generically. Per plan.md's
-/// handoff on `Command` emission, `operationPayload()` (not `run()`) is the
-/// stable extension point: the driver calls it directly on the parsed
-/// instance and dispatches the result through `AnyOperation.run` itself,
-/// rather than relying on the leaf's own `run()`.
+/// `HasCLICommand` for how the driver reaches it generically.
+/// `operationPayload()` (not `run()`) is the stable extension point: the
+/// driver calls it directly on the parsed instance and dispatches the result
+/// through `AnyOperation.run` itself, rather than relying on the leaf's own
+/// `run()`.
 public protocol OperationCommand: AsyncParsableCommand {
     /// The canonical `op` + fields payload this parsed command represents,
     /// in the identical shape `AnyOperation.run` expects and the model path
@@ -21,10 +21,10 @@ public protocol OperationCommand: AsyncParsableCommand {
 /// An `OperationDefinition` whose `@Operation` macro expansion also emitted
 /// a nested CLI leaf command.
 ///
-/// `OperationDefinition` itself declares no CLI-facing requirement — the
-/// manual escape hatch (plan.md's "Manual escape hatch") has no `Command` to
-/// offer. `HasCLICommand` is the separate, macro-only refinement that lets
-/// generic code (`AnyOperation`'s initializer, in particular) reach a
+/// `OperationDefinition` itself declares no CLI-facing requirement — an
+/// operation that conforms by hand, without `@Operation`, has no `Command`
+/// to offer. `HasCLICommand` is the separate, macro-only refinement that
+/// lets generic code (`AnyOperation`'s initializer, in particular) reach a
 /// macro-generated operation's `Command` type through `commandType` without
 /// naming `CLICommand` directly, since the caller may only have `O.self`
 /// dynamically cast to `any HasCLICommand.Type`.

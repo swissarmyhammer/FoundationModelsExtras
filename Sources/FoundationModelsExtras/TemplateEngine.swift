@@ -2,12 +2,12 @@ import Foundation
 import Stencil
 
 /// Errors thrown by `TemplateEngine.render` — the package's own error type;
-/// no Stencil type ever crosses this boundary (plan.md §4).
+/// no Stencil type ever crosses this boundary.
 public enum TemplateEngineError: Error, Sendable, CustomStringConvertible {
   /// Stencil failed to parse or render the template, or `Trust.untrusted`
   /// validation rejected it before or during rendering — a disallowed
-  /// tag/filter, an include-depth bomb, or an output-size bomb (plan.md
-  /// §4). `message` carries the underlying diagnostic text (Stencil's own
+  /// tag/filter, an include-depth bomb, or an output-size bomb.
+  /// `message` carries the underlying diagnostic text (Stencil's own
   /// location/reason, or this package's own untrusted-validation
   /// description) so consumers get a useful message, with no Stencil (or
   /// other internal) type retained.
@@ -33,7 +33,7 @@ public enum TemplateEngineError: Error, Sendable, CustomStringConvertible {
 /// `description` as its reason — the text survives, only the type is
 /// replaced. Either way, `TemplateEngine.render`'s catch-all re-describes the
 /// failure inside `TemplateEngineError.renderingFailed`, mirroring how
-/// `DotfolderLoaderError` never crosses the facade either (plan.md §4).
+/// `DotfolderLoaderError` never crosses the facade either.
 enum UntrustedTemplateError: Error, Sendable, CustomStringConvertible {
   /// The template used a tag not in `TemplateEngine.untrustedAllowedTags`.
   case tagNotAllowed(tag: String)
@@ -69,7 +69,7 @@ enum UntrustedTemplateError: Error, Sendable, CustomStringConvertible {
   }
 }
 
-/// The Stencil wrap every dotfolder document renders through (plan.md §4):
+/// The Stencil wrap every dotfolder document renders through:
 /// consumers never see a Stencil or PathKit type, only this facade, plain
 /// `String`s, and `TemplateContext`. Implements both the `trusted` path
 /// (full Stencil, no restrictions) and the `untrusted` path (a whitelisted
@@ -81,8 +81,8 @@ public struct TemplateEngine: Sendable {
   public enum Trust: Sendable {
     /// Consumer-shipped defaults: full Stencil, no restrictions.
     case trusted
-    /// User/project-layer files: a restricted `Environment` (plan.md
-    /// §4). Stencil has no filesystem/network/exec capability of its
+    /// User/project-layer files: a restricted `Environment`.
+    /// Stencil has no filesystem/network/exec capability of its
     /// own, so this restriction *is* the whole enforcement surface:
     ///
     /// - **Tag whitelist** — `TemplateEngine.untrustedAllowedTags`
@@ -94,7 +94,7 @@ public struct TemplateEngine: Sendable {
     ///   a branch that would not otherwise execute.
     /// - **Filter whitelist** — `TemplateEngine.untrustedAllowedFilters`,
     ///   which starts *empty*: the swissarmyhammer corpus this package
-    ///   ports (plan.md §4) uses zero filters. Any filter use is
+    ///   ports uses zero filters. Any filter use is
     ///   rejected the same way.
     /// - **Loader confined to the partial locations** — `{% include %}`
     ///   only ever resolves through `DotfolderLoader`'s name-resolution
@@ -138,7 +138,7 @@ public struct TemplateEngine: Sendable {
 
   /// The partials stack passed at construction. When non-`nil`, backs a
   /// `DotfolderLoader` that resolves `{% include %}` through the partial
-  /// locations of its layers (plan.md §4); also consulted here for the
+  /// locations of its layers; also consulted here for the
   /// well-known `dotfolder_name` variable, present only when a stack was
   /// given.
   private let partials: DotfolderStack?
@@ -163,7 +163,7 @@ public struct TemplateEngine: Sendable {
   /// Creates an engine. `partials`, when given, backs the `DotfolderLoader`
   /// that resolves `{% include %}` through the layered `_partials/`
   /// directories, and makes its dotfolder name available as the
-  /// well-known `dotfolder_name` variable (plan.md §4).
+  /// well-known `dotfolder_name` variable.
   public init(partials: DotfolderStack?) {
     self.init(
       partials: partials,
@@ -176,7 +176,7 @@ public struct TemplateEngine: Sendable {
   /// overrides the partial locations, the environment dictionary and the
   /// well-known values the public initializer otherwise derives from the
   /// `_partials/` convention and from real process state. Not part of the
-  /// public surface — plan.md §4 specifies only `init(partials:)`.
+  /// public surface — the only public initializer is `init(partials:)`.
   ///
   /// - Parameters:
   ///   - partials: The stack whose layers hold the partials, or `nil` for
@@ -204,14 +204,14 @@ public struct TemplateEngine: Sendable {
   }
 
   /// Renders `text` as a Stencil template against `context`, with
-  /// variables resolved through the three-rung precedence ladder
-  /// (plan.md §4): `context` beats this engine's environment dictionary
+  /// variables resolved through the three-rung precedence ladder:
+  /// `context` beats this engine's environment dictionary
   /// beats its well-known values.
   ///
   /// - Parameters:
   ///   - text: The raw template text — a whole dotfolder document,
   ///     frontmatter included, rendered before `FrontmatterDocument.split`
-  ///     ever sees it (plan.md §4's whole-file-render-then-parse rule).
+  ///     ever sees it: the whole file renders first, then it is parsed.
   ///   - context: Explicit values, the ladder's highest rung.
   ///   - trust: `.trusted` for consumer-shipped defaults: full Stencil, no
   ///     restrictions. `.untrusted` for user/project-layer files: validated
@@ -271,8 +271,8 @@ public struct TemplateEngine: Sendable {
 
   /// Builds the `[String: Any]` dictionary Stencil consumes: well-known
   /// values lowest, this engine's environment dictionary next, `explicit`
-  /// highest — built lowest-first and overlaid upward, per plan.md §4's
-  /// precedence ladder.
+  /// highest — built lowest-first and overlaid upward, so a
+  /// higher rung always wins.
   private func mergedDictionary(explicit context: TemplateContext) -> [String: Any] {
     let wellKnownContext = TemplateContext(values: wellKnownValues.templateValues)
     let environmentContext = TemplateContext(values: environment.mapValues { .string($0) })
@@ -290,7 +290,7 @@ extension TemplateEngine {
   /// plus the branch and closing keywords those two control-flow tags
   /// need. Any other tag — including Stencil's own `extends`, `block`,
   /// `filter`, `now`, `break`, `continue`, and `ifnot` — fails validation
-  /// before any rendering begins (plan.md §4).
+  /// before any rendering begins.
   static let untrustedAllowedTags: Set<String> = [
     "if", "elif", "else", "endif",
     "for", "empty", "endfor",
@@ -298,7 +298,7 @@ extension TemplateEngine {
   ]
 
   /// The Stencil filters `Trust.untrusted` permits: none. The
-  /// swissarmyhammer corpus this package ports (plan.md §4) survey found
+  /// survey of the swissarmyhammer corpus this package ports found
   /// zero filters in use, so untrusted validation starts from the
   /// narrowest possible whitelist; widening it to cover a real consumer
   /// need is a one-line addition here.
@@ -307,13 +307,13 @@ extension TemplateEngine {
   /// The maximum `{% include %}` nesting depth `Trust.untrusted` permits
   /// before failing with a descriptive error — the untrusted path's
   /// defense against a self- or mutually including partial recursing
-  /// without bound (plan.md §4).
+  /// without bound.
   static let untrustedIncludeDepthLimit = 8
 
   /// The maximum size, in UTF-8 bytes, a `Trust.untrusted` render's
   /// output may reach before failing with a descriptive error — the
   /// untrusted path's defense against an output-size bomb, e.g. a
-  /// `{% for %}` over a huge collection (plan.md §4).
+  /// `{% for %}` over a huge collection.
   static let untrustedOutputSizeLimit = 1 << 20  // 1 MiB
 
   /// The maximum total number of `{% for %}` iterations a
@@ -323,7 +323,7 @@ extension TemplateEngine {
   /// check (`validateForLoopRange`) can see, and an empty-bodied nest
   /// produces no output for `untrustedOutputSizeLimit` to catch. Debited
   /// by `RestrictedForNode` per candidate value examined (pre-`where`)
-  /// at render time (plan.md §4).
+  /// at render time.
   static let untrustedIterationLimit = 100_000
 
   /// Rejects `text` under `Trust.untrusted`'s whitelist before any
@@ -344,7 +344,7 @@ extension TemplateEngine {
   /// `{{ ... | filter }}` filter against `untrustedAllowedFilters`. Runs
   /// over lexed tokens rather than parsed nodes, so a disallowed
   /// construct is caught even inside a branch that would not otherwise
-  /// render (e.g. a `{% for %}` body that never executes) (plan.md §4).
+  /// render (e.g. a `{% for %}` body that never executes).
   ///
   /// - Throws: `UntrustedTemplateError.tagNotAllowed` or
   ///   `.filterNotAllowed`.
@@ -378,8 +378,7 @@ extension TemplateEngine {
   /// completion. A `{% for %}` over a context-provided collection (whose
   /// size the template author does not control) is unaffected by this
   /// check — it is caught, if it produces too much text, by the
-  /// whole-render output-size check once rendering completes (plan.md
-  /// §4).
+  /// whole-render output-size check once rendering completes.
   ///
   /// - Throws: `UntrustedTemplateError.outputTooLarge` when a literal
   ///   range's span exceeds `untrustedOutputSizeLimit`.
@@ -481,7 +480,7 @@ final class RestrictedTagsExtension: Extension {
 
 /// `Trust.untrusted`'s replacement for Stencil's own `{% include %}` node:
 /// the same argument syntax and `DotfolderLoader` resolution as the trusted
-/// path, plus two protections the trusted path skips (plan.md §4):
+/// path, plus two protections the trusted path skips:
 /// `TemplateEngine.untrustedIncludeDepthLimit` (a self- or mutually
 /// including partial cannot recurse without bound) and re-running the
 /// untrusted tag/filter whitelist over the loaded partial's own tokens (a
@@ -586,7 +585,7 @@ final class RestrictedIncludeNode: NodeType {
 /// sibling includes at the same nesting level (e.g. many `{% include %}`
 /// calls driven by one `{% for %}`) see each other's contribution instead
 /// of each starting a fresh budget — closing the amplification gap a
-/// per-include check alone would miss (plan.md §4).
+/// per-include check alone would miss.
 final class OutputSizeBudget {
   /// The number of UTF-8 bytes every include this render has resolved
   /// has produced so far, summed.
@@ -598,8 +597,7 @@ final class OutputSizeBudget {
 /// `Context` by `TemplateEngine.render` and found by every
 /// `RestrictedForNode` via reference (not value) semantics, so nested loops
 /// (whose iteration counts *multiply*, invisible to any per-token
-/// pre-render check) and sibling loops all draw down one budget
-/// (plan.md §4).
+/// pre-render check) and sibling loops all draw down one budget.
 final class IterationBudget {
   /// Iterations executed so far, summed across every loop this render.
   var consumedIterations = 0
@@ -611,7 +609,7 @@ final class IterationBudget {
 /// `{% empty %}` branches, `forloop` metadata; a leading label is parsed
 /// and discarded, since `break`/`continue` are not whitelisted untrusted
 /// and labels have no other observable effect) — plus the two protections
-/// Stencil's own implementation has no hook for (plan.md §4):
+/// Stencil's own implementation has no hook for:
 ///
 /// - **Iteration budget** — every loop debits the shared
 ///   `IterationBudget` by its full *candidate* count as soon as its
@@ -877,7 +875,7 @@ final class RestrictedForNode: NodeType {
 }
 
 /// The well-known system variables backing the precedence ladder's lowest
-/// rung (plan.md §4): dotfolder name (present only when a `partials` stack
+/// rung: dotfolder name (present only when a `partials` stack
 /// was given), working directory, date, and hostname. Plain data that a
 /// caller can supply — `current(partials:)` derives the real values that
 /// `TemplateEngine`'s `init(partials:)` uses; a consumer that must pin the

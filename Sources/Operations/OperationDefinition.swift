@@ -6,9 +6,8 @@ import FoundationModels
 /// Conforming types are ordinarily produced by the `@Operation` macro over a
 /// `@Generable` struct — the macro reads the stored properties to synthesize
 /// `parameterMetadata` and emits the verb/noun/description statics. Direct,
-/// hand-written conformance is always possible too (see plan.md's "Manual
-/// escape hatch"): implement `Generable` yourself and supply the statics and
-/// `execute(in:)`.
+/// hand-written conformance is always possible too, without the macro:
+/// implement `Generable` yourself and supply the statics and `execute(in:)`.
 ///
 /// `Generable` supplies typed decoding from a `GeneratedContent` payload
 /// (`init(_:)`, inherited via `ConvertibleFromGeneratedContent`) and the

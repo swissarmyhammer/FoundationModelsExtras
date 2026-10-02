@@ -5,11 +5,12 @@ import Testing
 
 @testable import FoundationModelsExtras
 
-/// Behavioral tests for `Trust.untrusted` (plan.md §4): the tag/filter
-/// whitelist, the loader's confinement to `_partials/`, the include-depth
-/// limit, and the output-size limit — every acceptance criterion for the
-/// restricted `Environment`, including the trusted-vs-untrusted contrast on
-/// the same template text.
+/// Behavioral tests for `Trust.untrusted`, the mode for template text that the
+/// program does not ship itself (for example a file in a user or project
+/// layer): the tag/filter whitelist, the loader's confinement to
+/// `_partials/`, the include-depth limit, and the output-size limit — every
+/// rule of the restricted `Environment`, including the trusted-vs-untrusted
+/// contrast on the same template text.
 @Suite struct UntrustedRenderingTests {
   /// A throwaway single-layer directory tree with its own `_partials/`,
   /// cleaned up when the test ends (the OS reclaims the temp directory;

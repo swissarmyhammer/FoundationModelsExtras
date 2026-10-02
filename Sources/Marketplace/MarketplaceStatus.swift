@@ -1,4 +1,4 @@
-/// What a check of one marketplace found (marketplace.md §8.1).
+/// What a check of one marketplace found.
 ///
 /// A check is a cheap remote query: it reads the commit that the remote head
 /// names and compares it with the snapshot on the disk. It downloads no skill

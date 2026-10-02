@@ -4,12 +4,12 @@ import Testing
 
 @testable import FoundationModelsExtras
 
-/// Behavioral tests for `LayeredYAMLDocument`: the family's one
-/// layered-merge rule (plan.md §11) — scalar/array wholesale replacement
-/// vs section merge-by-key across three fixture layers, per-key source
-/// tracking, the malformed-layer hard error naming file and line, templated
-/// values resolved per layer before merge, and the `YAMLValue` Codable
-/// round-trip. Every test builds its own throwaway `defaults/`/`user/`/
+/// Behavioral tests for `LayeredYAMLDocument`: the one layered-merge rule
+/// that every consumer of this package shares — scalar/array wholesale
+/// replacement vs section merge-by-key across three fixture layers, per-key
+/// source tracking, the malformed-layer hard error naming file and line,
+/// templated values resolved per layer before merge, and the `YAMLValue`
+/// Codable round-trip. Every test builds its own throwaway `defaults/`/`user/`/
 /// `project/` tree under a temp directory (mirroring `DotfolderStackTests`'
 /// `Fixture`) so nothing ever touches the real home directory.
 @Suite struct LayeredYAMLDocumentTests {

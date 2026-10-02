@@ -2,12 +2,13 @@ import FixtureSupport
 import Foundation
 import Testing
 
-/// Guards the dependency budget of plan.md §5 (decision 2026-09-19): libgit2
-/// is a package dependency of the `Marketplace` target only. The core
-/// `FoundationModelsExtras` target does not depend on it, and the git fixture
-/// builder is a product that the `FoundationModelsSkills` tests can import.
-/// It also guards that swift-distributed-tracing links to the core target
-/// only (decision 2026-09-26).
+/// Guards the dependency limits of the package: libgit2 is a package
+/// dependency of the `Marketplace` target only. The core
+/// `FoundationModelsExtras` target does not depend on it, because each
+/// consumer of the core target would then compile the C library from source.
+/// The git fixture builder is a product that the `FoundationModelsSkills`
+/// tests can import. The suite also guards that swift-distributed-tracing
+/// links to the core target only.
 ///
 /// The suite reads `Package.swift` as text from the package root. A manifest
 /// evaluation through `swift package` starts a process and needs the

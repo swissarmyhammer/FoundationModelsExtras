@@ -7,8 +7,8 @@ import libgit2
 @testable import Marketplace
 
 /// Proves the libgit2 ``LibGit2Transport`` against fixture repositories over
-/// `file://` URLs (marketplace.md §5.1 and §13), and the read of a fetched
-/// commit tree through ``GitTreeFileSource``.
+/// `file://` URLs, and the read of a fetched commit tree through
+/// ``GitTreeFileSource``.
 ///
 /// Each fixture is a repository that ``GitFixtureRepository`` builds with
 /// libgit2, thus the suite needs no network and no `git` binary.

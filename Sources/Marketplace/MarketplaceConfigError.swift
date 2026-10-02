@@ -1,7 +1,6 @@
 import Foundation
 
-/// Why ``MarketplaceConfig`` cannot read one `marketplaces.yaml` file
-/// (marketplace.md §6.3).
+/// Why ``MarketplaceConfig`` cannot read one `marketplaces.yaml` file.
 ///
 /// The error names the file, so a host can tell the user which file to
 /// correct.

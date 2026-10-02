@@ -33,17 +33,16 @@ extension SchemaFusionError: CustomStringConvertible {
 /// to the model, from the `AnyOperation` metadata of every operation it
 /// carries.
 ///
-/// Per plan.md's "Schema fusion — DECIDED": one object schema with a
-/// required `op` string enum (every operation's `opString`, in `operations`
-/// order) plus the union of every operation's fields, all declared
-/// `isOptional`. Per-operation requiredness is enforced at dispatch instead
-/// of by the schema (see `OperationError`) — the decided design trades
-/// schema-level requiredness for a schema roughly the size of one
-/// operation's fields instead of `operations.count` copies of them, and
-/// sidesteps an Apple-confirmed enum-enforcement bug on discriminated
-/// `anyOf`-of-object schemas. Fields sharing a name across operations are
-/// declared once: the first operation (in `operations` order) to declare a
-/// name wins that property's description on collision. Field order is
+/// The schema is one object schema with a required `op` string enum (every
+/// operation's `opString`, in `operations` order) plus the union of every
+/// operation's fields, all declared `isOptional`. Per-operation requiredness
+/// is enforced at dispatch instead of by the schema (see `OperationError`).
+/// This design trades schema-level requiredness for a schema roughly the
+/// size of one operation's fields instead of `operations.count` copies of
+/// them, and sidesteps an Apple-confirmed enum-enforcement bug on
+/// discriminated `anyOf`-of-object schemas. Fields sharing a name across
+/// operations are declared once: the first operation (in `operations` order)
+/// to declare a name wins that property's description on collision. Field order is
 /// deterministic: by the index of the first operation to declare each name,
 /// then alphabetically among names first declared by the same operation.
 public enum SchemaFusion {
@@ -150,14 +149,13 @@ fileprivate struct FirstSeenField {
 /// Maps a `ParamMeta.type` to the `DynamicGenerationSchema` FoundationModels
 /// uses to constrain that field's generated value.
 ///
-/// Deliberately does not consult `ParamMeta.allowedValues`: per plan.md's
-/// "Schema fusion — DECIDED", the fused schema's job is the flat-union
-/// shape and the `op` discriminator, not per-field value constraints — and
-/// the same enum-enforcement bug that ruled out a discriminated-`anyOf`
-/// schema (see `SchemaFusion`'s type-level documentation) would make an
-/// `allowedValues`-derived `anyOf` here just as unenforced. Closed-set
-/// values are still validated at dispatch time, where `ParamMeta` remains
-/// available.
+/// Deliberately does not consult `ParamMeta.allowedValues`: the fused
+/// schema's job is the flat-union shape and the `op` discriminator, not
+/// per-field value constraints — and the same enum-enforcement bug that
+/// ruled out a discriminated-`anyOf` schema (see `SchemaFusion`'s
+/// type-level documentation) would make an `allowedValues`-derived `anyOf`
+/// here just as unenforced. Closed-set values are still validated at
+/// dispatch time, where `ParamMeta` remains available.
 private func dynamicSchema(for type: ParamType) -> DynamicGenerationSchema {
     switch type {
     case .string:

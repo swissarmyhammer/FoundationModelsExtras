@@ -24,7 +24,7 @@ public enum AgentsMdError: Error, Sendable, CustomStringConvertible {
 }
 
 /// Discovery of `AGENTS.md` agent-instructions files
-/// ([agents.md](https://agents.md/)), plan.md §10 (Pillar 4).
+/// ([agents.md](https://agents.md/)).
 ///
 /// [agents.md](https://agents.md/) defines `AGENTS.md` as "a README for
 /// agents: a dedicated, predictable place to provide the context and

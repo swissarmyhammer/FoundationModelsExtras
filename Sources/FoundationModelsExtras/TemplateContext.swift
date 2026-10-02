@@ -1,5 +1,5 @@
 /// A value stored in a `TemplateContext`, covering the shapes templated
-/// dotfolder content needs (plan.md §4): strings, numbers, booleans, and
+/// dotfolder content needs: strings, numbers, booleans, and
 /// arrays/dictionaries of the same, recursively.
 public enum TemplateValue: Sendable {
   /// A text value.
@@ -33,7 +33,7 @@ public enum TemplateValue: Sendable {
 
 /// A bag of named values passed into `TemplateEngine.render`. Explicit
 /// `TemplateContext` values are the highest rung of the swissarmyhammer
-/// variable-precedence ladder (plan.md §4) — above environment variables and
+/// variable-precedence ladder — above environment variables and
 /// well-known system variables — a precedence the engine enforces, not this
 /// type; `TemplateContext` itself is just storage.
 public struct TemplateContext: Sendable {
@@ -59,7 +59,7 @@ public struct TemplateContext: Sendable {
 
   /// Exports the stored values as a `[String: Any]` dictionary — the shape
   /// Stencil's `Context` consumes. Internal: only the `TemplateEngine`
-  /// facade (a later task) bridges into Stencil; consumers of this package
+  /// facade bridges into Stencil; consumers of this package
   /// never see `Any`.
   func stencilDictionary() -> [String: Any] {
     values.mapValues(\.stencilValue)

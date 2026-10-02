@@ -210,8 +210,7 @@ enum MarketplaceTestSupport {
   }
 }
 
-/// Tells whether a shared lock holds one snapshot folder (marketplace.md
-/// §7.6).
+/// Tells whether a shared lock holds one snapshot folder.
 ///
 /// `MarketplaceCacheTests` proves the lease itself, and a store test proves
 /// which snapshot the store leases. Thus the probe is here, and not in one

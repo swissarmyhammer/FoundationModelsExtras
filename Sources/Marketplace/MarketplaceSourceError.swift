@@ -1,10 +1,9 @@
-/// Why a ``MarketplaceSource`` gives no location or no pre-fetch key
-/// (marketplace.md §5.1 and §5.3).
+/// Why a ``MarketplaceSource`` gives no location or no pre-fetch key.
 internal enum MarketplaceSourceError: Error, Equatable, Sendable {
   /// The URL is empty.
   case emptyURL
 
-  /// The URL is not one of the §5.1 forms.
+  /// The URL is not one of the forms of ``MarketplaceSource/url``.
   case unsupportedForm
 
   /// The URL has no host.

@@ -2,10 +2,9 @@ import ArgumentParser
 import FoundationModels
 import Operations
 
-/// An error raised while assembling an `OperationCLIDriver`'s registry —
-/// plan.md's "startup assertion pass" over duplicate names and malformed
-/// input, caught once at `OperationCLIDriver.init` rather than at first
-/// parse.
+/// An error raised while assembling an `OperationCLIDriver`'s registry.
+/// The driver checks for duplicate names and malformed input once, at
+/// startup in `OperationCLIDriver.init`, rather than at first parse.
 public enum OperationCLIDriverError: Error, Sendable, Equatable {
     /// Two or more tools passed to `OperationCLIDriver` share a `name`.
     case duplicateToolName(String)
@@ -149,7 +148,7 @@ internal enum CLIRegistryBuilder {
     }
 
     /// `operation`'s macro-generated leaf type, or a synthesized
-    /// `FallbackOperationCommand` for the manual escape hatch.
+    /// `FallbackOperationCommand` for an operation that conforms by hand.
     private static func leafCommandType(for operation: CLIOperation) -> ParsableCommand.Type {
         operation.commandType ?? openedType(for: operation.definitionType, kind: .fallbackLeaf)
     }

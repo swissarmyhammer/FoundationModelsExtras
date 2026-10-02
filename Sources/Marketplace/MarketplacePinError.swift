@@ -1,4 +1,4 @@
-/// Why a store cannot pin or unpin a marketplace (marketplace.md §8.3).
+/// Why a store cannot pin or unpin a marketplace.
 ///
 /// No message holds a URL or a credential: it names only the id that the host
 /// gave.
@@ -10,7 +10,7 @@ public enum MarketplacePinError: Error, Equatable, Sendable {
   case unknownMarketplace(id: String)
 
   /// The marketplace is a folder on this computer. The folder is the layer
-  /// itself, thus it has no commit to pin (marketplace.md §5.1).
+  /// itself, thus it has no commit to pin.
   ///
   /// - Parameter id: The id of the marketplace.
   case notAGitMarketplace(id: String)

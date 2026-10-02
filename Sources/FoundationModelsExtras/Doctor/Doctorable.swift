@@ -3,9 +3,9 @@
 ///
 /// Each component writes its own checks, because it is the only part that knows
 /// its subject matter. This package holds the vocabulary and the runner, and it
-/// never learns what a model or an MCP server is (doctor-plan.md §7).
+/// never learns what a model or an MCP server is.
 ///
-/// ``runHealthChecks()`` returns and does not throw (doctor-plan.md §4). A
+/// ``runHealthChecks()`` returns and does not throw. A
 /// check that cannot run is a finding rather than an error: it reports
 /// ``HealthCheck/error(name:message:fix:category:)`` with the reason in its
 /// message, so one broken check never stops the other checks.

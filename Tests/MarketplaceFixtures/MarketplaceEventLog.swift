@@ -1,7 +1,6 @@
 import Marketplace
 
-/// Records the events of a ``MarketplaceStore`` and lets a test wait for one
-/// (marketplace.md §6.2).
+/// Records the events of a ``MarketplaceStore`` and lets a test wait for one.
 ///
 /// A test takes the stream before it calls `start()`, thus the log holds every
 /// event of the run. The wait follows the events themselves, thus no test

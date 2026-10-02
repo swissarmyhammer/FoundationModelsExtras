@@ -4,10 +4,10 @@ import SwiftSyntax
 import Testing
 import TestSupport
 
-/// Enforces plan.md task 8's "DocC comments on public API" requirement:
-/// every `public` declaration in `Sources/Operations` and
-/// `Sources/OperationsCLI` must have a `///` doc comment directly attached to
-/// it (per the codebase's own established convention — see e.g.
+/// Enforces the rule that the public API has DocC comments: every `public`
+/// declaration in `Sources/Operations` and `Sources/OperationsCLI` must
+/// have a `///` doc comment directly attached to it (per the codebase's own
+/// established convention — see e.g.
 /// `Sources/Operations/AnyOperation.swift`).
 ///
 /// Regression coverage for `DocCoverageScanner` itself lives in

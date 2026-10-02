@@ -3,8 +3,8 @@ import FoundationModels
 import Operations
 
 /// The CLI leaf `CLIRegistryBuilder` synthesizes for a manually-conformed
-/// (macro-less) `OperationDefinition` — plan.md's "Manual escape hatch" has
-/// no `@Operation`-generated `Command`, so this is the fallback.
+/// (macro-less) `OperationDefinition`. Such an operation has no
+/// `@Operation`-generated `Command`, so this is the fallback.
 ///
 /// Generic over `Rep: OperationDefinition` for the same reason as
 /// `NounNode`/`ToolNode`: ArgumentParser needs a distinct nominal type per
@@ -17,8 +17,9 @@ import Operations
 /// compile time): every argument is captured into `rawArguments` and
 /// resolved against `Rep.parameterMetadata` by `FallbackPayloadBuilder` at
 /// `operationPayload()` time. This is strictly less capable than the macro
-/// path — no combined short flags, no per-flag shell completion — which is
-/// exactly the trade-off plan.md's "Manual escape hatch" accepts.
+/// path — no combined short flags, no per-flag shell completion. This is an
+/// accepted trade-off: a hand-conformed operation still gets a working CLI
+/// leaf without the macro.
 internal struct FallbackOperationCommand<Rep: OperationDefinition>: AsyncParsableCommand, OperationCommand {
     internal static var configuration: CommandConfiguration {
         CommandConfiguration(

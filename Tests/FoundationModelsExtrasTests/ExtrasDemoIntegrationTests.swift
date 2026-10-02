@@ -1,7 +1,7 @@
 // `ExtrasDemoIntegrationTests` — the living contract test for
-// `Examples/ExtrasDemo` (plan.md §7): launches the built `extras-demo`
-// executable as a subprocess and asserts on its output streams and exit codes
-// for every acceptance criterion on the `Examples/ExtrasDemo` kanban task.
+// `Examples/ExtrasDemo`: launches the built `extras-demo` executable as a
+// subprocess and asserts on its output streams and exit codes for every
+// behavior that each `extras-demo` subcommand shows.
 //
 // Deliberately a plain `import FoundationModelsExtras` with no `@testable`:
 // the point of this suite is to prove the example's own construction path —

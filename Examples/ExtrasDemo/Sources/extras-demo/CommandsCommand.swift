@@ -2,9 +2,9 @@ import ArgumentParser
 import Foundation
 import FoundationModelsExtras
 
-/// `extras-demo commands` — pillar 1 (plan.md §7): registers a demo
+/// `extras-demo commands` — slash commands: registers a demo
 /// `SlashCommandProviding` with one `.prompt` command (rendered through the
-/// templating pillar before display) and one `.action` command (streams a
+/// `TemplateEngine` before display) and one `.action` command (streams a
 /// few lines), invokes both, then ticks `commandUpdates` and prints the
 /// re-published set — the exact consumption pattern a command
 /// registry uses.

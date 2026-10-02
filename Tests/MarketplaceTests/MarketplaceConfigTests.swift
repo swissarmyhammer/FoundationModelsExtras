@@ -5,8 +5,7 @@ import Marketplace
 import Testing
 
 /// Proves how `MarketplaceConfig` reads `marketplaces.yaml` from the user and
-/// project layers, merges the two lists, and writes a file back
-/// (marketplace.md §6.3).
+/// project layers, merges the two lists, and writes a file back.
 ///
 /// Each test makes its own temporary stack, so no test reads the real home
 /// folder or the files of another test.

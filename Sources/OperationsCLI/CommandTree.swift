@@ -1,7 +1,8 @@
 import ArgumentParser
 import Operations
 
-/// The dual-use CLI's root command.
+/// The root command of the CLI that `OperationCLIDriver` builds from the
+/// same operations a model calls.
 ///
 /// `AsyncParsableCommand` so `OperationCLIDriver` can drive the whole
 /// (possibly async, since every leaf is) tree via `asyncParseAsRoot`. A
@@ -38,8 +39,7 @@ internal struct RootCommand: AsyncParsableCommand {
 /// key the same registry entry, since the key only ever identifies *which
 /// group*, never anything about the witness type itself).
 ///
-/// See plan.md's "generic `NounNode<Rep>` instantiated per noun via opened
-/// existentials": `CLIRegistryBuilder` opens each group's representative
+/// `CLIRegistryBuilder` opens each group's representative
 /// `any OperationDefinition.Type` to produce a distinct `NounNode<Rep>.self`
 /// metatype per noun, entirely at registry-build time — this type itself
 /// never opens anything.

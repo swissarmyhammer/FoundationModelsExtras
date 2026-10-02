@@ -1,7 +1,6 @@
 import Foundation
 
-/// A snapshot that the store materialized but does not serve yet
-/// (marketplace.md §8.4).
+/// A snapshot that the store materialized but does not serve yet.
 ///
 /// ``MarketplacePolicy/ApplyUpdates/nextLaunch`` writes this record. The
 /// snapshot folder is already under `snapshots/`, and the next
@@ -20,7 +19,7 @@ internal struct MarketplacePendingSnapshot: Sendable, Hashable, Codable {
   var displayID: String?
 }
 
-/// What the cache knows about one marketplace (marketplace.md §7.2).
+/// What the cache knows about one marketplace.
 ///
 /// Every field but ``url`` is optional, because a record starts before the
 /// first fetch: the store writes the url, and it fills the rest in as it
@@ -34,7 +33,7 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
   var ref: String?
 
   /// The commit that ``MarketplaceStore/pin(_:sha:)`` named, or `nil` when
-  /// the host pinned nothing (marketplace.md §8.3).
+  /// the host pinned nothing.
   ///
   /// The `sha` field of a source is a pin too, but it lives in the
   /// configuration of the host and not here. This field is the pin that the
@@ -42,14 +41,14 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
   var pinnedSha: String?
 
   /// Whether ``MarketplaceStore/unpin(_:)`` dropped the pin, or `nil` when
-  /// the host never called it (marketplace.md §8.3).
+  /// the host never called it.
   ///
   /// An unpin beats the `sha` field of the source too, thus the flag says
   /// more than an empty ``pinnedSha``: a later run follows the ref again.
   var unpinned: Bool?
 
   /// The snapshot that the store materialized and does not serve yet, or
-  /// `nil` when nothing waits (marketplace.md §8.4).
+  /// `nil` when nothing waits.
   var pending: MarketplacePendingSnapshot?
 
   /// The commit of the snapshot that `current` names, or `nil` before the
@@ -64,7 +63,7 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
   /// the current snapshot, or `nil` before the first fetch.
   ///
   /// A new process reads it, thus a row shows the same name across a
-  /// restart, with no fetch (marketplace.md §5.3).
+  /// restart, with no fetch.
   var displayID: String?
 
   /// When the store last asked the remote for its head, or `nil` when it
@@ -114,8 +113,7 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
   }
 }
 
-/// The `state.json` file of the cache: one record for each marketplace
-/// (marketplace.md §7.2).
+/// The `state.json` file of the cache: one record for each marketplace.
 ///
 /// The file sits beside the marketplace folders, at
 /// `<cache>/state.json`. ``MarketplaceCache/stateFile(inCacheDirectory:)``

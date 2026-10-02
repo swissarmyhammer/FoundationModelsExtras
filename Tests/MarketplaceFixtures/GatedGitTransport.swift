@@ -2,7 +2,7 @@ import Foundation
 import Marketplace
 
 /// A ``GitTransport`` that holds a call until the test releases it, or until
-/// the task of the call is cancelled (marketplace.md §13).
+/// the task of the call is cancelled.
 ///
 /// The gate wraps another transport, thus it adds no counting of its own: a
 /// test puts it over ``RecordingGitTransport`` and reads the counts there.

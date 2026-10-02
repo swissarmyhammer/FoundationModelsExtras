@@ -1,12 +1,11 @@
 import Foundation
 
-/// The git operations that the marketplace store needs (marketplace.md §5.1,
-/// decision 10).
+/// The git operations that the marketplace store needs.
 ///
 /// The package never starts the `git` binary. ``LibGit2Transport`` does this
 /// work with libgit2. The protocol is public: the store gets a
 /// `GitTransport` value, and a store test in another package gives a counting
-/// double instead (marketplace.md §13), which `@testable import` cannot do
+/// double instead, which `@testable import` cannot do
 /// across a package boundary. A change of the libgit2 package changes only
 /// the concrete type.
 ///

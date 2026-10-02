@@ -1,6 +1,6 @@
-/// The shape of a marketplace tree, as the host names it (marketplace.md
-/// §5.2): the document that marks an entry folder, the folder names that a
-/// scan skips, and the folder that holds the partials of an entry.
+/// The shape of a marketplace tree, as the host names it: the document that
+/// marks an entry folder, the folder names that a scan skips, and the folder
+/// that holds the partials of an entry.
 ///
 /// This package does not know what an entry is. The host names its format,
 /// thus the catalog resolver finds the entries of any dotfolder family. The

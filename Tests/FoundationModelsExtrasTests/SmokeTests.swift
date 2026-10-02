@@ -11,9 +11,8 @@ import Testing
 /// and that the package's test target executes — no tautological runtime
 /// assertion is needed.
 ///
-/// Real behavioral tests for the slash-command, dotfolder-stack, and
-/// templating pillars replace this smoke test alongside their implementation
-/// in subsequent tasks.
+/// The behavioral tests of each feature (for example `SlashCommandTests`,
+/// `DotfolderStackTests` and `TemplateEngineTests`) are in their own files.
 @Suite struct SmokeTests {
   @Test func moduleImportsCleanlyAndTestTargetRuns() {}
 }

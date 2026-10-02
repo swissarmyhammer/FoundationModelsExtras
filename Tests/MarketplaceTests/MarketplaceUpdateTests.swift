@@ -5,7 +5,7 @@ import Testing
 @testable import Marketplace
 
 /// Tests for the update checks and the automatic update of
-/// ``MarketplaceStore`` (marketplace.md §8.1 to §8.3, decisions 13 and 15).
+/// ``MarketplaceStore``.
 ///
 /// The package holds no time value of its own. Thus no test here waits for
 /// real time: the store gets a ``ManualClock``, and each assertion follows an

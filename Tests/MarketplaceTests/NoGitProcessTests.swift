@@ -2,8 +2,8 @@ import FixtureSupport
 import Foundation
 import Testing
 
-/// Guards marketplace.md decision 10: the package never starts the `git`
-/// binary. Git work goes through libgit2 behind `GitTransport`.
+/// Guards the rule that the package never starts the `git` binary. Git work
+/// goes through libgit2 behind `GitTransport`.
 ///
 /// The suite reads every Swift file under `Sources/Marketplace`, found from
 /// the package root, and reports each line that starts a process and names
@@ -72,7 +72,7 @@ struct NoGitProcessTests {
     #expect(
       offenders.isEmpty,
       """
-      No file under \(Self.sourcesPath) may start the git binary (marketplace.md decision 10). Use \
+      No file under \(Self.sourcesPath) may start the git binary. Use \
       GitTransport, which calls libgit2; found: \(offenders.joined(separator: ", "))
       """)
   }

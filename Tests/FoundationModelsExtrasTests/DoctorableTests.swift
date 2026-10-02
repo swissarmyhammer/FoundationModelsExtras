@@ -2,9 +2,9 @@ import Foundation
 import FoundationModelsExtras
 import Testing
 
-/// Behavioral tests for the doctor vocabulary of `doctor-plan.md` §4: the
-/// `HealthStatus` levels, the `HealthCheck` finding and its three factory
-/// functions, and the default implementations the `Doctorable` protocol gives.
+/// Behavioral tests for the doctor vocabulary: the `HealthStatus` levels, the
+/// `HealthCheck` finding and its three factory functions, and the default
+/// implementations the `Doctorable` protocol gives.
 ///
 /// The suite imports the module plainly rather than with `@testable`, so it
 /// exercises the same surface a consumer package sees — the tests fail to

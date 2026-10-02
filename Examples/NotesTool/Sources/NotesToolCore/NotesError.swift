@@ -3,11 +3,10 @@
 /// `OperationError`).
 ///
 /// Thrown from `execute(in:)`, `NotesError` surfaces to `OperationTool.call`'s
-/// caller as `OperationError.executionFailed` — per plan.md's "Error
-/// handling — return, don't throw", only resolver-level failures (unknown
-/// op, missing required parameters) are returned as corrective tool output;
-/// an operation's own domain error is a fatal condition the host app must
-/// handle.
+/// caller as `OperationError.executionFailed`. Only resolver-level failures
+/// (unknown op, missing required parameters) are returned as corrective tool
+/// output; an operation's own domain error is a fatal condition the host app
+/// must handle.
 internal enum NotesError: Error, Sendable, Equatable {
     /// No note exists with the given id.
     case notFound(id: String)

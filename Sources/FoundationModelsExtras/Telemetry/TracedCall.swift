@@ -4,29 +4,29 @@ import Tracing
 /// Runs a call in one span, and writes one "enter" log record when the call
 /// starts.
 ///
-/// Rule 8 of the OpenTelemetry design of 2026-09-28, hang detection: a tracing
-/// backend exports a span only when the span ends. Thus a call that hangs
-/// gives no span, and the backend shows nothing. A call that can suspend for a
-/// long time must also write one log record when it starts. The logging
-/// backend exports that record at once, so a hung call shows as an "enter"
-/// record with no span that ends.
+/// Hang detection: a tracing backend exports a span only when the span ends.
+/// Thus a call that hangs gives no span, and the backend shows nothing. A
+/// call that can suspend for a long time must also write one log record when
+/// it starts. The logging backend exports that record at once, so a hung call
+/// shows as an "enter" record with no span that ends.
 ///
 /// ``run(_:ofKind:tracer:logger:attributes:metadata:_:)`` writes the record
 /// before the body starts, and it writes nothing more. The span records the
 /// end and the duration of the call, and, when the call throws, the error
 /// status and the ``ExtrasTelemetry/AttributeKey/errorType`` of the error.
 ///
-/// Rule 4 of the same design: a span attribute, a log message and a log
+/// The content-safety rule: a span attribute, a log message and a log
 /// metadata value carry ids, names, counts and sizes only. They never carry a
 /// prompt, a response, tool arguments, tool output, embed text or an LSP
 /// payload, because each record leaves the process through the telemetry
-/// backend of the host. The helper obeys rule 4 for the parts that it writes:
-/// the message holds only the span name, and the metadata holds only the
-/// metadata of the caller and the ids of the span. It never puts a value or an
-/// error of the body into the record. The span never gets the description of
-/// an error of the body: a description can hold content, and a telemetry
-/// backend exports each error that a span records. The caller must obey rule 4
-/// for the span name, the attributes and the metadata that it gives.
+/// backend of the host. The helper obeys this rule for the parts that it
+/// writes: the message holds only the span name, and the metadata holds only
+/// the metadata of the caller and the ids of the span. It never puts a value
+/// or an error of the body into the record. The span never gets the
+/// description of an error of the body: a description can hold content, and
+/// a telemetry backend exports each error that a span records. The caller
+/// must obey this rule for the span name, the attributes and the metadata
+/// that it gives.
 ///
 /// ```swift
 /// let answer = try await TracedCall.run(
@@ -63,7 +63,8 @@ public enum TracedCall {
     /// the span context as a W3C `traceparent` value. An OpenTelemetry tracer
     /// does. The ids replace a caller value with the same key.
     ///
-    /// Rule 4: give no content in `spanName`, `attributes` or `metadata`.
+    /// Give no content in `spanName`, `attributes` or `metadata`: a
+    /// telemetry backend exports each of them out of the process.
     /// The record never holds a value or an error of `body`, and the span
     /// never holds the description of an error of `body`. Thus `body` can
     /// throw an error whose description holds content.

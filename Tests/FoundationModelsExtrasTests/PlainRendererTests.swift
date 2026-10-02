@@ -2,9 +2,9 @@ import Foundation
 import FoundationModelsExtras
 import Testing
 
-/// Behavioral tests for the plain doctor renderer of `doctor-plan.md` §6: the
-/// plain table a person reads, the rule that no rendering ever holds an escape
-/// sequence, and the JSON array a script reads.
+/// Behavioral tests for `PlainTextDoctorRenderer`: the plain table a person
+/// reads, the rule that no rendering ever holds an escape sequence, and the
+/// JSON array a script reads.
 ///
 /// The suite imports the module plainly rather than with `@testable`, so it
 /// exercises the same surface a consumer package sees — the tests fail to
@@ -51,7 +51,8 @@ import Testing
     private static let ansiEscape = "\u{001B}"
 
     /// What the renderer writes in place of a fix for a finding that carries
-    /// none, which `doctor-plan.md` §6 requires stay visible.
+    /// none. The renderer writes this text, so a reader can see that the
+    /// component gave no fix and does not think that a line is missing.
     private static let missingFixText = "the component gave no fix"
 
     /// How far past a row the fix line stands, which is one line.
@@ -134,7 +135,7 @@ import Testing
         lines(of: PlainTextDoctorRenderer().render(report))
     }
 
-    // MARK: - The rule of doctor-plan.md §6: no escape sequence, ever
+    // MARK: - The rule that a pipe gets plain text: no escape sequence, ever
 
     @Test func `the output of every status holds no ansi escape`() {
         let text = PlainTextDoctorRenderer().render(Self.threeStatusReport())
@@ -165,7 +166,8 @@ import Testing
     }
 
     /// This package is a library that also runs inside a Mac app, so no file of
-    /// the module imports a terminal or a color library (doctor-plan.md §6).
+    /// the module imports a terminal or a color library. A CLI that wants a
+    /// decorated table renders `DoctorReport` with its own terminal package.
     @Test func `no doctor source file imports a terminal or color library`() throws {
         let sources = try Self.doctorModuleSources()
 

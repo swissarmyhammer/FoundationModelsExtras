@@ -6,7 +6,7 @@ import libgit2
 @testable import Marketplace
 
 /// Proves ``GitTreeFileSource`` over commits that ``GitFixtureRepository``
-/// writes with libgit2 (marketplace.md §5.1 and §7.3).
+/// writes with libgit2.
 ///
 /// The source reads the tree and blob objects of a commit. There is no
 /// checkout, no network, and no `git` binary. The parity tests commit each

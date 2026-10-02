@@ -3,7 +3,7 @@ import Testing
 
 @testable import Marketplace
 
-/// Tests for ``SourcePattern`` (marketplace.md §6.7).
+/// Tests for ``SourcePattern``.
 ///
 /// A pattern matches the normalized URL of a source, thus the SSH form, the
 /// HTTPS form, and the `github:` shorthand of one repository all reach the
@@ -16,7 +16,8 @@ struct SourcePatternTests {
     /// The pattern under test.
     let pattern: SourcePattern
 
-    /// The source URL, in one of the §5.1 forms.
+    /// The source URL, in one of the accepted forms: SSH, HTTPS, or
+    /// `file://`.
     let sourceURL: String
 
     /// Whether the pattern matches the normalized form of ``sourceURL``.
@@ -32,7 +33,7 @@ struct SourcePatternTests {
   /// The HTTPS URL that the exact pattern names.
   private static let httpsRepository = "https://github.com/acme/skills.git"
 
-  /// The pattern kinds against the §5.1 URL forms.
+  /// The pattern kinds against the accepted URL forms.
   static let matchCases: [MatchCase] = exactCases + ownerCases + hostRegexCases + pathPrefixCases
 
   /// The rows of ``SourcePattern/exact(_:)``.

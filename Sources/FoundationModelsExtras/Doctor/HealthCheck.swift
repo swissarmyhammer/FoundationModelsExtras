@@ -1,4 +1,4 @@
-/// The three levels a health check reports, and no more (doctor-plan.md §4).
+/// The three levels a health check reports, and no more.
 ///
 /// The `String` raw value is the wire vocabulary, so the `--json` doctor output
 /// stays stable however the cases are later ordered or extended.
@@ -18,7 +18,8 @@ public enum HealthStatus: String, Sendable, Codable {
 ///
 /// A component reports these through ``Doctorable/runHealthChecks()``. The
 /// three factory functions below are the ordinary way to make one, because
-/// each states the fix rule of doctor-plan.md §2 at the call site:
+/// each states the fix rule at the call site — a finding that reports a
+/// problem tells the reader how to fix it:
 /// ``ok(name:message:category:)`` takes no fix, and
 /// ``warning(name:message:fix:category:)`` and
 /// ``error(name:message:fix:category:)`` each require one.

@@ -1,7 +1,6 @@
 import Synchronization
 
-/// Gives every registered subscriber each published value (marketplace.md
-/// §7.4).
+/// Gives every registered subscriber each published value.
 ///
 /// A single shared `AsyncStream` cannot serve this: two concurrent `for await`
 /// loops over the same stream split its elements between them, because they

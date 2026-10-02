@@ -5,9 +5,9 @@ import Testing
 @testable import FoundationModelsExtras
 
 /// Corpus-level git parity for `IgnoreProcessor`: a checked-in ~40-path probe
-/// table exercises every pattern-surface bullet from the
-/// `IgnoreRule`/`Wildmatch`/`IgnoreProcessor` tasks (comments, escapes, CRLF
-/// lines, negation, anchoring, dir-only rules, `*`/`?`, bracket and POSIX
+/// table exercises every part of the `gitignore(5)` pattern syntax that
+/// `IgnoreRule`, `Wildmatch` and `IgnoreProcessor` support (comments, escapes,
+/// CRLF lines, negation, anchoring, dir-only rules, `*`/`?`, bracket and POSIX
 /// character classes, all three `**` forms, and parent-exclusion setups)
 /// against the fixture at `Fixtures/ignore-corpus/gitignore.txt`.
 ///

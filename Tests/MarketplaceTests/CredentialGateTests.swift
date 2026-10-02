@@ -3,8 +3,7 @@ import Testing
 
 @testable import Marketplace
 
-/// Proves the origin check and the one-time rule of ``CredentialGate``
-/// (marketplace.md §5.1).
+/// Proves the origin check and the one-time rule of ``CredentialGate``.
 ///
 /// The gate is a pure value, thus the suite needs no server and no network.
 @Suite("Credential gate")

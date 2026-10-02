@@ -3,11 +3,11 @@ import Testing
 
 @testable import FoundationModelsExtras
 
-/// Behavioral tests for `YAMLValue.decoded(as:)` — the "YAMLValue decoder"
-/// plan.md §11 calls for: re-encoding a `YAMLValue` tree into any
-/// `Decodable` type. Exercised directly here (independent of
-/// `LayeredYAMLDocument`, whose own Codable round-trip test covers the
-/// merged-tree path).
+/// Behavioral tests for `YAMLValue.decoded(as:)`, which re-encodes a
+/// `YAMLValue` tree into any `Decodable` type, so a consumer keeps its own
+/// schema and this package only merges trees. Exercised directly here
+/// (independent of `LayeredYAMLDocument`, whose own Codable round-trip test
+/// covers the merged-tree path).
 @Suite struct YAMLValueTests {
   private struct Nested: Decodable, Equatable {
     let flag: Bool

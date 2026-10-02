@@ -1,4 +1,4 @@
-/// The host policy limits of one snapshot write (marketplace.md §7.3 step 4).
+/// The host policy limits of one snapshot write.
 ///
 /// The limits are counts, not times. ``MarketplacePolicy`` carries them, so a
 /// host that wants a different size or file count sets them there.

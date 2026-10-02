@@ -3,9 +3,9 @@ import Testing
 @testable import FoundationModelsExtras
 
 /// Behavioral tests for `FrontmatterDocument.split`, covering the fence
-/// recognition rules from plan.md §4: a leading `---` line opens a
-/// frontmatter block, a subsequent `---` line closes it, and anything that
-/// does not match that shape is body text.
+/// recognition rules: a leading `---` line opens a frontmatter block, a
+/// subsequent `---` line closes it, and anything that does not match that
+/// shape is body text.
 @Suite struct FrontmatterDocumentTests {
   @Test func splitsFrontmatterAndBodyPreservingBodyByteForByte() {
     let text = "---\ntitle: Test\n---\n# Body\ncontent\n"

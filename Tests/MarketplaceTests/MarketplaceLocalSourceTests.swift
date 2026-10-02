@@ -5,24 +5,23 @@ import Testing
 
 @testable import Marketplace
 
-/// Tests for the two sources of ``MarketplaceStore`` that need no network
-/// (marketplace.md §5.1, §7.4, and §7.5): a `file://` folder that the store
-/// reads directly and that a consumer watches as a local layer, and the
-/// read-only seed folder that serves a git marketplace when the cache holds
-/// none.
+/// Tests for the two sources of ``MarketplaceStore`` that need no network: a
+/// `file://` folder that the store reads directly and that a consumer watches
+/// as a local layer, and the read-only seed folder that serves a git
+/// marketplace when the cache holds none.
 @Suite("Marketplace local source")
 struct MarketplaceLocalSourceTests {
   /// The `path` field of a source that names a folder other than `skills`.
   private static let libraryFolderName = "library"
 
   /// The name of a folder that a `file://` source reads as a git
-  /// repository: it ends in `.git` (marketplace.md §5.1).
+  /// repository: it ends in `.git`.
   private static let repositoryFolderName = "skills.git"
 
   /// The pre-fetch key of a source that names ``repositoryFolderName``.
   private static let repositoryKey = "skills"
 
-  // MARK: - The file:// layer (§5.1)
+  // MARK: - The file:// layer
 
   @Test func aLocalFolderSourceServesItsSkillsWithNoCacheFolderAndNoNetwork() async throws {
     let folder = try Self.makeLocalMarketplace(body: "local folder body")
@@ -91,7 +90,7 @@ struct MarketplaceLocalSourceTests {
     #expect(fixture.store.diagnostics.contains { $0.severity == .error && $0.message.contains("relative path") })
   }
 
-  // MARK: - The normalized file:// URL (§5.3)
+  // MARK: - The normalized file:// URL
 
   @Test func aFileGitSourceKeepsItsNormalizedURLAndCacheFolderNameAfterItsFolderIsRemoved() throws {
     // The canonical temporary directory is under `/private/var`, the prefix
@@ -113,7 +112,7 @@ struct MarketplaceLocalSourceTests {
         == MarketplaceIdentity.cacheFolderName(key: Self.repositoryKey, normalizedURL: urlBefore))
   }
 
-  // MARK: - The watched file:// root (§7.4)
+  // MARK: - The watched file:// root
 
   @Test func aCacheBackedMarketplaceLayerIsNotWatched() throws {
     let repository = try GitFixtureRepository()
@@ -126,7 +125,7 @@ struct MarketplaceLocalSourceTests {
       "a snapshot swap sends no reliable event, thus the cache root reloads on layerUpdates only")
   }
 
-  // MARK: - The read-only seed folder (§7.5)
+  // MARK: - The read-only seed folder
 
   @Test func aSeedEntryServesTheLayerWhenTheCacheHasNone() async throws {
     let seed = try await SeedFixture()

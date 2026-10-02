@@ -5,8 +5,7 @@ import Testing
 
 @testable import Marketplace
 
-/// Tests for the git half of ``MarketplaceStore`` (marketplace.md §6.1, §6.2,
-/// §7.3, and §7.6).
+/// Tests for the git half of ``MarketplaceStore``.
 ///
 /// Every test builds a repository with ``GitFixtureRepository`` and reads it
 /// over a `file://` URL with the real ``LibGit2Transport``, thus the suite

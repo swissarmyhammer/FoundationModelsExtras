@@ -1,8 +1,7 @@
 import Foundation
 import libgit2
 
-/// A ``CatalogFileSource`` over the tree of one commit in a bare repository
-/// (marketplace.md §5.1 and §7.3 step 3).
+/// A ``CatalogFileSource`` over the tree of one commit in a bare repository.
 ///
 /// The source reads the tree and blob objects directly. There is no checkout
 /// and no work tree. A file read goes `git_commit_lookup` → `git_commit_tree`

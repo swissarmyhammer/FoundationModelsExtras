@@ -1,7 +1,7 @@
 import Foundation
 
 /// One rule that names a set of marketplace sources, for the allowlist and
-/// the blocklist of ``MarketplacePolicy`` (marketplace.md §6.7).
+/// the blocklist of ``MarketplacePolicy``.
 ///
 /// A pattern matches the **normalized URL** of a source, never the text that
 /// the host wrote. Thus `github:acme/skills` and

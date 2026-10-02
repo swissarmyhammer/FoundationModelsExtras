@@ -1,5 +1,4 @@
-/// What a ``MarketplaceStore`` did with one marketplace (marketplace.md
-/// §6.2).
+/// What a ``MarketplaceStore`` did with one marketplace.
 ///
 /// A host reads the events to show progress and to report a failure. The
 /// consumer of the layers does not read them: it follows
@@ -9,7 +8,7 @@
 /// holds no secret.
 public enum MarketplaceEvent: Sendable, Hashable {
   /// The store read the remote head of the marketplace and downloaded no
-  /// content (marketplace.md §8.1).
+  /// content.
   ///
   /// - Parameters:
   ///   - id: The display id of the marketplace.
@@ -20,7 +19,7 @@ public enum MarketplaceEvent: Sendable, Hashable {
 
   /// The remote holds a commit that the snapshot does not, and the store
   /// did not install it: the automatic update is off, or the policy is a
-  /// dry run (marketplace.md §8.3).
+  /// dry run.
   ///
   /// - Parameters:
   ///   - id: The display id of the marketplace.
@@ -40,7 +39,7 @@ public enum MarketplaceEvent: Sendable, Hashable {
   case updated(id: String, from: String?, to: String)
 
   /// The store could not bring the marketplace to its remote head. The last
-  /// good snapshot stays in place (marketplace.md §7.5).
+  /// good snapshot stays in place.
   ///
   /// - Parameters:
   ///   - id: The display id of the marketplace.

@@ -1,7 +1,6 @@
 import Foundation
 
-/// One marketplace as a read-only list shows it (marketplace.md §5.3 and
-/// §7.2).
+/// One marketplace as a read-only list shows it.
 ///
 /// ``MarketplaceStore/listings(of:cacheDirectory:)`` makes one listing for
 /// each source. A listing carries what the cache already knows, thus a list
@@ -59,8 +58,7 @@ public struct MarketplaceListing: Sendable, Hashable {
   /// commit, no catalog version and no last check.
   public var isLocalFolder: Bool
 
-  /// Whether the marketplace holds one commit and follows no ref
-  /// (marketplace.md §8.3).
+  /// Whether the marketplace holds one commit and follows no ref.
   ///
   /// The pin that ``MarketplaceStore/pin(_:sha:)`` wrote wins over the `sha`
   /// field of the source, and ``MarketplaceStore/unpin(_:)`` beats both.
@@ -187,7 +185,7 @@ extension MarketplaceListing {
       lastError: record?.lastError)
   }
 
-  /// Whether the marketplace holds one commit (marketplace.md §8.3).
+  /// Whether the marketplace holds one commit.
   ///
   /// The ladder has three rungs, highest first: the pin that the host set at
   /// run time, the unpin that the host set at run time, then the `sha` field

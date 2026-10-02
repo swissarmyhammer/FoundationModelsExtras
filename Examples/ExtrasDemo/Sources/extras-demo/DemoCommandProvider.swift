@@ -1,8 +1,8 @@
 import Foundation
 import FoundationModelsExtras
 
-/// The demo `SlashCommandProviding` conformer `extras-demo commands` drives
-/// (plan.md §7): a static `.prompt` command, a static `.action` command
+/// The demo `SlashCommandProviding` conformer `extras-demo commands` drives:
+/// a static `.prompt` command, a static `.action` command
 /// that streams a few lines, and a single `commandUpdates` tick that
 /// republishes the set with a third command added.
 final class DemoCommandProvider: SlashCommandProviding, Sendable {
@@ -15,7 +15,7 @@ final class DemoCommandProvider: SlashCommandProviding, Sendable {
     static let streamCommandName = "stream"
 
     /// The `.prompt` command: its template is rendered through the
-    /// templating pillar before display, exactly as a consumer would before
+    /// `TemplateEngine` before display, exactly as a consumer would before
     /// folding it into a model turn.
     static let greetCommand = SlashCommand(
         name: greetCommandName,

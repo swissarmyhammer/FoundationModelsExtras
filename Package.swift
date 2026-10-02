@@ -6,8 +6,8 @@ import PackageDescription
 
 let package = Package(
     name: "FoundationModelsExtras",
-    // macOS only, per plan.md: this package targets macOS 27+ / Apple
-    // Silicon exclusively. The `.v27` enumeration case needs
+    // macOS only: this package targets macOS 27+ / Apple Silicon
+    // exclusively. The `.v27` enumeration case needs
     // `PackageDescription` 6.4, and this manifest declares tools 6.2, so the
     // deployment target is written in the string form, which states macOS 27
     // under tools 6.2.
@@ -16,17 +16,17 @@ let package = Package(
     ],
     products: [
         // The core library: slash-command vocabulary, `DotfolderStack`, the
-        // Stencil-backed `TemplateEngine` facade (plan.md §2-4), and the
+        // Stencil-backed `TemplateEngine` facade, and the
         // operation-event vocabulary (`OperationEvents/`) that Router and the
         // `Operations` module share.
         .library(name: "FoundationModelsExtras", targets: ["FoundationModelsExtras"]),
         // The `@Operation` fusion library and its ArgumentParser CLI driver.
         // These moved here from the retired FoundationModelsOperationTool
-        // package (decision 2026-08-29): one Extras package holds the
-        // operation-tool capability as modules.
+        // package: one Extras package holds the operation-tool capability
+        // as modules.
         .library(name: "Operations", targets: ["Operations"]),
         .library(name: "OperationsCLI", targets: ["OperationsCLI"]),
-        // The marketplace pillar (decision 2026-09-19): Extras owns all
+        // The marketplace library: Extras owns all
         // marketplace file reading, thus the git transport, the catalog read,
         // the cache, the snapshot write and the config load live here.
         // libgit2 is a real package dependency, so it lands on this separate
@@ -34,21 +34,20 @@ let package = Package(
         // carries swift-syntax without pushing it onto the core target.
         .library(name: "Marketplace", targets: ["Marketplace"]),
         // The git fixture builder that both this package's tests and the
-        // `FoundationModelsSkills` tests use, so there is one copy
-        // (decision 2026-09-19).
+        // `FoundationModelsSkills` tests use, so there is one copy.
         .library(name: "MarketplaceFixtures", targets: ["MarketplaceFixtures"]),
-        // The content-safety helper of the telemetry (the OpenTelemetry design
-        // of 2026-09-28, rule 5): each package of the family proves with this
-        // one helper that no span, log record or metric carries the content
-        // of the caller.
+        // The content-safety helper of the telemetry: each package of the
+        // family proves with this one helper that no span, log record or
+        // metric carries the content of the caller.
         .library(name: "TelemetryTestSupport", targets: ["TelemetryTestSupport"]),
     ],
     dependencies: [
-        // Templating engine for Pillar 3 (plan.md §4). PathKit rides along
+        // Templating engine for `TemplateEngine`. PathKit rides along
         // transitively as Stencil's own dependency. Pinned `exact:` to the
-        // current latest release per the dependency budget in plan.md §5.
+        // current latest release, so that a dependency update is always a
+        // deliberate change to this manifest.
         .package(url: "https://github.com/stencilproject/Stencil.git", exact: "0.15.1"),
-        // YAML parsing for Pillar 5's `LayeredYAMLDocument` (plan.md §11).
+        // YAML parsing for `LayeredYAMLDocument`.
         // Pinned `exact:`, matching Stencil's own pinning above.
         .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2"),
         // ArgumentParser: the `Operations` library re-exports it (macro-made
@@ -63,21 +62,20 @@ let package = Package(
         // `ToolInvocationRecord.sessionID` are ULIDs. The library owns
         // correctness; no shim is added here.
         .package(url: "https://github.com/yaslab/ULID.swift.git", from: "1.3.1"),
-        // libgit2 for the `Marketplace` target only (decision 2026-09-19):
+        // libgit2 for the `Marketplace` target only:
         // marketplace git sources go through libgit2, never the `git` binary.
         // libgit2 compiles from C source as a SwiftPM target, so there is no
         // binary artifact and no system dependency. Pinned `exact:` to the
         // same version that `FoundationModelsSkills` pins, in the same style
         // as the Yams pin. The core target does not depend on it.
         .package(url: "https://github.com/danielctull-forks/swift-libgit2.git", exact: "1.9.7"),
-        // The tracing abstraction for the tool span of the tool-hosting code
-        // (plan.md §5). The floor is 1.5.0 because `TelemetryTestSupport`
+        // The tracing abstraction for the tool span of the tool-hosting code.
+        // The floor is 1.5.0 because `TelemetryTestSupport`
         // calls `withTracer`, which starts in 1.5.0. The core target links
         // `Tracing`; the core tests link `InMemoryTracing`.
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.5.0"),
-        // The logging API and the metrics API of the core target (the
-        // OpenTelemetry design of 2026-09-28). API only: no library target
-        // links a backend or calls `LoggingSystem.bootstrap` or
+        // The logging API and the metrics API of the core target. API only:
+        // no library target links a backend or calls `LoggingSystem.bootstrap` or
         // `MetricsSystem.bootstrap`. The executables of the family depend on
         // swift-otel and bootstrap the backend. Until an executable does,
         // each logger and each metric of a library does nothing.
@@ -123,10 +121,10 @@ let package = Package(
             ]
         ),
 
-        // `Examples/ExtrasDemo` (plan.md §7): the living contract test for
-        // all three pillars — a thin ArgumentParser executable with one
-        // subcommand per pillar, run against a checked-in fixture tree so no
-        // demo ever touches the real home directory.
+        // `Examples/ExtrasDemo`: the living contract test for the public
+        // surface of the core library — a thin ArgumentParser executable
+        // with one subcommand per feature, run against a checked-in fixture
+        // tree so no demo ever touches the real home directory.
         .executableTarget(
             name: "extras-demo",
             dependencies: [
@@ -295,10 +293,10 @@ let package = Package(
             path: "Tests/FixtureSupport"
         ),
 
-        // Marketplace library (decision 2026-09-19): the git transport over
+        // Marketplace library: the git transport over
         // libgit2 and the read of a fetched commit tree, moved here from
         // `FoundationModelsSkills`. Depends on the core module for the
-        // dotfolder stack that the config loader of a later card reads, and
+        // dotfolder stack that the config loader reads, and
         // on Yams because that loader encodes and decodes `marketplaces.yaml`
         // with Yams. The core target keeps its rule that Yams stays inside
         // `YAMLValue.swift`; this target is not the core target.
@@ -313,8 +311,8 @@ let package = Package(
             ]
         ),
 
-        // The test doubles and the fixture builders of the marketplace
-        // (decision 2026-09-19): `GitFixtureRepository`, a bare repository
+        // The test doubles and the fixture builders of the marketplace:
+        // `GitFixtureRepository`, a bare repository
         // that a test builds with libgit2 only, with no `git` binary and no
         // network; `RecordingGitTransport` and `GatedGitTransport`, the
         // counting double and the holding double that a store test injects;

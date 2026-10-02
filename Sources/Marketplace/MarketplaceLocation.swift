@@ -1,11 +1,10 @@
 import Foundation
 
-/// Where a marketplace comes from, parsed from ``MarketplaceSource/url``
-/// (marketplace.md §5.1).
+/// Where a marketplace comes from, parsed from ``MarketplaceSource/url``.
 ///
 /// The forms are:
 /// - scp-like SSH: `git@github.com:owner/repo.git`. The parser accepts it, but
-///   the transport does not support SSH (marketplace.md decision 10).
+///   the transport does not support SSH.
 /// - HTTPS: `https://github.com/owner/repo.git`
 /// - the GitHub shorthand `github:owner/repo`, which expands to
 ///   `https://github.com/owner/repo.git`
@@ -76,8 +75,9 @@ internal enum MarketplaceLocation: Sendable, Hashable {
   ///
   /// - Parameter source: The source to parse. Its `sha` field wins over its
   ///   `ref` field, and its `ref` field wins over a `#ref` suffix.
-  /// - Throws: ``MarketplaceSourceError`` when the URL is not a §5.1 form,
-  ///   or when a local folder has a ref.
+  /// - Throws: ``MarketplaceSourceError`` when the URL is not one of the
+  ///   forms that ``MarketplaceLocation`` lists, or when a local folder has
+  ///   a ref.
   init(source: MarketplaceSource) throws {
     guard !source.url.isEmpty else {
       throw MarketplaceSourceError.emptyURL

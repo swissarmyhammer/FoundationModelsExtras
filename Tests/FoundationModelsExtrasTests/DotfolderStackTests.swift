@@ -6,9 +6,9 @@ import Testing
 
 /// Behavioral tests for `DotfolderStack`: layer precedence, `nearest`/
 /// `locate`/`enumerate` lookups, source tracking, the `<NAME>_DEFAULTS_DIR`
-/// dev override, and hermetic construction (plan.md §3). Every test builds
-/// its own throwaway `defaults/`/`user/`/`project/` tree under a temp
-/// directory so nothing ever touches the real home directory.
+/// dev override, and hermetic construction. Every test builds its own
+/// throwaway `defaults/`/`user/`/`project/` tree under a temp directory so
+/// nothing ever touches the real home directory.
 @Suite struct DotfolderStackTests {
   /// A throwaway three-layer directory tree, cleaned up when the test ends.
   struct Fixture {
@@ -123,7 +123,7 @@ import Testing
   /// parent-directory segment.
   private static let unsafePaths = ["", "/etc", "../escaped"]
 
-  @Test func plansThreeArgumentCallShapeCompiles() {
+  @Test func threeArgumentInitWithNilDefaultsGivesUserAndProjectLayers() {
     let workingDirectory = FileManager.default.temporaryDirectory
     let stack = DotfolderStack(
       name: "testagent",

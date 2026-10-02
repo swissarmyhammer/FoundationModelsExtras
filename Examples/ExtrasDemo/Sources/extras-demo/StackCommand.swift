@@ -2,7 +2,7 @@ import ArgumentParser
 import Foundation
 import FoundationModelsExtras
 
-/// `extras-demo stack` — pillar 2 (plan.md §7): builds `DotfolderStack` over
+/// `extras-demo stack` — layered dotfolders: builds `DotfolderStack` over
 /// the fixture tree, resolves `config.yaml` and enumerates `commands/*.md`,
 /// printing which layer won each item — source tracking made visible.
 /// Honors `EXTRASDEMO_DEFAULTS_DIR` (via `DotfolderStack`'s own dev-override

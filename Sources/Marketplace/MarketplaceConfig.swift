@@ -2,10 +2,9 @@ import Foundation
 import FoundationModelsExtras
 import Yams
 
-/// The marketplace source list of a `marketplaces.yaml` file
-/// (marketplace.md §6.3).
+/// The marketplace source list of a `marketplaces.yaml` file.
 ///
-/// The host gives the source list in code (plan.md decision 29). This type is
+/// The host gives the source list in code. This type is
 /// a convenience, in the same way as `DotfolderStack`: it reads the list from
 /// the user layer and, when the host trusts the folder, from the project
 /// layer.
@@ -138,7 +137,7 @@ public struct MarketplaceConfig: Sendable, Hashable, Codable {
     case alias(String)
 
     /// The normalized URL of the source, or the `url` text when the URL
-    /// is not a §5.1 form.
+    /// is not one of the forms of ``MarketplaceSource/url``.
     case url(String)
 
     /// Makes the key of `source`: its alias, else its normalized URL.

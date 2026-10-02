@@ -2,8 +2,8 @@ import Testing
 
 import Marketplace
 
-/// Proves the text of ``MarketplacePinError`` (marketplace.md §8.3): each
-/// case names the id that the host gave, and no case names a URL.
+/// Proves the text of ``MarketplacePinError``: each case names the id that
+/// the host gave, and no case names a URL.
 @Suite("Marketplace pin error")
 struct MarketplacePinErrorTests {
   /// The id that the host gave.

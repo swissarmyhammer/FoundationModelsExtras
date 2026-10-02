@@ -2,11 +2,10 @@ import FixtureSupport
 import Foundation
 import Testing
 
-/// Guards the boundary of the `Marketplace` target (decision 2026-09-19): the
-/// target knows no skill type, thus no source file under it names a type of
-/// `FoundationModelsSkills`, and none imports that module. The target also
-/// keeps the layout of its cache to itself, thus no type of that layout
-/// stands on the module surface.
+/// Guards the boundary of the `Marketplace` target: the target knows no skill
+/// type, thus no source file under it names a type of `FoundationModelsSkills`,
+/// and none imports that module. The target also keeps the layout of its cache
+/// to itself, thus no type of that layout stands on the module surface.
 ///
 /// The suite reads the source files as text from the package root, as
 /// `PackageLayoutTests` reads the manifest.

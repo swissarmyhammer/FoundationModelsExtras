@@ -84,9 +84,8 @@ struct FailingEncodeOperation: OperationDefinition {
 }
 
 /// A hand-conformed `OperationDefinition` — no `@Operation`/`@Generable` macro
-/// involved — proving the manual escape hatch plan.md calls out: conforming
-/// directly to `OperationDefinition` (and, in turn, `Generable`) is always
-/// possible without macro sugar.
+/// involved — proving that conforming directly to `OperationDefinition`
+/// (and, in turn, `Generable`) is always possible without macro sugar.
 struct FixtureOperation: OperationDefinition {
     typealias Context = FixtureContext
     typealias Output = FixtureOutput
@@ -185,8 +184,8 @@ struct FixtureOperation: OperationDefinition {
 
     @Test func anyOperationCommandTypeIsNilForAHandConformedOperation() {
         // `FixtureOperation` conforms to `OperationDefinition` directly (no
-        // `@Operation` macro, no nested `Command`), proving the manual escape
-        // hatch has no CLI leaf to offer the driver.
+        // `@Operation` macro, no nested `Command`), proving that a
+        // hand-conformed operation has no CLI leaf to offer the driver.
         let anyOp = AnyOperation(FixtureOperation.self)
 
         #expect(anyOp.commandType == nil)

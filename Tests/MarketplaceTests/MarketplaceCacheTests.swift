@@ -4,7 +4,7 @@ import Testing
 
 @testable import Marketplace
 
-/// Proves the cache of marketplace.md §7: where the cache folder is, what one
+/// Proves the marketplace cache: where the cache folder is, what one
 /// marketplace folder holds, how an install swaps `current`, how cleanup keeps
 /// two snapshots, and how `state.json` reads and writes.
 ///
@@ -169,8 +169,8 @@ struct MarketplaceCacheTests {
     #expect(MarketplaceCache.seedDirectory(environment: [:]) == nil)
   }
 
-  /// The path of `~/.cache/skills/marketplaces`, which §7.1 names as the
-  /// fallback.
+  /// The path of `~/.cache/skills/marketplaces`, the cache folder that the
+  /// store uses when no environment variable names another one.
   private static var homeCachePath: String {
     FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".cache/skills/marketplaces").path
@@ -178,7 +178,7 @@ struct MarketplaceCacheTests {
 
   // MARK: - Layout
 
-  @Test func theMarketplaceFolderHoldsTheLayoutOfSectionSevenTwo() throws {
+  @Test func theMarketplaceFolderHoldsTheExpectedLayout() throws {
     let fixture = try CacheFixture()
     defer { fixture.remove() }
     let cache = fixture.cache

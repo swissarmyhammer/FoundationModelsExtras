@@ -4,7 +4,7 @@ import Testing
 @testable import FoundationModelsExtras
 
 /// Behavioral tests for `TemplateEngine`: trusted rendering of the Stencil
-/// syntax slice plan.md §4 targets (`{{ var }}`, `{% if %}`, `{% for %}`),
+/// syntax that templates use (`{{ var }}`, `{% if %}`, `{% for %}`),
 /// the three-rung variable precedence ladder, well-known variables, facade
 /// error surfacing, and the whole-file render-then-split round trip.
 /// `Trust.untrusted`'s whitelist, limits, and loader confinement have their

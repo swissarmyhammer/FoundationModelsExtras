@@ -4,8 +4,7 @@ import Testing
 
 @testable import Marketplace
 
-/// Proves the catalog reader and the entry resolver (marketplace.md §5.2 and
-/// §6.4).
+/// Proves the catalog reader and the entry resolver.
 ///
 /// The golden tests read the hand-written fixture catalogs in
 /// `Tests/MarketplaceTests/Fixtures/catalogs/` through a

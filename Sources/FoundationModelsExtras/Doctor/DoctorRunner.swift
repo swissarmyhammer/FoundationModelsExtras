@@ -1,5 +1,5 @@
 /// Collects the health checks of a list of components into one
-/// ``DoctorReport`` (doctor-plan.md §4).
+/// ``DoctorReport``.
 ///
 /// The runner is what a `doctor` subcommand builds: it takes the components a
 /// program registers, asks each applicable one for its findings, and returns

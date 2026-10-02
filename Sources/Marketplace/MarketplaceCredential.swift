@@ -1,5 +1,4 @@
-/// A user name and a token for a private HTTPS marketplace (marketplace.md
-/// §5.1).
+/// A user name and a token for a private HTTPS marketplace.
 ///
 /// The host gives a credential through a `credentials` provider. The git
 /// transport asks the provider only for an HTTPS source, and it sends the

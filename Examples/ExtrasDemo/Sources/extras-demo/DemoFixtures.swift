@@ -1,7 +1,7 @@
 import Foundation
 import FoundationModelsExtras
 
-/// Fixed fixture paths for the `extras-demo` example (plan.md §7): the
+/// Fixed fixture paths for the `extras-demo` example: the
 /// checked-in `Fixtures/` tree beside this executable's own sources, so no
 /// demo subcommand ever depends on the process's current working directory
 /// or touches the real home directory.
@@ -29,8 +29,8 @@ enum DemoFixtures {
     /// derives automatically from this working directory.
     static let projectWorkingDirectory = root.appendingPathComponent("project", isDirectory: true)
 
-    /// The nested repo-like fixture tree for `extras-demo agents` (plan.md
-    /// §10): an `AGENTS.md` at the root, an `AGENT.md` migration alias one
+    /// The nested repo-like fixture tree for `extras-demo agents`: an
+    /// `AGENTS.md` at the root, an `AGENT.md` migration alias one
     /// level down at `agents/service/`, and a `CLAUDE.md`
     /// ecosystem-compatibility alias — alone, with neither `AGENTS.md` nor
     /// `AGENT.md` beside it — at `agents/service/api/`, the alias-only

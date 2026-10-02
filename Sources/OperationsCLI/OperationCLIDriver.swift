@@ -20,13 +20,14 @@ public struct CLIResult: Sendable, Equatable {
 /// Assembles a runtime `ParsableCommand` tree from one or more
 /// `OperationTool`s' operations and drives parsing/dispatch over it.
 ///
-/// Per plan.md's "Dual-use CLI": the tree is `<executable> <noun> <verb>`
-/// with exactly one tool, or `<executable> <tool> <noun> <verb>` with more
-/// than one — nouns never merge across tools. Leaves are the
-/// macro-generated `Command` for a macro-based operation, or a synthesized
-/// `FallbackOperationCommand` built from `ParamMeta` for the manual escape
-/// hatch. Every leaf's parsed payload dispatches through the identical
-/// `OperationTool.call(arguments:)` path a model call uses — see
+/// The same operations serve the model and the command line. The tree is
+/// `<executable> <noun> <verb>` with exactly one tool, or
+/// `<executable> <tool> <noun> <verb>` with more than one — nouns never
+/// merge across tools. Leaves are the macro-generated `Command` for a
+/// macro-based operation, or a synthesized `FallbackOperationCommand` built
+/// from `ParamMeta` for an operation that conforms by hand, without
+/// `@Operation`. Every leaf's parsed payload dispatches through the
+/// identical `OperationTool.call(arguments:)` path a model call uses — see
 /// `dispatch(command:)`.
 public struct OperationCLIDriver: Sendable {
     private let registry: CLIRegistry

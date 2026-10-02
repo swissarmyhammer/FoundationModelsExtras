@@ -17,7 +17,7 @@ private struct AddNoteFixtureOutput: Encodable, Sendable, Equatable {
 /// A real `@Generable @Operation(...)` struct — proving, under the actual
 /// Swift compiler (not the `assertMacroExpansion` simulation harness), that
 /// `@Operation` synthesizes `OperationDefinition` conformance with a correct
-/// `parameterMetadata` table plan.md's "Declaring an operation" describes.
+/// `parameterMetadata` table: one `ParamMeta` for each stored property.
 @Generable
 @Operation(verb: "add", noun: "note", description: "Create a new note")
 private struct AddNoteFixture {

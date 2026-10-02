@@ -5,9 +5,9 @@ import Metrics
 /// keys, the metric names, the log metadata keys and the carrier keys of the
 /// W3C trace context, and the logger and the tool-call metrics that use them.
 ///
-/// Rule 3 of the OpenTelemetry design of 2026-09-28: each package keeps all of
-/// its telemetry names in one vocabulary file. No other source file of the core
-/// target writes a telemetry name as a string literal.
+/// Each package keeps all of its telemetry names in one vocabulary file. No
+/// other source file of the core target writes a telemetry name as a string
+/// literal.
 ///
 /// Each span name, logger label and metric name starts with the module name. A
 /// metadata key of a log record has the dotted form of an attribute key, for

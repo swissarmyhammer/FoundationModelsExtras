@@ -259,7 +259,7 @@ private func argumentLists(
 }
 
 /// Description and `anyOf` allowed values recognized from a property's
-/// `@Guide(...)` attribute, per plan.md's extraction contract: only literal
+/// `@Guide(...)` attribute. A macro sees only syntax, so only literal
 /// `description:` strings and a literal `.anyOf([...])` guide are read;
 /// every other `@Guide` constraint form is left to Apple's schema.
 private func guideInfo(from attributes: AttributeListSyntax) -> (description: String?, allowedValues: [String]?) {
@@ -386,8 +386,8 @@ private func operationParamInfo(
 /// Synthesizes `OperationDefinition` conformance on the annotated struct:
 /// `verb`/`noun`/`operationDescription` statics, a `parameterMetadata`
 /// table derived from its stored properties, and a nested `Command:
-/// AsyncParsableCommand` (ArgumentParser leaf) for the dual-use CLI built
-/// from that same property data.
+/// AsyncParsableCommand` (ArgumentParser leaf), built from that same
+/// property data, so the operation also runs from the command line.
 public struct OperationMacro: ExtensionMacro {
     /// Expands `@Operation(verb:noun:description:mount:)` into an
     /// `OperationDefinition` conformance extension on the annotated struct.
@@ -822,7 +822,7 @@ private func conditionalPayloadAssignment(unless required: Bool, conditionText: 
 
 /// Builds the nested `Command: AsyncParsableCommand` (ArgumentParser leaf)
 /// source text `@Operation` emits alongside `OperationDefinition`
-/// conformance, per plan.md's "Dual-use CLI".
+/// conformance, so the same operation also runs from the command line.
 ///
 /// One `@Flag`/`@Option` property per `fields` entry; a `CommandConfiguration`
 /// naming the command after the operation's verb; and a `run()` that prints

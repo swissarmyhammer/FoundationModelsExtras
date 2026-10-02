@@ -1,13 +1,13 @@
 import Foundation
 
-/// What a host lets a ``MarketplaceStore`` do (marketplace.md §6.7, §7.3
-/// step 4, and §8.2).
+/// What a host lets a ``MarketplaceStore`` do: which sources load, how much
+/// one snapshot can hold, and when the store checks and fetches.
 ///
 /// Every field is a count or a host value. The package names no interval, no
 /// jitter, and no age limit of its own: a check runs at `start()` and on
 /// request, a periodic check runs only when the host gives
 /// ``checkInterval``, a fetch stops early only when the host gives
-/// ``fetchTimeout``, and cleanup counts snapshots (decision 13).
+/// ``fetchTimeout``, and cleanup counts snapshots, not their age.
 ///
 /// ```swift
 /// let policy = MarketplacePolicy(credentials: { url in
@@ -16,14 +16,14 @@ import Foundation
 /// ```
 public struct MarketplacePolicy: Sendable {
   /// The name of the environment variable that stops every automatic
-  /// update (marketplace.md §8.3).
+  /// update.
   public static let automaticUpdateVariable = "SKILLS_MARKETPLACE_AUTOUPDATE"
 
   /// The value of ``automaticUpdateVariable`` that stops every automatic
   /// update.
   private static let automaticUpdateOffValue = "0"
 
-  /// Why a policy refuses one source (marketplace.md §6.7).
+  /// Why a policy refuses one source.
   internal enum SourceRefusal: Sendable, Hashable {
     /// One entry of ``blockedSources`` names the source.
     case blocked(SourcePattern)
@@ -32,8 +32,7 @@ public struct MarketplacePolicy: Sendable {
     case notAllowed
   }
 
-  /// When a new snapshot becomes the one that the consumer reads
-  /// (marketplace.md §8.4).
+  /// When a new snapshot becomes the one that the consumer reads.
   public enum ApplyUpdates: Sendable, Hashable {
     /// The install makes `current` name the new snapshot at once, thus
     /// the consumer rebuilds its catalog while the process runs. This is
@@ -53,14 +52,13 @@ public struct MarketplacePolicy: Sendable {
   /// The size and the file count that one snapshot may reach.
   public var snapshotLimits: SnapshotLimits
 
-  /// The sources that the host permits, or `nil` for every source
-  /// (marketplace.md §6.7).
+  /// The sources that the host permits, or `nil` for every source.
   ///
   /// With a list, a source must match one entry of it. An empty list thus
   /// refuses every source. ``blockedSources`` wins over this list.
   public var allowedSources: [SourcePattern]?
 
-  /// The sources that the host refuses (marketplace.md §6.7).
+  /// The sources that the host refuses.
   ///
   /// A source that matches one entry here gets no layer, whatever
   /// ``allowedSources`` says.
@@ -81,26 +79,24 @@ public struct MarketplacePolicy: Sendable {
   /// The package has no interval of its own. With `nil`, the store checks
   /// at `start()` and on request, and never again by itself. A long-running
   /// host, such as an agent server or an editor, gives a value here; a
-  /// short command-line run does not need one (marketplace.md §8.2).
+  /// short command-line run does not need one.
   public var checkInterval: Duration?
 
   /// Whether a check that finds a new commit also installs it.
   ///
   /// With `false`, the store publishes
   /// ``MarketplaceEvent/updateAvailable(id:from:to:)`` and fetches nothing.
-  /// The host or the command line then asks for the update
-  /// (marketplace.md §8.3).
+  /// The host or the command line then asks for the update.
   public var autoUpdate: Bool
 
   /// Whether the store only reports, and never installs.
   ///
   /// With `true`, every update request becomes a check: the store reads the
   /// remote head, publishes what it found, and downloads no content. This
-  /// is the dry run of marketplace.md §8.3.
+  /// is a dry run of an update.
   public var checkOnly: Bool
 
-  /// When a new snapshot becomes the one that the consumer reads
-  /// (marketplace.md §8.4).
+  /// When a new snapshot becomes the one that the consumer reads.
   ///
   /// The default is ``ApplyUpdates/immediately``: the package hot-reloads
   /// by design. A host that wants a stable session sets
@@ -112,7 +108,7 @@ public struct MarketplacePolicy: Sendable {
   /// The package has no timeout of its own. With a value, a fetch that
   /// takes longer is cancelled, and the store publishes
   /// ``MarketplaceEvent/failed(id:error:keptVersion:)`` and keeps the
-  /// snapshot that `current` names (marketplace.md §5.1).
+  /// snapshot that `current` names.
   public var fetchTimeout: Duration?
 
   /// Creates a policy.
@@ -162,8 +158,7 @@ public struct MarketplacePolicy: Sendable {
     self.fetchTimeout = fetchTimeout
   }
 
-  /// Whether this policy refuses one source (marketplace.md §6.7 and §10
-  /// item 2).
+  /// Whether this policy refuses one source.
   ///
   /// The call is a pure function of the policy and of the URL: it reads no
   /// file and opens no connection. Thus the store runs it before it makes
@@ -185,8 +180,7 @@ public struct MarketplacePolicy: Sendable {
     return allowed ? nil : .notAllowed
   }
 
-  /// Whether an environment lets the store update by itself
-  /// (marketplace.md §8.3).
+  /// Whether an environment lets the store update by itself.
   ///
   /// The call is a pure function of the environment, thus a test gives its
   /// own.

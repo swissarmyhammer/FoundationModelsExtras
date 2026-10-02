@@ -1,7 +1,7 @@
 import FoundationModelsExtras
 import Testing
 
-/// Behavioral tests for the doctor runner of `doctor-plan.md` §4: the
+/// Behavioral tests for `DoctorRunner`: the
 /// concurrent collection of the checks of every applicable component, and the
 /// stable registration order of the result.
 ///

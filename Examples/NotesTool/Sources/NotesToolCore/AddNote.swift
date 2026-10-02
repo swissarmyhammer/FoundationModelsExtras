@@ -1,7 +1,7 @@
 import FoundationModels
 import Operations
 
-/// Creates a new note, per plan.md's "Declaring an operation" example.
+/// Creates a new note.
 @Generable
 @Operation(verb: "add", noun: "note", description: "Create a new note")
 internal struct AddNote {

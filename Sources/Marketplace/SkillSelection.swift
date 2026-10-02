@@ -1,4 +1,4 @@
-/// The skills that a host takes from one marketplace (marketplace.md §6.4).
+/// The skills that a host takes from one marketplace.
 ///
 /// The materializer copies only the selected skills. Thus a skill that is not
 /// selected does not exist for the consumer. A selected name that is not in

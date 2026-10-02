@@ -6,7 +6,7 @@ import Stencil
 /// `public`): `TemplateEngine.render` catches it along with every other
 /// Stencil-adjacent failure and re-describes it inside
 /// `TemplateEngineError.renderingFailed`, so no Stencil-internal error ever
-/// crosses the facade (plan.md §4).
+/// crosses the facade.
 enum DotfolderLoaderError: Error, Sendable, CustomStringConvertible {
   /// No partial location of any layer held any of the name variants tried
   /// for `name` — the literal include argument, exactly as written in the
@@ -26,7 +26,7 @@ enum DotfolderLoaderError: Error, Sendable, CustomStringConvertible {
 }
 
 /// Resolves Stencil `{% include %}` partials through the partial locations
-/// of a `DotfolderStack`'s layers (plan.md §4). The most specific folder
+/// of a `DotfolderStack`'s layers. The most specific folder
 /// wins first (see "The walk"). In one folder the nearest layer wins: a
 /// project's copy shadows the user's, which shadows the shipped defaults'.
 /// Conforms to Stencil's `Loader` protocol so it plugs directly into
@@ -63,7 +63,7 @@ enum DotfolderLoaderError: Error, Sendable, CustomStringConvertible {
 ///
 /// ## Name resolution
 ///
-/// The swissarmyhammer corpus this package ports (plan.md §4) writes includes
+/// The swissarmyhammer corpus this package ports writes includes
 /// two ways: extensionless (`{% include "header" %}`) and with a redundant
 /// leading location (`{% include "_partials/coding-standards" %}`).
 /// `loadTemplate` tries, in order, stopping at the first candidate a

@@ -2,7 +2,7 @@ import ArgumentParser
 import Foundation
 import FoundationModelsExtras
 
-/// `extras-demo render <file>` — pillar 3 (plan.md §7): renders a
+/// `extras-demo render <file>` — templating: renders a
 /// frontmatter+markdown template through `TemplateEngine`, showing a
 /// `--set` context variable, an environment variable, a well-known value,
 /// and a `{% include "header.md" %}` partial resolved from the fixture's

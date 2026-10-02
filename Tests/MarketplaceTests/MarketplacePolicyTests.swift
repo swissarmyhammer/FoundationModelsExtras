@@ -5,7 +5,7 @@ import Testing
 @testable import Marketplace
 
 /// Tests for the source allowlist and the source blocklist of
-/// ``MarketplacePolicy`` over a store (marketplace.md §6.7 and §10 item 2).
+/// ``MarketplacePolicy`` over a store.
 ///
 /// The store runs both lists before any network work and before any disk
 /// work. Thus each test counts the calls of ``RecordingGitTransport`` and
@@ -19,7 +19,8 @@ struct MarketplacePolicyTests {
   ///
   /// - Parameter source: The source to parse.
   /// - Returns: The normalized URL.
-  /// - Throws: ``MarketplaceSourceError`` when the URL is no §5.1 form.
+  /// - Throws: ``MarketplaceSourceError`` when the URL is not in an accepted
+  ///   form.
   private static func normalizedURL(of source: MarketplaceSource) throws -> String {
     try MarketplaceLocation(source: source).normalizedURL
   }
@@ -30,7 +31,8 @@ struct MarketplacePolicyTests {
   ///   - source: The source.
   ///   - root: The cache directory of the store.
   /// - Returns: `<root>/<key>-<hash>`, which a refused source never makes.
-  /// - Throws: ``MarketplaceSourceError`` when the URL is no §5.1 form.
+  /// - Throws: ``MarketplaceSourceError`` when the URL is not in an accepted
+  ///   form.
   private static func cacheFolder(of source: MarketplaceSource, inDirectory root: URL) throws -> URL {
     let name = MarketplaceIdentity.cacheFolderName(
       key: try MarketplaceIdentity.preFetchKey(for: source), normalizedURL: try normalizedURL(of: source))

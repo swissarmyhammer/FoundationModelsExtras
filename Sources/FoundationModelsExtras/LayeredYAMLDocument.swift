@@ -10,17 +10,17 @@ public enum LayeredYAMLDocumentError: Error, Sendable, CustomStringConvertible {
   case fileNotReadable(path: String)
 
   /// A layer's text failed to render through `TemplateEngine` — the
-  /// render-then-parse rule (plan.md §4) runs first, per layer, before this
+  /// render-then-parse rule runs first, per layer, before this
   /// type ever hands the text to Yams. `message` carries the underlying
   /// `TemplateEngineError`'s description.
   case renderingFailed(path: String, message: String)
 
   /// A present layer's rendered text is malformed YAML — a hard error
   /// naming the file and, when Yams' own parse error carries one, the
-  /// 1-based line number (plan.md §11: "a present-but-malformed layer
-  /// names the file and line — never silently fall back over a typo'd
-  /// config"). Also raised for a mapping whose key is not a string scalar
-  /// (this type's `YAMLValue.dictionary` is keyed by `String`) and for an
+  /// 1-based line number. A present but malformed layer is never skipped
+  /// in silence, so a lower layer never hides a typing mistake in a config
+  /// file. Also raised for a mapping whose key is not a string scalar (this
+  /// type's `YAMLValue.dictionary` is keyed by `String`) and for an
   /// unresolved YAML alias.
   case malformed(path: String, line: Int?, message: String)
 
@@ -45,12 +45,12 @@ public enum LayeredYAMLDocumentError: Error, Sendable, CustomStringConvertible {
   }
 }
 
-/// A YAML document resolved across a `DotfolderStack` — Pillar 5, the
-/// family's one layered-merge rule (plan.md §11).
+/// A YAML document resolved across a `DotfolderStack` with the family's one
+/// layered-merge rule.
 ///
 /// `load` locates every layer's copy of a relative path, renders each
 /// through `TemplateEngine` under its layer's trust (`.trusted` for the
-/// `defaults` layer, `.untrusted` for `user`/`project`/`marketplace` — plan.md §4's
+/// `defaults` layer, `.untrusted` for `user`/`project`/`marketplace` — the
 /// render-then-parse rule, so a templated value like an MCP server's
 /// `env: { TOKEN: "{{ HOME }}" }` resolves per layer before parsing ever
 /// sees it), parses each rendered layer with Yams, and merges the results
@@ -82,7 +82,7 @@ public struct LayeredYAMLDocument: Sendable {
   private var sourcesByKeyPath: [[String]: DotfolderStack.Source]
 
   /// Which layer supplied the winning value at `keyPath` — the
-  /// source-tracking story (plan.md §3) extended to individual keys,
+  /// source tracking of `DotfolderStack` extended to individual keys,
   /// feeding consumer diagnostics (e.g. `"/status: profile.standard ←
   /// project"`).
   ///
@@ -105,9 +105,9 @@ public struct LayeredYAMLDocument: Sendable {
 
   /// Creates a document directly from an already-merged tree and its
   /// source map — the only initializer, used internally by `load`. Not
-  /// exposed publicly: plan.md §11 specifies `load` as the sole
-  /// construction path, so `root`'s shape and `source(of:)`'s answers
-  /// always originate from an actual layered merge.
+  /// exposed publicly: `load` is the sole construction path, so `root`'s
+  /// shape and `source(of:)`'s answers always originate from an actual
+  /// layered merge.
   private init(root: YAMLValue, sourcesByKeyPath: [[String]: DotfolderStack.Source]) {
     self.root = root
     self.sourcesByKeyPath = sourcesByKeyPath
@@ -126,7 +126,7 @@ public struct LayeredYAMLDocument: Sendable {
   ///   - stack: The layered stack to resolve `relativePath` against.
   ///   - engine: The engine every layer's text renders through before
   ///     parsing — `.trusted` for the `defaults` layer, `.untrusted` for
-  ///     `user`/`project`/`marketplace` (plan.md §4).
+  ///     `user`/`project`/`marketplace`.
   ///   - context: Explicit template values passed to every layer's render.
   /// - Returns: The merged document.
   /// - Throws: `LayeredYAMLDocumentError.fileNotReadable` if a located
@@ -181,7 +181,7 @@ public struct LayeredYAMLDocument: Sendable {
   // MARK: - Trust mapping
 
   /// `.trusted` for the `defaults` layer (consumer-shipped, no
-  /// restriction — plan.md §4); `.untrusted` for `user`/`project`/
+  /// restriction); `.untrusted` for `user`/`project`/
   /// `marketplace` layers.
   private static func trust(for source: DotfolderStack.Source) -> TemplateEngine.Trust {
     source == .defaults ? .trusted : .untrusted

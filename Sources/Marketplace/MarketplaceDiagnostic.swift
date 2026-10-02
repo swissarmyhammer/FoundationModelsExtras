@@ -1,5 +1,4 @@
-/// One finding about a marketplace source, its catalog, or its sync
-/// (marketplace.md §6.2).
+/// One finding about a marketplace source, its catalog, or its sync.
 ///
 /// A diagnostic does not stop the other marketplaces. The ``severity`` tells
 /// what the store did about the finding.

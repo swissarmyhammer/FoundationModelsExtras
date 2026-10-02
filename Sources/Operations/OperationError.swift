@@ -1,9 +1,10 @@
 /// Errors surfaced while resolving, decoding, or dispatching an operation.
 ///
 /// Most of these are not `throw`n across the `FoundationModels.Tool.call`
-/// boundary — per plan.md's "Error handling — return, don't throw", the
-/// fused `OperationTool` catches them and returns a corrective message as
-/// the tool's `String` output so the model can retry within the turn.
+/// boundary. When a `Tool.call` throws, FoundationModels does not give the
+/// error back to the model, and the turn stops. So the fused `OperationTool`
+/// catches them and returns a corrective message as the tool's `String`
+/// output, and the model can retry within the turn.
 /// `AnyOperation.run` throws `OperationError` for the dispatch layer above
 /// it to make that translation.
 public enum OperationError: Error, Sendable {
@@ -67,8 +68,8 @@ extension OperationError: CustomStringConvertible {
     /// `OperationTool.call(arguments:)` returns this text as its corrective
     /// output for `.unknownOperation` and `.missingRequired` (values it
     /// constructs itself from the resolver's outcome) and for
-    /// `.decodingFailed` (caught from `AnyOperation.run`) — see plan.md's
-    /// "Error handling — return, don't throw". `.executionFailed` and
+    /// `.decodingFailed` (caught from `AnyOperation.run`), so the model can
+    /// correct its call within the turn. `.executionFailed` and
     /// `.encodingFailed` aren't part of that contract (`OperationTool`
     /// rethrows them as fatal), but still describe themselves here for
     /// consistent logging. The text of `.executionFailed` starts with its

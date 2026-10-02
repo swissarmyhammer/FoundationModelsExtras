@@ -3,17 +3,19 @@ import Testing
 
 @testable import FoundationModelsExtras
 
-/// Golden tests pinning the swissarmyhammer content carryover (plan.md §4):
-/// every templated file under `Fixtures/Corpus/` — a migrated copy of the
-/// *templated* subset of `../swissarmyhammer/builtin/` (files using `{{ }}`/
-/// `{% %}`, plus every partial they transitively reference) — renders
+/// Golden tests pinning the swissarmyhammer content carryover — the
+/// swissarmyhammer prompt and skill files must render through this package's
+/// `TemplateEngine` with no change in output. Every templated file under
+/// `Fixtures/Corpus/` — a migrated copy of the *templated* subset of
+/// `../swissarmyhammer/builtin/` (files using `{{ }}`/`{% %}`, plus every
+/// partial they transitively reference) — renders
 /// through `TemplateEngine` byte-for-byte to its checked-in expected output
 /// (`Fixtures/Expected/` and `Fixtures/ExpectedAbsent/`, mirroring the
 /// corpus's relative layout), under both trust levels.
 ///
 /// ## The one-time corpus migration
 ///
-/// A corpus audit (kanban task 9th0c05) found two constructs that could not
+/// An audit of the corpus found two constructs that could not
 /// carry over verbatim, both fixed directly in the checked-in fixture copies
 /// (not at render time):
 ///
@@ -239,7 +241,7 @@ import Testing
   }
 
   @Test func everyCorpusFileRendersCleanlyUntrustedWithOutputIdenticalToTrusted() throws {
-    // The corpus survey (plan.md §4) found zero filters and only
+    // An audit of the corpus found zero filters and only
     // `include`/`if`/`for` tags in use — every construct
     // `Trust.untrusted` whitelists — so untrusted rendering should
     // succeed for the whole corpus and produce byte-identical output to
@@ -291,13 +293,12 @@ import Testing
   /// flag — prose, not a template variable. Stencil cannot tell the
   /// difference: an undefined variable renders as an empty string, so
   /// rendering this file through the engine silently eats the placeholder
-  /// text down to an empty pair of backticks. The corpus audit (kanban
-  /// task 9th0c05) considered excluding this file from the golden suite
-  /// instead; this test deliberately pins the eaten-placeholder output —
-  /// so the file stays part of the enumeration-driven golden mirror like
-  /// every other corpus file (no special-cased exclusion list) — and
-  /// documents, here and at its point of use, exactly why the output looks
-  /// the way it does.
+  /// text down to an empty pair of backticks. One option was to exclude
+  /// this file from the golden suite; this test deliberately pins the
+  /// eaten-placeholder output instead — so the file stays part of the
+  /// enumeration-driven golden mirror like every other corpus file (no
+  /// special-cased exclusion list) — and documents, here and at its point
+  /// of use, exactly why the output looks the way it does.
   @Test func noSecretsPlaceholderLiteralIsSilentlyEatenByStencilAndTheOutputIsDeliberatelyPinned()
     throws
   {

@@ -1,9 +1,9 @@
 import Marketplace
 import Testing
 
-/// Proves the display text of ``MarketplaceProvenance`` (marketplace.md
-/// §9.1): the catalog version names the snapshot, the short commit stands in
-/// when the catalog has no version, and the URL is never part of the text.
+/// Proves the display text of ``MarketplaceProvenance``: the catalog version
+/// names the snapshot, the short commit stands in when the catalog has no
+/// version, and the URL is never part of the text.
 ///
 /// The suite imports `Marketplace` without `@testable`, thus it proves the
 /// public surface that a consumer uses.

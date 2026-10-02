@@ -1,14 +1,14 @@
 import Foundation
 import libgit2
 
-/// The libgit2 ``GitTransport`` (marketplace.md §5.1).
+/// The libgit2 ``GitTransport``.
 ///
 /// libgit2 builds from source as a SwiftPM target. HTTPS uses the system trust
 /// store. SSH URLs are not supported. `swift-libgit2` 1.9.7 builds no SSH
 /// transport: its manifest sets `GIT_SSH_EXEC` with an empty trait list, and
 /// SwiftPM never applies such a setting. Thus an SSH URL fails with
 /// ``GitTransportError/unreachable(message:)`` and the libgit2 message
-/// `unsupported URL protocol` (marketplace.md decision 10).
+/// `unsupported URL protocol`.
 /// No call starts the `git` binary, runs a hook, or fetches a submodule.
 ///
 /// Each call runs libgit2 on the thread of its task. The `transfer_progress`

@@ -13,7 +13,7 @@ behavior lives in a separate `execute(in:)`:
 
 <!-- doc-snippet source="Examples/NotesTool/Sources/NotesToolCore/AddNote.swift" -->
 ```swift
-/// Creates a new note, per plan.md's "Declaring an operation" example.
+/// Creates a new note.
 @Generable
 @Operation(verb: "add", noun: "note", description: "Create a new note")
 internal struct AddNote {

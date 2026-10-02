@@ -1,15 +1,14 @@
 /// The result of one doctor run: every finding the applicable components
-/// reported, in the order the components were registered in
-/// (doctor-plan.md §4).
+/// reported, in the order the components were registered in.
 ///
 /// The report is the value a renderer draws and a script reads. It holds the
 /// findings, it states the worst of them, and it turns that into the exit code
-/// of `doctor-plan.md` §5. ``DoctorRunner`` makes one; this initializer is
+/// ``exitCode``. ``DoctorRunner`` makes one; this initializer is
 /// public so a renderer test, or a caller that already holds its findings, can
 /// make one too.
 ///
-/// The report is `Codable`, and its JSON form is the one array of findings the
-/// `--json` output of `doctor-plan.md` §6 writes. ``worstStatus`` and
+/// The report is `Codable`, and its JSON form is the one array of findings that
+/// the `--json` output of a `doctor` command writes. ``worstStatus`` and
 /// ``exitCode`` are each derived from ``checks``, so the array is the whole
 /// report and no object wraps it. A report that goes through JSON comes back
 /// equal.
@@ -63,8 +62,7 @@ public struct DoctorReport: Sendable, Equatable, Codable {
     /// | 1 | At least one ``HealthStatus/error`` |
     /// | 5 | At least one ``HealthStatus/warning``, and no error |
     ///
-    /// The three codes come from `doctor-plan.md` §5, which is where the
-    /// decision is recorded. `1` and `5` were selected to keep the doctor codes
+    /// `1` and `5` were selected to keep the doctor codes
     /// clear of the usage-exit codes of a command-line tool, so a script never
     /// reads a broken configuration as a typing mistake.
     public var exitCode: Int32 {

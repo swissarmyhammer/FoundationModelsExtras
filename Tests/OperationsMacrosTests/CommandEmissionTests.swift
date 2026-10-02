@@ -263,8 +263,8 @@ private struct AddNoteCommandFixtureOutput: Encodable, Sendable {}
 /// the generated `Command` parses real command-line arguments and its
 /// `operationPayload()` matches the shape the model path sends.
 ///
-/// Mirrors plan.md's "Declaring an operation" `AddNote` example's field set
-/// (`title`, `body`, `tags`), plus a `pinned: Bool` field so all four
+/// Uses the field set of a typical `AddNote` operation (`title`, `body`,
+/// `tags`), plus a `pinned: Bool` field so all four
 /// `CommandFieldKind` mappings (required option, optional option, repeatable
 /// option, flag) are exercised through a real compile, not just
 /// `assertMacroExpansion` — and a required `scores: [Int]` array, since a
@@ -357,12 +357,12 @@ extension AddNoteCommandFixture {
 
         // The model path sends `AnyOperation.run` a payload built the same
         // way (`GeneratedContent(properties:)`) but without the `op`
-        // discriminator, since `OperationTool.call` (a later task) will
-        // strip it before typed construction. Decoding the CLI payload
-        // through the identical `AddNoteCommandFixture(_:)` initializer
-        // proves the two payload shapes converge on the same typed
-        // operation — across every field kind (required option, optional
-        // option, repeatable option, flag), not just a subset of them.
+        // discriminator, since `OperationTool.call` strips it before typed
+        // construction. Decoding the CLI payload through the identical
+        // `AddNoteCommandFixture(_:)` initializer proves the two payload
+        // shapes converge on the same typed operation — across every field
+        // kind (required option, optional option, repeatable option, flag),
+        // not just a subset of them.
         let decoded = try AddNoteCommandFixture(payload)
         #expect(decoded.title == "Hi")
         #expect(decoded.body == "Groceries list")

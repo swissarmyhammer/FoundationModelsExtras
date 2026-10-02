@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// The identity rules of a marketplace (marketplace.md §5.3).
+/// The identity rules of a marketplace.
 ///
 /// Before a fetch, the store knows only the source. Thus validation and the
 /// cache folder name use the **pre-fetch key**: the alias, else the last path

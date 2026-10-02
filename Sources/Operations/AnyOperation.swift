@@ -31,13 +31,14 @@ public struct AnyOperation<Context: Sendable>: Sendable {
     ///
     /// `OperationsCLI`'s driver opens this existential (`Rep.Type` generic
     /// parameters bound to it) to obtain distinct nominal witness types when
-    /// assembling its runtime command tree — see plan.md's "generic
-    /// `NounNode<Rep>` instantiated per noun via opened existentials".
+    /// assembling its runtime command tree: one generic `NounNode<Rep>` is
+    /// made for each noun, because ArgumentParser registers subcommands by
+    /// type and needs a distinct type for each noun.
     public let definitionType: any OperationDefinition.Type
 
     /// The macro-generated CLI leaf command for this operation, if
     /// `definitionType` conforms to `HasCLICommand` — `nil` for an operation
-    /// using the manual escape hatch (plan.md's "Manual escape hatch"),
+    /// that conforms to `OperationDefinition` by hand, without `@Operation`,
     /// which has no macro-generated `Command` to offer.
     public let commandType: (any OperationCommand.Type)?
 

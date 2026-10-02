@@ -2,7 +2,7 @@ import FoundationModels
 import Operations
 
 /// The fused "notes" `OperationTool`'s public factory and shared naming —
-/// plan.md's task 7 worked example of the full stack: `@Operation`-declared
+/// a worked example of the full stack: `@Operation`-declared
 /// operations (`AddNote`/`GetNote`/`ListNotes`/`DeleteNote`/`TagNote`) fused
 /// by `OperationTool` and driven by both `OperationCLIDriver` (the `notes`
 /// executable's default mode) and a `LanguageModelSession` (its `--chat`
@@ -19,8 +19,8 @@ public enum NotesTool {
     /// Exposed as a factory rather than a stored/computed singleton because
     /// `OperationTool.init` throws, and because the `--chat` live-model
     /// harness needs two distinct instances differing only in
-    /// `includesSchemaInInstructions` to measure plan.md's "Schema-in-prompt
-    /// cost" delta.
+    /// `includesSchemaInInstructions` to measure how many tokens the schema
+    /// adds to the prompt.
     ///
     /// - Parameter includesSchemaInInstructions: Whether FoundationModels
     ///   injects the fused schema into the prompt. Defaults to `true`.

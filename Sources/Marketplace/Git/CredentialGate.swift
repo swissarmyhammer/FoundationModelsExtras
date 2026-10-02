@@ -1,7 +1,7 @@
 import Foundation
 
 /// Decides which libgit2 credential request gets the credential of one HTTPS
-/// source (marketplace.md §5.1).
+/// source.
 ///
 /// The gate holds at most one credential, and gives it one time. It gives it
 /// only to a request whose URL has the same scheme, host, and port as the

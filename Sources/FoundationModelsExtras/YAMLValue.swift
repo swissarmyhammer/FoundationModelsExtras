@@ -1,7 +1,7 @@
 import Yams
 
 /// A YAML value tree — the shape `LayeredYAMLDocument` merges and consumers
-/// decode into their own `Codable` types (plan.md §11). Loosely mirrors the
+/// decode into their own `Codable` types. Loosely mirrors the
 /// shape of Yams' own `Node` (scalar/mapping/sequence), but is this
 /// package's own type: Yams' `Node` never crosses this package's public
 /// API surface, only inside this file's implementation.
@@ -148,7 +148,7 @@ extension YAMLValue {
 
 extension YAMLValue {
   /// Re-encodes this value tree into any `Decodable` type — the "Extras
-  /// merges trees, consumers decode" story (plan.md §11): `LayeredYAMLDocument`
+  /// merges trees, consumers decode" rule: `LayeredYAMLDocument`
   /// centralizes only the cross-layer *merge*; the schema (and its own
   /// `CodingKeys`, defaulting, etc.) stays the consumer's.
   ///

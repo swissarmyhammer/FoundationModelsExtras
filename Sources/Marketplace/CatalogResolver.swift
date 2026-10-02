@@ -2,7 +2,7 @@ import Foundation
 import FoundationModelsExtras
 
 /// The skills of one marketplace after ``CatalogResolver`` applies the
-/// catalog and the host selection (marketplace.md §5.2 and §6.4).
+/// catalog and the host selection.
 internal struct ResolvedCatalog: Sendable, Hashable {
   /// The catalog `name`, or `nil` when the resolver scanned the repository.
   var name: String?
@@ -61,7 +61,7 @@ internal struct ResolvedAgent: Sendable, Hashable {
 }
 
 /// Reads the catalog of a marketplace from a ``CatalogFileSource`` and
-/// resolves the list of skills (marketplace.md §5.2 and §6.4).
+/// resolves the list of skills.
 ///
 /// The resolver looks for these, in order, and uses the first that it finds:
 ///

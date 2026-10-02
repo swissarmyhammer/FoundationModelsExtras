@@ -1,19 +1,18 @@
 import Foundation
 
 /// Draws a ``DoctorReport`` as plain text a person reads: one aligned row for
-/// each finding, and a fix line under each finding that reports a problem
-/// (doctor-plan.md §6).
+/// each finding, and a fix line under each finding that reports a problem.
 ///
 /// The rendering is ASCII only. It holds no box-drawing character, and it holds
 /// no terminal escape sequence, ever, so the text a pipe or a file receives is
 /// stable and a test can compare it byte for byte. This is the renderer a piped
 /// `doctor` uses. A decorated table is the concern of the command-line tool
-/// that wants one: `doctor-plan.md` §6 states that this package must stay free
-/// of a terminal dependency, because it is a library that also runs inside a
-/// Mac app, so such a tool renders the ``DoctorReport`` itself.
+/// that wants one: this package must stay free of a terminal dependency,
+/// because it is a library that also runs inside a Mac app, so such a tool
+/// renders the ``DoctorReport`` itself.
 ///
 /// This renderer draws the whole report. Where that report goes is the caller's
-/// decision, not this type's: `doctor-plan.md` §6 sends the report to standard
+/// decision, not this type's: a `doctor` command sends the report to standard
 /// error, because a doctor report is a diagnostic, and sends the JSON of
 /// ``DoctorReport/jsonData(prettyPrinted:)`` to standard output, because a
 /// script reads it. ``write(_:to:)`` therefore takes the destination as a
@@ -162,8 +161,8 @@ public struct PlainTextDoctorRenderer: Sendable {
 }
 
 extension DoctorReport {
-    /// Encodes the findings as one JSON array, for the `--json` output of
-    /// `doctor-plan.md` §6.
+    /// Encodes the findings as one JSON array, for the `--json` output of a
+    /// `doctor` command.
     ///
     /// The encoder sorts its keys, so the bytes of two runs over the same
     /// findings are the same bytes and a test can compare them exactly. A

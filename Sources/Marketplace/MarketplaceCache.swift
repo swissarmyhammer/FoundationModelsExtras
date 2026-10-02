@@ -11,7 +11,7 @@ internal enum MarketplacePathValue: String, Sendable {
   case ref
 }
 
-/// Why the cache cannot finish a file operation (marketplace.md §7).
+/// Why the cache cannot finish a file operation.
 internal enum MarketplaceCacheError: Error, Equatable, Sendable {
   /// The cache cannot open or lock a file. The path names the file, and the
   /// code is the `errno` of the call.
@@ -20,7 +20,7 @@ internal enum MarketplaceCacheError: Error, Equatable, Sendable {
   /// Another writer holds the folder of the marketplace now, thus the call
   /// did no work at all. The path names the lock file.
   ///
-  /// The writer lock never waits (marketplace.md §7.6): a wait would hold
+  /// The writer lock never waits: a wait would hold
   /// the thread of the actor, and the holder of the lock may need that same
   /// actor to finish its own work. The caller keeps the snapshot it serves
   /// and runs again later.
@@ -65,8 +65,7 @@ extension MarketplaceCacheError: CustomStringConvertible {
   }
 }
 
-/// The on-disk cache of one marketplace (marketplace.md §7.1, §7.2, §7.3, and
-/// §7.6).
+/// The on-disk cache of one marketplace.
 ///
 /// The cache does no network work. A caller fetches and materializes a
 /// snapshot in a folder of its own, and then gives that folder to
@@ -91,8 +90,7 @@ internal struct MarketplaceCache: Sendable {
   /// The environment variable that names the cache directory.
   static let cacheVariable = "SKILLS_MARKETPLACE_CACHE"
 
-  /// The environment variable that names the read-only seed folder
-  /// (marketplace.md §7.5).
+  /// The environment variable that names the read-only seed folder.
   static let seedVariable = "SKILLS_MARKETPLACE_SEED"
 
   /// The cache directory under the home folder, for an environment that
@@ -162,8 +160,7 @@ internal struct MarketplaceCache: Sendable {
   /// The character that starts a hidden name.
   private static let hiddenNamePrefix = "."
 
-  /// Whether one name component is safe inside the cache folder
-  /// (marketplace.md §7.2).
+  /// Whether one name component is safe inside the cache folder.
   ///
   /// A component that is empty, that starts with a dot, that holds a
   /// separator, or that holds a control character, can leave the cache
@@ -179,8 +176,7 @@ internal struct MarketplaceCache: Sendable {
       && !component.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
   }
 
-  /// Checks a value that names one file or folder of the cache
-  /// (marketplace.md §7.2).
+  /// Checks a value that names one file or folder of the cache.
   ///
   /// - Parameters:
   ///   - value: The value to check. It is one name, not a path.
@@ -246,7 +242,7 @@ internal struct MarketplaceCache: Sendable {
 
   // MARK: - Location
 
-  /// The cache directory that `environment` names (marketplace.md §7.1).
+  /// The cache directory that `environment` names.
   ///
   /// The variable when it is set and not empty, else the standard folder
   /// under the home folder. The call is a pure function of the environment,
@@ -260,8 +256,7 @@ internal struct MarketplaceCache: Sendable {
       .appendingPathComponent(homeCachePath, isDirectory: true)
   }
 
-  /// The read-only seed folder that `environment` names
-  /// (marketplace.md §7.5).
+  /// The read-only seed folder that `environment` names.
   ///
   /// The folder has the layout of a cache directory. It gives an offline or
   /// a CI install: the store reads a snapshot from it, and never writes it.
@@ -434,8 +429,7 @@ internal struct MarketplaceCache: Sendable {
 
   // MARK: - Installing
 
-  /// Puts a materialized snapshot in place and makes `current` name it
-  /// (marketplace.md §7.3 steps 5 to 7).
+  /// Puts a materialized snapshot in place and makes `current` name it.
   ///
   /// The whole call holds the writer lock, so one writer works on the folder
   /// at a time, also across processes. The steps are: move the staged folder
@@ -467,7 +461,7 @@ internal struct MarketplaceCache: Sendable {
   ///
   /// The store holds the lock over the whole sync of one marketplace, which
   /// covers the fetch and the materialize as well as the swap
-  /// (marketplace.md §7.6). `flock(2)` is per open file, thus a second lock
+  /// . `flock(2)` is per open file, thus a second lock
   /// of the same file from the same process would wait forever; this entry
   /// point takes no lock of its own.
   ///
@@ -523,7 +517,7 @@ internal struct MarketplaceCache: Sendable {
   }
 
   /// Puts a materialized snapshot under `snapshots/<sha>` and leaves
-  /// `current` where it is (marketplace.md §8.4).
+  /// `current` where it is.
   ///
   /// This is the install of a host that applies an update at the next
   /// launch: the content is on the disk, and ``adopt(snapshotSha:ref:)``
@@ -544,8 +538,7 @@ internal struct MarketplaceCache: Sendable {
     try removeUnusedSnapshots(keeping: kept + [checked])
   }
 
-  /// Makes `current` name a snapshot that the folder already holds
-  /// (marketplace.md §8.4).
+  /// Makes `current` name a snapshot that the folder already holds.
   ///
   /// ``stageUnderWriterLock(snapshotAt:sha:keeping:)`` put that folder
   /// there, possibly in an earlier run of the host. The call takes the
@@ -652,7 +645,7 @@ internal struct MarketplaceCache: Sendable {
   // MARK: - Cleanup
 
   /// Deletes every snapshot that the keep list does not name and that no
-  /// reader holds (marketplace.md §7.6).
+  /// reader holds.
   ///
   /// Cleanup counts; it reads no age and no time. The keep list holds the
   /// snapshot that `current` names and the one before it, for rollback.
@@ -690,7 +683,7 @@ internal struct MarketplaceCache: Sendable {
   // MARK: - Locks
 
   /// Runs `body` while this process holds the exclusive writer lock of the
-  /// marketplace folder (marketplace.md §7.6).
+  /// marketplace folder.
   ///
   /// The call never waits for the lock: a folder that another writer holds
   /// gives ``MarketplaceCacheError/writerLockHeld(path:)`` and `body` does
@@ -708,7 +701,7 @@ internal struct MarketplaceCache: Sendable {
   }
 
   /// Runs an asynchronous `body` while this process holds the exclusive
-  /// writer lock of the marketplace folder (marketplace.md §7.6).
+  /// writer lock of the marketplace folder.
   ///
   /// The store holds the lock over the whole sync of one marketplace, and
   /// the fetch in the middle of that sync is asynchronous. `flock(2)`
@@ -790,7 +783,7 @@ internal struct MarketplaceCache: Sendable {
   }
 
   /// Takes a shared lock on the snapshot that `current` names, and keeps it
-  /// until the caller releases the lease (marketplace.md §7.6).
+  /// until the caller releases the lease.
   ///
   /// A store holds one lease for as long as it serves a snapshot, thus
   /// cleanup in another process keeps that folder.
@@ -830,8 +823,7 @@ internal struct MarketplaceCache: Sendable {
   }
 }
 
-/// A shared lock that one reader holds on the snapshot folder it serves
-/// (marketplace.md §7.6).
+/// A shared lock that one reader holds on the snapshot folder it serves.
 ///
 /// The lock lasts as long as the lease. Cleanup, in this process or in
 /// another one, takes an exclusive lock before it deletes a snapshot, thus it

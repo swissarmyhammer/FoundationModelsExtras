@@ -4,8 +4,8 @@ import NotesToolCore
 import Operations
 import OperationsCLI
 
-/// The `notes` executable's entry point: plan.md's task 7 worked example of
-/// the full stack, in two modes.
+/// The `notes` executable's entry point: a worked example of the full stack,
+/// in two modes.
 ///
 /// - Default: `notes note add --title …` — an `OperationCLIDriver` over
 ///   `NotesTool.make()`.

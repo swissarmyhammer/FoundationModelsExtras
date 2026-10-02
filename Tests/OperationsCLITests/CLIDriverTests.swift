@@ -97,10 +97,10 @@ private struct ArchiveNoteCLIOutput: Encodable, Sendable, Equatable {
 }
 
 /// `archive note` fixture: a hand-conformed `OperationDefinition` — no
-/// `@Operation`/`@Generable` macro involved, mirroring the manual escape
-/// hatch — under the *same* "note" noun as the macro-generated leaves above,
-/// so `NounNode`'s subcommands list mixes a macro leaf and a synthesized
-/// `FallbackOperationCommand` leaf. Its optional `reasonCode` (declared with
+/// `@Operation`/`@Generable` macro involved — under the *same* "note" noun
+/// as the macro-generated leaves above, so `NounNode`'s subcommands list
+/// mixes a macro leaf and a synthesized `FallbackOperationCommand` leaf. Its
+/// optional `reasonCode` (declared with
 /// a `-r` short flag) exercises the fallback leaf's integer parsing and
 /// short-flag/inline-equals spellings, and its `isConfirmed` boolean exercises
 /// the fallback leaf's flag-presence detection. Its `confidence` exercises
@@ -249,7 +249,7 @@ private func makeTasksTool() throws -> OperationTool<TasksFixtureContext> {
 }
 
 /// A single-tool driver: the collapsed `<executable> <noun> <verb>` grammar
-/// (`notes note add …`, per plan.md's acceptance example).
+/// (`notes note add …`).
 private func makeSingleToolDriver() throws -> OperationCLIDriver {
     try OperationCLIDriver(tool: makeNotesTool(), executableName: "notes")
 }

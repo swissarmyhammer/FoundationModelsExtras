@@ -2,7 +2,7 @@ import ArgumentParser
 import Foundation
 import FoundationModelsExtras
 
-/// `extras-demo agents` — pillar 4 (plan.md §10): walks the fixture
+/// `extras-demo agents` — `AGENTS.md` discovery: walks the fixture
 /// `agents/` tree with `AgentsMd.documents(from:)`, printing each
 /// discovered document's directory (relative to the fixture repo root) and
 /// which alias matched — provenance made visible, same spirit as

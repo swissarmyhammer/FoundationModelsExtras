@@ -1,8 +1,7 @@
 import Foundation
 import FoundationModelsExtras
 
-/// Reads the files of one marketplace tree for ``CatalogResolver``
-/// (marketplace.md §5.2).
+/// Reads the files of one marketplace tree for ``CatalogResolver``.
 ///
 /// The resolver does not know git. A folder on the disk gives this protocol
 /// through ``LocalCatalogFileSource``. The tree of a fetched commit gives it

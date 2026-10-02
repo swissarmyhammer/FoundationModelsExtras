@@ -2,7 +2,7 @@ import ArgumentParser
 import Foundation
 import FoundationModelsExtras
 
-/// `extras-demo config` — pillar 5 (plan.md §11): loads the fixture
+/// `extras-demo config` — layered configuration: loads the fixture
 /// `config.yaml` across the demo's layered stack with
 /// `LayeredYAMLDocument.load`, printing the merged tree annotated per key
 /// with the winning layer — the source-tracking story made visible, same

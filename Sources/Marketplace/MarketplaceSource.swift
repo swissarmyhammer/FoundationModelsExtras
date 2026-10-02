@@ -1,4 +1,4 @@
-/// One marketplace that a host names (marketplace.md §5.1 and §6.2).
+/// One marketplace that a host names.
 ///
 /// A source is a pure value. It does no I/O. The store parses ``url`` into a
 /// location, and it derives the pre-fetch key from ``alias`` or from the
@@ -11,10 +11,11 @@
 /// ]
 /// ```
 public struct MarketplaceSource: Sendable, Hashable, Codable {
-  /// The location of the marketplace, in a §5.1 form: an HTTPS URL that
-  /// ends in `.git`, `github:owner/repo`, or a `file://` URL. A git form can
-  /// have a `#ref` suffix. The parser also accepts an scp-like SSH URL, but
-  /// the transport does not support SSH, thus such a source never connects.
+  /// The location of the marketplace, in one of these forms: an HTTPS URL
+  /// that ends in `.git`, `github:owner/repo`, or a `file://` URL. A git
+  /// form can have a `#ref` suffix. The parser also accepts an scp-like SSH
+  /// URL, but the transport does not support SSH, thus such a source never
+  /// connects.
   public var url: String
 
   /// A branch or a tag. It wins over a `#ref` suffix on ``url``.
@@ -39,7 +40,7 @@ public struct MarketplaceSource: Sendable, Hashable, Codable {
   /// Creates a source.
   ///
   /// - Parameters:
-  ///   - url: The location, in a §5.1 form.
+  ///   - url: The location, in one of the forms of ``url``.
   ///   - ref: A branch or a tag. It wins over a `#ref` suffix on `url`.
   ///   - sha: A commit pin. It wins over `ref`.
   ///   - path: A subfolder of the repository.

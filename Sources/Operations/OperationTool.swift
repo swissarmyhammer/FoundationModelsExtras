@@ -6,7 +6,7 @@ import FoundationModelsExtras
 /// `call(arguments:)` forgivingly resolves a payload to the matching
 /// operation and dispatches to it.
 ///
-/// **Error handling — return, don't throw.** Per plan.md: when a `Tool.call`
+/// **Error handling — return, don't throw.** When a `Tool.call`
 /// throws, FoundationModels does not feed the error back to the model for
 /// self-correction — `LanguageModelSession.respond` rethrows it, aborting
 /// the turn. So resolver and validation failures (unknown op, missing
@@ -49,8 +49,8 @@ public struct OperationTool<Context: Sendable>: Tool {
     public let parameters: GenerationSchema
 
     /// Whether FoundationModels injects `parameters` into the prompt.
-    /// Defaults to `true`; per plan.md, this is the dominant context cost
-    /// for a many-op fused tool, hence the knob.
+    /// Defaults to `true`. For a fused tool with many operations, the schema
+    /// is the largest context cost, so a host can turn it off.
     public let includesSchemaInInstructions: Bool
 
     /// Every operation fused into this tool, in the order passed to `init`.

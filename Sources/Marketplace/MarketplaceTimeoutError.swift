@@ -1,5 +1,4 @@
-/// A fetch took longer than the `fetchTimeout` of the marketplace policy
-/// (marketplace.md §5.1 and §8.2).
+/// A fetch took longer than the `fetchTimeout` of the marketplace policy.
 ///
 /// The package has no timeout of its own: this error happens only when the
 /// host gives one. The text names no URL and no credential.
