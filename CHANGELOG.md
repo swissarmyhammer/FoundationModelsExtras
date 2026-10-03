@@ -5,6 +5,31 @@ change is at the top.
 
 ## Unreleased
 
+### Fixed: the terminal event of a call that `ToolContext.mount(_:op:as:)` mounted no longer takes the place of the terminal event of the mounting run
+
+A synchronous call that `ToolContext.mount(_:op:as:)` mounted now sends its
+terminal event to the mounting run as a `.progress` event with the same
+detail. The mounting run then gives its own terminal event, as before.
+
+**Cause.** The sink of the mount sent each event of the mounted run through
+`ToolContext.post(_:)` of the mounting context, and a `.completed` event
+stayed `.completed`. The funnel of the mounting run took that event as its
+one terminal event, and dropped the real terminal event of the mounting run
+when the run settled. Thus the session sink got the outcome and the detail of
+the inner call in place of those of the mounting run. For example, a script
+runner whose snippet caught the error of an inner call and returned a value
+gave a `.failed` terminal event with the error of the inner call. An inner
+call that posted progress and succeeded also put its own result in place of
+the result of the mounting run.
+
+**What changed.**
+
+- The session sink gets exactly one terminal event for the mounting run: the
+  terminal event that the run plane also keeps.
+- The end of each mounted call that posts a terminal event is now a progress
+  event of the mounting run. Thus it starts a new timeout window of the
+  mounting run, as each other progress event does.
+
 ### Changed (breaking): `TracedCall.run` records the error type on the span, never the error description
 
 When the body of `TracedCall.run` throws, the span now gets the error status

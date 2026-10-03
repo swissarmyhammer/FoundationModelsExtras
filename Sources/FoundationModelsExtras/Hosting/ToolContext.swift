@@ -220,8 +220,10 @@ public struct ToolContext: Sendable {
     ///
     /// The mounted tool works as a tool of the session: each call gets its own
     /// context and span. Each event of a synchronous call goes through
-    /// ``post(_:)``, so it has the correlation of THIS run. Each record that a
-    /// synchronous call attaches goes on THIS run.
+    /// ``post(_:)``, so it has the correlation of THIS run. The terminal event
+    /// of a synchronous call goes as a `.progress` event with the same
+    /// detail, because only THIS run gives its own terminal event. Each record
+    /// that a synchronous call attaches goes on THIS run.
     ///
     /// A background call is a full background run, the same as a top-level
     /// one: the run plane tracks it, and its events and its terminal go to
@@ -328,15 +330,25 @@ extension ToolInvocationRecord {
 /// gets the correlation of the mounting run. It also gives each record of a
 /// mounted call to the mounting context, so the records go on the report of
 /// the mounting run.
+///
+/// The terminal event of the mounted run is not a terminal event of the
+/// mounting run. The mounting run can catch a failure of the mounted call and
+/// go on, and only the mounting run settles itself. Thus this sink posts the
+/// terminal event of the mounted run as progress of the mounting run.
 private struct MountedRunUpstreamSink: OperationEventSink, ToolCallReportSink {
     /// The mounting context.
     let context: ToolContext
 
-    /// Posts `event` through the mounting context.
+    /// Posts `event` through the mounting context. A `.completed` event goes
+    /// as a `.progress` event with the same detail.
     ///
     /// - Parameter event: The event of the mounted run.
     func post(event: OperationEvent) async {
-        await context.post(event)
+        guard event.kind == .completed else {
+            await context.post(event)
+            return
+        }
+        await context.progress(event.detail)
     }
 
     /// Attaches each record of `report` to the mounting context, in order.

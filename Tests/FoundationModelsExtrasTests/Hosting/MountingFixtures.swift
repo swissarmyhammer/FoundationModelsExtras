@@ -125,6 +125,25 @@ extension MountFixtures {
         }
     }
 
+    /// Mounts `inner` on the context of its own run, calls it in band, and
+    /// returns a text of its own. It catches an error of `inner`, thus its
+    /// own run succeeds.
+    struct NestingTool: Tool {
+        let name = "nesting_tool"
+        let description = "mounts an inner tool on its own context, calls it in band, and catches its error"
+        let inner: any Tool<MountArguments, String>
+
+        func call(arguments: MountArguments) async throws -> String {
+            let context = try #require(ToolContext.current)
+            do {
+                let output = try await context.mount(inner).call(arguments: arguments)
+                return "nesting: \(output)"
+            } catch {
+                return "nesting caught: \(error)"
+            }
+        }
+    }
+
     /// Attaches both records, then returns a text that is not `String`
     /// output.
     struct AttachingNonStringOutputTool: Tool {

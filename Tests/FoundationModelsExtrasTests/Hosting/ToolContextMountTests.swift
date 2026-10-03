@@ -147,6 +147,65 @@ struct ToolContextMountTests {
         #expect(ULID(ulidString: output.text) != nil)
     }
 
+    @Test("a mounted call that fails and is caught leaves the one terminal event to the mounting run")
+    func caughtMountedFailureLeavesTheTerminalToTheMountingRun() async throws {
+        let run = await Self.nestingRun(around: Fixtures.ThrowingTool())
+
+        #expect(run.settled.outcome == .succeeded)
+        // The sink gets one terminal event: the terminal of the mounting run,
+        // and not the `.failed` terminal of the mounted call.
+        #expect(run.sinkTerminals == [run.settled])
+    }
+
+    @Test("a mounted call that posts progress and succeeds leaves the one terminal event to the mounting run")
+    func progressingMountedSuccessLeavesTheTerminalToTheMountingRun() async throws {
+        let run = await Self.nestingRun(around: Fixtures.ProgressOnceTool())
+
+        #expect(run.settled.outcome == .succeeded)
+        #expect(run.sinkTerminals == [run.settled])
+    }
+
+    @Test("the terminal event of a mounted call reaches the sink as progress of the mounting run")
+    func mountedTerminalReachesTheSinkAsProgress() async throws {
+        let run = await Self.nestingRun(around: Fixtures.ThrowingTool())
+
+        // The end of the mounted call is progress of the mounting run, with
+        // the detail of the mounted call.
+        #expect(run.events.map(\.kind) == [.progress, .completed])
+        #expect(run.events.first?.detail == String(describing: Fixtures.FixtureError()))
+        #expect(run.events.first?.outcome == nil)
+    }
+
+    /// What one run of ``MountFixtures/NestingTool`` gave.
+    private struct NestingRun {
+        /// Each event on the sink of the run, in post order.
+        let events: [OperationEvent]
+
+        /// The terminal event that the run settled with.
+        let settled: OperationEvent
+
+        /// The terminal events on the sink of the run, in post order.
+        var sinkTerminals: [OperationEvent] {
+            events.filter { $0.kind == .completed }
+        }
+    }
+
+    /// Runs ``MountFixtures/NestingTool`` around `inner` to completion, with a
+    /// recording sink.
+    ///
+    /// - Parameter inner: The tool that the nesting tool mounts and calls.
+    /// - Returns: The events on the sink and the terminal of the run.
+    private static func nestingRun(around inner: any Tool<MountArguments, String>) async -> NestingRun {
+        let sink = Fixtures.RecordingSink()
+        let arguments = MountArguments(value: "outer")
+        let run = Fixtures.toolRun(wrapping: Fixtures.NestingTool(inner: inner), arguments: arguments, sink: sink)
+
+        await run.open()
+        let settlement = await run.execute(arguments: arguments)
+
+        return NestingRun(events: await sink.events, settled: settlement.terminal)
+    }
+
     // MARK: - The attachment route
 
     @Test("the records of a mounted tool reach the mounting context, and the mounted call posts no report")
