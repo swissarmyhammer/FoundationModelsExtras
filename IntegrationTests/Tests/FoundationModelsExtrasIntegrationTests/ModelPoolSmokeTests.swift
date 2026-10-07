@@ -26,8 +26,9 @@ extension RealModelSuites {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
 
-            let (vectors, dimension) = try await Self.embed(["a cat", "a dog"], in: pool)
+            let vectors = try await Self.embed(["a cat", "a dog"], in: pool)
 
+            let dimension = try #require(vectors.first).count
             #expect(dimension > 0)
             #expect(vectors.map(\.count) == [dimension, dimension])
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
@@ -45,12 +46,10 @@ extension RealModelSuites {
         }
 
         /// Acquires the embedding model, embeds `texts` through a `PooledEmbedder`,
-        /// and releases the hold on return. The dimension comes from the
-        /// container of the hold.
-        private static func embed(_ texts: [String], in pool: ModelPool) async throws -> ([[Float]], Int) {
+        /// and releases the hold on return.
+        private static func embed(_ texts: [String], in pool: ModelPool) async throws -> [[Float]] {
             let hold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool)
-            let embedder = try PooledEmbedder(hold: hold)
-            return (try await embedder.embed(texts: texts), try IntegrationModels.embeddingDimension(of: hold))
+            return try await PooledEmbedder(hold: hold).embed(texts: texts)
         }
     }
 }

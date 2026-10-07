@@ -642,8 +642,12 @@ is `ModelPool.shared` when you give no `pool:`. Two embedders of one name share
 one resident model. All copies of one embedder share one hold, so the model
 stays resident while a copy exists, and the pool evicts the model after the
 last copy of the last embedder goes. After a failed load, the next call loads
-again. `PooledEmbedder` has no `dimension`, because the dimension is not known
-before the load; the `PooledEmbedding` container keeps `dimension`.
+again.
+
+`PooledEmbedding` is the one interface of each embedder: `PooledEmbedder`
+conforms to it, and so does the container of a loader. Its only requirement is
+`embed(texts:)`. It has no `dimension`: each vector carries its length, so a
+caller does not need a dimension before the first call.
 
 Each `embed(texts:)` call is one job in the queue of the model. The embedder
 uses the container only through `PooledEmbedding`, so the container of the first

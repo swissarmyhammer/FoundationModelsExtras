@@ -202,9 +202,6 @@ struct FakeEmbedding: PooledEmbedding {
     /// The number of calls that started.
     private let startedCalls = Counter()
 
-    /// The length of ``vector``.
-    var dimension: Int { vector.count }
-
     /// Makes a model.
     ///
     /// - Parameters:

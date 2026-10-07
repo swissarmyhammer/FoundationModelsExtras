@@ -5,6 +5,24 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): `PooledEmbedding` has no `dimension`, and `PooledEmbedder` conforms to `PooledEmbedding`
+
+`PooledEmbedding` is now the one interface of each embedder. Its only
+requirement is `embed(texts:)`. `PooledEmbedder` conforms to it, thus a caller
+can keep an `any PooledEmbedding` and not know if a pool holds the model.
+
+**What changed.**
+
+- `PooledEmbedding` has no `dimension` property. `PooledEmbedder` cannot give
+  a dimension before the model loads. Each vector carries its length, so a
+  caller that needs the dimension reads the length of a vector.
+- The container that `MLXModelLoader` gives for the `.embedding` role no longer
+  does a probe embed call when it loads.
+
+**Migration.** Remove `dimension` from each type that conforms to
+`PooledEmbedding`. In place of `embedding.dimension`, use the `count` of a
+vector that `embed(texts:)` gives.
+
 ### Fixed: the terminal event of a call that `ToolContext.mount(_:op:as:)` mounted no longer takes the place of the terminal event of the mounting run
 
 A synchronous call that `ToolContext.mount(_:op:as:)` mounted now sends its

@@ -127,7 +127,9 @@ extension RealModelSuites {
             #expect(await routerLoader.loads.events.map(\.key) == [IntegrationModels.embedding])
             #expect(await registryLoader.loads.events.isEmpty)
             #expect(outcome.shareOneQueue)
-            #expect(outcome.registryVectors.map(\.count) == Array(repeating: outcome.dimension, count: sharedTexts.count))
+            let dimension = try #require(outcome.routerVectors.first).count
+            #expect(dimension > 0)
+            #expect(outcome.registryVectors.map(\.count) == Array(repeating: dimension, count: sharedTexts.count))
             #expect(outcome.registryVectors == outcome.routerVectors)
         }
 
@@ -156,8 +158,10 @@ extension RealModelSuites {
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             #expect(outcome.isResidentAfterFirstRelease)
-            #expect(outcome.releasedHandleVectors.map(\.count) == [outcome.dimension])
-            #expect(outcome.remainingHandleVectors.map(\.count) == [outcome.dimension])
+            let dimension = try #require(outcome.releasedHandleVectors.first).count
+            #expect(dimension > 0)
+            #expect(outcome.releasedHandleVectors.map(\.count) == [dimension])
+            #expect(outcome.remainingHandleVectors.map(\.count) == [dimension])
             #expect(!pool.isResident(IntegrationModels.embedding))
         }
 
@@ -171,7 +175,9 @@ extension RealModelSuites {
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             #expect(!outcome.shareOneQueue)
-            #expect(outcome.vectors.map(\.count) == [outcome.dimension])
+            let dimension = try #require(outcome.vectors.first).count
+            #expect(dimension > 0)
+            #expect(outcome.vectors.map(\.count) == [dimension])
             #expect(
                 outcome.embedEnd < outcome.generationEnd,
                 "the embed ended \(outcome.generationEnd - outcome.embedEnd) before the generation")
@@ -223,7 +229,6 @@ extension RealModelSuites {
             let registry = try PooledEmbedder(hold: registryHold)
             return SharedModelOutcome(
                 shareOneQueue: routerHold.queue === registryHold.queue,
-                dimension: try IntegrationModels.embeddingDimension(of: registryHold),
                 routerVectors: try await router.embed(texts: sharedTexts),
                 registryVectors: try await registry.embed(texts: sharedTexts))
         }
@@ -297,7 +302,6 @@ extension RealModelSuites {
             try await pool.admit { _ in }
             return ResidencyOutcome(
                 isResidentAfterFirstRelease: pool.isResident(IntegrationModels.embedding),
-                dimension: try IntegrationModels.embeddingDimension(of: remainingHold),
                 releasedHandleVectors: releasedHandleVectors,
                 remainingHandleVectors: try await remaining.embed(texts: [probeText]))
         }
@@ -325,7 +329,6 @@ extension RealModelSuites {
             let embedEnd = ContinuousClock.now
             return GenerationOverlapOutcome(
                 shareOneQueue: llmHold.queue === embeddingHold.queue,
-                dimension: try IntegrationModels.embeddingDimension(of: embeddingHold),
                 vectors: vectors, embedEnd: embedEnd, generationEnd: try await generationEnd)
         }
     }
@@ -384,8 +387,6 @@ private struct BatchOutcome {
 private struct SharedModelOutcome {
     /// Whether the holds of the two users share one queue, thus one pool entry.
     let shareOneQueue: Bool
-    /// The dimension that the container of the hold of the registry reports.
-    let dimension: Int
     /// The vectors of the shared texts through the embedder of the router.
     let routerVectors: [[Float]]
     /// The vectors of the shared texts through the embedder of the registry.
@@ -404,8 +405,6 @@ private struct ConcurrentOutcome {
 private struct ResidencyOutcome {
     /// Whether the model was resident after the release of the first handle.
     let isResidentAfterFirstRelease: Bool
-    /// The dimension that the container of the remaining hold reports.
-    let dimension: Int
     /// The vectors of the handle that the test released first.
     let releasedHandleVectors: [[Float]]
     /// The vectors of the remaining handle, after the release of the first handle.
@@ -416,8 +415,6 @@ private struct ResidencyOutcome {
 private struct GenerationOverlapOutcome {
     /// Whether the LLM and the embedding model share one queue.
     let shareOneQueue: Bool
-    /// The dimension that the container of the embedding hold reports.
-    let dimension: Int
     /// The vectors of the embed call.
     let vectors: [[Float]]
     /// The time when the embed call returned.
@@ -442,9 +439,6 @@ private struct RecordingEmbedding: PooledEmbedding {
     let embedding: any PooledEmbedding
     /// The completed calls, in the order in which they ended.
     let records: EventLog<EmbedRecord>
-
-    /// The length of each vector of the wrapped embedding.
-    var dimension: Int { embedding.dimension }
 
     /// Embeds `texts` with the wrapped embedding, and records the call.
     func embed(texts: [String]) async throws -> [[Float]] {

@@ -214,60 +214,43 @@ public enum MLXModelLoaderError: Error, Equatable, LocalizedError {
 
 /// An MLX embedding model as a ``PooledEmbedding``.
 private struct MLXEmbedding: PooledEmbedding {
-    /// The text of the one embed call that finds the dimension.
-    private static let dimensionProbe = "dimension probe"
-
     /// The token that pads a short text when the tokenizer has no end token.
     private static let fallbackPadToken = 0
 
     /// The loaded model and its tokenizer.
     let container: EmbedderModelContainer
 
-    /// The length of each vector.
-    let dimension: Int
-
-    /// Loads the model of `configuration`, and finds its dimension with one
-    /// embed call.
+    /// Loads the model of `configuration`.
     ///
     /// - Parameters:
     ///   - configuration: The model and its revision.
     ///   - downloader: The downloader of the files of the model.
     ///   - tokenizerLoader: The loader of the tokenizer of the model.
     /// - Returns: The loaded model.
-    /// - Throws: The error of the download, of the load, or of the embed call.
+    /// - Throws: The error of the download or of the load.
     static func load(
         configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
         tokenizerLoader: any TokenizerLoader
     ) async throws -> MLXEmbedding {
-        let container = try await EmbedderModelFactory.shared.loadContainer(
-            from: downloader, using: tokenizerLoader, configuration: configuration)
-        let probe = try await embed(texts: [dimensionProbe], in: container)
-        return MLXEmbedding(container: container, dimension: probe.first?.count ?? 0)
+        MLXEmbedding(
+            container: try await EmbedderModelFactory.shared.loadContainer(
+                from: downloader, using: tokenizerLoader, configuration: configuration))
     }
 
-    /// Gives one normalized vector for each text.
+    /// Gives one normalized vector for each text. This pads the tokens of
+    /// `texts` to one length, runs the model, and pools the output. The mask of
+    /// each row comes from its length, and the model and the pooling both get
+    /// it. Thus a pad token changes no vector, and the end token of a text,
+    /// which can equal the pad token, stays in its vector.
     ///
     /// - Parameter texts: The texts.
-    /// - Returns: One vector for each text, in the order of `texts`.
-    func embed(texts: [String]) async throws -> [[Float]] {
-        try await Self.embed(texts: texts, in: container)
-    }
-
-    /// Pads the tokens of `texts` to one length, runs the model, and pools the
-    /// output. The mask of each row comes from its length, and the model and
-    /// the pooling both get it. Thus a pad token changes no vector, and the end
-    /// token of a text, which can equal the pad token, stays in its vector.
-    ///
-    /// - Parameters:
-    ///   - texts: The texts.
-    ///   - container: The loaded model and its tokenizer.
     /// - Returns: One normalized vector for each text, in the order of `texts`.
-    private static func embed(texts: [String], in container: EmbedderModelContainer) async throws -> [[Float]] {
+    func embed(texts: [String]) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
         return await container.perform { context in
             let padding = EmbeddingBatchPadding(
                 rows: texts.map { context.tokenizer.encode(text: $0, addSpecialTokens: true) },
-                padToken: context.tokenizer.eosTokenId ?? fallbackPadToken)
+                padToken: context.tokenizer.eosTokenId ?? Self.fallbackPadToken)
             let tokens = stacked(padding.tokens.map { MLXArray($0) })
             let mask = stacked(padding.mask.map { MLXArray($0) })
             let output = context.model(

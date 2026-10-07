@@ -1,11 +1,11 @@
 import Foundation
 import Synchronization
 
-/// A model that turns texts into vectors. A loader gives a container that
-/// conforms to this protocol for a key of the `.embedding` role.
+/// The interface of each embedder: a model that turns texts into vectors.
+/// ``PooledEmbedder`` conforms to it, and a loader gives a container that
+/// conforms to it for a key of the `.embedding` role. Each vector carries its
+/// length, so a caller does not need a dimension before the first call.
 public protocol PooledEmbedding: Sendable {
-    /// The length of each vector.
-    var dimension: Int { get }
     /// Gives one vector for each text.
     ///
     /// - Parameter texts: The texts.
@@ -26,7 +26,7 @@ public protocol PooledEmbedding: Sendable {
 /// let embedder = PooledEmbedder(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")   // loads nothing
 /// let vectors = try await embedder.embed(texts: ["save my work"])                     // loads the model
 /// ```
-public struct PooledEmbedder: Sendable {
+public struct PooledEmbedder: PooledEmbedding {
     /// The hold of the model, which all copies of this embedder share.
     private let resident: ResidentEmbedding
 
