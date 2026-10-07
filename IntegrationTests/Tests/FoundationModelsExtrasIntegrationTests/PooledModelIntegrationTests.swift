@@ -82,6 +82,54 @@ extension RealModelSuites {
             #expect(answer.lowercased().contains(RememberedFact.color), "answer: \(answer)")
         }
 
+        @Test("a LanguageModelSession over a pooled real model answers a question")
+        func aLanguageModelSessionAnswers() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+
+            let answer = try await Self.respondInLanguageModelSession(to: CapitalQuestion.prompt, in: pool)
+            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+
+            #expect(answer.lowercased().contains(CapitalQuestion.answer), "answer: \(answer)")
+        }
+
+        @Test("a LanguageModelSession over a pooled real model decodes a Generable answer")
+        func aLanguageModelSessionDecodesAGenerableAnswer() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+
+            let answer = try await Self.respondWithLegCountInLanguageModelSession(in: pool)
+            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+
+            #expect(answer.legs == LegCountQuestion.legCount)
+        }
+
+        /// Asks `prompt` in a new `LanguageModelSession` over a new
+        /// `PooledModel` of the model of this suite. The session and the model
+        /// go when the call returns.
+        ///
+        /// - Parameters:
+        ///   - prompt: The question.
+        ///   - pool: The pool of the test.
+        /// - Returns: The text of the answer.
+        /// - Throws: The error of the load or of the generation.
+        private static func respondInLanguageModelSession(to prompt: String, in pool: ModelPool) async throws -> String {
+            let session = LanguageModelSession(model: PooledModel(ref: key.ref, pool: pool), instructions: shortAnswers)
+            return try await session.respond(to: prompt).content
+        }
+
+        /// Asks the leg count question as a ``LegCount`` in a new
+        /// `LanguageModelSession` over a new `PooledModel` of the model of this
+        /// suite. The session and the model go when the call returns.
+        ///
+        /// - Parameter pool: The pool of the test.
+        /// - Returns: The typed answer.
+        /// - Throws: The error of the load, of the generation or of the decode.
+        private static func respondWithLegCountInLanguageModelSession(in pool: ModelPool) async throws -> LegCount {
+            let session = LanguageModelSession(model: PooledModel(ref: key.ref, pool: pool), instructions: shortAnswers)
+            return try await session.respond(to: LegCountQuestion.prompt, generating: LegCount.self).content
+        }
+
         /// Asks `prompt` in a new session of the model of this suite. The
         /// session goes when the call returns.
         ///

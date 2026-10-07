@@ -5,6 +5,34 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `PooledModel` is a FoundationModels `LanguageModel`
+
+A caller can now give a `PooledModel` to a `LanguageModelSession`, for example
+`LanguageModelSession(model: PooledModel(ref: "mlx-community/Qwen3-4B-4bit"), instructions: ...)`.
+Guided generation, tool calls and reasoning then go through the pooled model.
+A package that uses the pool thus needs no protocol or session type of its
+own over FoundationModels.
+
+**What changed.**
+
+- `PooledModel` conforms to `LanguageModel`. Its executor is the new public
+  `PooledModelExecutor`.
+- The first generation call acquires the model from the pool, one time only,
+  also when first calls run at the same time. `init` loads nothing. All copies
+  of one `PooledModel` share that one hold, thus the model stays resident while
+  a session or a copy exists. After a failed load, the next call loads again.
+- Each generation call is one job in the `GenerationQueue` of the model. The
+  call runs the executor of the loaded container, which the pooled model makes
+  one time from the `executorConfiguration` of the container.
+- `prewarm` of a session starts the load, and then prewarms the loaded model.
+- `PooledModel.init(ref:pool:capabilities:)` has a new `capabilities`
+  parameter, because a session reads the capabilities before the model loads.
+  The default is guided generation, tool calls and reasoning: the capabilities
+  of each LLM that `MLXModelLoader` gives. A call of `init(ref:pool:)` compiles
+  with no change.
+- `PooledModel.session(instructions:tools:)` and `PooledSession` do not
+  change. Use them when you must fork a transcript.
+
 ### Changed (breaking): `PooledEmbedding` has no `dimension`, and `PooledEmbedder` conforms to `PooledEmbedding`
 
 `PooledEmbedding` is now the one interface of each embedder. Its only

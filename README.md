@@ -669,12 +669,49 @@ This example is mirrored in `readmeEmbedderExample` in
 green by `swift test --filter PooledEmbedderTests`. The test declares `pool` (a
 `ModelPool(loader:)` with a test loader) before the block.
 
-### Sessions of an LLM by name: `PooledModel` and `PooledSession`
+### An LLM by name as a `LanguageModel`: `PooledModel`
 
 `PooledModel(ref: "<Hugging Face name>")` makes a model of an LLM and loads
-nothing. The pool is `ModelPool.shared` when you give no `pool:`. Each
-`session(instructions:tools:)` call acquires the model from the pool with a key
-of the `.llm` role: the pool loads the model one time for each name, also when
+nothing. The pool is `ModelPool.shared` when you give no `pool:`. A
+`PooledModel` is a FoundationModels `LanguageModel`, so you give it to a
+`LanguageModelSession` as you give any other model. You need no type of this
+package after that line.
+
+The first generation call acquires the model from the pool with a key of the
+`.llm` role, one time only, also when first calls run at the same time. All
+copies of one `PooledModel` share that one hold, and each session keeps a copy.
+Thus the model stays resident while a session or a copy exists, and the pool
+evicts the model after the last one goes. After a failed load, the next call
+loads again. Each generation call is one job in the queue of the model, so the
+calls of all users of one model run one at a time, first in first out. A call
+throws the error of the load, or `PooledSessionError.notALanguageModel` when
+the container of the model is not a FoundationModels `LanguageModel`.
+
+A session reads the capabilities of its model before the model loads. Thus
+`capabilities:` of the initializer gives them. The default is guided
+generation, tool calls and reasoning: the capabilities of each LLM that
+`MLXModelLoader` gives. Give other capabilities when your loader gives a model
+that can do less.
+
+```swift
+// Loads nothing now. The first respond call loads the model into the pool.
+let qwen = PooledModel(ref: "mlx-community/Qwen3-4B-4bit", pool: pool)
+let session = LanguageModelSession(model: qwen, instructions: "Answer with one number.")
+let typed = try await session.respond(to: "How many legs has a cat?", generating: Answer.self).content
+```
+
+This example is mirrored in `readmeLanguageModelSessionExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift`, kept green
+by `swift test --filter PooledModelTests`. The test declares `pool` (a
+`ModelPool(loader:)` with a test loader that gives a stub `LanguageModel`) and
+`Answer` (a `@Generable` type) before the block.
+
+### Sessions that fork: `PooledSession`
+
+Use a `PooledSession` when you must fork a transcript. Each
+`session(instructions:tools:)` call of a `PooledModel` acquires the model from
+the pool with a key of the `.llm` role: the pool loads the model one time for
+each name, also when
 first calls run at the same time or come from two `PooledModel` values of one
 name, and gives one hold to each session. The call throws the error of the
 load, or `PooledSessionError.notALanguageModel` when the container of the model

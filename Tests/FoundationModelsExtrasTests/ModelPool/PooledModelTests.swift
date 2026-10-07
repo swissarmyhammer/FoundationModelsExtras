@@ -250,6 +250,108 @@ struct PooledModelTests {
         #expect(Self.loads(in: log) == ["load \(session.model.stringValue) by \(Self.loaderName)"])
     }
 
+    @Test("a LanguageModelSession over a pooled model loads nothing until its first respond, which loads and answers")
+    func aLanguageModelSessionLoadsOnItsFirstRespond() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: Self.stubLoader(script: StubLanguageModelScript(), log: log))
+        let session = LanguageModelSession(model: PooledModel(ref: Self.key.ref, pool: pool))
+        // An admission job ends after each load that is in the admission queue now.
+        try await pool.admit { _ in }
+        let loadsBeforeTheFirstRespond = Self.loads(in: log)
+
+        let answer = try await session.respond(to: Self.firstPrompt).content
+
+        #expect(loadsBeforeTheFirstRespond.isEmpty)
+        #expect(answer == Self.firstPrompt)
+        #expect(pool.isResident(Self.key))
+        #expect(Self.loads(in: log) == [Self.loadEntry])
+    }
+
+    @Test("concurrent first responds of two LanguageModelSessions over one pooled model make one load and one hold")
+    func concurrentFirstRespondsMakeOneLoad() async throws {
+        let log = Recorder<String>()
+        let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
+        let pool = ModelPool(loader: Self.stubLoader(script: StubLanguageModelScript(), log: log, loadsMayEnd: loadsMayEnd))
+        let model = PooledModel(ref: Self.key.ref, pool: pool)
+        let first = LanguageModelSession(model: model)
+        let second = LanguageModelSession(model: model)
+
+        async let firstAnswer = first.respond(to: Self.firstPrompt).content
+        async let secondAnswer = second.respond(to: Self.secondPrompt).content
+        try #require(await BoundedWait.conditionReached("the load runs") { Self.loads(in: log) == [Self.loadEntry] })
+        endLoads.finish()
+        let answers = try await Set([firstAnswer, secondAnswer])
+
+        #expect(answers == [Self.firstPrompt, Self.secondPrompt])
+        #expect(Self.loads(in: log) == [Self.loadEntry])
+        #expect(pool.residentModelCount == 1)
+    }
+
+    @Test("the responds of two LanguageModelSessions over one pooled model run one at a time, in FIFO order")
+    func languageModelSessionsRespondOneAtATime() async throws {
+        let log = Recorder<String>()
+        let (firstCallMayEnd, endFirstCall) = AsyncStream.makeStream(of: Void.self)
+        let script = StubLanguageModelScript(log: log, firstCallMayEnd: firstCallMayEnd)
+        let pool = ModelPool(loader: Self.stubLoader(script: script, log: Recorder()))
+        let model = PooledModel(ref: Self.key.ref, pool: pool)
+        // The test keeps this hold, so the model and its queue stay the same during the test.
+        let hold = try await pool.acquire(Self.key)
+
+        let firstCall = Task { try await LanguageModelSession(model: model).respond(to: Self.firstPrompt).content }
+        try #require(await BoundedWait.conditionReached("the first call runs") { log.values == ["begin \(Self.firstPrompt)"] })
+        let secondCall = Task { try await LanguageModelSession(model: model).respond(to: Self.secondPrompt).content }
+        try await hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
+        endFirstCall.finish()
+        let answers = try await [firstCall.value, secondCall.value]
+
+        #expect(answers == [Self.firstPrompt, Self.secondPrompt])
+        #expect(log.values == [
+            "begin \(Self.firstPrompt)", "end \(Self.firstPrompt)", "begin \(Self.secondPrompt)", "end \(Self.secondPrompt)",
+        ])
+    }
+
+    @Test("the README example: a LanguageModelSession over a pooled model decodes a Generable answer")
+    func readmeLanguageModelSessionExample() async throws {
+        let log = Recorder<String>()
+        let script = StubLanguageModelScript(answer: { _ in Self.typedAnswerJSON })
+        let pool = ModelPool(loader: Self.stubLoader(script: script, log: log))
+
+        // README example: begin
+        // Loads nothing now. The first respond call loads the model into the pool.
+        let qwen = PooledModel(ref: "mlx-community/Qwen3-4B-4bit", pool: pool)
+        let session = LanguageModelSession(model: qwen, instructions: "Answer with one number.")
+        let typed = try await session.respond(to: "How many legs has a cat?", generating: Answer.self).content
+        // README example: end
+
+        #expect(typed.number == Self.typedAnswerNumber)
+        #expect(Self.loads(in: log) == ["load mlx-community/Qwen3-4B-4bit by \(Self.loaderName)"])
+    }
+
+    @Test("the model stays resident while a LanguageModelSession over a pooled model exists, and is evicted after it goes")
+    func theLastLanguageModelSessionEvictsTheModel() async throws {
+        let pool = ModelPool(loader: Self.stubLoader(script: StubLanguageModelScript(), log: Recorder()))
+        var session: LanguageModelSession? = LanguageModelSession(model: PooledModel(ref: Self.key.ref, pool: pool))
+        _ = try await session?.respond(to: Self.firstPrompt)
+
+        // An admission job ends after each eviction job that is in the admission queue now.
+        try await pool.admit { _ in }
+        let residentWhileTheSessionExists = pool.isResident(Self.key)
+        session = nil
+
+        #expect(residentWhileTheSessionExists)
+        #expect(await BoundedWait.conditionReached("the eviction after the session goes") { !pool.isResident(Self.key) })
+    }
+
+    @Test("a respond over a pooled model whose container is not a LanguageModel gives a clear error, and keeps no hold")
+    func aRespondOnAContainerThatIsNotALanguageModelThrows() async throws {
+        let pool = ModelPool(loader: RecordingLoader(name: Self.loaderName, log: Recorder()))
+        let session = LanguageModelSession(model: PooledModel(ref: Self.key.ref, pool: pool))
+        let expected = PooledSessionError.notALanguageModel(key: Self.key, containerType: "FakeModel")
+
+        await #expect(throws: expected) { try await session.respond(to: Self.firstPrompt) }
+        #expect(await BoundedWait.conditionReached("the eviction of the model") { !pool.isResident(Self.key) })
+    }
+
     @Test("a session on a container that is not a LanguageModel gives a clear error, and keeps no hold")
     func aContainerThatIsNotALanguageModelThrows() async throws {
         let pool = ModelPool(loader: RecordingLoader(name: Self.loaderName, log: Recorder()))

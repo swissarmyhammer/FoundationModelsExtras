@@ -29,7 +29,8 @@ public struct MLXModelLoader: PooledModelLoader {
 
     /// The capabilities of each `MLXLanguageModel` that the loader makes: the
     /// capabilities that the FoundationModelsRouter declares for each LLM.
-    private static let languageModelCapabilities: [LanguageModelCapabilities.Capability] = [
+    /// ``PooledModel`` declares them too when you give no capabilities.
+    @usableFromInline static let languageModelCapabilities: [LanguageModelCapabilities.Capability] = [
         .guidedGeneration, .toolCalling, .reasoning,
     ]
 

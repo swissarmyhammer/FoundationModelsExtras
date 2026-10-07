@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 
 /// The interface of each embedder: a model that turns texts into vectors.
 /// ``PooledEmbedder`` conforms to it, and a loader gives a container that
@@ -28,7 +27,7 @@ public protocol PooledEmbedding: Sendable {
 /// ```
 public struct PooledEmbedder: PooledEmbedding {
     /// The hold of the model, which all copies of this embedder share.
-    private let resident: ResidentEmbedding
+    private let resident: ResidentHold<LoadedEmbedding>
 
     /// Makes an embedder of the model `ref`. This loads nothing: the first
     /// ``embed(texts:)`` call acquires the model from `pool`.
@@ -38,7 +37,8 @@ public struct PooledEmbedder: PooledEmbedding {
     ///   - pool: The pool that loads the model with its loader. The default is
     ///     ``ModelPool/shared``.
     public init(ref: ModelRef, pool: ModelPool = .shared) {
-        resident = ResidentEmbedding(source: EmbeddingSource(pool: pool, key: ModelPoolKey(ref: ref, role: .embedding)))
+        let key = ModelPoolKey(ref: ref, role: .embedding)
+        resident = ResidentHold { try LoadedEmbedding(hold: try await pool.acquire(key)) }
     }
 
     /// Makes an embedder that keeps `hold`. Use this when you acquire the
@@ -48,7 +48,7 @@ public struct PooledEmbedder: PooledEmbedding {
     /// - Throws: ``PooledEmbedderError/notAnEmbedding(key:containerType:)``
     ///   when the container of `hold` does not conform to ``PooledEmbedding``.
     public init(hold: ModelHold) throws {
-        resident = ResidentEmbedding(loaded: try LoadedEmbedding(hold: hold))
+        resident = ResidentHold(loaded: try LoadedEmbedding(hold: hold))
     }
 
     /// Gives one vector for each text. The call waits in the queue of the
@@ -88,116 +88,6 @@ private struct LoadedEmbedding: Sendable {
         }
         self.hold = hold
         self.embedding = embedding
-    }
-}
-
-/// The pool and the key that an embedder made from a name loads.
-private struct EmbeddingSource: Sendable {
-    /// The pool that loads the model.
-    let pool: ModelPool
-    /// The embedding model.
-    let key: ModelPoolKey
-
-    /// Acquires the model from the pool.
-    ///
-    /// - Returns: The hold of the model, and its container.
-    /// - Throws: The error of the load, or
-    ///   ``PooledEmbedderError/notAnEmbedding(key:containerType:)``.
-    func load() async throws -> LoadedEmbedding {
-        try LoadedEmbedding(hold: try await pool.acquire(key))
-    }
-}
-
-/// The one hold of an embedder, which all copies of the embedder share. The
-/// hold goes when the last copy goes.
-private final class ResidentEmbedding: Sendable {
-    /// The steps of the hold: no load yet, one load that runs, or the hold.
-    private enum State {
-        /// No hold. The next call loads from the source.
-        case unloaded(EmbeddingSource)
-        /// A load runs. Each call waits for it. When it fails, the state goes
-        /// back to `unloaded` with the source.
-        case loading(EmbeddingSource, Task<LoadedEmbedding, any Error>)
-        /// The hold.
-        case loaded(LoadedEmbedding)
-    }
-
-    /// What a call does after it reads the state.
-    private enum Access {
-        /// Use the hold.
-        case ready(LoadedEmbedding)
-        /// Wait for the load that runs.
-        case waiting(Task<LoadedEmbedding, any Error>)
-    }
-
-    /// The state, under one lock.
-    private let state: Mutex<State>
-
-    /// Makes a hold that loads from `source` on the first call.
-    ///
-    /// - Parameter source: The pool and the key of the model.
-    init(source: EmbeddingSource) {
-        state = Mutex(.unloaded(source))
-    }
-
-    /// Makes a hold that has its model already.
-    ///
-    /// - Parameter loaded: The hold of the model.
-    init(loaded: LoadedEmbedding) {
-        state = Mutex(.loaded(loaded))
-    }
-
-    /// Gives the hold. The first call starts the load, and each call waits
-    /// for that one load. The wait is not cancellable, the same as
-    /// `Task.value`.
-    ///
-    /// - Returns: The hold of the model.
-    /// - Throws: The error of the load. After a failed load, the next call
-    ///   loads again.
-    func loaded() async throws -> LoadedEmbedding {
-        switch state.withLock({ Self.access(state: &$0) }) {
-        case .ready(let loaded):
-            return loaded
-        case .waiting(let load):
-            return try await finish(load: load)
-        }
-    }
-
-    /// Reads `state`, and starts the load when there is no hold and no load.
-    ///
-    /// - Parameter state: The state of the hold.
-    /// - Returns: The hold, or the load to wait for.
-    private static func access(state: inout State) -> Access {
-        switch state {
-        case .loaded(let loaded):
-            return .ready(loaded)
-        case .loading(_, let load):
-            return .waiting(load)
-        case .unloaded(let source):
-            let load = Task { try await source.load() }
-            state = .loading(source, load)
-            return .waiting(load)
-        }
-    }
-
-    /// Waits for `load`, and keeps its result when `load` is still the load
-    /// of the state.
-    ///
-    /// - Parameter load: The load that the state holds, or held.
-    /// - Returns: The hold of the model.
-    /// - Throws: The error of `load`.
-    private func finish(load: Task<LoadedEmbedding, any Error>) async throws -> LoadedEmbedding {
-        let result = await load.result
-        state.withLock { state in
-            guard case .loading(let source, let current) = state, current == load else { return }
-            switch result {
-            case .success(let loaded):
-                state = .loaded(loaded)
-            case .failure:
-                state = .unloaded(source)
-            }
-        }
-        return try result.get()
     }
 }
 
