@@ -154,6 +154,17 @@ public struct ToolContext: Sendable {
         await sink.post(event: stamped(.progress, detail: detail))
     }
 
+    /// Sends `text` as mail to the session that called this run, while the
+    /// run continues. Posts a `.message` event with `text` as its detail,
+    /// stamped as ``post(_:)`` does. A message counts as a sign of life for
+    /// the timeout of the run, the same as progress. A message after the
+    /// terminal event of the run is dropped, because no call waits for it.
+    ///
+    /// - Parameter text: The text of the message.
+    public func message(_ text: String) async {
+        await sink.post(event: stamped(.message, detail: text))
+    }
+
     /// Attaches `attachment` to the call of this context.
     ///
     /// The records go on the ``ToolCallReport`` of the call, in call order,

@@ -211,6 +211,58 @@ struct ToolContextTests {
         #expect(events.first?.op == Self.demoToolName)
     }
 
+    @Test("message(_:) posts a .message event with the text as its detail, no outcome, and the identity of the run")
+    func messageCarriesRunIdentity() async throws {
+        let sink = RecordingSink()
+        let completionToken = RunPlane.makeCompletionToken()
+        let context = Self.makeContext(sink: sink, completionToken: completionToken)
+
+        await context.message("the child found the file")
+
+        let events = await sink.events
+        #expect(events.count == 1)
+        let posted = try #require(events.first)
+        #expect(posted.kind == .message)
+        #expect(posted.detail == "the child found the file")
+        #expect(posted.outcome == nil)
+        #expect(posted.elicitation == nil)
+        #expect(posted.correlationID == completionToken)
+        #expect(posted.tool == Self.demoToolName)
+        #expect(posted.op == Self.demoToolName)
+    }
+
+    @Test("a message is not terminal: the run funnel sends it, and the terminal event after it, upstream")
+    func aMessageIsNotTerminal() async throws {
+        let sink = RecordingSink()
+        let completionToken = RunPlane.makeCompletionToken()
+        let funnel = RunEventFunnel(upstream: sink, runPlane: RunPlane(), completionToken: completionToken)
+        let context = Self.makeContext(sink: funnel, completionToken: completionToken)
+
+        await context.message("first mail")
+        await context.message("second mail")
+        await context.post(
+            OperationEvent(tool: "", op: "", correlationID: "", kind: .completed, detail: "done", outcome: .succeeded))
+
+        let events = await sink.events
+        #expect(events.map(\.kind) == [.message, .message, .completed])
+        #expect(events.map(\.detail) == ["first mail", "second mail", "done"])
+    }
+
+    @Test("a message after the terminal event of the run is dropped")
+    func aMessageAfterTheTerminalEventIsDropped() async throws {
+        let sink = RecordingSink()
+        let completionToken = RunPlane.makeCompletionToken()
+        let funnel = RunEventFunnel(upstream: sink, runPlane: RunPlane(), completionToken: completionToken)
+        let context = Self.makeContext(sink: funnel, completionToken: completionToken)
+
+        await context.post(
+            OperationEvent(tool: "", op: "", correlationID: "", kind: .completed, detail: "done", outcome: .succeeded))
+        await context.message("too late")
+
+        let events = await sink.events
+        #expect(events.map(\.kind) == [.completed])
+    }
+
     @Test("post(_:) stamps tool, op and correlationID; the tool never gives them")
     func postCarriesRunIdentityWithoutToolSupplyingIt() async throws {
         let sink = RecordingSink()

@@ -5,6 +5,31 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `OperationEventKind.message` and `ToolContext.message(_:)`
+
+A run, for example the body of a background run, can now send mail to the
+session that called it, while the run continues. The session can be a parent
+run or the root session of the host. A `.progress` event starts no answer in
+a host, and a `.completed` event ends the call, thus neither can carry mail.
+
+**What changed.**
+
+- `OperationEventKind.message` is new. Its wire value is `"message"`. It is
+  never terminal. `OperationEvent.detail` holds the text of the message, and
+  `OperationEvent.outcome` is `nil`.
+- `ToolContext.message(_ text: String) async` posts a `.message` event with
+  `text` as its detail, stamped with the `tool`, the `op` and the
+  `completionToken` of the run, as `progress(_:)` does.
+- A message counts as a sign of life for the timeout of the run, the same as
+  progress. It does not change the latest progress detail on the run plane.
+- A message that a run posts after its terminal event is dropped, the same
+  as a second terminal event, because no call waits for it.
+- An event that was recorded before this change decodes unchanged.
+
+**Migration.** A `switch` over `OperationEventKind` in a consumer must add the
+`.message` case. A host that wants the mail must deliver each `.message` event
+to the session of its `correlationID`.
+
 ### Added: `PooledModel` is a FoundationModels `LanguageModel`
 
 A caller can now give a `PooledModel` to a `LanguageModelSession`, for example

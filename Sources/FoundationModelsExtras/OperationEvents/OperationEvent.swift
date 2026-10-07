@@ -13,9 +13,16 @@ public enum OperationEventKind: String, Codable, Sendable, Equatable {
     /// The operation asks the user for input; `OperationEvent.elicitation` carries the request.
     /// Never terminal.
     case elicitation
+
+    /// The operation sends mail to the session that called it, while the
+    /// operation continues. `OperationEvent.detail` holds the text of the
+    /// message, and `OperationEvent.outcome` is `nil`. Never terminal. The
+    /// session that gets the event can start an answer for it. A message that
+    /// a run posts after its terminal event is dropped.
+    case message
 }
 
-/// A progress, completion, or elicitation event a long-running operation
+/// A progress, completion, elicitation, or message event a long-running operation
 /// posts through a connected `OperationEventSink`.
 /// See `OperationEventKind` for the terminal-event contract.
 public struct OperationEvent: Codable, Sendable, Equatable {
@@ -29,7 +36,8 @@ public struct OperationEvent: Codable, Sendable, Equatable {
     /// Opaque to this package.
     public let correlationID: String
 
-    /// Whether this event reports progress, completion, or a request for user input.
+    /// Whether this event reports progress, completion, a request for user input,
+    /// or a message to the calling session.
     public let kind: OperationEventKind
 
     /// A JSON-string payload in a shape the emitting tool owns. Opaque to this package.

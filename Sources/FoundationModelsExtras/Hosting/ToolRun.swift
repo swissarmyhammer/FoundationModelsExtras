@@ -265,7 +265,8 @@ actor RunEventFunnel: OperationEventSink {
     /// Whether the terminal event went upstream.
     private var hasDeliveredTerminal = false
 
-    /// Increases with each progress event and each answered elicitation.
+    /// Increases with each progress event, each message and each answered
+    /// elicitation.
     private var resetCount = 0
 
     /// The elicitations of this run that have no answer yet.
@@ -287,7 +288,8 @@ actor RunEventFunnel: OperationEventSink {
     }
 
     /// Records the timeout state of `event`, then sends it upstream. A second
-    /// terminal event is dropped.
+    /// terminal event is dropped, and so is a message after the terminal
+    /// event.
     ///
     /// - Parameter event: The event.
     func post(event: OperationEvent) async {
@@ -296,6 +298,9 @@ actor RunEventFunnel: OperationEventSink {
             guard !hasDeliveredTerminal else { return }
             hasDeliveredTerminal = true
         case .progress:
+            resetCount += 1
+        case .message:
+            guard !hasDeliveredTerminal else { return }
             resetCount += 1
         case .elicitation:
             if let elicitationId = event.elicitation?.elicitationId {
