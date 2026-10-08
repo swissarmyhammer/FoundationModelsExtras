@@ -33,8 +33,24 @@ comments:
     - evidence: swift test - 887 tests in 85 suites passed, 0 failed, 11 known issues (the withKnownIssue cases that existed before, in TelemetryCaptureTests). No skipped tests. After a touch of the changed files, swift build --build-tests recompiled them with zero compiler warnings. One build-system warning remains: "missing creator for mutated node ... mlx-swift_Cmlx.bundle". It comes from the mlx-swift dependency bundle, not from this package's code.
     - next: review
   timestamp: 2026-10-08T13:39:36.500194+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4dvztvww3ka4d26ja11prjy
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (ee4a798): 0 findings, 0 confirmed, 0 refuted; 7 pairs attempted, 0 failed. Not reviewed: .kanban/ (ignore rule), CHANGELOG.md and README.md (no validator matches).
+    - next: none. The task is in done.
+  timestamp: 2026-10-08T13:42:04.924114+00:00
+- actor: claude-code
+  id: 01m4dw01xbzke4ja75hgkrsmvt
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files
+    - test: green — swift test, 887 tests in 85 suites passed
+    - commit: ee4a798
+    - review: clean — 0 findings
+  timestamp: 2026-10-08T13:42:12.139437+00:00
+position_column: done
+position_ordinal: e280
 title: Send an agent plan through ToolContext.progress as a typed PlanSnapshot
 ---
 ## Goal
