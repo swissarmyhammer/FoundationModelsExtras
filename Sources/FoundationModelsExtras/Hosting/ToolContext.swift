@@ -139,19 +139,31 @@ public struct ToolContext: Sendable {
     // MARK: - Events
 
     /// Posts `event` with the `tool`, `op` and `completionToken` of this run.
-    /// Only the kind, the detail, the outcome and the elicitation of `event`
-    /// stay.
+    /// Only the kind, the detail, the outcome, the elicitation and the plan of
+    /// `event` stay.
     ///
     /// - Parameter event: The event to post.
     public func post(_ event: OperationEvent) async {
-        await sink.post(event: stamped(event.kind, detail: event.detail, outcome: event.outcome, elicitation: event.elicitation))
+        await sink.post(
+            event: stamped(
+                event.kind, detail: event.detail, outcome: event.outcome,
+                elicitation: event.elicitation, plan: event.plan
+            )
+        )
     }
 
-    /// Posts a `.progress` event with `detail`, stamped as ``post(_:)`` does.
+    /// Posts a `.progress` event with `detail` and `plan`, stamped as
+    /// ``post(_:)`` does.
     ///
-    /// - Parameter detail: The progress detail.
-    public func progress(_ detail: String) async {
-        await sink.post(event: stamped(.progress, detail: detail))
+    /// The model gets only `detail`. The plan goes to the host, and the model
+    /// never gets it.
+    ///
+    /// - Parameters:
+    ///   - detail: A short text line for the model, for example
+    ///     "3 of 7 tasks done".
+    ///   - plan: The full agent plan for the host, or `nil` for none.
+    public func progress(_ detail: String, plan: PlanSnapshot? = nil) async {
+        await sink.post(event: stamped(.progress, detail: detail, plan: plan))
     }
 
     /// Sends `text` as mail to the session that called this run, while the
@@ -312,11 +324,12 @@ public struct ToolContext: Sendable {
         _ kind: OperationEventKind,
         detail: String,
         outcome: OperationOutcome? = nil,
-        elicitation: ElicitationRequest? = nil
+        elicitation: ElicitationRequest? = nil,
+        plan: PlanSnapshot? = nil
     ) -> OperationEvent {
         OperationEvent(
             tool: tool, op: op, correlationID: completionToken, kind: kind,
-            detail: detail, outcome: outcome, elicitation: elicitation
+            detail: detail, outcome: outcome, elicitation: elicitation, plan: plan
         )
     }
 }

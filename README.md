@@ -822,9 +822,11 @@ questions that those runs ask the user.
   `String` tool runs to completion or in the background. The mount that the
   tool declares wins over the mount of the site.
 - `ToolContext.current` is the context of the running call. A tool uses it to
-  post events (`post(_:)`, `progress(_:)`), send mail to the calling session
-  while the run continues (`message(_:)`, a `.message` event that is never
-  terminal), attach records (`attach(_:)`), ask the user (`elicit(_:)`), read the background runs (`backgroundRuns()`), wait
+  post events (`post(_:)`, `progress(_:plan:)`, where an optional
+  `PlanSnapshot` sends the agent plan to the host and never to the model),
+  send mail to the calling session while the run continues (`message(_:)`, a
+  `.message` event that is never terminal), attach records (`attach(_:)`), ask
+  the user (`elicit(_:)`), read the background runs (`backgroundRuns()`), wait
   for a run (`wait(completionToken:seconds:)`), stop a run
   (`cancel(completionToken:)`), and mount a tool of its own (`mount(_:op:as:)`).
   A background call of a tool that `mount(_:op:as:)` mounted is a full

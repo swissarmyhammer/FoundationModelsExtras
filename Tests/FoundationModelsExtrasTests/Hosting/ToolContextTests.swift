@@ -6,9 +6,9 @@ import ULID
 
 /// The bound ``ToolContext``: the binding through `ToolContext.$current`, the
 /// rule that work with no task-local values sees `nil`, the stamps of each
-/// event, the `elicit(_:)` round trip through a real ``RunPlane``, and the
-/// run-plane capabilities `backgroundRuns()`, `wait` and `cancel` against a
-/// fake background run.
+/// event, the plan on a progress event, the `elicit(_:)` round trip through a
+/// real ``RunPlane``, and the run-plane capabilities `backgroundRuns()`,
+/// `wait` and `cancel` against a fake background run.
 @Suite("ToolContext: ambient task-local capability surface", .timeLimit(.minutes(1)))
 struct ToolContextTests {
     // MARK: - Fixtures
@@ -109,6 +109,20 @@ struct ToolContextTests {
             message: "What is your name?",
             elicitationId: ULID(),
             requestedSchema: ElicitationRequestedSchema(properties: ["name": .string(ElicitationStringSchema())])
+        )
+    }
+
+    /// The short text line for the model on each plan event.
+    private static let planProgressLine = "3 of 7 tasks done"
+
+    /// A plan with one entry done and one entry in progress.
+    private static func planSnapshot() -> PlanSnapshot {
+        PlanSnapshot(
+            id: "plan-1",
+            entries: [
+                PlanSnapshot.Entry(content: "read the spec", priority: .high, status: .completed),
+                PlanSnapshot.Entry(content: "write the code", priority: .medium, status: .inProgress),
+            ]
         )
     }
 
@@ -286,6 +300,57 @@ struct ToolContextTests {
         #expect(posted.op == Self.demoToolName)
         #expect(!posted.tool.isEmpty)
         #expect(!posted.op.isEmpty)
+        #expect(posted.correlationID == completionToken)
+    }
+
+    // MARK: - Plan
+
+    @Test("progress(_:plan:) posts a .progress event with the plan, and the text only as its detail")
+    func progressWithAPlanCarriesThePlan() async throws {
+        let sink = RecordingSink()
+        let completionToken = RunPlane.makeCompletionToken()
+        let context = Self.makeContext(sink: sink, completionToken: completionToken)
+        let plan = Self.planSnapshot()
+
+        await context.progress(Self.planProgressLine, plan: plan)
+
+        let events = await sink.events
+        #expect(events.count == 1)
+        let posted = try #require(events.first)
+        #expect(posted.kind == .progress)
+        #expect(posted.plan == plan)
+        #expect(posted.detail == Self.planProgressLine)
+        #expect(posted.correlationID == completionToken)
+    }
+
+    @Test("progress(_:) with no plan posts an event with no plan")
+    func progressWithNoPlanPostsNoPlan() async throws {
+        let sink = RecordingSink()
+        let context = Self.makeContext(sink: sink)
+
+        await context.progress(Self.planProgressLine)
+
+        let posted = try #require(await sink.events.first)
+        #expect(posted.kind == .progress)
+        #expect(posted.plan == nil)
+    }
+
+    @Test("post(_:) keeps the plan of the event")
+    func postKeepsThePlan() async throws {
+        let sink = RecordingSink()
+        let completionToken = RunPlane.makeCompletionToken()
+        let context = Self.makeContext(sink: sink, completionToken: completionToken)
+        let plan = Self.planSnapshot()
+
+        await context.post(
+            OperationEvent(
+                tool: "", op: "", correlationID: "", kind: .progress,
+                detail: Self.planProgressLine, plan: plan
+            )
+        )
+
+        let posted = try #require(await sink.events.first)
+        #expect(posted.plan == plan)
         #expect(posted.correlationID == completionToken)
     }
 

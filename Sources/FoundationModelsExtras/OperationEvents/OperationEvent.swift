@@ -5,6 +5,7 @@
 /// in-band with no events may post nothing.
 public enum OperationEventKind: String, Codable, Sendable, Equatable {
     /// The operation is still running; `OperationEvent.detail` describes its progress.
+    /// `OperationEvent.plan` can carry the agent plan for the host.
     case progress
 
     /// The operation has finished; `OperationEvent.outcome` states how it ended.
@@ -51,6 +52,11 @@ public struct OperationEvent: Codable, Sendable, Equatable {
     /// Decoded with `decodeIfPresent`, so older recorded events decode unchanged.
     public let elicitation: ElicitationRequest?
 
+    /// The agent plan that goes to the host. Non-nil only when `kind == .progress`.
+    /// The model never gets it: `detail` holds the text for the model.
+    /// Decoded with `decodeIfPresent`, so older recorded events decode unchanged.
+    public let plan: PlanSnapshot?
+
     /// Creates an event with the given fields.
     /// - Parameters:
     ///   - tool: The name of the posting tool.
@@ -60,6 +66,7 @@ public struct OperationEvent: Codable, Sendable, Equatable {
     ///   - detail: The tool-owned JSON-string payload.
     ///   - outcome: How the run ended; non-nil only when `kind == .completed`.
     ///   - elicitation: The request for user input; non-nil only when `kind == .elicitation`.
+    ///   - plan: The agent plan for the host; non-nil only when `kind == .progress`.
     public init(
         tool: String,
         op: String,
@@ -67,7 +74,8 @@ public struct OperationEvent: Codable, Sendable, Equatable {
         kind: OperationEventKind,
         detail: String,
         outcome: OperationOutcome? = nil,
-        elicitation: ElicitationRequest? = nil
+        elicitation: ElicitationRequest? = nil,
+        plan: PlanSnapshot? = nil
     ) {
         self.tool = tool
         self.op = op
@@ -76,5 +84,6 @@ public struct OperationEvent: Codable, Sendable, Equatable {
         self.detail = detail
         self.outcome = outcome
         self.elicitation = elicitation
+        self.plan = plan
     }
 }

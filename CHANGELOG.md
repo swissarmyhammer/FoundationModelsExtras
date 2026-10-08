@@ -5,6 +5,33 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `PlanSnapshot`, `OperationEvent.plan` and `ToolContext.progress(_:plan:)`
+
+A tool can now send its agent plan to the host. The plan is a copy of the ACP
+agent plan (https://agentclientprotocol.com/protocol/v2/agent-plan). It goes
+one way only: the host sends it to the client, and the model never gets it.
+`detail` stays a short text line for the model, because the host puts
+`detail` in the model text.
+
+**What changed.**
+
+- `PlanSnapshot` is new. It has an `id` and the full list of its `entries`.
+  An update replaces the plan that has the same `id`. Each
+  `PlanSnapshot.Entry` has a `content`, a `priority` (`high`, `medium`,
+  `low`) and a `status` (`pending`, `inProgress`, `completed`, `cancelled`).
+  The wire value of `inProgress` is `"in_progress"`, the same as ACP.
+- `OperationEvent.plan` is new. It is non-nil only when `kind == .progress`.
+  `OperationEvent.init` has a new last parameter, `plan: PlanSnapshot? = nil`.
+- `ToolContext.progress(_ detail: String, plan: PlanSnapshot? = nil) async`
+  posts a `.progress` event with the plan. A call with no plan posts the same
+  event as before.
+- `ToolContext.post(_:)` keeps the `plan` of the event.
+- An event that was recorded before this change decodes with `plan == nil`.
+
+**Migration.** No change is necessary. A host that wants the plan must send
+the `plan` of each `.progress` event to its client, and must keep it out of
+the model text.
+
 ### Added: `OperationEventKind.message` and `ToolContext.message(_:)`
 
 A run, for example the body of a background run, can now send mail to the
