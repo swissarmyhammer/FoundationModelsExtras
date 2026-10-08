@@ -155,7 +155,11 @@ struct DeclaredRunKindTests {
         let sessionID = ULID()
         let sink = MountFixtures.RecordingSink()
         let background = BackgroundToolRunner(
-            wrapping: tool, site: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink), timeout: nil
+            wrapping: tool,
+            site: MountSite(
+                sessionID: sessionID, runPlane: runPlane, sink: sink,
+                inlineSettleGrace: MountFixtures.pendingAtOnceGrace),
+            timeout: nil
         )
         let context = ToolContext(
             sessionID: sessionID,

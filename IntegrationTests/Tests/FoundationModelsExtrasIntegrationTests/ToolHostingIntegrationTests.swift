@@ -7,6 +7,10 @@ import Testing
 /// much longer than this time.
 private let stuckToolTimeoutSeconds: TimeInterval = 2
 
+/// The settle period of a host whose background calls must answer with the
+/// pending envelope at once, also when the run is fast.
+private let pendingAtOnceGrace: TimeInterval = 0
+
 /// The instructions of the sessions of the tool-hosting suite.
 private enum SessionInstructions {
     /// The instructions of a session with one tool that the model must call
@@ -66,7 +70,9 @@ extension RealModelSuites {
         func backgroundToolSettlesAfterItsEnvelope() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
-            let host = ToolHost()
+            // The scan works for a short time, so the host states grace 0:
+            // the call answers with the pending envelope at once.
+            let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
             let settlements = EventLog<OperationEvent>()
             await host.runPlane.attach(settlementObserver: settlements)
             let tool = ArchiveScanTool()
@@ -86,10 +92,11 @@ extension RealModelSuites {
             #expect(await settlements.events == [terminal])
         }
 
-        @Test("a background run that settles inside the grace time gives the model its result inline, with no pending envelope")
+        @Test("a background run that ends inside the default settle period gives the model its own output, with no envelope")
         func fastBackgroundRunAnswersInsideTheGrace() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
+            // The host takes the default settle period.
             let host = ToolHost()
             let tool = QuickScanTool()
 
@@ -98,10 +105,8 @@ extension RealModelSuites {
                 instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], in: pool)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
-            let settled = Self.envelopes(in: answer)
-            #expect(!settled.isEmpty, "tool outputs: \(answer.toolOutputs)")
-            #expect(settled.allSatisfy { !$0.pending && $0.detail == QuickScanTool.report })
-            #expect(settled.allSatisfy { $0.outcome == OperationOutcome.succeeded.rawValue })
+            #expect(answer.toolOutputs.contains(QuickScanTool.report), "tool outputs: \(answer.toolOutputs)")
+            #expect(Self.envelopes(in: answer).isEmpty, "tool outputs: \(answer.toolOutputs)")
             #expect(answer.text.contains(QuickScanTool.code), "answer: \(answer.text)")
         }
 
@@ -109,7 +114,9 @@ extension RealModelSuites {
         func cancelSettlesTheRunWithTheCancelerOutcome() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
-            let host = ToolHost()
+            // Grace 0: the call answers at once, and the test does not wait
+            // for the settle period of a run that never ends by itself.
+            let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
             let tool = EndlessScanTool()
 
             let answer = try await ToolSession.answer(
@@ -176,7 +183,9 @@ extension RealModelSuites {
         func perCallMountOfOneTool() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
-            let host = ToolHost()
+            // The scan job ends at once, so the host states grace 0: the
+            // background call answers with the pending envelope at once.
+            let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
             let tool = JobTool()
             let instructions = SessionInstructions.callingBoth(
                 backgroundCall: "call the \(tool.name) tool with job \"\(JobTool.scanJob)\"",
@@ -195,7 +204,9 @@ extension RealModelSuites {
         func perCallMountOfAnOperationTool() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
-            let host = ToolHost()
+            // The scan operation ends at once, so the host states grace 0:
+            // the background call answers with the pending envelope at once.
+            let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
             let tool = try ArchiveOperationTool.make()
             let instructions = SessionInstructions.callingBoth(
                 backgroundCall: "call the \(tool.name) tool with op \"\(StartScanOperation.opString)\"",

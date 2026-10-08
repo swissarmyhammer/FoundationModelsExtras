@@ -26,7 +26,7 @@ public protocol BackgroundRunSettlementObserver: AnyObject, Sendable {
 /// A sink that can take back the events that it staged for a later prompt.
 ///
 /// A background run that settles inside its grace period answers with its
-/// result in its own envelope. The staged copy of its events must then not
+/// own result. The staged copy of its events must then not
 /// also go in front of the next prompt, so the runner withdraws them. A sink
 /// that stages nothing does not conform.
 public protocol StagedEventWithdrawing: Sendable {

@@ -53,7 +53,8 @@ struct ContextBindingTool<
     func settle(arguments: Arguments) async -> BindingSettlement<Output> {
         let state = ToolCallState()
         let context = ToolContext(
-            calling: wrapped, on: site, sink: site.sink, completionToken: RunPlane.makeCompletionToken(), state: state)
+            calling: wrapped, on: site, sink: site.sink, completionToken: RunPlane.makeCompletionToken(), state: state,
+            inlineSettleDeadline: site.inlineSettleDeadline)
         let openRecord = ToolInvocationRecord(opening: context)
         await site.sink.post(invocation: openRecord)
         let outcome = await withTaskCancellationHandler {

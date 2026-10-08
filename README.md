@@ -834,10 +834,21 @@ questions that those runs ask the user.
   completion token, the same as a top-level background run.
 - `BackgroundTool` lets a tool declare its mount (a `ToolMount`: run to
   completion or in the background, with a timeout or none), a timeout for one
-  call, a short wait for its own result, the sentences for the model, and a
-  canceler. A background
-  call answers at once with a `PendingRunEnvelope`: the completion token of
-  the run, and what the model must do next.
+  call, its own settle period (`inlineSettleGrace`), the collect sentence for
+  the model, and a canceler.
+- A background call waits for its run up to the settle period. A run that
+  ends in that time answers with its own result, the same as a synchronous
+  call: the output of the tool, or the error that the tool threw. Only a run
+  that continues past the settle period answers with a `PendingRunEnvelope`:
+  `pending` (always `true`), the completion token of the run, and what the
+  model must do next (`next`). The host sets the settle period on the
+  `MountSite` (`inlineSettleGrace`). The default is
+  `ToolMount.defaultInlineSettleGrace` (6 seconds), and `0` answers with the
+  envelope at once. A tool that states its own `inlineSettleGrace` wins over
+  the site. `ToolContext` gives the settle period to each tool that it mounts,
+  and `settling(within:)` changes it. An inner background call inside the
+  settle period of its outer run stops its wait 1 second before the end of
+  that period.
 - `BackgroundTool.mount(for:)` gives the mount of one call, from its
   arguments. The host asks for it before each call, and it wins over the
   mount of the tool and the mount of the site. Thus one tool can start a run
@@ -858,8 +869,10 @@ questions that those runs ask the user.
   run that is still open.
 
 ```swift
-/// Runs the tests in the background. A call answers at once with a pending
-/// envelope, and the model collects the result later.
+/// Runs the tests in the background. A call waits for the settle period of
+/// the site. A run that ends in that time answers with its own result. A
+/// longer run answers with a pending envelope, and the model collects the
+/// result later.
 struct RunTests: Tool, BackgroundTool {
     let name = "run_tests"
     let description = "Runs the tests of the package."
@@ -897,9 +910,12 @@ struct Wait: Tool {
 }
 
 // The host mounts each tool on the run plane of its session. `sink`
-// gets each event of each run.
+// gets each event of each run. `inlineSettleGrace` is how long a
+// background call waits for its run before it answers with a pending
+// envelope. The default is `ToolMount.defaultInlineSettleGrace`.
 let runPlane = RunPlane()
-let site = MountSite(sessionID: ULID(), runPlane: runPlane, sink: sink)
+let site = MountSite(
+    sessionID: ULID(), runPlane: runPlane, sink: sink, inlineSettleGrace: ToolMount.defaultInlineSettleGrace)
 func mounted(_ tool: any Tool) -> any Tool {
     ToolFailureDelivery.makeWrapped(
         tool: ToolMounting.makeWrapped(tool: tool, site: site, configuration: .synchronous))

@@ -48,6 +48,15 @@ final class Promise<Value: Sendable>: Sendable {
         }
     }
 
+    /// The value, or `nil` when ``fulfill(_:)`` did not give it yet. It never
+    /// waits.
+    var fulfilledValue: Value? {
+        state.withLock { state in
+            guard case .fulfilled(let value) = state else { return nil }
+            return value
+        }
+    }
+
     /// The number of tasks that wait for the value.
     var waiterCount: Int {
         state.withLock { state in

@@ -488,7 +488,8 @@ struct ToolContextTests {
             on: MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: sink),
             sink: sink,
             completionToken: RunPlane.makeCompletionToken(),
-            state: ToolCallState()
+            state: ToolCallState(),
+            inlineSettleDeadline: nil
         )
 
         #expect(context.tool == "EmptyNamedTool")

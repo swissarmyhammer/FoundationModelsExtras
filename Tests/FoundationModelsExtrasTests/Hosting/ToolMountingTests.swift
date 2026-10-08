@@ -69,7 +69,8 @@ struct ToolMountingTests {
             tool: "gated_session_identity_tool",
             op: "gated_session_identity_tool",
             completionToken: RunPlane.makeCompletionToken(),
-            isCancelled: { false }
+            isCancelled: { false },
+            inlineSettleGrace: Fixtures.pendingAtOnceGrace
         )
         let wrapped = outer.mount(
             Fixtures.GatedSessionIdentityTool(gate: gate), as: ToolMount(mode: .background), postingTo: sink)

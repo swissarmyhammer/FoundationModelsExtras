@@ -102,6 +102,9 @@ struct OperationMountTests {
 
     /// Mounts `tool` on a new session with `configuration`, as a host does.
     ///
+    /// The settle period of the session is `0`, so a background operation
+    /// answers with its pending envelope at once, also when its work is fast.
+    ///
     /// - Parameters:
     ///   - tool: The tool to mount.
     ///   - configuration: The mount of the host.
@@ -111,7 +114,7 @@ struct OperationMountTests {
         as configuration: ToolMount
     ) throws -> (mounted: any Tool<GeneratedContent, String>, runPlane: RunPlane) {
         let runPlane = RunPlane()
-        let site = MountSite(sessionID: ULID(), runPlane: runPlane, sink: DiscardingSink())
+        let site = MountSite(sessionID: ULID(), runPlane: runPlane, sink: DiscardingSink(), inlineSettleGrace: 0)
         let wrapped = ToolMounting.makeWrapped(tool: tool, site: site, configuration: configuration)
         return (try #require(wrapped as? any Tool<GeneratedContent, String>), runPlane)
     }

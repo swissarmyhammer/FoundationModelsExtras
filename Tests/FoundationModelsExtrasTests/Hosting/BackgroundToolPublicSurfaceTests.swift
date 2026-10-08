@@ -36,16 +36,19 @@ struct BackgroundToolPublicSurfaceTests {
         let completionToken = ULID().ulidString
 
         #expect(tool.mount == nil)
-        #expect(tool.inlineSettleGrace == nil)
+        // Outside a mount site, the grace is the one default constant.
+        #expect(tool.inlineSettleGrace == ToolMount.defaultInlineSettleGrace)
         #expect(tool.timeout(from: GeneratedContent(properties: [:])) == nil)
         #expect(tool.runKind == .swiftTask)
         #expect(tool.canceler(forCompletionToken: completionToken) == nil)
         #expect(
             tool.collectInstruction(forCompletionToken: completionToken)
                 == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken))
-        #expect(
-            tool.resultInstruction(forCompletionToken: completionToken)
-                == PendingRunEnvelope.defaultResultInstruction(forCompletionToken: completionToken))
+    }
+
+    @Test("the default settle period is 6 seconds")
+    func theDefaultSettlePeriodIsSixSeconds() {
+        #expect(ToolMount.defaultInlineSettleGrace == 6)
     }
 
     @Test("the synchronous mount runs to completion with no timeout")

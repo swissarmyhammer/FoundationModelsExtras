@@ -3,8 +3,10 @@ import FoundationModels
 
 /// Marks a `Tool` as a background tool.
 ///
-/// A call of a tool with a background ``mount`` answers at once with a
-/// ``PendingRunEnvelope``, and the work continues behind it. A `Tool` that
+/// A call of a tool with a background ``mount`` waits for its run up to
+/// ``inlineSettleGrace``. A run that ends in that time answers with its own
+/// result. A run that continues answers with a ``PendingRunEnvelope``, and
+/// the work continues behind it. A `Tool` that
 /// does not conform runs to completion. A tool can also choose the mount of
 /// each call with ``mount(for:)``. Each requirement has a default, so a tool
 /// declares only what it needs.
@@ -38,20 +40,24 @@ public protocol BackgroundTool {
     /// - Returns: The sentence as plain text. The envelope escapes it.
     func collectInstruction(forCompletionToken completionToken: String) -> String
 
-    /// How long a call waits for its own run before it answers, or `nil` to
-    /// answer at once.
+    /// How long a call waits for its own run before it answers, in seconds.
     ///
-    /// A run that ends in this time answers with a settled envelope, which
-    /// holds the result. Thus the model does not call `wait`. Keep the value
-    /// small: the model waits for this time on each call.
-    var inlineSettleGrace: TimeInterval? { get }
-
-    /// The `next` sentence of a settled envelope. It must tell the model to
-    /// answer from the `detail` field, and that there is nothing to collect.
+    /// A run that ends in this time answers with its own result, the same as
+    /// a synchronous call: the output of the tool, or the error that it
+    /// threw. Only a run that continues answers with a ``PendingRunEnvelope``.
+    /// `0` answers with the envelope at once.
     ///
-    /// - Parameter completionToken: The completion token of the run.
-    /// - Returns: The sentence as plain text. The envelope escapes it.
-    func resultInstruction(forCompletionToken completionToken: String) -> String
+    /// The default reads the settle period that the host configured on the
+    /// mount site, and that is ``ToolMount/defaultInlineSettleGrace`` when
+    /// the host configured none. State a value only when this tool needs a
+    /// value different from the host.
+    ///
+    /// The default reads the configured value only while the runner reads
+    /// it. Read anywhere else, for example in the body of the tool, it gives
+    /// ``ToolMount/defaultInlineSettleGrace``. A running tool reads the value
+    /// of its session from ``ToolContext/inlineSettleGrace`` of
+    /// ``ToolContext/current``.
+    var inlineSettleGrace: TimeInterval { get }
 
     /// The kind of work of a background call. A ``RunKind/process`` tool must
     /// give ``canceler(forCompletionToken:)``.
@@ -73,11 +79,6 @@ extension BackgroundTool {
         PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken)
     }
 
-    /// The default: ``PendingRunEnvelope/defaultResultInstruction(forCompletionToken:)``.
-    public func resultInstruction(forCompletionToken completionToken: String) -> String {
-        PendingRunEnvelope.defaultResultInstruction(forCompletionToken: completionToken)
-    }
-
     /// The default: no declared mount.
     public var mount: ToolMount? { nil }
 
@@ -86,8 +87,10 @@ extension BackgroundTool {
         mount
     }
 
-    /// The default: no wait, so a call answers at once.
-    public var inlineSettleGrace: TimeInterval? { nil }
+    /// The default: the settle period that the host configured.
+    public var inlineSettleGrace: TimeInterval {
+        InlineSettle.configuredGrace
+    }
 
     /// The default: no timeout for one call.
     public func timeout(from arguments: GeneratedContent) -> TimeInterval? {
@@ -103,4 +106,15 @@ extension BackgroundTool {
     ) -> (@Sendable () async -> OperationOutcome)? {
         nil
     }
+}
+
+/// The settle period that the host configured, as the default
+/// ``BackgroundTool/inlineSettleGrace`` reads it.
+///
+/// ``BackgroundToolRunner`` binds the value of its mount site around the read
+/// of the grace of a tool. A read outside that binding gets
+/// ``ToolMount/defaultInlineSettleGrace``.
+enum InlineSettle {
+    /// The settle period of the current mount site, in seconds.
+    @TaskLocal static var configuredGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
 }

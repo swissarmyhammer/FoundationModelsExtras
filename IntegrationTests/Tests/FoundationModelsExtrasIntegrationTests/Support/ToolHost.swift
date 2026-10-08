@@ -1,3 +1,4 @@
+import Foundation
 import FoundationModels
 import FoundationModelsExtras
 import ULID
@@ -21,6 +22,18 @@ struct ToolHost {
     /// Each event that the mounted tools posted to the session, in order.
     let events = EventLog<OperationEvent>()
 
+    /// The settle period of each background call of this session, in
+    /// seconds. `0` answers with the pending envelope at once.
+    let inlineSettleGrace: TimeInterval
+
+    /// Makes the host of a new session.
+    ///
+    /// - Parameter inlineSettleGrace: The settle period of each background
+    ///   call. The default is ``ToolMount/defaultInlineSettleGrace``.
+    init(inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace) {
+        self.inlineSettleGrace = inlineSettleGrace
+    }
+
     /// `tool` as the model sees it: mounted on this session with
     /// `configuration`, with the failure decorator as the outermost layer. A
     /// failure of the tool thus reaches the model as text, not as a throw.
@@ -30,7 +43,8 @@ struct ToolHost {
     ///   - configuration: The mount when the tool declares none.
     /// - Returns: The tool for the tool list of the model session.
     func mount(_ tool: any Tool, as configuration: ToolMount = .synchronous) -> any Tool {
-        let site = MountSite(sessionID: sessionID, runPlane: runPlane, sink: events)
+        let site = MountSite(
+            sessionID: sessionID, runPlane: runPlane, sink: events, inlineSettleGrace: inlineSettleGrace)
         let mounted = ToolMounting.makeWrapped(tool: tool, site: site, configuration: configuration)
         return ToolFailureDelivery.makeWrapped(tool: mounted)
     }

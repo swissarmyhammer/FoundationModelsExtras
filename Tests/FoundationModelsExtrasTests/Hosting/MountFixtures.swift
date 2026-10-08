@@ -69,25 +69,45 @@ enum MountFixtures {
         let mounted: Mounted
     }
 
+    /// The settle period of the fixture sites: `0`. Each background call of a
+    /// fixture site answers with its pending envelope at once, so a test of
+    /// the pending path does not wait. A test of the settle period states
+    /// its own value.
+    static let pendingAtOnceGrace: TimeInterval = 0
+
     /// The mount site of a new session over `runPlane` and `sink`.
     ///
     /// - Parameters:
     ///   - runPlane: The run plane of the session.
     ///   - sink: The sink of the session.
+    ///   - inlineSettleGrace: The settle period of the site. The default is
+    ///     ``pendingAtOnceGrace``.
     /// - Returns: The mount site.
-    static func site(runPlane: RunPlane, sink: any OperationEventSink) -> MountSite {
-        MountSite(sessionID: ULID(), runPlane: runPlane, sink: sink)
+    static func site(
+        runPlane: RunPlane,
+        sink: any OperationEventSink,
+        inlineSettleGrace: TimeInterval = pendingAtOnceGrace
+    ) -> MountSite {
+        MountSite(sessionID: ULID(), runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace)
     }
 
     /// Mounts `tool` in a ``BackgroundToolRunner`` over a new run plane and
     /// sink.
+    ///
+    /// - Parameters:
+    ///   - tool: The tool to mount.
+    ///   - timeout: The timeout of the mount, or `nil` for none.
+    ///   - inlineSettleGrace: The settle period of the site. The default is
+    ///     ``pendingAtOnceGrace``.
     static func backgroundHarness<Arguments: ConvertibleFromGeneratedContent & Sendable>(
         wrapping tool: any Tool<Arguments, String>,
-        timeout: TimeInterval? = nil
+        timeout: TimeInterval? = nil,
+        inlineSettleGrace: TimeInterval = pendingAtOnceGrace
     ) -> Harness<BackgroundToolRunner<Arguments>> {
         let runPlane = RunPlane()
         let sink = RecordingSink()
-        let mounted = BackgroundToolRunner(wrapping: tool, site: site(runPlane: runPlane, sink: sink), timeout: timeout)
+        let site = site(runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace)
+        let mounted = BackgroundToolRunner(wrapping: tool, site: site, timeout: timeout)
         return Harness(runPlane: runPlane, sink: sink, mounted: mounted)
     }
 
@@ -110,7 +130,9 @@ enum MountFixtures {
         arguments: Arguments,
         sink: any OperationEventSink
     ) -> ToolRun<Arguments> {
-        ToolRun(wrapped: tool, arguments: arguments, site: site(runPlane: RunPlane(), sink: sink), mountTimeout: nil)
+        ToolRun(
+            wrapped: tool, arguments: arguments, site: site(runPlane: RunPlane(), sink: sink), mountTimeout: nil,
+            inlineSettleDeadline: nil)
     }
 
     // MARK: - Envelope and settlement helpers
@@ -121,8 +143,6 @@ enum MountFixtures {
         private enum CodingKeys: String, CodingKey {
             case isPending = "pending"
             case completionToken
-            case outcome
-            case detail
             case next
         }
 
@@ -131,12 +151,6 @@ enum MountFixtures {
 
         /// The completion token of the run.
         let completionToken: String
-
-        /// The outcome of a settled run.
-        let outcome: String?
-
-        /// The report of a settled run.
-        let detail: String?
 
         /// What the model must do next.
         let next: String
@@ -354,8 +368,8 @@ enum MountFixtures {
         }
     }
 
-    /// Waits on its gate, and declares a grace. A run that settles in the
-    /// grace answers in the envelope of the call.
+    /// Waits on its gate, and states its own grace. A run that settles in the
+    /// grace answers with the output of the tool.
     struct InlineGraceTool: Tool, BackgroundTool {
         let name = "inline_grace_tool"
         let description = "waits a short time for its own run before it answers"
@@ -367,38 +381,45 @@ enum MountFixtures {
             "inline: \(value)"
         }
 
-        /// The sentence of this tool for a settled `completionToken`.
-        static func resultInstruction(forCompletionToken completionToken: String) -> String {
-            "Run \"\(completionToken)\" is done. Read the detail field beside this sentence."
-        }
-
-        var inlineSettleGrace: TimeInterval? { grace }
+        var inlineSettleGrace: TimeInterval { grace }
 
         func call(arguments: MountArguments) async throws -> String {
             await gate.waitUntilOpen()
             return Self.output(for: arguments.value)
         }
-
-        func resultInstruction(forCompletionToken completionToken: String) -> String {
-            Self.resultInstruction(forCompletionToken: completionToken)
-        }
     }
 
-    /// Returns at once, declares a grace, and gives no sentence of its own.
-    struct DefaultSentenceGraceTool: Tool, BackgroundTool {
-        let name = "default_sentence_grace_tool"
-        let description = "declares a grace and takes the default sentences"
-        let grace: TimeInterval
+    /// A background tool that states no grace, so it uses the settle period
+    /// of its site. It waits on its gate, then returns.
+    struct SiteGraceTool: Tool, BackgroundTool {
+        let name = "site_grace_tool"
+        let description = "states no grace and uses the settle period of its site"
+        let gate: RunLatch
 
         /// The output of this tool for `value`.
         static func output(for value: String) -> String {
-            "default: \(value)"
+            "site grace: \(value)"
         }
 
-        var inlineSettleGrace: TimeInterval? { grace }
+        func call(arguments: MountArguments) async throws -> String {
+            await gate.waitUntilOpen()
+            return Self.output(for: arguments.value)
+        }
+    }
+
+    /// Waits on its gate, then throws ``FixtureError``. It states its own
+    /// grace.
+    struct InlineThrowingTool: Tool, BackgroundTool {
+        let name = "inline_throwing_tool"
+        let description = "throws after its gate opens"
+        let gate: RunLatch
+        let grace: TimeInterval
+
+        var inlineSettleGrace: TimeInterval { grace }
 
         func call(arguments: MountArguments) async throws -> String {
-            Self.output(for: arguments.value)
+            await gate.waitUntilOpen()
+            throw FixtureError()
         }
     }
 

@@ -4,7 +4,9 @@ import Foundation
 public struct ToolMount: Sendable, Equatable {
     /// How a call runs.
     public enum Mode: Sendable, Equatable {
-        /// A call answers at once with a pending envelope. The work
+        /// A call waits for its run up to the settle period. A run that
+        /// ends in that time answers with its own result. A run that
+        /// continues answers with a pending envelope, and the work
         /// continues behind it.
         case background
 
@@ -14,6 +16,18 @@ public struct ToolMount: Sendable, Equatable {
 
     /// Run to completion, with no timeout.
     public static let synchronous = ToolMount(mode: .runToCompletion)
+
+    /// The default settle period of a background call, in seconds: 6.
+    ///
+    /// A background call waits this long for its own run. A run that ends in
+    /// this time answers with its own result, the same as a synchronous call.
+    /// Only a run that continues answers with a ``PendingRunEnvelope``.
+    ///
+    /// This is the only place that states the number. A host changes the
+    /// value through ``MountSite/init(sessionID:runPlane:sink:op:tracer:inlineSettleGrace:)``,
+    /// and a tool can state its own value through
+    /// ``BackgroundTool/inlineSettleGrace``.
+    public static let defaultInlineSettleGrace: TimeInterval = 6
 
     /// How a call runs.
     public var mode: Mode

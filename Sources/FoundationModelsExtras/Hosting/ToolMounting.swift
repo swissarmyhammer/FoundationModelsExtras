@@ -28,6 +28,23 @@ public struct MountSite: Sendable {
     /// at call time.
     let tracer: (any Tracer)?
 
+    /// The settle period that the host configured, in seconds: how long a
+    /// background call waits for its own run. Never negative. `0` means that
+    /// each background call answers with its pending envelope at once.
+    ///
+    /// A tool that states no ``BackgroundTool/inlineSettleGrace`` of its own
+    /// uses this value.
+    let inlineSettleGrace: TimeInterval
+
+    /// The end of the settle period of the run that mounts this site, or `nil`
+    /// when no run in its settle period mounts it.
+    ///
+    /// A run that makes inner calls, for example a script runner, waits for
+    /// its own settle period. An inner background call that waits past that
+    /// end makes the outer run answer with a pending envelope, so an inner call
+    /// stops its wait before it. See ``BackgroundToolRunner``.
+    let inlineSettleDeadline: ContinuousClock.Instant?
+
     /// Makes a mount site. Each value must belong to the same session.
     ///
     /// - Parameters:
@@ -38,14 +55,20 @@ public struct MountSite: Sendable {
     ///     tool name.
     ///   - tracer: The tracer of the session, or `nil` for
     ///     `InstrumentationSystem.tracer` at call time.
+    ///   - inlineSettleGrace: The settle period of each background call, in
+    ///     seconds. A negative value acts as `0`. The default is
+    ///     ``ToolMount/defaultInlineSettleGrace``.
     public init(
         sessionID: ULID,
         runPlane: RunPlane,
         sink: any OperationEventSink,
         op: String? = nil,
-        tracer: (any Tracer)? = nil
+        tracer: (any Tracer)? = nil,
+        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
     ) {
-        self.init(sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: tracer)
+        self.init(
+            sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: tracer,
+            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: nil)
     }
 
     /// Makes a mount site whose calls post to `sink`, and whose background
@@ -58,13 +81,18 @@ public struct MountSite: Sendable {
     ///   - sessionSink: The sink of the session.
     ///   - op: The `"verb noun"` op of the registration, or `nil`.
     ///   - tracer: The tracer of the session, or `nil`.
+    ///   - inlineSettleGrace: The configured settle period, in seconds.
+    ///   - inlineSettleDeadline: The end of the settle period of the run that
+    ///     mounts this site, or `nil`.
     init(
         sessionID: ULID,
         runPlane: RunPlane,
         sink: any OperationEventSink,
         sessionSink: any OperationEventSink,
         op: String?,
-        tracer: (any Tracer)?
+        tracer: (any Tracer)?,
+        inlineSettleGrace: TimeInterval,
+        inlineSettleDeadline: ContinuousClock.Instant?
     ) {
         self.sessionID = sessionID
         self.runPlane = runPlane
@@ -72,11 +100,15 @@ public struct MountSite: Sendable {
         self.sessionSink = sessionSink
         self.op = op
         self.tracer = tracer
+        self.inlineSettleGrace = max(0, inlineSettleGrace)
+        self.inlineSettleDeadline = inlineSettleDeadline
     }
 
     /// This site, with the sink of the session as the sink of each call.
     var postingToSession: MountSite {
-        MountSite(sessionID: sessionID, runPlane: runPlane, sink: sessionSink, sessionSink: sessionSink, op: op, tracer: tracer)
+        MountSite(
+            sessionID: sessionID, runPlane: runPlane, sink: sessionSink, sessionSink: sessionSink, op: op, tracer: tracer,
+            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline)
     }
 }
 

@@ -41,8 +41,11 @@ struct ToolContextMountTests {
     /// The wiring of the mounting run, stamped with ``hostTool``, ``hostOp``
     /// and ``hostToken``.
     ///
+    /// - Parameter inlineSettleGrace: The settle period of the context. The
+    ///   default is ``MountFixtures/pendingAtOnceGrace``, so each background
+    ///   call answers with its pending envelope at once.
     /// - Returns: A new context over a new run plane, sink and record store.
-    private static func makeHost() -> Host {
+    private static func makeHost(inlineSettleGrace: TimeInterval = Fixtures.pendingAtOnceGrace) -> Host {
         let runPlane = RunPlane()
         let sink = Fixtures.RecordingSink()
         let attachments = ToolCallState()
@@ -54,9 +57,61 @@ struct ToolContextMountTests {
             op: hostOp,
             completionToken: hostToken,
             isCancelled: { false },
-            attachmentSink: { attachments.attach($0) }
+            attachmentSink: { attachments.attach($0) },
+            inlineSettleGrace: inlineSettleGrace
         )
         return Host(context: context, runPlane: runPlane, sink: sink, attachments: attachments)
+    }
+
+    /// The settle period of an outer run that makes an inner call inside it.
+    /// It is longer than ``BackgroundToolRunner/innerCallSettleReserve``, so
+    /// the inner call keeps a short wait.
+    private static let outerSettleGrace: TimeInterval = 1.3
+
+    /// The grace that an inner tool states for the test of an outer run that
+    /// already answered.
+    private static let innerSettleGrace: TimeInterval = 0.3
+
+    /// The output of ``InnerCallTimingTool``.
+    private static let outerOutput = "outer: done"
+
+    /// What the inner call of ``InnerCallTimingTool`` gave.
+    private actor InnerCallWitness {
+        /// The seconds that the inner call took.
+        private(set) var elapsed: TimeInterval?
+
+        /// The output of the inner call.
+        private(set) var output: String?
+
+        /// Keeps the facts of the inner call.
+        func record(elapsed: TimeInterval, output: String) {
+            self.elapsed = elapsed
+            self.output = output
+        }
+    }
+
+    /// Mounts `inner` as a background tool on its own context, calls it, and
+    /// records the time and the output of that inner call.
+    private struct InnerCallTimingTool: Tool {
+        let name = "inner_call_timing_tool"
+        let description = "makes one inner background call and records how long it took"
+        let inner: Fixtures.InlineGraceTool
+        let witness: InnerCallWitness
+
+        func call(arguments: MountArguments) async throws -> String {
+            let context = try #require(ToolContext.current)
+            let mounted = context.mount(inner, as: ToolMount(mode: .background))
+            let start = ContinuousClock.now
+            let output = try await mounted.call(arguments: arguments)
+            await witness.record(elapsed: ToolContextMountTests.seconds(since: start), output: output)
+            return ToolContextMountTests.outerOutput
+        }
+    }
+
+    /// The seconds from `start` to now.
+    private static func seconds(since start: ContinuousClock.Instant) -> TimeInterval {
+        let parts = (ContinuousClock.now - start).components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
     }
 
     // MARK: - The three decorators
@@ -263,5 +318,91 @@ struct ToolContextMountTests {
 
         let output = try await bound.call(arguments: AmbientToolArguments(value: "typed"))
         #expect(!output.text.isEmpty)
+    }
+
+    // MARK: - The settle period of a mounted call
+
+    @Test("a context takes ToolMount.defaultInlineSettleGrace when its host states none, and the value that its host states")
+    func contextCarriesTheConfiguredSettlePeriod() {
+        let defaulted = ToolContext(
+            sessionID: ULID(), runPlane: RunPlane(), sink: Fixtures.RecordingSink(), tool: Self.hostTool,
+            op: Self.hostOp, completionToken: Self.hostToken, isCancelled: { false })
+        let stated = Self.makeHost(inlineSettleGrace: Self.innerSettleGrace)
+
+        #expect(defaulted.inlineSettleGrace == ToolMount.defaultInlineSettleGrace)
+        #expect(stated.context.inlineSettleGrace == Self.innerSettleGrace)
+    }
+
+    @Test("settling(within:) changes the grace that inner mounts use, and a negative value acts as 0")
+    func settlingWithinChangesTheGraceOfInnerMounts() async throws {
+        let host = Self.makeHost(inlineSettleGrace: Fixtures.pendingAtOnceGrace)
+        let waiting = host.context.settling(within: Fixtures.generousInterval)
+        let atOnce = waiting.settling(within: -1)
+
+        #expect(waiting.inlineSettleGrace == Fixtures.generousInterval)
+        #expect(atOnce.inlineSettleGrace == 0)
+        // The original context keeps its own value.
+        #expect(host.context.inlineSettleGrace == Fixtures.pendingAtOnceGrace)
+
+        let inline = try await waiting.mount(Fixtures.FastTool(), as: ToolMount(mode: .background))
+            .call(arguments: MountArguments(value: "inline"))
+        let pending = try await atOnce.mount(Fixtures.FastTool(), as: ToolMount(mode: .background))
+            .call(arguments: MountArguments(value: "pending"))
+
+        #expect(inline == "fast: inline")
+        let envelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: pending))
+        _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: host.runPlane)
+    }
+
+    @Test("an inner background call inside the settle period of its outer run stops its wait the reserve before the outer deadline, so the outer run answers inline")
+    func innerCallInsideTheOuterSettlePeriodKeepsTheReserve() async throws {
+        let gate = RunLatch()
+        let witness = InnerCallWitness()
+        // The inner tool asks for a long wait, and its gate stays closed.
+        let inner = Fixtures.InlineGraceTool(gate: gate, grace: Fixtures.generousInterval)
+        let harness = Fixtures.backgroundHarness(
+            wrapping: InnerCallTimingTool(inner: inner, witness: witness), inlineSettleGrace: Self.outerSettleGrace)
+        let start = ContinuousClock.now
+
+        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "nested"))
+
+        // The outer run ended inside its own grace: its own output, no envelope.
+        #expect(rendered == Self.outerOutput)
+        #expect(Self.seconds(since: start) < Self.outerSettleGrace)
+        // The inner call stopped its wait before the outer deadline, and left
+        // the reserve to the outer run.
+        let elapsed = try #require(await witness.elapsed)
+        let reserve = BackgroundToolRunner<MountArguments>.innerCallSettleReserve
+        #expect(elapsed < Self.outerSettleGrace - reserve / 2)
+        let innerOutput = try #require(await witness.output)
+        let innerEnvelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: innerOutput))
+
+        gate.open()
+        let terminal = try await Fixtures.settledTerminal(of: innerEnvelope.completionToken, in: harness.runPlane)
+        #expect(terminal.detail == Fixtures.InlineGraceTool.output(for: "nested"))
+    }
+
+    @Test("an inner background call after the outer run already answered waits for its full grace")
+    func innerCallAfterTheOuterDeadlineWaitsItsFullGrace() async throws {
+        let gate = RunLatch()
+        let witness = InnerCallWitness()
+        let inner = Fixtures.InlineGraceTool(gate: gate, grace: Self.innerSettleGrace)
+        // Grace 0: the outer run answers at once, so its deadline passed
+        // before the inner call starts.
+        let harness = Fixtures.backgroundHarness(
+            wrapping: InnerCallTimingTool(inner: inner, witness: witness), inlineSettleGrace: 0)
+
+        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "late"))
+        let outerEnvelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: rendered))
+        let outerTerminal = try await Fixtures.settledTerminal(of: outerEnvelope.completionToken, in: harness.runPlane)
+
+        #expect(outerTerminal.detail == Self.outerOutput)
+        let elapsed = try #require(await witness.elapsed)
+        #expect(elapsed >= Self.innerSettleGrace * 0.9)
+        let innerOutput = try #require(await witness.output)
+        let innerEnvelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: innerOutput))
+
+        gate.open()
+        _ = try await Fixtures.settledTerminal(of: innerEnvelope.completionToken, in: harness.runPlane)
     }
 }

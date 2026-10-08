@@ -107,12 +107,10 @@ struct ArchiveScanTool: Tool, BackgroundTool {
     static let report = "The scan report code is \(code)."
 }
 
-/// A background tool with a grace time: each scan ends at once, thus the call
-/// answers with the result in a settled envelope.
+/// A background tool that states no grace: each scan ends at once, far inside
+/// the default settle period of the host. Thus the call answers with the
+/// report itself, the same as a synchronous call, and with no envelope.
 struct QuickScanTool: Tool, BackgroundTool {
-    /// The grace time, in seconds. A scan that ends at once ends far inside it.
-    private static let graceSeconds: TimeInterval = 30
-
     /// The code of the report of each scan.
     static let code = "SILVER-OTTER-26"
 
@@ -122,7 +120,6 @@ struct QuickScanTool: Tool, BackgroundTool {
     let name = "scan_small_archive"
     let description = "Scans a small archive by the name of the archive, and gives the report."
     let mount: ToolMount? = ToolMount(mode: .background)
-    var inlineSettleGrace: TimeInterval? { Self.graceSeconds }
 
     /// Returns the report at once.
     ///

@@ -72,14 +72,14 @@ struct ToolHostingPublicSurfaceTests {
     }
 
     /// Declares a background mount and a grace, and returns at once, so the
-    /// call answers with a settled envelope.
+    /// call answers with the output of the tool.
     private struct InlineTool: Tool, BackgroundTool {
         let name = "inline_tool"
         let description = "declares a grace and returns at once"
 
         var mount: ToolMount? { ToolMount(mode: .background) }
 
-        var inlineSettleGrace: TimeInterval? { ToolHostingPublicSurfaceTests.inlineGraceSeconds }
+        var inlineSettleGrace: TimeInterval { ToolHostingPublicSurfaceTests.inlineGraceSeconds }
 
         func call(arguments: ProbeArguments) async throws -> String {
             "inline: \(arguments.value)"
@@ -158,14 +158,18 @@ struct ToolHostingPublicSurfaceTests {
     ///   - tool: The tool to mount.
     ///   - runPlane: The run plane of the session.
     ///   - sink: The sink of the session.
+    ///   - inlineSettleGrace: The settle period of the session. The default
+    ///     is `0`, so a background call answers with its pending envelope at
+    ///     once.
     /// - Returns: The mounted tool, typed.
     /// - Throws: When the mounted tool does not keep the types of `tool`.
     private static func mount(
         _ tool: any Tool,
         on runPlane: RunPlane,
-        sink: any OperationEventSink = RecordingSink()
+        sink: any OperationEventSink = RecordingSink(),
+        inlineSettleGrace: TimeInterval = 0
     ) throws -> any Tool<ProbeArguments, String> {
-        let site = MountSite(sessionID: ULID(), runPlane: runPlane, sink: sink)
+        let site = MountSite(sessionID: ULID(), runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace)
         let mounted = ToolMounting.makeWrapped(tool: tool, site: site, configuration: .synchronous)
         return try #require(mounted as? any Tool<ProbeArguments, String>)
     }
@@ -349,30 +353,39 @@ struct ToolHostingPublicSurfaceTests {
 
     // MARK: - The envelope
 
-    @Test("a settled envelope decodes, and replacing its detail keeps each control field")
-    func replacingTheDetailKeepsTheControlFields() async throws {
+    @Test("a background call that ends inside its grace answers with the output of the tool, not an envelope")
+    func aRunInsideTheGraceAnswersWithItsOwnOutput() async throws {
         let mounted = try Self.mount(InlineTool(), on: RunPlane())
-        let settled = try Self.envelope(of: try await mounted.call(arguments: ProbeArguments(value: "x")))
 
-        let replaced = try Self.envelope(of: settled.replacing(detail: "cut").rendered)
+        let output = try await mounted.call(arguments: ProbeArguments(value: "x"))
 
-        #expect(!settled.pending)
-        #expect(settled.detail == "inline: x")
-        #expect(replaced.detail == "cut")
-        #expect(replaced.completionToken == settled.completionToken)
-        #expect(replaced.outcome == settled.outcome)
-        #expect(replaced.next == settled.next)
+        #expect(output == "inline: x")
+        #expect(PendingRunEnvelope.makeDecoded(fromRendered: output) == nil)
     }
 
-    @Test("replacing the detail of a pending envelope gives the same envelope")
-    func replacingTheDetailOfAPendingEnvelopeChangesNothing() async throws {
+    @Test("the pending envelope is always pending, and holds the completion token and the next sentence")
+    func thePendingEnvelopeHoldsOnlyThePendingFields() async throws {
         let runPlane = RunPlane()
         let gate = RunLatch.closed()
-        let mounted = try Self.mount(GatedBackgroundTool(gate: gate), on: runPlane)
+        let mounted = try Self.mount(GatedBackgroundTool(gate: gate), on: runPlane, inlineSettleGrace: 0)
+
         let pending = try Self.envelope(of: try await mounted.call(arguments: ProbeArguments(value: "x")))
 
-        #expect(pending.replacing(detail: "cut") == pending)
+        #expect(pending.pending)
+        #expect(pending.next == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: pending.completionToken))
         gate.open()
         _ = await runPlane.sweep()
+    }
+
+    @Test("a host sets the settle period on the context, and settling(within:) changes it for inner mounts")
+    func aHostSetsTheSettlePeriodOnTheContext() {
+        let context = ToolContext(
+            sessionID: ULID(), runPlane: RunPlane(), sink: RecordingSink(), tool: "host_tool", op: "run host",
+            completionToken: ToolContext.makeCompletionToken(), isCancelled: { false },
+            inlineSettleGrace: Self.inlineGraceSeconds)
+
+        #expect(context.inlineSettleGrace == Self.inlineGraceSeconds)
+        #expect(context.settling(within: 0).inlineSettleGrace == 0)
+        #expect(ToolMount.defaultInlineSettleGrace > 0)
     }
 }

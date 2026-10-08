@@ -42,6 +42,15 @@ public struct ToolContext: Sendable {
     /// event of the run.
     public let completionToken: String
 
+    /// The configured settle period of the session, in seconds. Each tool
+    /// that this context mounts uses it. See ``MountSite``.
+    public private(set) var inlineSettleGrace: TimeInterval
+
+    /// The end of the settle period of this run, or `nil` when this run has
+    /// none. Each background call that this context mounts stops its own wait
+    /// before it. See ``BackgroundToolRunner``.
+    let inlineSettleDeadline: ContinuousClock.Instant?
+
     /// Makes a context. A host makes one to bind around work that it runs
     /// for a session, for example a model call.
     ///
@@ -54,6 +63,9 @@ public struct ToolContext: Sendable {
     ///   - completionToken: The completion token of the run.
     ///   - isCancelled: Tells if a cancel of the run was asked.
     ///   - attachmentSink: Gets each attached record. The default drops it.
+    ///   - inlineSettleGrace: The settle period of each background call that
+    ///     this context mounts, in seconds. The default is
+    ///     ``ToolMount/defaultInlineSettleGrace``.
     public init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -62,10 +74,12 @@ public struct ToolContext: Sendable {
         op: String,
         completionToken: String,
         isCancelled: @escaping @Sendable () -> Bool,
-        attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void = { _ in }
+        attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void = { _ in },
+        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
     ) {
         self.init(
-            site: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink),
+            site: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace),
+            inlineSettleDeadline: nil,
             sink: sink,
             tool: tool,
             op: op,
@@ -79,7 +93,9 @@ public struct ToolContext: Sendable {
     /// that it mounts posts to the sink of the session of `site`.
     ///
     /// - Parameters:
-    ///   - site: The session, its run plane and its sink.
+    ///   - site: The session, its run plane, its sink and its settle period.
+    ///   - inlineSettleDeadline: The end of the settle period of the run, or
+    ///     `nil`.
     ///   - sink: The sink that each capability posts to.
     ///   - tool: The tool name of the run. Must not be empty.
     ///   - op: The op of the run. Must not be empty.
@@ -88,6 +104,7 @@ public struct ToolContext: Sendable {
     ///   - attachmentSink: Gets each attached record.
     private init(
         site: MountSite,
+        inlineSettleDeadline: ContinuousClock.Instant?,
         sink: any OperationEventSink,
         tool: String,
         op: String,
@@ -106,6 +123,8 @@ public struct ToolContext: Sendable {
         self.completionToken = completionToken
         self.cancellationProbe = isCancelled
         self.attachmentSink = attachmentSink
+        self.inlineSettleGrace = site.inlineSettleGrace
+        self.inlineSettleDeadline = inlineSettleDeadline
     }
 
     /// Makes the context of one call of `tool` on `site`, with the name of
@@ -118,10 +137,20 @@ public struct ToolContext: Sendable {
     ///   - sink: The sink that each capability posts to.
     ///   - completionToken: The completion token of the run.
     ///   - state: The cancel flag and the records of the call.
-    init(calling tool: any Tool, on site: MountSite, sink: any OperationEventSink, completionToken: String, state: ToolCallState) {
+    ///   - inlineSettleDeadline: The end of the settle period of the run, or
+    ///     `nil` for a run that has none.
+    init(
+        calling tool: any Tool,
+        on site: MountSite,
+        sink: any OperationEventSink,
+        completionToken: String,
+        state: ToolCallState,
+        inlineSettleDeadline: ContinuousClock.Instant?
+    ) {
         let name = tool.name.isEmpty ? String(describing: type(of: tool)) : tool.name
         self.init(
             site: site,
+            inlineSettleDeadline: inlineSettleDeadline,
             sink: sink,
             tool: name,
             op: site.op.flatMap { $0.isEmpty ? nil : $0 } ?? name,
@@ -268,9 +297,24 @@ public struct ToolContext: Sendable {
             sink: MountedRunUpstreamSink(context: self),
             sessionSink: sessionSink,
             op: op,
-            tracer: nil
+            tracer: nil,
+            inlineSettleGrace: inlineSettleGrace,
+            inlineSettleDeadline: inlineSettleDeadline
         )
         return Self.mount(tool, on: site, as: configuration)
+    }
+
+    /// This context, with `grace` as the settle period of each tool that it
+    /// mounts. A host that configures its own settle period, for example a
+    /// script runner, gives it to its inner calls this way.
+    ///
+    /// - Parameter grace: The settle period in seconds. A negative value acts
+    ///   as `0`.
+    /// - Returns: The changed context.
+    public func settling(within grace: TimeInterval) -> ToolContext {
+        var changed = self
+        changed.inlineSettleGrace = max(0, grace)
+        return changed
     }
 
     /// Mounts `tool` as ``mount(_:op:as:)`` does, but each mounted run posts
@@ -290,7 +334,10 @@ public struct ToolContext: Sendable {
         as configuration: ToolMount = .synchronous,
         postingTo sink: any OperationEventSink
     ) -> any Tool<T.Arguments, T.Output> {
-        Self.mount(tool, on: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink, op: op), as: configuration)
+        let site = MountSite(
+            sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: nil,
+            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline)
+        return Self.mount(tool, on: site, as: configuration)
     }
 
     /// Mounts `tool` on `site`, and keeps the types of `tool`.

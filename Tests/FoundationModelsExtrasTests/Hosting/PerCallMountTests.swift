@@ -31,10 +31,11 @@ struct PerCallMountTests {
         /// How long each call works, in seconds.
         let workSeconds: TimeInterval
 
-        /// The grace of the tool, or `nil` for none.
-        let grace: TimeInterval?
+        /// The grace of the tool. `0` answers with the pending envelope at
+        /// once.
+        let grace: TimeInterval
 
-        var inlineSettleGrace: TimeInterval? { grace }
+        var inlineSettleGrace: TimeInterval { grace }
 
         func mount(for arguments: GeneratedContent) -> ToolMount? {
             let value = try? arguments.value(String.self, forProperty: "value")
@@ -87,7 +88,7 @@ struct PerCallMountTests {
 
     @Test("under a synchronous host mount, the tool starts a background run for one value and answers in band for another")
     func eachCallGetsTheMountOfItsArguments() async throws {
-        let session = try Self.mountOnNewSession(PerCallMountTool(workSeconds: 0, grace: nil), as: .synchronous)
+        let session = try Self.mountOnNewSession(PerCallMountTool(workSeconds: 0, grace: 0), as: .synchronous)
 
         let started = try await session.mounted.call(arguments: MountArguments(value: Self.backgroundValue))
         let envelope = try Fixtures.decodeEnvelope(started)
@@ -114,15 +115,15 @@ struct PerCallMountTests {
         #expect(await session.runPlane.settledRunTokens().isEmpty)
     }
 
-    @Test("a background call returns a pending token also when its work ends at once")
+    @Test("a background call with grace 0 returns a pending token also when its work ends at once")
     func backgroundCallReturnsATokenForInstantWork() async throws {
-        let session = try Self.mountOnNewSession(PerCallMountTool(workSeconds: 0, grace: nil), as: .synchronous)
+        let session = try Self.mountOnNewSession(PerCallMountTool(workSeconds: 0, grace: 0), as: .synchronous)
 
         let started = try await session.mounted.call(arguments: MountArguments(value: Self.backgroundValue))
 
         let envelope = try Fixtures.decodeEnvelope(started)
         #expect(envelope.isPending)
-        #expect(envelope.outcome == nil)
+        #expect(PendingRunEnvelope.makeDecoded(fromRendered: started) != nil)
         _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: session.runPlane)
     }
 

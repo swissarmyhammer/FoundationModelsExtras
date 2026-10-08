@@ -35,7 +35,15 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
     ///   - arguments: The arguments of the call.
     ///   - site: The mount site of the call.
     ///   - mountTimeout: The timeout of the mount, or `nil` for none.
-    init(wrapped: any Tool<Arguments, String>, arguments: Arguments, site: MountSite, mountTimeout: TimeInterval?) {
+    ///   - inlineSettleDeadline: The end of the settle period that the inner
+    ///     calls of the run must keep, or `nil` for none.
+    init(
+        wrapped: any Tool<Arguments, String>,
+        arguments: Arguments,
+        site: MountSite,
+        mountTimeout: TimeInterval?,
+        inlineSettleDeadline: ContinuousClock.Instant?
+    ) {
         let token = RunPlane.makeCompletionToken()
         let funnel = RunEventFunnel(upstream: site.sink, runPlane: site.runPlane, completionToken: token)
         let state = ToolCallState()
@@ -43,7 +51,9 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
         self.sink = site.sink
         self.funnel = funnel
         self.state = state
-        self.context = ToolContext(calling: wrapped, on: site, sink: funnel, completionToken: token, state: state)
+        self.context = ToolContext(
+            calling: wrapped, on: site, sink: funnel, completionToken: token, state: state,
+            inlineSettleDeadline: inlineSettleDeadline)
         self.timeoutSeconds = Self.timeout(of: wrapped, for: arguments) ?? mountTimeout
         self.openRecord = ToolInvocationRecord(opening: context)
     }

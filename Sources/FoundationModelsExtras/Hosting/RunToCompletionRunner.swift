@@ -35,7 +35,11 @@ struct RunToCompletionRunner<
         try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { call in
-            let run = ToolRun(wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout)
+            // A synchronous call keeps the settle period of its caller, so an
+            // inner background call of this run stops its wait in time too.
+            let run = ToolRun(
+                wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout,
+                inlineSettleDeadline: site.inlineSettleDeadline)
             await run.open()
             let settlement = await run.execute(arguments: arguments)
             if let outcome = settlement.terminal.outcome {

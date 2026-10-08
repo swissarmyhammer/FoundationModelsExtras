@@ -168,10 +168,13 @@ struct ToolContextMountSinkPublicSurfaceTests {
 
     /// Mounts `host` on a new session, as a host does, and calls it one time.
     ///
+    /// The settle period of the session is `0`, so each inner background call
+    /// answers with its pending envelope at once.
+    ///
     /// - Parameter host: The tool that the session mounts.
     /// - Throws: What the call throws.
     private static func callOnANewSession(_ host: MountingTool) async throws {
-        let site = MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: RecordingSink())
+        let site = MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: RecordingSink(), inlineSettleGrace: 0)
         let mounted = ToolMounting.makeWrapped(tool: host, site: site, configuration: .synchronous)
         let typed = try #require(mounted as? any Tool<LabelArguments, String>)
         _ = try await typed.call(arguments: LabelArguments(value: hostLabel))

@@ -5,6 +5,73 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): a background call answers with its own result when the run ends inside the settle period
+
+The rule is now: a background call goes to the background only when its run
+takes longer than the settle period.
+
+**Cause.** Before, a background call answered at once with a pending
+envelope, unless the tool declared `inlineSettleGrace`. A run that ended
+inside that grace answered with a settled envelope (`pending: false`, with
+`outcome` and `detail`). Thus the model got a different shape for a short run
+of a background tool than for a synchronous tool, and it had to read the
+result from the `detail` field.
+
+**What changed.**
+
+- `ToolMount.defaultInlineSettleGrace` is new: 6 seconds. It is the only
+  constant for the settle period.
+- `MountSite.init(sessionID:runPlane:sink:op:tracer:inlineSettleGrace:)` has
+  a new last parameter, `inlineSettleGrace`, with the default
+  `ToolMount.defaultInlineSettleGrace`. It is the setting of the host. A
+  negative value acts as `0`. `0` answers with the pending envelope at once.
+- `BackgroundTool.inlineSettleGrace` is now a `TimeInterval`, not a
+  `TimeInterval?`. The default gives the settle period of the mount site. A
+  tool that states its own value wins over the site.
+- A background call waits for its run up to the settle period. A run that
+  ends in that time answers with its own result, the same as a synchronous
+  call: the output of the tool, or the error that the tool threw. The sink
+  takes back the staged events of that run (`StagedEventWithdrawing`). The
+  run plane still holds the terminal event of the run.
+- Only a run that continues past the settle period answers with a
+  `PendingRunEnvelope`. The run settles later with one terminal event.
+- `PendingRunEnvelope` is always pending. Its wire form has only `pending`
+  (always `true`), `completionToken` and `next`.
+  `PendingRunEnvelope.makeDecoded(fromRendered:)` and `isRendered(text:)` do
+  not recognize a text with `"pending":false`.
+- `ToolContext.inlineSettleGrace` is new: the settle period of each tool that
+  the context mounts. `ToolContext.init` has a new last parameter,
+  `inlineSettleGrace`, with the default `ToolMount.defaultInlineSettleGrace`.
+  `ToolContext.settling(within:)` is new: it gives a copy of the context with
+  a different settle period for its inner mounts.
+- An inner background call that a run makes inside its own settle period
+  stops its wait 1 second before the end of that period. Thus the outer run
+  has time to use the result. When the period of the outer run has ended, the
+  inner call waits for its full settle period.
+
+**Removed.**
+
+- `PendingRunEnvelope.outcome` and `PendingRunEnvelope.detail`.
+- `PendingRunEnvelope.replacing(detail:)`.
+- `PendingRunEnvelope.defaultResultInstruction(forCompletionToken:)`.
+- `BackgroundTool.resultInstruction(forCompletionToken:)` and its default.
+- The settled envelope (`pending: false`).
+
+**Migration.**
+
+- A tool that declared `var inlineSettleGrace: TimeInterval? { nil }` to
+  answer at once must now declare `var inlineSettleGrace: TimeInterval { 0 }`,
+  or the host must give `inlineSettleGrace: 0` to its `MountSite`.
+- A tool that declared a grace as `TimeInterval?` must change the type to
+  `TimeInterval`.
+- Remove each `resultInstruction(forCompletionToken:)` of a tool.
+- A host or a layer that read `detail` or `outcome` of a settled envelope, or
+  that called `replacing(detail:)`, must now read the output of the call as
+  the output of a synchronous call. A thrown error of a short run now comes
+  back as a thrown error of the call.
+- A test that needs a pending envelope from a fast tool must give
+  `inlineSettleGrace: 0` to the site, or keep the run open with a gate.
+
 ### Added: `PlanSnapshot`, `OperationEvent.plan` and `ToolContext.progress(_:plan:)`
 
 A tool can now send its agent plan to the host. The plan is a copy of the ACP
