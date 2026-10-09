@@ -54,7 +54,12 @@ enum MountFixtures {
         }
 
         /// Keeps `event`.
-        func post(display event: ToolDisplayEvent) {
+        ///
+        /// This method is `async` on purpose. ``StagingSink`` calls it
+        /// directly, from outside this actor. If this method is not `async`,
+        /// that call uses the empty default of `OperationEventSink`, and the
+        /// display event is lost.
+        func post(display event: ToolDisplayEvent) async {
             displays.append(event)
         }
 
@@ -64,16 +69,18 @@ enum MountFixtures {
         }
     }
 
-    /// A sink that stages each event for a later prompt, keeps each display
-    /// event, and takes back the staged events of a run on request. It
-    /// records how many display events it had when the runner took back the
+    /// A sink that stages each event for a later prompt, and takes back the
+    /// staged events of a run on request. It gives each display event to its
+    /// ``RecordingSink``, which keeps the display events. It records how many
+    /// display events the recording sink had when the runner took back the
     /// staged events of a run.
     actor StagingSink: OperationEventSink, StagedEventWithdrawing {
+        /// The sink that keeps each display event. A withdraw does not touch
+        /// it.
+        let recording = RecordingSink()
+
         /// The staged events, in post order.
         private(set) var staged: [OperationEvent] = []
-
-        /// Each display event, in post order.
-        private(set) var displays: [ToolDisplayEvent] = []
 
         /// The number of display events at the last withdraw, or `nil` before
         /// the first withdraw.
@@ -84,15 +91,15 @@ enum MountFixtures {
             staged.append(event)
         }
 
-        /// Keeps `event`. A withdraw does not remove it.
-        func post(display event: ToolDisplayEvent) {
-            displays.append(event)
+        /// Gives `event` to ``recording``.
+        func post(display event: ToolDisplayEvent) async {
+            await recording.post(display: event)
         }
 
         /// Records the display count, then removes each staged event of the
         /// run `correlationID`.
-        func withdrawStagedEvents(correlationID: String) {
-            displayCountAtWithdraw = displays.count
+        func withdrawStagedEvents(correlationID: String) async {
+            displayCountAtWithdraw = await recording.displays.count
             staged.removeAll { $0.correlationID == correlationID }
         }
     }

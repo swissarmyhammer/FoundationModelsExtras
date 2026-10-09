@@ -206,7 +206,7 @@ struct ToolDisplayHelperTests {
         let expected = Self.expectedDisplays(tool: runner.name, token: token)
         #expect(await sink.staged.isEmpty)
         #expect(await sink.displayCountAtWithdraw == expected.count)
-        #expect(await sink.displays == expected)
+        #expect(await sink.recording.displays == expected)
     }
 
     // MARK: - The timeout
