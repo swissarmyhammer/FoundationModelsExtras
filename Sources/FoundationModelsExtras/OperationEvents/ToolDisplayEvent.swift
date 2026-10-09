@@ -21,9 +21,10 @@ public enum ToolDisplayContent: Sendable, Equatable {
 /// A display-only event of a tool: output or metadata for the client of the
 /// host, and never for the model.
 ///
-/// A tool posts it with ``ToolContext/post(display:)``, and a sink gets it in
-/// ``OperationEventSink/post(display:)``. A display event is a lane of its
-/// own, apart from ``OperationEvent``:
+/// A tool posts it with ``ToolContext/post(display:)``, or with the helpers
+/// ``ToolContext/emit(chunk:)`` and ``ToolContext/update(title:kind:locations:)``.
+/// A sink gets it in ``OperationEventSink/post(display:)``. A display event
+/// is a lane of its own, apart from ``OperationEvent``:
 ///
 /// - It never goes into the model input. It is not an ``OperationEvent``, so
 ///   it never changes the progress detail of a run on the run plane.
@@ -31,6 +32,11 @@ public enum ToolDisplayContent: Sendable, Equatable {
 ///   in post order.
 /// - A host never records it in the journal of the session. For this reason
 ///   the type is not `Codable`.
+/// - It counts as a sign of life for the timeout of the run, the same as
+///   progress. A tool that sends output to the client is alive.
+/// - A background run that answers in its settle period does not withdraw
+///   it. The model never reads it, and the client already shows it. See
+///   ``StagedEventWithdrawing``.
 ///
 /// A nested call that ``ToolContext/mount(_:op:as:)`` mounts sends each
 /// display event again under the stamps of the mounting run, the same as

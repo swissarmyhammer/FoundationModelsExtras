@@ -212,11 +212,41 @@ public struct ToolContext: Sendable {
     /// The event goes to ``OperationEventSink/post(display:)`` of the sink.
     /// It never goes into the model input, it never changes the progress
     /// detail of the run, and a host never combines it with another event.
+    /// It counts as a sign of life for the timeout of the run, the same as
+    /// progress.
     ///
     /// - Parameter kind: The output or the metadata for the client.
     public func post(display kind: ToolDisplayEvent.Kind) async {
         await sink.post(
             display: ToolDisplayEvent(tool: tool, op: op, correlationID: completionToken, kind: kind))
+    }
+
+    /// Sends `chunk` to the client as one more part of the output of the
+    /// call. Posts a ``ToolDisplayEvent/Kind/contentChunk(_:)`` display event
+    /// through ``post(display:)``.
+    ///
+    /// - Parameter chunk: The part of the output that the client adds after
+    ///   the earlier parts.
+    public func emit(chunk: ToolDisplayContent) async {
+        await post(display: .contentChunk(chunk))
+    }
+
+    /// Sends new metadata of the call to the client. Posts a
+    /// ``ToolDisplayEvent/Kind/metadata(title:kind:locations:rawInput:)``
+    /// display event through ``post(display:)``, with no raw input.
+    ///
+    /// A `nil` argument does not change the value that the client has.
+    ///
+    /// - Parameters:
+    ///   - title: The human-readable title of the call, or `nil`.
+    ///   - kind: The category of the call, or `nil`.
+    ///   - locations: The files that the call reads or changes, or `nil`.
+    public func update(
+        title: String? = nil,
+        kind: ToolDisplayEvent.ToolKind? = nil,
+        locations: [ToolDisplayEvent.Location]? = nil
+    ) async {
+        await post(display: .metadata(title: title, kind: kind, locations: locations, rawInput: nil))
     }
 
     /// Attaches `attachment` to the call of this context.

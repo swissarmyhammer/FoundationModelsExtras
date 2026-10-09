@@ -127,7 +127,8 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
     }
 
     /// The result of `call`, or a timeout failure when a full timeout window
-    /// passes with no progress and no pending elicitation.
+    /// passes with no progress, no message, no display event and no pending
+    /// elicitation.
     ///
     /// At a timeout, this function cancels the call and returns at once. It
     /// does not wait for the tool to stop: a tool that ignores the cancel
@@ -275,8 +276,8 @@ actor RunEventFunnel: OperationEventSink {
     /// Whether the terminal event went upstream.
     private var hasDeliveredTerminal = false
 
-    /// Increases with each progress event, each message and each answered
-    /// elicitation.
+    /// Increases with each progress event, each message, each display event
+    /// and each answered elicitation.
     private var resetCount = 0
 
     /// The elicitations of this run that have no answer yet.
@@ -327,12 +328,15 @@ actor RunEventFunnel: OperationEventSink {
 
     /// Sends `event` upstream, in order with the other events of the run.
     ///
-    /// A display event is not an ``OperationEvent``. It changes no timeout
-    /// state, it does not count as an event of the run for the terminal
-    /// event, and it never changes the progress detail on the run plane.
+    /// A display event counts as a sign of life for the timeout of the run,
+    /// the same as progress: a tool that sends output to the client is alive.
+    /// A display event is not an ``OperationEvent``, so it does not count as
+    /// an event of the run for the terminal event, and it never changes the
+    /// progress detail on the run plane.
     ///
     /// - Parameter event: The display event.
     func post(display event: ToolDisplayEvent) async {
+        resetCount += 1
         await enqueue { await $0.post(display: event) }.value
     }
 
@@ -346,8 +350,8 @@ actor RunEventFunnel: OperationEventSink {
         await enqueue { await $0.post(event: terminal) }.value
     }
 
-    /// Waits until a full window of `seconds` passes with no progress and no
-    /// pending elicitation.
+    /// Waits until a full window of `seconds` passes with no progress, no
+    /// message, no display event and no pending elicitation.
     ///
     /// - Parameter seconds: The timeout.
     /// - Returns: `true` at the timeout, `false` when the wait was cancelled.
@@ -360,8 +364,9 @@ actor RunEventFunnel: OperationEventSink {
             } catch {
                 return false
             }
-            // Progress in the window, or a pending elicitation, shows that the
-            // call is alive: wait one more full window.
+            // Progress, a message or a display event in the window, or a
+            // pending elicitation, shows that the call is alive: wait one
+            // more full window.
             if await refreshedResetCount() == before, pendingElicitationIds.isEmpty {
                 return true
             }

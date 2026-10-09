@@ -86,7 +86,9 @@ struct BackgroundToolRunner<
     /// the same output. The wait never cancels the run: a run that continues
     /// settles behind the pending envelope. The sink takes back the staged
     /// events of a run that answers here, so the model does not read the
-    /// result two times.
+    /// result two times. The sink does not take back a display event of the
+    /// run: the model never reads it, and the client already shows it. See
+    /// ``StagedEventWithdrawing``.
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool, or the rendered pending envelope.

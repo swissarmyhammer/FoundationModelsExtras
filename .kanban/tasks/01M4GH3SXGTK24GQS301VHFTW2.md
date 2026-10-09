@@ -45,8 +45,24 @@ comments:
     - evidence: local commit "feat(hosting): add a display-only event lane for tools" (sha is in the commit log; this comment ships in the same commit)
     - next: review
   timestamp: 2026-10-09T14:55:43.812197+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4gk0jeme0jhjt6e7h39rzjc
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 23974f0). 0 findings, 0 confirmed, 2 refuted. 7 files attempted, 0 failed. The engine did not review CHANGELOG.md and README.md (no validator matches) or the 4 .kanban files (.reviewignore).
+    - next: none. The task is in done.
+  timestamp: 2026-10-09T15:02:55.188256+00:00
+- actor: claude-code
+  id: 01m4gk0s736xwyyx3ey7kczj97
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 9 files
+    - test: green — swift test, 907 passed, 0 failed
+    - commit: 23974f0
+    - review: clean — 0 findings
+  timestamp: 2026-10-09T15:03:02.115391+00:00
+position_column: done
+position_ordinal: e380
 title: Add a display-only event lane for tools
 ---
 ## Problem

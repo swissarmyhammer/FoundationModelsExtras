@@ -29,8 +29,15 @@ public protocol BackgroundRunSettlementObserver: AnyObject, Sendable {
 /// own result. The staged copy of its events must then not
 /// also go in front of the next prompt, so the runner withdraws them. A sink
 /// that stages nothing does not conform.
+///
+/// A withdraw applies only to the ``OperationEvent`` values that the sink
+/// staged for the model. It never applies to a ``ToolDisplayEvent``. The
+/// model never reads a display event, so the model cannot read it two times.
+/// Also, the runner delivers each display event of the run before the
+/// withdraw, so the client already shows it.
 public protocol StagedEventWithdrawing: Sendable {
-    /// Removes each event that is staged under `correlationID`.
+    /// Removes each operation event that is staged under `correlationID`.
+    /// Each display event of the run stays with the client.
     ///
     /// - Parameter correlationID: The completion token of the run.
     func withdrawStagedEvents(correlationID: String) async

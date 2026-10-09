@@ -5,6 +5,36 @@ change is at the top.
 
 ## Unreleased
 
+### Added: `ToolContext.emit(chunk:)` and `ToolContext.update(title:kind:locations:)`
+
+A tool can now send its display output and its metadata with one short call.
+Before, a tool had to make a `ToolDisplayEvent.Kind` and give it to
+`post(display:)`.
+
+**What changed.**
+
+- `ToolContext.emit(chunk:)` is new. It posts a `.contentChunk` display event
+  with the `ToolDisplayContent` that it gets.
+- `ToolContext.update(title:kind:locations:)` is new. It posts a `.metadata`
+  display event with no `rawInput`. Each argument is optional, and a `nil`
+  argument does not change the value that the client has.
+- Both helpers work in each runner path: a tool whose output is not `String`
+  (`ContextBindingTool`), a synchronous call (`RunToCompletionRunner`) and a
+  background call (`BackgroundToolRunner`). A background run sends them also
+  after its settle period, under its own completion token.
+- A display event now counts as a sign of life for the timeout of the run,
+  the same as progress and a message. A tool that sends output to the client
+  is alive. Before, a run that sent only display events timed out.
+- A background run that answers in its settle period does not withdraw its
+  display events. `StagedEventWithdrawing.withdrawStagedEvents(correlationID:)`
+  applies only to the operation events that the sink staged for the model.
+  The model never reads a display event, and the runner delivers each display
+  event before the withdraw, so the client already shows it.
+
+**Migration.** No change is necessary. A tool can use the helpers in place of
+`post(display:)`. A tool with a timeout that sends display events and no
+progress now runs past the timeout while it sends them.
+
 ### Added: a display-only event lane for tools (`ToolDisplayEvent`, `OperationEventSink.post(display:)`, `ToolContext.post(display:)`)
 
 A tool can now send output and metadata of its call to the client of the
@@ -33,9 +63,10 @@ usable display stream.
 - `ToolContext.post(display:)` is new. It stamps the kind with the `tool`, the
   `op` and the `completionToken` of the run, the same as each other event.
 - A display event never goes into the model input. It is not an
-  `OperationEvent`, so it never changes the progress detail of a run, it
-  changes no timeout state, and the run event funnel does not count it as an
-  event of the run for the terminal event.
+  `OperationEvent`, so it never changes the progress detail of a run, and the
+  run event funnel does not count it as an event of the run for the terminal
+  event. It counts as a sign of life for the timeout of the run (see the next
+  entry).
 - A display event is never combined with another display event, and a host
   never records it in the journal. The type is not `Codable`.
 - A synchronous call that `ToolContext.mount(_:op:as:)` mounts sends each

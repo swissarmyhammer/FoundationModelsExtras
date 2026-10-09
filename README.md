@@ -828,7 +828,11 @@ questions that those runs ask the user.
   `.message` event that is never terminal), send output and metadata of the
   call to the client only (`post(display:)`, a `ToolDisplayEvent` that the
   sink gets in `post(display:)`, that never goes into the model input, and
-  that a host never combines or records), attach records (`attach(_:)`), ask
+  that a host never combines or records; `emit(chunk:)` and
+  `update(title:kind:locations:)` are short forms for a chunk of output and
+  for new metadata; a display event counts as a sign of life for the timeout,
+  and a run that answers in its settle period does not withdraw it), attach
+  records (`attach(_:)`), ask
   the user (`elicit(_:)`), read the background runs (`backgroundRuns()`), wait
   for a run (`wait(completionToken:seconds:)`), stop a run
   (`cancel(completionToken:)`), and mount a tool of its own (`mount(_:op:as:)`).

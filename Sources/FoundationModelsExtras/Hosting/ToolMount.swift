@@ -33,9 +33,9 @@ public struct ToolMount: Sendable, Equatable {
     public var mode: Mode
 
     /// How long the work can run with no progress, in seconds, or `nil` for
-    /// no timeout. Each progress event starts the time again, and a pending
-    /// elicitation stops it. When the time elapses, the run ends as
-    /// ``OperationOutcome/timedOut``.
+    /// no timeout. Each progress event, each message and each display event
+    /// starts the time again, and a pending elicitation stops it. When the
+    /// time elapses, the run ends as ``OperationOutcome/timedOut``.
     public var timeout: TimeInterval?
 
     /// Makes a mount.
