@@ -31,7 +31,7 @@ public struct MarketplaceSource: Sendable, Hashable, Codable {
   /// key.
   public var alias: String?
 
-  /// The skills that the host takes from the catalog.
+  /// The skills that the host takes from the marketplace.
   public var select: SkillSelection
 
   /// Whether the store installs a new commit when it finds one.

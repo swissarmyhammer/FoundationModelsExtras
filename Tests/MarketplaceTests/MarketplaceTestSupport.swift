@@ -35,16 +35,16 @@ actor CredentialRequestRecorder {
 /// The shared helpers of the marketplace tests.
 ///
 /// `MarketplaceConfigTests` and `MarketplaceCacheTests` write text files into
-/// a temporary folder with ``writeFile(text:to:)``. `MarketplaceCatalogTests`,
-/// `GitTreeFileSourceTests` and `SnapshotWriterTests` resolve the fixture
-/// catalogs with ``skillsLayout``, find them with ``catalogFixture(named:)``,
-/// and write a small tree with ``makeTempDirectory(withFiles:)``. The store
+/// a temporary folder with ``writeFile(text:to:)``. `MarketplaceScanTests`,
+/// `GitTreeFileSourceTests` and `SnapshotWriterTests` scan the fixture
+/// marketplaces with ``skillsLayout``, find them with
+/// ``marketplaceFixture(named:)``, and write a small tree with
+/// ``makeTempDirectory(withFiles:)``. The store
 /// suites build a fixture commit with ``skillTree(body:)``, write a local
 /// marketplace with ``writeSkillFolder(named:in:body:)``, and read what a
-/// layer root holds with ``skillBody(inLayerRoot:)``. The catalog suite and
-/// the snapshot writer suite resolve the agents of
-/// ``twoPluginAgentTree``, and the agent tests write agent files with
-/// ``agentDocument(named:)``. `ReadmeSnippetTests`
+/// layer root holds with ``skillBody(inLayerRoot:)``. The scan suite and
+/// the snapshot writer suite scan the agents of ``twoPluginAgentTree``, and
+/// the agent tests write agent documents with ``agentDocument(named:)``. `ReadmeSnippetTests`
 /// and `DocumentationTests` both find the marketplace section of the README
 /// with ``readmePath`` and ``readmeMarketplaceHeading``.
 ///
@@ -68,8 +68,8 @@ enum MarketplaceTestSupport {
   /// the folder that a `file://` source with no `path` reads.
   static let skillsFolderName = "skills"
 
-  /// The folder of the fixture catalogs, relative to the package root.
-  private static let catalogFixturesPath = "Tests/MarketplaceTests/Fixtures/catalogs"
+  /// The folder of the fixture marketplaces, relative to the package root.
+  private static let marketplaceFixturesPath = "Tests/MarketplaceTests/Fixtures/marketplaces"
 
   /// The text of one fixture skill document: a frontmatter with the name and
   /// a description, then the body.
@@ -82,8 +82,8 @@ enum MarketplaceTestSupport {
     "---\nname: \(id)\ndescription: fixture skill \(id)\n---\n\(body)\n"
   }
 
-  /// The text of one fixture agent file: a frontmatter with the name and a
-  /// description, then a body that names the agent.
+  /// The text of one fixture `AGENT.md` document: a frontmatter with the name
+  /// and a description, then a body that names the agent.
   ///
   /// - Parameter name: The agent name, which is the frontmatter `name`.
   /// - Returns: The file text.
@@ -91,29 +91,18 @@ enum MarketplaceTestSupport {
     "---\nname: \(name)\ndescription: fixture agent \(name)\n---\nThe body of the \(name) agent.\n"
   }
 
-  /// A tree with a Claude catalog of two plugins, `first` and then
-  /// `second`. Each plugin has one skill and one agent: `first` has the
-  /// skill `alpha` and the agent `planner.md`, and `second` has the skill
-  /// `beta` and the agent `reviewer.md`. The catalog renames the plugin
-  /// `old` to `second`.
+  /// A tree in the plugin layout, with no catalog file: two plugin folders,
+  /// `first` and then `second`. Each folder has one skill and one agent:
+  /// `first` has the skill `alpha` and the agent `planner`, and `second` has
+  /// the skill `beta` and the agent `reviewer`.
   ///
-  /// The catalog suite and the snapshot writer suite both read this tree,
-  /// thus it is here.
+  /// The scan suite and the snapshot writer suite both read this tree, thus
+  /// it is here.
   static let twoPluginAgentTree: [String: String] = [
-    ".claude-plugin/marketplace.json": """
-      {
-        "name": "two-plugins",
-        "plugins": [
-          { "name": "first", "source": "./first" },
-          { "name": "second", "source": "./second" }
-        ],
-        "renames": { "old": "second" }
-      }
-      """,
     "first/skills/alpha/SKILL.md": skillDocument(named: "alpha", body: "The body of alpha."),
-    "first/agents/planner.md": agentDocument(named: "planner"),
+    "first/agents/planner/AGENT.md": agentDocument(named: "planner"),
     "second/skills/beta/SKILL.md": skillDocument(named: "beta", body: "The body of beta."),
-    "second/agents/reviewer.md": agentDocument(named: "reviewer"),
+    "second/agents/reviewer/AGENT.md": agentDocument(named: "reviewer"),
   ]
 
   /// The tree of one fixture commit: one skill under `skills`.
@@ -175,12 +164,12 @@ enum MarketplaceTestSupport {
     return nil
   }
 
-  /// Gives the folder of one fixture catalog.
+  /// Gives the folder of one fixture marketplace.
   ///
   /// - Parameter name: The folder name of the fixture.
   /// - Returns: The folder, under the package root.
-  static func catalogFixture(named name: String) -> URL {
-    FixtureFile.url("\(catalogFixturesPath)/\(name)")
+  static func marketplaceFixture(named name: String) -> URL {
+    FixtureFile.url("\(marketplaceFixturesPath)/\(name)")
   }
 
   /// Makes a new temporary folder and writes a tree of text files into it.

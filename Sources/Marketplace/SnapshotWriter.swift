@@ -9,7 +9,8 @@ internal enum SnapshotError: Error, Equatable, Sendable {
   /// it, or that names the folder itself.
   case unsafeEntryName(directory: String, name: String)
 
-  /// A symbolic link points outside the skill folder that holds it.
+  /// A symbolic link points outside the skill folder or the agent folder
+  /// that holds it.
   case escapingSymlink(path: String, target: String)
 
   /// A folder holds a git submodule. The writer reads one tree, so it has
@@ -32,7 +33,7 @@ extension SnapshotError: CustomStringConvertible {
     case .unsafeEntryName(let directory, let name):
       #"The folder "\#(CatalogPath.display(path: directory))" holds the name "\#(name)", which cannot go into a snapshot path."#
     case .escapingSymlink(let path, let target):
-      #"The link "\#(path)" points to "\#(target)", which is outside its skill folder."#
+      #"The link "\#(path)" points to "\#(target)", which is outside its entry folder."#
     case .submodule(let path):
       #"The entry "\#(path)" is a git submodule, which a snapshot cannot hold."#
     case .tooManyFiles(let path, let limit):
@@ -56,29 +57,30 @@ internal struct SnapshotReport: Sendable, Hashable {
   var diagnostics: [MarketplaceDiagnostic]
 }
 
-/// Writes the selected skills of one resolved catalog into one flat folder.
+/// Writes the selected skills and the agents of one scanned tree into one
+/// flat folder.
 ///
 /// The result is a layer root: `<skill>/…` for each selected skill,
-/// `agents/<name>` for each selected agent file, plus the partials folder
-/// that the ``MarketplaceLayout`` of the host names.
+/// `agents/<name>/…` for each agent, plus the partials folder that the
+/// ``MarketplaceLayout`` of the host names. The writer copies each skill
+/// folder and each agent folder as a tree, with the same policy limits.
 ///
-/// The snapshot is flat: the folders between a plugin source and a skill,
-/// for example `skills/` and `skills/group/`, do not exist in it. Thus the
-/// partials of those folders merge into `<snapshot>/<partials folder>/`.
-/// For each selected skill, the writer takes each folder from its source
-/// root (``ResolvedCatalog/sourceRoots``), or from the root of a tree with
-/// no catalog, down to the folder that holds the skill. It copies the
-/// partials folder of each of these folders one time, from the least
-/// specific (the fewest path components) to the most specific. For a skill
-/// at `skills/group/review/`, the order is `_partials/`,
-/// `skills/_partials/`, then `skills/group/_partials/`. A more specific copy
-/// replaces a less specific copy with no diagnostic, whatever the catalog
-/// order. Two folders at the same level of specificity that give a partial
-/// of the same name give one diagnostic, and the later one in catalog order
-/// wins. A partials folder inside a skill folder goes with the skill folder.
+/// The snapshot is flat: the folders between the root of the tree and an
+/// entry, for example `skills/` and `skills/group/`, do not exist in it.
+/// Thus the partials of those folders merge into
+/// `<snapshot>/<partials folder>/`. For each selected skill and each agent,
+/// the writer takes each folder from the root of the tree down to the folder
+/// that holds the entry. It copies the partials folder of each of these
+/// folders one time, from the least specific (the fewest path components) to
+/// the most specific. For a skill at `skills/group/review/`, the order is
+/// `_partials/`, `skills/_partials/`, then `skills/group/_partials/`. A more
+/// specific copy replaces a less specific copy with no diagnostic. Two
+/// folders at the same level of specificity that give a partial of the same
+/// name give one diagnostic, and the later one in path order wins. A
+/// partials folder inside an entry folder goes with the entry folder.
 ///
-/// A known limit of the flat snapshot: each skill and each agent file sees
-/// the merged partials of all these folders, because they merge into the one
+/// A known limit of the flat snapshot: each skill and each agent sees the
+/// merged partials of all these folders, because they merge into the one
 /// partials folder of the snapshot.
 ///
 /// The input is any ``CatalogFileSource``, so the same code writes a folder
@@ -92,14 +94,14 @@ internal enum SnapshotWriter {
   /// with it holds the address of the content, not the content.
   static let largeFileStoragePrefix = "version https://git-lfs.github.com/spec/v1"
 
-  /// Writes one snapshot of the selected skills.
+  /// Writes one snapshot of the selected skills and the agents.
   ///
   /// The call makes `temporaryDirectory`, writes the tree into it, and
   /// gives a report. On any refusal it deletes `temporaryDirectory` and
   /// throws, so a refused tree leaves nothing on the disk.
   ///
   /// - Parameters:
-  ///   - catalog: The skills that ``CatalogResolver`` selected.
+  ///   - catalog: The skills and the agents that ``CatalogResolver`` found.
   ///   - source: The files of the marketplace tree.
   ///   - temporaryDirectory: The staged folder to write. It must not exist
   ///     yet, and it must be on the same volume as the cache, because the
@@ -109,20 +111,20 @@ internal enum SnapshotWriter {
   ///   - limits: The policy limits of the write.
   /// - Returns: The counts and the findings of the write.
   /// - Throws: ``SnapshotError`` when the tree breaks a rule of the write:
-  ///   an unsafe name, a link that leaves its skill folder, a submodule, or
+  ///   an unsafe name, a link that leaves its entry folder, a submodule, or
   ///   a policy limit. Else the error of a read or of a write.
   static func write(
     catalog: ResolvedCatalog, from source: any CatalogFileSource, to temporaryDirectory: URL,
     layout: MarketplaceLayout, limits: SnapshotLimits
   ) throws -> SnapshotReport {
     var run = SnapshotRun(
-      source: source, destination: temporaryDirectory, limits: limits, marketplaceID: catalog.name,
+      source: source, destination: temporaryDirectory, limits: limits,
       partialsDirectoryName: layout.partialsDirectoryName)
     do {
       try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
       try run.copySkills(catalog.skills)
       try run.copyAgents(catalog.agents)
-      try run.copyPartials(ofSourceRoots: catalog.sourceRoots, skills: catalog.skills)
+      try run.copyPartials(ofEntries: catalog.skills + catalog.agents)
     } catch {
       try? FileManager.default.removeItem(at: temporaryDirectory)
       throw error
@@ -153,12 +155,8 @@ fileprivate struct SnapshotRun {
   private static let absolutePathPrefixes = ["/", "~"]
 
   /// The number of levels of the folder that a symbolic link may point to
-  /// at the shallowest: the root of its own skill folder.
+  /// at the shallowest: the root of its own entry folder.
   private static let shallowestLinkLevel = 0
-
-  /// The path of the root of the tree, where the walk of a skill with no
-  /// source root above it starts.
-  private static let treeRoot = ""
 
   /// The files of the marketplace tree.
   let source: any CatalogFileSource
@@ -168,9 +166,6 @@ fileprivate struct SnapshotRun {
 
   /// The policy limits of the write.
   let limits: SnapshotLimits
-
-  /// The marketplace that each diagnostic names.
-  let marketplaceID: String?
 
   /// The name of the folder that holds the partials of an entry, from the
   /// ``MarketplaceLayout`` of the host.
@@ -187,53 +182,47 @@ fileprivate struct SnapshotRun {
 
   /// Copies the folder of each selected skill to `<snapshot>/<name>/`.
   ///
-  /// - Parameter skills: The selected skills, in catalog order.
+  /// - Parameter skills: The selected skills, in scan order.
   /// - Throws: ``SnapshotError``, else the error of a read or of a write.
-  mutating func copySkills(_ skills: [ResolvedSkill]) throws {
+  mutating func copySkills(_ skills: [ResolvedEntry]) throws {
     for skill in skills {
       let name = try Self.validated(name: skill.name, inDirectory: skill.path)
       try copyTree(fromTreePath: skill.path, toRelativePath: name, depth: 0)
     }
   }
 
-  /// Copies each selected agent file to `<snapshot>/agents/<name>`.
+  /// Copies the folder of each agent as a tree to
+  /// `<snapshot>/agents/<name>/`.
   ///
-  /// The copy reads no text of an agent file. An agent file is a document,
-  /// thus the copy does not keep an execute bit. Each file counts toward
-  /// the policy limits, as a file of a skill folder does.
+  /// The copy reads no text of an agent folder. Each file counts toward the
+  /// policy limits, and each link must stay in its agent folder, as for a
+  /// skill folder.
   ///
-  /// - Parameter agents: The selected agent files, one for each name.
+  /// - Parameter agents: The agents, one for each name.
   /// - Throws: ``SnapshotError``, else the error of a read or of a write.
-  mutating func copyAgents(_ agents: [ResolvedAgent]) throws {
-    guard !agents.isEmpty else {
-      return
-    }
-    let folder = MarketplaceLayer.agentsDirectoryName
-    try FileManager.default.createDirectory(at: url(forRelativePath: folder), withIntermediateDirectories: true)
+  mutating func copyAgents(_ agents: [ResolvedEntry]) throws {
     for agent in agents {
-      let name = try Self.validated(name: agent.name, inDirectory: CatalogPath.parent(of: agent.path))
-      try copyFile(
-        fromTreePath: agent.path, toRelativePath: CatalogPath.child(named: name, of: folder), isExecutable: false)
+      let name = try Self.validated(name: agent.name, inDirectory: agent.path)
+      try copyTree(
+        fromTreePath: agent.path,
+        toRelativePath: CatalogPath.child(named: name, of: MarketplaceLayer.agentsDirectoryName), depth: 0)
     }
   }
 
-  /// Copies the partials folder of each source root, and of each folder
-  /// from a source root down to a selected skill, to
-  /// `<snapshot>/<partials folder>/`.
+  /// Copies the partials folder of each folder from the root of the tree
+  /// down to each entry to `<snapshot>/<partials folder>/`.
   ///
   /// The copy goes one level of specificity at a time, from the fewest path
   /// components to the most. Each folder is copied one time. Two folders at
   /// the same level can hold a partial of the same name. The later folder in
-  /// catalog order wins, and the write records one diagnostic. After each
+  /// path order wins, and the write records one diagnostic. After each
   /// level, the run forgets these writes, so that a more specific folder
   /// replaces them with no diagnostic.
   ///
-  /// - Parameters:
-  ///   - roots: The source roots, in catalog order.
-  ///   - skills: The selected skills, in catalog order.
+  /// - Parameter entries: The selected skills and the agents.
   /// - Throws: ``SnapshotError``, else the error of a read or of a write.
-  mutating func copyPartials(ofSourceRoots roots: [String], skills: [ResolvedSkill]) throws {
-    for level in Self.specificityLevels(of: Self.partialsFolders(ofSourceRoots: roots, skills: skills)) {
+  mutating func copyPartials(ofEntries entries: [ResolvedEntry]) throws {
+    for level in Self.specificityLevels(of: Self.partialsFolders(ofEntries: entries)) {
       for folder in level {
         try copyPartialsFolder(of: folder)
       }
@@ -265,7 +254,7 @@ fileprivate struct SnapshotRun {
   ///   - treePath: The folder in the marketplace tree.
   ///   - relativePath: The folder in the snapshot, relative to
   ///     ``destination``.
-  ///   - depth: How many levels the folder is under the root of the skill
+  ///   - depth: How many levels the folder is under the root of the entry
   ///     folder that holds it. A symbolic link may not walk above that
   ///     root.
   /// - Throws: ``SnapshotError``, else the error of a read or of a write.
@@ -294,7 +283,7 @@ fileprivate struct SnapshotRun {
   ///   - relativePath: The item in the snapshot, relative to
   ///     ``destination``.
   ///   - depth: How many levels the folder that holds the item is under the
-  ///     root of its skill folder.
+  ///     root of its entry folder.
   /// - Throws: ``SnapshotError``, else the error of a read or of a write.
   private mutating func copy(
     entry: CatalogTreeEntry, fromTreePath treePath: String, toRelativePath relativePath: String, depth: Int
@@ -340,7 +329,7 @@ fileprivate struct SnapshotRun {
       [.posixPermissions: Self.executableFileMode], ofItemAtPath: file.path)
   }
 
-  /// Copies one symbolic link that stays in its own skill folder.
+  /// Copies one symbolic link that stays in its own entry folder.
   ///
   /// - Parameters:
   ///   - target: The path that the link points to.
@@ -348,9 +337,9 @@ fileprivate struct SnapshotRun {
   ///   - relativePath: The link in the snapshot, relative to
   ///     ``destination``.
   ///   - depth: How many levels the folder that holds the link is under the
-  ///     root of its skill folder.
+  ///     root of its entry folder.
   /// - Throws: ``SnapshotError/escapingSymlink(path:target:)`` when the
-  ///   target leaves the skill folder, else the error of the write.
+  ///   target leaves the entry folder, else the error of the write.
   private mutating func copySymlink(
     target: String, fromTreePath treePath: String, toRelativePath relativePath: String, depth: Int
   ) throws {
@@ -401,7 +390,7 @@ fileprivate struct SnapshotRun {
     }
     let message =
       #"Two folders give "\#(relativePath)": "\#(earlier)" and "\#(treePath)". The snapshot uses "\#(treePath)"."#
-    report.diagnostics.append(diagnostic(saying: message))
+    report.diagnostics.append(Self.diagnostic(saying: message))
   }
 
   /// Forgets each write into the partials folder of the snapshot.
@@ -429,15 +418,15 @@ fileprivate struct SnapshotRun {
     }
     let message =
       #"The file "\#(path)" is a large file storage pointer, not the content. The snapshot holds the pointer."#
-    report.diagnostics.append(diagnostic(saying: message))
+    report.diagnostics.append(Self.diagnostic(saying: message))
   }
 
   /// Makes one warning about this marketplace.
   ///
   /// - Parameter message: The text of the diagnostic.
-  /// - Returns: The diagnostic, with ``marketplaceID``.
-  private func diagnostic(saying message: String) -> MarketplaceDiagnostic {
-    MarketplaceDiagnostic(severity: .warning, marketplaceID: marketplaceID, message: message)
+  /// - Returns: The warning. The store adds the marketplace to it.
+  private static func diagnostic(saying message: String) -> MarketplaceDiagnostic {
+    MarketplaceDiagnostic(severity: .warning, marketplaceID: nil, message: message)
   }
 
   // MARK: - Names and paths
@@ -496,19 +485,19 @@ fileprivate struct SnapshotRun {
     return name
   }
 
-  /// Whether a symbolic link target stays in the skill folder that holds
+  /// Whether a symbolic link target stays in the entry folder that holds
   /// the link.
   ///
   /// The call walks the components of the target and counts the levels
-  /// below the root of the skill folder. A target that reaches a level
+  /// below the root of the entry folder. A target that reaches a level
   /// below zero leaves the folder. The call reads no file, so a link to a
   /// file that is not there gives the same answer.
   ///
   /// - Parameters:
   ///   - depth: How many levels the folder that holds the link is under the
-  ///     root of its skill folder.
+  ///     root of its entry folder.
   ///   - target: The path that the link points to.
-  /// - Returns: `true` when the target stays in the skill folder.
+  /// - Returns: `true` when the target stays in the entry folder.
   private static func stays(inFolderAtDepth depth: Int, target: String) -> Bool {
     guard !absolutePathPrefixes.contains(where: target.hasPrefix) else {
       return false
@@ -532,68 +521,53 @@ fileprivate struct SnapshotRun {
 
   // MARK: - The partials folders
 
-  /// The folders whose partials folder the snapshot copies, each one time,
-  /// in catalog order.
+  /// The folders whose partials folder the snapshot copies, each one time.
   ///
-  /// For each source root, the list holds the root, then each folder from
-  /// the root down to the folder that holds each skill of that root. A
-  /// skill with no source root above it walks from the root of the tree.
-  /// The walk stops above the skill folder, because a partials folder
-  /// inside a skill folder goes with the skill folder.
+  /// For each entry, the list holds each folder from the root of the tree
+  /// down to the folder that holds the entry. The walk stops above the entry
+  /// folder, because a partials folder inside an entry folder goes with the
+  /// entry folder.
   ///
-  /// - Parameters:
-  ///   - roots: The source roots, in catalog order.
-  ///   - skills: The selected skills, in catalog order.
+  /// - Parameter entries: The selected skills and the agents.
   /// - Returns: The folders, with no repeat.
-  private static func partialsFolders(ofSourceRoots roots: [String], skills: [ResolvedSkill]) -> [String] {
-    let walks = skills.map { skill in
-      let root = sourceRoot(of: skill.path, among: roots) ?? treeRoot
-      return (root: root, folders: folders(from: root, downTo: CatalogPath.parent(of: skill.path)))
-    }
-    let rootWalks = roots.flatMap { root in [root] + walks.filter { $0.root == root }.flatMap(\.folders) }
-    let otherWalks = walks.filter { !roots.contains($0.root) }.flatMap(\.folders)
+  private static func partialsFolders(ofEntries entries: [ResolvedEntry]) -> [String] {
     var seen: Set<String> = []
-    return (rootWalks + otherWalks).filter { seen.insert($0).inserted }
+    return entries.flatMap { foldersFromRoot(downTo: CatalogPath.parent(of: $0.path)) }
+      .filter { seen.insert($0).inserted }
   }
 
   /// Groups folders by their level of specificity.
   ///
-  /// - Parameter folders: The folders, in catalog order.
+  /// - Parameter folders: The folders.
   /// - Returns: One group for each number of path components, from the
-  ///   fewest to the most. Each group keeps the catalog order.
+  ///   fewest to the most. Each group is in path order, thus the later
+  ///   folder in path order is copied later.
   private static func specificityLevels(of folders: [String]) -> [[String]] {
-    Dictionary(grouping: folders, by: depth(of:)).sorted { $0.key < $1.key }.map(\.value)
+    Dictionary(grouping: folders, by: depth(of:)).sorted { $0.key < $1.key }
+      .map { $0.value.sorted(by: isInPathOrder) }
   }
 
-  /// The most specific source root that holds a path.
+  /// Tells whether one path comes before another in path order: the order
+  /// of the components, one component at a time.
   ///
   /// - Parameters:
-  ///   - path: The path of a skill folder in the tree.
-  ///   - roots: The source roots.
-  /// - Returns: The source root with the most path components that is the
-  ///   path itself or a folder above it, or `nil` when no root holds the
-  ///   path.
-  private static func sourceRoot(of path: String, among roots: [String]) -> String? {
-    let components = path.split(separator: CatalogPath.separator)
-    return roots.filter { components.starts(with: $0.split(separator: CatalogPath.separator)) }
-      .max { depth(of: $0) < depth(of: $1) }
+  ///   - first: One path.
+  ///   - second: The other path.
+  /// - Returns: `true` when `first` comes before `second`.
+  private static func isInPathOrder(_ first: String, _ second: String) -> Bool {
+    first.split(separator: CatalogPath.separator)
+      .lexicographicallyPrecedes(second.split(separator: CatalogPath.separator))
   }
 
-  /// Each folder from one folder down to a folder below it.
+  /// Each folder from the root of the tree down to one folder.
   ///
-  /// - Parameters:
-  ///   - root: The first folder of the walk.
-  ///   - folder: The last folder of the walk. It is `root`, or a folder
-  ///     below `root`.
-  /// - Returns: The folders, from `root` to `folder`, or no folder when
-  ///   `folder` is above `root`.
-  private static func folders(from root: String, downTo folder: String) -> [String] {
+  /// - Parameter folder: The last folder of the walk. The empty path is the
+  ///   root.
+  /// - Returns: The folders, from the root, which is the empty path, to
+  ///   `folder`.
+  private static func foldersFromRoot(downTo folder: String) -> [String] {
     let components = folder.split(separator: CatalogPath.separator)
-    let rootDepth = depth(of: root)
-    guard components.count >= rootDepth else {
-      return []
-    }
-    return (rootDepth...components.count).map {
+    return (0...components.count).map {
       components.prefix($0).joined(separator: String(CatalogPath.separator))
     }
   }

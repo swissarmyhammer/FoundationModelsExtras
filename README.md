@@ -80,7 +80,7 @@ At each folder the walk checks each layer in scope, the highest first, and
 the first copy that it finds wins. Thus a copy in a more specific folder of
 a lower layer wins over a copy in a less specific folder of a higher layer;
 in one folder, the highest layer wins, as before. A skill at
-`commit/SKILL.md` and an agent at `agents/committer.md` of one root both
+`commit/SKILL.md` and an agent at `agents/committer/AGENT.md` of one root both
 find `_partials/x.md` at that root, and a `commit/_partials/x.md` wins for
 that one skill only. The walk never goes above the layer root, and each path
 that it tries goes through the confinement checks of `DotfolderStack`.
@@ -247,55 +247,73 @@ let skill = stack.item(at: "review/SKILL.md")
 `.git`, `github:owner/repo`, or a `file://` URL. A `file://` URL that names
 a folder and not a `.git` repository is the layer itself; the store makes
 no copy of it. `MarketplaceLayout` names the shape of the tree: the
-document that marks an entry folder (`SKILL.md` for skills), the folder
+document that marks a skill folder (`SKILL.md` for skills), the folder
 names that a scan skips, and the partials folder. This package does not
-know what an entry is; the host names its format. `cacheDirectory` has the
+know what a skill is; the host names its format. `cacheDirectory` has the
 default `MarketplaceStore.cacheDirectory()`, which reads
 `SKILLS_MARKETPLACE_CACHE` and falls back to `~/.cache/skills/marketplaces`.
 `workingDirectory` and `userDirectory` are the values that the host gives
 its local layers.
 
-The root of a git layer also holds the agents of the marketplace, in one
-flat folder: `agents/<file name>.md`, one `.md` file for each agent, and the
-file name is the agent name. `MarketplaceLayer.agentsDirectoryName` names
-the folder. A catalog plugin gives the files of its `agents` list, which are
-paths relative to the plugin source; an entry that is not an `.md` file gets
-a diagnostic and is skipped. A plugin with no `agents` list gives each `.md`
-file directly in `<plugin source>/agents/`, and a tree with no catalog gives
-each `.md` file directly in `<root>/agents/`; a subfolder of `agents/` is not
-read. When two plugins give the same file name, the later plugin wins, with
-one diagnostic, as for skills. `SkillSelection.all` and `.plugins([...])`
-take the agents of the selected plugins; `.skills([...])` takes none. The
-agent files count toward the `SnapshotLimits` of the policy. The name
-`agents` is reserved at the layer root, thus a skill folder with that name
-gets a diagnostic and is not in the layer. This package copies each agent
-file by name and reads no agent frontmatter. A consumer reads
-`<layer root>/agents/*.md` from each layer of `marketplaceLayers()`, and
-reads them again on each `layerUpdates` value; an agent body can include a
-partial of the partials folder of the same layer.
+A marketplace is only a folder. The store reads no catalog file
+(`.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`
+have no effect). It scans the tree from the root, with no depth limit, and
+skips the folders that the layout excludes (`.git` and `node_modules` by
+default):
+
+- A folder that holds the document of the layout (`SKILL.md`) is a skill.
+  The folder name is the skill name.
+- A folder that holds `AGENT.md` (`MarketplaceLayer.agentDocumentName`) is
+  an agent. The folder name is the agent name.
+- The scan does not read into a skill folder or an agent folder: the other
+  files of the folder are its resources.
+- A folder that holds both `SKILL.md` and `AGENT.md` gets one diagnostic and
+  is neither.
+- When two skills, or two agents, have the same name, the shallower one
+  wins; at the same depth, the first in path order wins. Each one that loses
+  gets one diagnostic.
+- An `.md` file directly in a folder named `agents`, for example
+  `agents/reviewer.md`, is an agent file of the old layout. It gets one
+  diagnostic that tells you to move it to `agents/reviewer/AGENT.md`, and it
+  is not an agent.
+
+Thus a tree in the plugin layout, `plugins/<name>/skills/<skill>/SKILL.md`
+and `plugins/<name>/agents/<agent>/AGENT.md`, loads with no other file.
+`SkillSelection.all` takes every skill and every agent;
+`SkillSelection.skills([...])` takes the named skills and no agent.
+
+The root of a git layer holds each agent as a folder:
+`agents/<name>/AGENT.md`, with the resources of the agent beside it.
+`MarketplaceLayer.agentsDirectoryName` names the `agents` folder. The writer
+copies each agent folder as a tree, with the same `SnapshotLimits` and the
+same link rules as a skill folder. The name `agents` is reserved at the
+layer root, thus a skill folder with that name gets a diagnostic and is not
+in the layer. This package reads no agent frontmatter. A consumer reads
+`<layer root>/agents/<name>/AGENT.md` from each layer of
+`marketplaceLayers()`, and reads them again on each `layerUpdates` value; an
+agent body can include a partial of the partials folder of the same layer.
 
 The snapshot is flat: a skill is at `<snapshot>/<skill>/`, and the folders
-between a plugin source and a skill, for example `skills/` and
+between the root of the tree and a skill, for example `skills/` and
 `skills/group/`, are not in it. Thus the partials of those folders merge into
-`<snapshot>/_partials/`. For each selected skill, the snapshot takes each
-folder from the plugin source (for a tree with no catalog, the root) down to
-the folder that holds the skill. It copies the `_partials/` of each of these
-folders one time, from the least specific (the fewest path components) to
-the most specific. For a skill at `skills/group/review/`, the order is:
+`<snapshot>/_partials/`. For each selected skill and each agent, the snapshot
+takes each folder from the root of the tree down to the folder that holds the
+entry. It copies the `_partials/` of each of these folders one time, from the
+least specific (the fewest path components) to the most specific. For a skill
+at `skills/group/review/`, the order is:
 
 ```
-_partials/                 the plugin source
+_partials/                 the root of the tree
 skills/_partials/          less specific
 skills/group/_partials/    the most specific: it wins
 ```
 
-The `<plugin source>/_partials/` of a plugin that gives only agents is
-copied too. A copy from a more specific folder replaces a copy of the same
-name from a less specific folder, with no diagnostic, whatever the catalog
-order. Two folders at the same level that give a partial of the same name,
-for example `skills/group-a/_partials/x.md` and
-`skills/group-b/_partials/x.md`, or the source roots of two plugins: the
-later one in catalog order wins, with one diagnostic. A `_partials/` folder
+A copy from a more specific folder replaces a copy of the same name from a
+less specific folder, with no diagnostic. Two folders at the same level that
+give a partial of the same name, for example `skills/group-a/_partials/x.md`
+and `skills/group-b/_partials/x.md`, or `plugins/a/_partials/x.md` and
+`plugins/b/_partials/x.md`: the later one in path order wins, with one
+diagnostic. A `_partials/` folder
 inside a skill folder goes with the skill folder, and the include walk finds
 it at `<snapshot>/<skill>/_partials/`, where it wins for that skill. A known
 limit of the flat snapshot: each skill and each agent sees the merged

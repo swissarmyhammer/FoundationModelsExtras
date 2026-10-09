@@ -34,7 +34,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
 
   /// The folder of a local marketplace that holds its skill folders, for a
   /// source that names no `path`. It is the
-  /// repository convention of the catalog format.
+  /// repository convention of a skills marketplace.
   ///
   /// ``Preparation`` reads it, thus it is `fileprivate` and not `private`.
   fileprivate static let localSkillsFolderName = "skills"
@@ -201,8 +201,8 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// - Parameters:
   ///   - sources: The marketplaces, in list order. A later source wins over
   ///     an earlier one in the consumer.
-  ///   - layout: The shape of a marketplace tree, which the catalog
-  ///     resolver and the snapshot writer read.
+  ///   - layout: The shape of a marketplace tree, which the scan and the
+  ///     snapshot writer read.
   ///   - cacheDirectory: The cache directory. The default is
   ///     ``cacheDirectory(environment:)`` of the process environment.
   ///   - policy: What the host lets the store do. The default is
@@ -1013,28 +1013,23 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ) async throws -> PassResult {
     let source = prepared[index].source
     let fetched = try await fetch(remote: remote, revision: pin ?? remote.ref ?? Self.defaultRef)
-    let catalog = try materialize(remote: remote, source: source, commit: fetched)
-    let installedID = catalog.resolved.name ?? prepared[index].key
+    let snapshot = try materialize(remote: remote, source: source, commit: fetched)
+    // The scan reads no catalog file, thus the display id of a new snapshot
+    // is the pre-fetch key, and the snapshot has no catalog version.
+    let installedID = prepared[index].key
     // A cold start has no session to keep stable, thus `.nextLaunch`
     // holds back only an update of a marketplace that the store serves.
     let deferred = policy.applyUpdates == .nextLaunch && previous != nil
     if deferred {
       try remote.cache.stageUnderWriterLock(
-        snapshotAt: catalog.staged, sha: fetched, keeping: [previous].compactMap { $0 })
+        snapshotAt: snapshot.staged, sha: fetched, keeping: [previous].compactMap { $0 })
     } else {
       try remote.cache.installUnderWriterLock(
-        snapshotAt: catalog.staged, sha: fetched, ref: pin == nil ? remote.ref : nil)
-      serve(
-        atIndex: index, cache: remote.cache, sha: fetched, displayID: installedID,
-        catalogVersion: catalog.resolved.version)
+        snapshotAt: snapshot.staged, sha: fetched, ref: pin == nil ? remote.ref : nil)
+      serve(atIndex: index, cache: remote.cache, sha: fetched, displayID: installedID, catalogVersion: nil)
     }
-    record(
-      diagnostics: catalog.diagnostics
-        + (deferred ? [] : duplicateDisplayIDDiagnostics(installedID, atIndex: index)),
-      atIndex: index)
-    try recordInstall(
-      remote: remote, ofIndex: index, sha: fetched, catalog: catalog.resolved,
-      displayID: installedID, pending: deferred)
+    record(diagnostics: snapshot.diagnostics, atIndex: index)
+    try recordInstall(remote: remote, ofIndex: index, sha: fetched, displayID: installedID, pending: deferred)
     return published(
       atIndex: index, installedID: installedID, previous: previous, installed: fetched,
       head: head, deferred: deferred)
@@ -1133,21 +1128,18 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     /// The staged snapshot folder, which the install then moves.
     let staged: URL
 
-    /// The selected skills of the commit.
-    let resolved: ResolvedCatalog
-
-    /// The findings of the resolve and of the write.
+    /// The findings of the scan and of the write.
     let diagnostics: [MarketplaceDiagnostic]
   }
 
-  /// Reads the catalog of one fetched commit and writes the selected skills
-  /// into a staged folder.
+  /// Scans the tree of one fetched commit and writes the selected skills and
+  /// the agents into a staged folder.
   ///
   /// - Parameters:
   ///   - remote: The remote of the marketplace.
   ///   - source: The source, as the host wrote it.
   ///   - commit: The fetched commit.
-  /// - Returns: The staged folder, the selected skills, and the findings.
+  /// - Returns: The staged folder and the findings.
   /// - Throws: ``SnapshotError``, ``CatalogFileSourceError``, or the error
   ///   of a read or of a write.
   private func materialize(remote: GitRemote, source: MarketplaceSource, commit: String) throws -> Materialized {
@@ -1160,8 +1152,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     try? FileManager.default.removeItem(at: staged)
     let report = try SnapshotWriter.write(
       catalog: resolved, from: files, to: staged, layout: layout, limits: policy.snapshotLimits)
-    return Materialized(
-      staged: staged, resolved: resolved, diagnostics: resolved.diagnostics + report.diagnostics)
+    return Materialized(staged: staged, diagnostics: resolved.diagnostics + report.diagnostics)
   }
 
   /// Records a failed sync, and keeps the snapshot that `current` names.
@@ -1228,9 +1219,9 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   - index: The marketplace.
   ///   - cache: The cache folder of the marketplace.
   ///   - sha: The commit of the new snapshot.
-  ///   - displayID: The display id: the catalog `name`, else the pre-fetch
-  ///     key.
-  ///   - catalogVersion: The `version` field of the catalog, or `nil`.
+  ///   - displayID: The display id of the snapshot.
+  ///   - catalogVersion: The catalog version that the state file holds for
+  ///     the snapshot, or `nil`.
   private func serve(
     atIndex index: Int, cache: MarketplaceCache, sha: String, displayID: String, catalogVersion: String?
   ) {
@@ -1249,8 +1240,8 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// The display id of one marketplace.
   ///
   /// - Parameter index: The marketplace.
-  /// - Returns: The catalog `name` of the snapshot it serves, else the
-  ///   pre-fetch key.
+  /// - Returns: The display id of the snapshot it serves: the pre-fetch key,
+  ///   or an id that an earlier version wrote into the state file.
   private func displayID(atIndex index: Int) -> String {
     served.withLock { $0[index].layer.provenance.id }
   }
@@ -1321,33 +1312,6 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     sourceDiagnostics.withLock { $0[index] = diagnostics }
   }
 
-  /// Makes the finding for a display id that more than one marketplace uses.
-  ///
-  /// Each source keeps its own layer and its own cache folder. Only the name
-  /// that a row shows is the same, thus the finding is a warning.
-  ///
-  /// - Parameters:
-  ///   - displayID: The display id that the marketplace now has.
-  ///   - index: The marketplace that just synced.
-  /// - Returns: One warning, or no finding when the id is unique.
-  private func duplicateDisplayIDDiagnostics(_ displayID: String, atIndex index: Int) -> [MarketplaceDiagnostic] {
-    let others = served.withLock { layers in
-      layers.indices.filter { $0 != index && layers[$0].layer.provenance.id == displayID }
-    }
-    guard !others.isEmpty else {
-      return []
-    }
-    let urls = others.map { #""\#(prepared[$0].source.url)""# }.joined(separator: ", ")
-    return [
-      MarketplaceDiagnostic(
-        severity: .warning, marketplaceID: displayID,
-        message: #"""
-          More than one source gives the display id "\#(displayID)": this source and \#(urls). \
-          Each source keeps its own layer. Set a different alias to tell them apart.
-          """#)
-    ]
-  }
-
   // MARK: - The state file
 
   /// Writes what one install learned into `state.json`.
@@ -1359,13 +1323,11 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   - remote: The remote of the marketplace.
   ///   - index: The marketplace.
   ///   - sha: The commit of the new snapshot.
-  ///   - catalog: The catalog of that commit.
   ///   - displayID: The display id of the marketplace.
   ///   - pending: Whether the snapshot waits for the next ``start()``.
   /// - Throws: The error of the file read or of the file write.
   private func recordInstall(
-    remote: GitRemote, ofIndex index: Int, sha: String, catalog: ResolvedCatalog,
-    displayID: String, pending: Bool
+    remote: GitRemote, ofIndex index: Int, sha: String, displayID: String, pending: Bool
   ) throws {
     let now = Date()
     try updateRecord(forFolder: remote.cache.folderName, ofSource: prepared[index].source) {
@@ -1376,13 +1338,12 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
       guard pending else {
         record.pending = nil
         record.currentSha = sha
-        record.catalogVersion = catalog.version
+        record.catalogVersion = nil
         record.displayID = displayID
         record.lastUpdated = now
         return
       }
-      record.pending = MarketplacePendingSnapshot(
-        sha: sha, catalogVersion: catalog.version, displayID: displayID)
+      record.pending = MarketplacePendingSnapshot(sha: sha, catalogVersion: nil, displayID: displayID)
     }
   }
 
@@ -1509,7 +1470,7 @@ fileprivate struct Preparation {
         MarketplaceDiagnostic(
           severity: .warning, marketplaceID: key,
           message:
-            #"The source "\#(source.url)" names a folder on this computer, thus the store reads that folder as it is. A "select" field needs a catalog of a fetched commit, thus the store ignores it here."#
+            #"The source "\#(source.url)" names a folder on this computer, thus the store reads that folder as it is. A "select" field needs a snapshot of a fetched commit, thus the store ignores it here."#
         ))
     }
     sources.append(

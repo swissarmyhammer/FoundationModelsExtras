@@ -8,8 +8,12 @@ import FoundationModelsExtras
 /// credential: ``MarketplaceCredential`` is a separate value that the
 /// transport asks for, and it never becomes part of a URL here.
 public struct MarketplaceProvenance: Sendable, Equatable {
-  /// The display id of the marketplace: the `name` field of the catalog
-  /// after a fetch, else the pre-fetch key.
+  /// The display id of the marketplace: the pre-fetch key, which is the
+  /// alias of the source, else the repository name.
+  ///
+  /// A state file that an earlier version of this package wrote can hold
+  /// the `name` field of a catalog file. That id stays until the next
+  /// install of the marketplace.
   public var id: String
 
   /// The `url` field of the source, as the host wrote it.
@@ -19,8 +23,11 @@ public struct MarketplaceProvenance: Sendable, Equatable {
   /// before the first install.
   public var sha: String?
 
-  /// The `version` field of the catalog of that snapshot, or `nil` when
-  /// the catalog has none.
+  /// The `version` field of the catalog file of that snapshot, or `nil`.
+  ///
+  /// The scan of a marketplace reads no catalog file, thus an install of
+  /// this version gives `nil`. A state file that an earlier version wrote
+  /// can hold a value until the next install.
   public var catalogVersion: String?
 
   /// Creates a provenance by directly assigning every field.
@@ -70,10 +77,11 @@ public struct MarketplaceProvenance: Sendable, Equatable {
 /// same across an update; only the provenance changes.
 public struct MarketplaceLayer: Sendable {
   /// The name of the folder at the root of a layer that holds the agent
-  /// files: `<layer root>/agents/<file name>.md`.
+  /// folders: `<layer root>/agents/<name>/AGENT.md`.
   ///
-  /// The folder is flat. It holds one `.md` file for each agent, and the
-  /// file name is the agent name. A consumer reads the `.md` files of this
+  /// The folder holds one folder for each agent. The folder name is the
+  /// agent name, and the folder holds ``agentDocumentName`` and the
+  /// resources of the agent. A consumer reads the agent folders of this
   /// folder from each layer of ``MarketplaceLayerProviding/marketplaceLayers()``,
   /// and reads them again on each value of
   /// ``MarketplaceLayerProviding/layerUpdates``, as it does for the skills.
@@ -82,9 +90,17 @@ public struct MarketplaceLayer: Sendable {
   ///
   /// The name is reserved at the layer root: a skill folder with this name
   /// gets a ``MarketplaceDiagnostic``, and the snapshot does not hold it.
-  /// This package copies the agent files by name only. It reads no agent
-  /// frontmatter.
+  /// This package finds an agent folder by its document only. It reads no
+  /// agent frontmatter.
   public static let agentsDirectoryName = "agents"
+
+  /// The name of the document that marks an agent folder: `AGENT.md`.
+  ///
+  /// The scan of a marketplace tree finds each folder that holds a regular
+  /// file with this name. That folder is one agent, and the scan does not
+  /// read into it. The document holds the YAML frontmatter and the body of
+  /// the agent. The match is exact: `agent.md` does not mark an agent.
+  public static let agentDocumentName = "AGENT.md"
 
   /// The layer itself. Its source is ``FoundationModelsExtras/DotfolderStack/Source/marketplace``,
   /// thus it never renders trusted.

@@ -5,8 +5,8 @@ import Foundation
 ///
 /// Before a fetch, the store knows only the source. Thus validation and the
 /// cache folder name use the **pre-fetch key**: the alias, else the last path
-/// component of the repository without `.git`. After a fetch, the catalog
-/// `name` becomes the display id. The store records that.
+/// component of the repository without `.git`. The pre-fetch key is also the
+/// display id of a fetched snapshot. The store records that.
 internal enum MarketplaceIdentity {
   /// The number of hex digits of the URL hash in a cache folder name.
   static let cacheHashPrefixLength = 8

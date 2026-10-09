@@ -19,7 +19,7 @@ internal enum CatalogPath {
   /// The text that shows the root folder in a diagnostic.
   private static let rootDisplay = "."
 
-  /// Normalizes a relative path from a catalog.
+  /// Normalizes a relative path of the tree.
   ///
   /// - Parameter path: The path, for example `./skills/tdd`.
   /// - Returns: The path with no `.` component and no empty component, or
@@ -30,17 +30,6 @@ internal enum CatalogPath {
       return nil
     }
     return path.split(separator: separator).filter { $0 != currentFolder }.joined(separator: String(separator))
-  }
-
-  /// Resolves a relative path from a catalog against a folder of the tree.
-  ///
-  /// - Parameters:
-  ///   - relativePath: The path, as the catalog writes it.
-  ///   - folder: The normalized folder that the path is relative to.
-  /// - Returns: The normalized path in the tree, or `nil` when
-  ///   ``normalized(path:)`` refuses `relativePath`.
-  static func resolved(relativePath: String, inFolder folder: String) -> String? {
-    normalized(path: relativePath).map { $0.isEmpty ? folder : child(named: $0, of: folder) }
   }
 
   /// Adds one or more components to a folder path.

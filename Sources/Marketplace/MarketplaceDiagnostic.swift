@@ -1,4 +1,4 @@
-/// One finding about a marketplace source, its catalog, or its sync.
+/// One finding about a marketplace source, its tree, or its sync.
 ///
 /// A diagnostic does not stop the other marketplaces. The ``severity`` tells
 /// what the store did about the finding.
@@ -11,7 +11,7 @@ public struct MarketplaceDiagnostic: Sendable, Hashable {
     case advisory
 
     /// The store does not use a part of a marketplace, for example a
-    /// selected name that is not in the catalog.
+    /// selected name that is not in the marketplace.
     case warning
 
     /// The store does not use a marketplace or the source list, for

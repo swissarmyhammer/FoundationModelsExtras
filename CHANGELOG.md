@@ -5,6 +5,51 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): a marketplace is a folder scan, and an agent is a folder (`agents/<name>/AGENT.md`)
+
+A marketplace is only a folder. The `Marketplace` product finds the skills
+and the agents of a tree by a scan, and it reads no catalog file.
+
+**What changed.**
+
+- The store reads no `.claude-plugin/marketplace.json` and no
+  `.agents/plugins/marketplace.json`. A catalog file in a tree has no
+  effect: its plugins, its `skills` and `agents` lists, its `renames` and
+  its remote plugin sources are not read.
+- The scan has no depth limit. Before, a scan stopped at three path
+  components. Now `plugins/<name>/skills/<skill>/SKILL.md` loads.
+- A folder that holds the document of the layout (`SKILL.md`) is a skill,
+  and a folder that holds `AGENT.md` is an agent. The folder name is the
+  name. The scan does not read into a skill folder or an agent folder.
+- `MarketplaceLayer.agentDocumentName` is new: `AGENT.md`.
+- An agent is a folder. The snapshot holds `agents/<name>/AGENT.md` and the
+  other files of the agent folder, copied as a tree with the same limits and
+  link rules as a skill folder. Before, the snapshot held
+  `agents/<file name>.md`.
+- An `.md` file directly in a folder named `agents` (the old layout) does
+  not load. It gives one diagnostic that tells where to move it.
+- A folder that holds both `SKILL.md` and `AGENT.md` gives one diagnostic,
+  and it is neither a skill nor an agent.
+- When two skills, or two agents, have the same name, the shallower one
+  wins; at the same depth, the first in path order wins. Each one that loses
+  gives one diagnostic. Before, the later plugin of a catalog won.
+- `SkillSelection.plugins(_:)` is removed. A `select` value of the form
+  `plugins: [...]` does not decode. `SkillSelection.all` takes every skill
+  and every agent; `SkillSelection.skills(_:)` takes no agent.
+- The partials of a snapshot come from each folder from the root of the tree
+  down to each selected skill and each agent. At the same level, the later
+  folder in path order wins.
+- The display id of a fetched marketplace is the pre-fetch key (the alias,
+  else the repository name), and `catalogVersion` of a new install is `nil`.
+  The store no longer gives the diagnostic for two sources with the same
+  catalog `name`.
+
+**Migration.** Move each agent file `agents/<id>.md` to
+`agents/<id>/AGENT.md`. Remove the catalog files, or keep them for other
+tools; this package ignores them. Replace `select: { plugins: [...] }` with
+`select: { skills: [...] }`, or with `all`. A tree that needs a skill from a
+deep folder needs no change.
+
 ### Added: `ToolContext.emit(chunk:)` and `ToolContext.update(title:kind:locations:)`
 
 A tool can now send its display output and its metadata with one short call.

@@ -27,7 +27,7 @@ let package = Package(
         .library(name: "Operations", targets: ["Operations"]),
         .library(name: "OperationsCLI", targets: ["OperationsCLI"]),
         // The marketplace library: Extras owns all
-        // marketplace file reading, thus the git transport, the catalog read,
+        // marketplace file reading, thus the git transport, the folder scan,
         // the cache, the snapshot write and the config load live here.
         // libgit2 is a real package dependency, so it lands on this separate
         // target and not on the core target, the same way `Operations`
@@ -377,8 +377,8 @@ let package = Package(
                 "MarketplaceFixtures",
             ],
             resources: [
-                // `MarketplaceCatalogTests` and `GitTreeFileSourceTests` read
-                // the fixture catalogs from the disk through
+                // `MarketplaceScanTests` and `GitTreeFileSourceTests` read
+                // the fixture marketplaces from the disk through
                 // `FixtureFile.url`. The resource declaration only stops the
                 // SwiftPM "unhandled files" warning for the fixture tree that
                 // is not `.swift`, as `FoundationModelsExtrasTests` does for

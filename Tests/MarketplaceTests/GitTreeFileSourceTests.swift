@@ -10,15 +10,14 @@ import libgit2
 ///
 /// The source reads the tree and blob objects of a commit. There is no
 /// checkout, no network, and no `git` binary. The parity tests commit each
-/// fixture catalog of `Tests/MarketplaceTests/Fixtures/catalogs/` and prove
-/// that the resolver gives the same result over the tree as over the folder.
+/// fixture marketplace of `Tests/MarketplaceTests/Fixtures/marketplaces/` and
+/// prove that the scan gives the same result over the tree as over the folder.
 @Suite("Git tree file source")
 struct GitTreeFileSourceTests {
-  /// The catalog fixtures that the parity tests read.
-  private static let catalogFixtures = [
-    "anthropics-skills", "claude-and-codex", "claude-plugins-official", "codex-catalog", "duplicate-skills",
-    "nameless-root", "remote-plugins", "renamed-skills", "repository-scan", "single-skill-repository",
-    "swissarmyhammer-skills",
+  /// The fixture marketplaces that the parity tests read.
+  private static let marketplaceFixtures = [
+    "agent-library", "anthropics-skills", "claude-plugins-official", "duplicate-skills", "nameless-root",
+    "repository-scan", "single-skill-repository", "swissarmyhammer-agents", "swissarmyhammer-skills",
   ]
 
   /// The subfolder that the root-path tests put a tree in.
@@ -169,9 +168,9 @@ struct GitTreeFileSourceTests {
 
   // MARK: - Parity with a folder on the disk
 
-  @Test(arguments: catalogFixtures)
+  @Test(arguments: marketplaceFixtures)
   func theResolverGivesTheSameResultAsOverAFolder(fixture name: String) throws {
-    let folder = MarketplaceTestSupport.catalogFixture(named: name)
+    let folder = MarketplaceTestSupport.marketplaceFixture(named: name)
     let fixture = try GitFixtureRepository()
     let commit = try fixture.commit(files: try Self.textFiles(inFolder: folder).mapValues { .file($0) })
 
@@ -184,9 +183,9 @@ struct GitTreeFileSourceTests {
     #expect(fromTree == fromFolder)
   }
 
-  @Test(arguments: catalogFixtures)
+  @Test(arguments: marketplaceFixtures)
   func theResolverUnderARootPathGivesTheSameResultAsOverAFolder(fixture name: String) throws {
-    let folder = MarketplaceTestSupport.catalogFixture(named: name)
+    let folder = MarketplaceTestSupport.marketplaceFixture(named: name)
     let files = try Self.textFiles(inFolder: folder)
     let fixture = try GitFixtureRepository()
     let commit = try fixture.commit(

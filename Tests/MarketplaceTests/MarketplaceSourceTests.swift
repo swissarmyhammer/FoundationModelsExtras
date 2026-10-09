@@ -239,7 +239,7 @@ struct MarketplaceSourceTests {
     #expect(try roundTrip(source) == source)
   }
 
-  @Test(arguments: [SkillSelection.all, .plugins(["sah", "extras"]), .skills(["plan"])])
+  @Test(arguments: [SkillSelection.all, .skills(["plan"])])
   func eachSkillSelectionSurvivesACodableRoundTrip(selection: SkillSelection) throws {
     #expect(try roundTrip(selection) == selection)
   }
@@ -252,14 +252,15 @@ struct MarketplaceSourceTests {
 
   @Test(arguments: [
     (#""all""#, SkillSelection.all),
-    (#"{"plugins": ["sah"]}"#, .plugins(["sah"])),
     (#"{"skills": ["plan", "review"]}"#, .skills(["plan", "review"])),
   ])
   func aSkillSelectionDecodesFromItsConfigurationForm(json: String, expected: SkillSelection) throws {
     #expect(try decode(SkillSelection.self, from: json) == expected)
   }
 
-  @Test(arguments: [#""some""#, #"{"teams": ["a"]}"#, #"{"plugins": ["a"], "skills": ["b"]}"#])
+  @Test(arguments: [
+    #""some""#, #"{"teams": ["a"]}"#, #"{"plugins": ["a"]}"#, #"{"plugins": ["a"], "skills": ["b"]}"#,
+  ])
   func anUnknownSkillSelectionDoesNotDecode(json: String) {
     #expect(throws: DecodingError.self) {
       try decode(SkillSelection.self, from: json)

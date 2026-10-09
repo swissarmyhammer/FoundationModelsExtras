@@ -5,12 +5,12 @@ import Testing
 @testable import Marketplace
 
 /// Proves the snapshot writer, which builds a snapshot after the fetch: one
-/// flat folder that holds `<entry>/` for each selected entry and the partials
-/// folder that the layout names, the execute bit, the validation rules, and
-/// the diagnostics.
+/// flat folder that holds `<entry>/` for each selected skill,
+/// `agents/<name>/` for each agent, and the partials folder that the layout
+/// names, the execute bit, the validation rules, and the diagnostics.
 ///
 /// Each test writes into its own temporary folder, so no test reads the files
-/// of another test. The happy path reads a fixture catalog through
+/// of another test. The happy path scans a fixture marketplace through
 /// ``LocalCatalogFileSource``. The rejection tests read an in-memory source,
 /// because a folder on the disk cannot hold a submodule entry and a test
 /// should not need a name that the file system itself refuses.
@@ -18,7 +18,8 @@ import Testing
 struct SnapshotWriterTests {
   // MARK: - Fixture
 
-  /// The fixture catalog of the happy path: three skills and one partial.
+  /// The fixture marketplace of the happy path: three skills and one
+  /// partial.
   private static let fixtureName = "swissarmyhammer-skills"
 
   /// The entry folders of a full snapshot of ``fixtureName``, in name
@@ -31,7 +32,7 @@ struct SnapshotWriterTests {
   private static let fixtureFileCount = 5
 
   /// The tree path of the first file that a full snapshot of
-  /// ``fixtureName`` copies. The catalog lists `code-context` first.
+  /// ``fixtureName`` copies. The scan gives `code-context` first.
   private static let fixtureFirstFilePath = "skills/code-context/SKILL.md"
 
   /// The tree path of the second file that a full snapshot of
@@ -48,12 +49,15 @@ struct SnapshotWriterTests {
   /// The permissions that an executable file of a snapshot has.
   private static let executablePermissions = 0o755
 
-  /// The layout of the tests: `SKILL.md` marks an entry, and the partials
+  /// The layout of the tests: `SKILL.md` marks a skill, and the partials
   /// folder has the default name.
   private static let layout = MarketplaceTestSupport.skillsLayout
 
   /// The partials folder name of ``layout``.
   private static let partialsName = layout.partialsDirectoryName
+
+  /// The name of the agent document.
+  private static let agentDocumentName = MarketplaceLayer.agentDocumentName
 
   /// A temporary folder, and the snapshot folder that the writer makes
   /// inside it.
@@ -134,25 +138,38 @@ struct SnapshotWriterTests {
     }
   }
 
-  /// Makes a source and a catalog of one skill folder that holds the given
-  /// items, for the rejection tests.
+  /// The kind of the one entry of an in-memory tree.
+  private enum MemoryEntryKind {
+    /// The folder is a skill.
+    case skill
+
+    /// The folder is an agent.
+    case agent
+  }
+
+  /// Makes a source and the scan result of one entry folder that holds the
+  /// given items, for the rejection tests.
   ///
   /// - Parameters:
-  ///   - entries: The items of the skill folder.
-  ///   - files: The text of each file of the skill folder, keyed by its
+  ///   - entries: The items of the entry folder.
+  ///   - files: The text of each file of the entry folder, keyed by its
   ///     name. The default is no file.
-  /// - Returns: The source and the catalog that names the one skill.
-  private static func oneSkill(
-    holding entries: [CatalogTreeEntry], files: [String: String] = [:]
+  ///   - kind: Whether the folder is a skill or an agent. The default is a
+  ///     skill.
+  /// - Returns: The source and the scan result that names the one entry.
+  private static func oneEntry(
+    holding entries: [CatalogTreeEntry], files: [String: String] = [:], kind: MemoryEntryKind = .skill
   ) -> (source: MemoryCatalogFileSource, catalog: ResolvedCatalog) {
     let folder = "tool"
     let source = MemoryCatalogFileSource(
       files: Dictionary(uniqueKeysWithValues: files.map { ("\(folder)/\($0.key)", $0.value) }),
       listings: [folder: entries])
-    let catalog = ResolvedCatalog(
-      name: "memory", version: nil,
-      skills: [ResolvedSkill(name: folder, path: folder, plugin: nil)],
-      renames: [:], diagnostics: [])
+    let entry = ResolvedEntry(name: folder, path: folder)
+    let catalog =
+      switch kind {
+      case .skill: ResolvedCatalog(skills: [entry], diagnostics: [])
+      case .agent: ResolvedCatalog(skills: [], agents: [entry], diagnostics: [])
+      }
     return (source, catalog)
   }
 
@@ -160,7 +177,7 @@ struct SnapshotWriterTests {
   /// generous limits.
   ///
   /// - Parameters:
-  ///   - tree: The source and the catalog of the tree.
+  ///   - tree: The source and the scan result of the tree.
   ///   - destination: The folder that the writer makes.
   /// - Returns: The report of the write.
   /// - Throws: The error of the write.
@@ -171,7 +188,7 @@ struct SnapshotWriterTests {
       catalog: tree.catalog, from: tree.source, to: destination.folder, layout: layout, limits: generousLimits)
   }
 
-  /// Resolves the catalog of a folder on the disk and writes its snapshot.
+  /// Scans a folder on the disk and writes its snapshot.
   ///
   /// - Parameters:
   ///   - root: The root folder of the tree.
@@ -191,7 +208,7 @@ struct SnapshotWriterTests {
       catalog: catalog, from: source, to: destination.folder, layout: layout, limits: limits)
   }
 
-  /// Writes a snapshot of one fixture catalog with the test layout.
+  /// Writes a snapshot of one fixture marketplace with the test layout.
   ///
   /// - Parameters:
   ///   - name: The folder name of the fixture.
@@ -205,7 +222,7 @@ struct SnapshotWriterTests {
     limits: SnapshotLimits = generousLimits
   ) throws -> SnapshotReport {
     try writeSnapshot(
-      ofFolder: MarketplaceTestSupport.catalogFixture(named: name), selection: selection, layout: layout,
+      ofFolder: MarketplaceTestSupport.marketplaceFixture(named: name), selection: selection, layout: layout,
       limits: limits, to: destination)
   }
 
@@ -228,7 +245,7 @@ struct SnapshotWriterTests {
 
   // MARK: - Happy path
 
-  @Test func aSnapshotOfAFixtureCatalogIsAFlatLayerRoot() throws {
+  @Test func aSnapshotOfAFixtureMarketplaceIsAFlatLayerRoot() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
@@ -284,7 +301,7 @@ struct SnapshotWriterTests {
     #expect(try destination.names(inFolder: "_shared") == ["note.md"])
   }
 
-  @Test func aDuplicatePartialNameGivesADiagnosticAndTheLaterFolderWins() throws {
+  @Test func aDuplicatePartialNameGivesADiagnosticAndTheLaterFolderInPathOrderWins() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
@@ -294,52 +311,38 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from second")
   }
 
-  /// A tree with two plugins, each with its own `_partials/shared.md`.
+  /// A tree with two plugin folders, each with its own
+  /// `skills/_partials/shared.md`.
   private static let twoPartialFolderTree: [String: String] = [
-    ".claude-plugin/marketplace.json": """
-      {
-        "name": "two-plugins",
-        "plugins": [
-          { "name": "first", "source": "./first" },
-          { "name": "second", "source": "./second" }
-        ]
-      }
-      """,
     "first/skills/alpha/SKILL.md": skillFile(named: "alpha"),
     "first/skills/_partials/shared.md": "from first",
     "second/skills/beta/SKILL.md": skillFile(named: "beta"),
     "second/skills/_partials/shared.md": "from second",
   ]
 
-  // MARK: - The partials of the plugin source root
+  // MARK: - The partials of the folders above an entry
 
-  /// A catalog with one plugin whose source is the root of the tree.
-  private static let rootPluginCatalog = #"{"name": "n", "plugins": [{"name": "p", "source": "./"}]}"#
-
-  @Test func thePartialsOfThePluginSourceRootAreCopied() throws {
+  @Test func thePartialsOfAFolderAboveTheSkillsFolderAreCopied() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
     let report = try Self.writeTree(
       [
-        ".claude-plugin/marketplace.json":
-          #"{"name": "n", "plugins": [{"name": "tools", "source": "./tools"}]}"#,
         "tools/skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
-        "tools/_partials/note.md": "from the plugin root",
+        "tools/_partials/note.md": "from the plugin folder",
       ], layout: Self.layout, to: destination)
 
     #expect(report.diagnostics.isEmpty)
     #expect(try destination.names() == [Self.partialsName, "alpha"])
-    #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the plugin root")
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the plugin folder")
   }
 
-  @Test func theSkillsPartialsReplaceThePluginRootPartialsWithNoDiagnostic() throws {
+  @Test func theSkillsPartialsReplaceTheRootPartialsWithNoDiagnostic() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
     let report = try Self.writeTree(
       [
-        ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
         "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "_partials/root-only.md": "root only",
         "_partials/shared.md": "from the root",
@@ -353,14 +356,13 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from skills")
   }
 
-  @Test func anAgentOfAPluginGetsThePartialsOfThePluginSourceRoot() throws {
+  @Test func anAgentGetsThePartialsOfTheRoot() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
     let report = try Self.writeTree(
       [
-        ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
-        "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+        "agents/planner/AGENT.md": MarketplaceTestSupport.agentDocument(named: "planner"),
         "_partials/sah-x.md": "from the root",
       ], layout: Self.layout, to: destination)
 
@@ -369,7 +371,21 @@ struct SnapshotWriterTests {
     #expect(try destination.names(inFolder: Self.partialsName) == ["sah-x.md"])
   }
 
-  @Test func aTreeWithNoCatalogCopiesThePartialsOfTheRoot() throws {
+  @Test func anAgentGetsThePartialsOfItsPluginFolder() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(
+      [
+        "plugins/p/agents/planner/AGENT.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+        "plugins/p/_partials/house.md": "from the plugin folder",
+      ], layout: Self.layout, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.text(ofFile: "\(Self.partialsName)/house.md") == "from the plugin folder")
+  }
+
+  @Test func aTreeCopiesThePartialsOfTheRoot() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
@@ -383,7 +399,7 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the root")
   }
 
-  @Test func aSkillFolderAtTheRootOfATreeWithNoCatalogCopiesTheRootPartialsOneTime() throws {
+  @Test func aSkillFolderAtTheRootCopiesTheRootPartialsOneTime() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
@@ -397,7 +413,17 @@ struct SnapshotWriterTests {
     #expect(try destination.names(inFolder: Self.partialsName) == ["note.md"])
   }
 
-  @Test func twoPluginRootPartialsOfTheSameNameGiveOneDiagnosticAndTheLaterPluginWins() throws {
+  @Test func aTreeWithNoEntryCopiesNoPartials() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeTree(["_partials/note.md": "from the root"], layout: Self.layout, to: destination)
+
+    #expect(report.fileCount == 0)
+    #expect(!FileManager.default.fileExists(atPath: destination.folder.appendingPathComponent(Self.partialsName).path))
+  }
+
+  @Test func twoPluginFolderPartialsOfTheSameNameGiveOneDiagnosticAndTheLaterFolderWins() throws {
     let destination = try Destination()
     defer { destination.remove() }
     var tree = Self.twoPartialFolderTree
@@ -416,7 +442,6 @@ struct SnapshotWriterTests {
     let destination = try Destination()
     defer { destination.remove() }
     let root = try MarketplaceTestSupport.makeTempDirectory(withFiles: [
-      ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
       "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
       "_partials/target.md": "the target",
       "skills/_partials/shared.md": "from skills",
@@ -436,7 +461,6 @@ struct SnapshotWriterTests {
     let destination = try Destination()
     defer { destination.remove() }
     let root = try MarketplaceTestSupport.makeTempDirectory(withFiles: [
-      ".claude-plugin/marketplace.json": Self.rootPluginCatalog,
       "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
       "_partials/shared.md": "from the root",
       "skills/_partials/target.md": "the skills target",
@@ -467,16 +491,10 @@ struct SnapshotWriterTests {
 
   // MARK: - The partials of nested folders
 
-  /// A catalog with one plugin at the root of the tree that lists one skill
-  /// in a nested folder, `skills/group/review/`.
-  private static let nestedSkillCatalog =
-    #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/group/review"]}]}"#
-
   /// A tree with one skill at `skills/group/review/`. The root, `skills/`
   /// and `skills/group/` each hold one partial of their own, and one partial
   /// with the shared name `shared.md`.
   private static let nestedSkillTree: [String: String] = [
-    ".claude-plugin/marketplace.json": nestedSkillCatalog,
     "skills/group/review/SKILL.md": skillFile(named: "review"),
     "_partials/root-only.md": "root only",
     "_partials/shared.md": "from the root",
@@ -491,7 +509,7 @@ struct SnapshotWriterTests {
   /// partials for each of the three folders.
   private static let nestedSkillFileCount = 7
 
-  @Test func aNestedSkillGetsThePartialsOfEachFolderFromTheSourceRootDown() throws {
+  @Test func aNestedSkillGetsThePartialsOfEachFolderFromTheRootDown() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
@@ -513,14 +531,12 @@ struct SnapshotWriterTests {
     #expect(report.fileCount == Self.nestedSkillFileCount)
   }
 
-  @Test func theMostSpecificCopyWinsWhenTheCatalogListsTheLessSpecificFolderLast() throws {
+  @Test func theMostSpecificCopyWinsWhenAShallowerSkillIsBeside() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
     let report = try Self.writeTree(
       [
-        ".claude-plugin/marketplace.json":
-          #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/group/review", "./skills/top"]}]}"#,
         "skills/group/review/SKILL.md": Self.skillFile(named: "review"),
         "skills/top/SKILL.md": Self.skillFile(named: "top"),
         "skills/_partials/shared.md": "from skills",
@@ -537,8 +553,6 @@ struct SnapshotWriterTests {
 
     let report = try Self.writeTree(
       [
-        ".claude-plugin/marketplace.json":
-          #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/group-a/alpha", "./skills/group-b/beta"]}]}"#,
         "skills/group-a/alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "skills/group-b/beta/SKILL.md": Self.skillFile(named: "beta"),
         "skills/group-a/_partials/x.md": "from group-a",
@@ -569,24 +583,23 @@ struct SnapshotWriterTests {
   /// The agents folder of a layer root.
   private static let agentsName = MarketplaceLayer.agentsDirectoryName
 
-  /// The fixture of the `swissarmyhammer/skills` shape: one plugin at the
-  /// root, with `skills/`, `skills/_partials/` and `agents/` side by side.
+  /// The fixture of the `swissarmyhammer/skills` shape: `skills/`,
+  /// `skills/_partials/` and `agents/` side by side at the root.
   private static let agentsFixtureName = "swissarmyhammer-agents"
 
-  /// The agent files of ``agentsFixtureName``, in name order.
+  /// The agent folders of ``agentsFixtureName``, in name order.
   private static let agentsFixtureAgentNames = [
-    "committer.md", "double-check.md", "explorer.md", "general-purpose.md", "implementer.md", "planner.md",
-    "reviewer.md", "tester.md",
+    "committer", "double-check", "explorer", "general-purpose", "implementer", "planner", "reviewer", "tester",
   ]
 
   /// The number of files of a tree with one skill document and one agent
-  /// file.
+  /// document.
   private static let oneSkillFileAndOneAgentFile = 2
 
-  /// A tree with no catalog: one skill and one agent.
+  /// A tree with one skill and one agent.
   private static let oneSkillAndOneAgentTree: [String: String] = [
     "skills/alpha/SKILL.md": skillFile(named: "alpha"),
-    "agents/planner.md": MarketplaceTestSupport.agentDocument(named: "planner"),
+    "agents/planner/AGENT.md": MarketplaceTestSupport.agentDocument(named: "planner"),
   ]
 
   /// The pattern of a Stencil include tag. The one capture is the included
@@ -601,7 +614,7 @@ struct SnapshotWriterTests {
   /// The extension that an included partial path leaves out.
   private static let partialExtension = ".md"
 
-  @Test func theSnapshotHoldsAgentsSlashNameForTheAgentsOfEachPlugin() throws {
+  @Test func theSnapshotHoldsAgentsSlashNameForEachAgentFolder() throws {
     let destination = try Destination()
     defer { destination.remove() }
 
@@ -609,33 +622,46 @@ struct SnapshotWriterTests {
 
     #expect(report.diagnostics.isEmpty)
     #expect(try destination.names() == [Self.agentsName, "alpha", "beta"])
-    #expect(try destination.names(inFolder: Self.agentsName) == ["planner.md", "reviewer.md"])
+    #expect(try destination.names(inFolder: Self.agentsName) == ["planner", "reviewer"])
     #expect(
-      try destination.text(ofFile: "\(Self.agentsName)/reviewer.md")
+      try destination.text(ofFile: "\(Self.agentsName)/reviewer/\(Self.agentDocumentName)")
         == MarketplaceTestSupport.agentDocument(named: "reviewer"))
   }
 
-  @Test func theAgentFileOfTheLaterPluginIsInTheSnapshot() throws {
+  @Test func theAgentFolderThatWinsTheScanIsInTheSnapshot() throws {
     let destination = try Destination()
     defer { destination.remove() }
     var tree = MarketplaceTestSupport.twoPluginAgentTree
-    tree["first/agents/reviewer.md"] = "from first"
+    tree["first/agents/reviewer/AGENT.md"] = "from first"
 
     _ = try Self.writeTree(tree, layout: Self.layout, to: destination)
 
-    #expect(
-      try destination.text(ofFile: "\(Self.agentsName)/reviewer.md")
-        == MarketplaceTestSupport.agentDocument(named: "reviewer"))
+    #expect(try destination.text(ofFile: "\(Self.agentsName)/reviewer/\(Self.agentDocumentName)") == "from first")
   }
 
-  @Test func anAgentFileIsCopiedByteForByte() throws {
+  @Test func anAgentFolderIsCopiedAsATree() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    _ = try Self.writeTree(
+      [
+        "agents/lead/AGENT.md": MarketplaceTestSupport.agentDocument(named: "lead"),
+        "agents/lead/checklist.md": "a resource",
+        "agents/lead/data/table.txt": "a nested resource",
+      ], layout: Self.layout, to: destination)
+
+    #expect(try destination.names(inFolder: "\(Self.agentsName)/lead") == ["AGENT.md", "checklist.md", "data"])
+    #expect(try destination.text(ofFile: "\(Self.agentsName)/lead/data/table.txt") == "a nested resource")
+  }
+
+  @Test func anAgentDocumentIsCopiedByteForByte() throws {
     let destination = try Destination()
     defer { destination.remove() }
     let text = "---\nname: [\n---\n\nNo frontmatter that parses.\n"
 
-    _ = try Self.writeTree(["agents/broken.md": text], layout: Self.layout, to: destination)
+    _ = try Self.writeTree(["agents/broken/AGENT.md": text], layout: Self.layout, to: destination)
 
-    #expect(try destination.text(ofFile: "\(Self.agentsName)/broken.md") == text)
+    #expect(try destination.text(ofFile: "\(Self.agentsName)/broken/\(Self.agentDocumentName)") == text)
   }
 
   @Test func theReportCountsEachAgentFile() throws {
@@ -652,10 +678,22 @@ struct SnapshotWriterTests {
     defer { destination.remove() }
     let limits = SnapshotLimits(maxBytes: Self.generousLimits.maxBytes, maxFiles: Self.limitOfOne)
 
-    #expect(throws: SnapshotError.tooManyFiles(path: "agents/planner.md", limit: Self.limitOfOne)) {
+    #expect(throws: SnapshotError.tooManyFiles(path: "agents/planner/AGENT.md", limit: Self.limitOfOne)) {
       _ = try Self.writeSnapshot(
         ofFolder: try MarketplaceTestSupport.makeTempDirectory(withFiles: Self.oneSkillAndOneAgentTree),
         selection: .all, layout: Self.layout, limits: limits, to: destination)
+    }
+    #expect(!destination.folderExists)
+  }
+
+  @Test func aSymlinkThatLeavesAnAgentFolderIsRejectedAndNoFolderStays() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    let tree = Self.oneEntry(
+      holding: [CatalogTreeEntry(name: "link.md", kind: .symlink(target: "../outside.md"))], kind: .agent)
+
+    #expect(throws: SnapshotError.escapingSymlink(path: "tool/link.md", target: "../outside.md")) {
+      _ = try Self.write(tree, to: destination)
     }
     #expect(!destination.folderExists)
   }
@@ -666,8 +704,6 @@ struct SnapshotWriterTests {
 
     let report = try Self.writeTree(
       [
-        ".claude-plugin/marketplace.json":
-          #"{"name": "n", "plugins": [{"name": "p", "source": "./", "skills": ["./skills/agents", "./skills/alpha"]}]}"#,
         "skills/agents/SKILL.md": Self.skillFile(named: "agents"),
         "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
       ], layout: Self.layout, to: destination)
@@ -696,11 +732,25 @@ struct SnapshotWriterTests {
     defer { destination.remove() }
     _ = try Self.writeFixture(named: Self.agentsFixtureName, selection: .all, to: destination)
 
-    let text = try destination.text(ofFile: "\(Self.agentsName)/\(agent)")
+    let text = try destination.text(ofFile: "\(Self.agentsName)/\(agent)/\(Self.agentDocumentName)")
     let included = text.matches(of: Self.includePattern).map { String($0.output.1) + Self.partialExtension }
 
     #expect(!included.isEmpty)
     #expect(included.allSatisfy { FileManager.default.fileExists(atPath: destination.folder.appendingPathComponent($0).path) })
+  }
+
+  @Test func thePluginLayoutGivesEachAgentFolderItsResourcesAndThePluginPartials() throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let report = try Self.writeFixture(named: "agent-library", selection: .all, to: destination)
+
+    #expect(report.diagnostics.isEmpty)
+    #expect(try destination.names() == [Self.partialsName, Self.agentsName, "review"])
+    #expect(try destination.names(inFolder: Self.agentsName) == ["doc-writer", "security-reviewer"])
+    #expect(
+      try destination.names(inFolder: "\(Self.agentsName)/security-reviewer") == ["AGENT.md", "checklist.md"])
+    #expect(try destination.names(inFolder: Self.partialsName) == ["house-rules.md"])
   }
 
   // MARK: - The execute bit
@@ -708,7 +758,7 @@ struct SnapshotWriterTests {
   @Test func anExecutableFileKeepsModeSevenFiveFive() throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let tree = Self.oneSkill(
+    let tree = Self.oneEntry(
       holding: [
         CatalogTreeEntry(name: "SKILL.md", kind: .file(isExecutable: false)),
         CatalogTreeEntry(name: "run.sh", kind: .file(isExecutable: true)),
@@ -726,7 +776,7 @@ struct SnapshotWriterTests {
   @Test func aPlainFileDoesNotGetTheExecuteBit() throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let tree = Self.oneSkill(
+    let tree = Self.oneEntry(
       holding: [CatalogTreeEntry(name: "SKILL.md", kind: .file(isExecutable: false))],
       files: ["SKILL.md": Self.skillFile(named: "tool")])
 
@@ -742,7 +792,7 @@ struct SnapshotWriterTests {
   func anUnsafeEntryNameIsRejectedAndNoFolderStays(name: String) throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let tree = Self.oneSkill(holding: [CatalogTreeEntry(name: name, kind: .file(isExecutable: false))])
+    let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: name, kind: .file(isExecutable: false))])
 
     #expect(throws: SnapshotError.unsafeEntryName(directory: "tool", name: name)) {
       _ = try Self.write(tree, to: destination)
@@ -754,7 +804,7 @@ struct SnapshotWriterTests {
   func aSymlinkThatLeavesTheSkillFolderIsRejectedAndNoFolderStays(target: String) throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let tree = Self.oneSkill(holding: [CatalogTreeEntry(name: "link.md", kind: .symlink(target: target))])
+    let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: "link.md", kind: .symlink(target: target))])
 
     #expect(throws: SnapshotError.escapingSymlink(path: "tool/link.md", target: target)) {
       _ = try Self.write(tree, to: destination)
@@ -765,7 +815,7 @@ struct SnapshotWriterTests {
   @Test func aSymlinkThatStaysInTheSkillFolderIsCopied() throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let tree = Self.oneSkill(
+    let tree = Self.oneEntry(
       holding: [
         CatalogTreeEntry(name: "SKILL.md", kind: .file(isExecutable: false)),
         CatalogTreeEntry(name: "link.md", kind: .symlink(target: "SKILL.md")),
@@ -781,7 +831,7 @@ struct SnapshotWriterTests {
   @Test func aSubmoduleEntryIsRejectedAndNoFolderStays() throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let tree = Self.oneSkill(holding: [CatalogTreeEntry(name: "vendor", kind: .submodule)])
+    let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: "vendor", kind: .submodule)])
 
     #expect(throws: SnapshotError.submodule(path: "tool/vendor")) {
       _ = try Self.write(tree, to: destination)
@@ -823,7 +873,7 @@ struct SnapshotWriterTests {
     let destination = try Destination()
     defer { destination.remove() }
     let document = Self.skillFile(named: "tool")
-    let tree = Self.oneSkill(
+    let tree = Self.oneEntry(
       holding: [
         CatalogTreeEntry(name: "SKILL.md", kind: .file(isExecutable: false)),
         CatalogTreeEntry(name: "link.md", kind: .symlink(target: "SKILL.md")),
@@ -850,7 +900,7 @@ struct SnapshotWriterTests {
       size 12345
 
       """
-    let tree = Self.oneSkill(
+    let tree = Self.oneEntry(
       holding: [
         CatalogTreeEntry(name: "SKILL.md", kind: .file(isExecutable: false)),
         CatalogTreeEntry(name: "diagram.png", kind: .file(isExecutable: false)),
@@ -872,7 +922,7 @@ struct SnapshotWriterTests {
       .unsafeEntryName(directory: "", name: ".."),
       #"The folder "." holds the name "..", which cannot go into a snapshot path."#
     ),
-    (.escapingSymlink(path: "t/l", target: "../x"), #"The link "t/l" points to "../x", which is outside its skill folder."#),
+    (.escapingSymlink(path: "t/l", target: "../x"), #"The link "t/l" points to "../x", which is outside its entry folder."#),
     (.submodule(path: "t/vendor"), #"The entry "t/vendor" is a git submodule, which a snapshot cannot hold."#),
     (.tooManyFiles(path: "t/f", limit: limitOfOne), #"The snapshot reached the limit of \#(limitOfOne) files at "t/f"."#),
     (.tooManyBytes(path: "t/f", limit: limitOfOne), #"The snapshot reached the limit of \#(limitOfOne) bytes at "t/f"."#),

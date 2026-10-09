@@ -153,10 +153,26 @@ comments:
     - change: StagingSink now holds a RecordingSink for its display storage. It does not hold a copy. RecordingSink.post(display:) is now async. A direct sync call from another actor used the empty protocol-extension default.
     - next: review round 3.
   timestamp: 2026-10-09T15:55:08.899839+00:00
+- actor: claude-code
+  id: 01m4gpbqmxngkg3dkvcntpmrwh
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (5ca30c9): 0 findings, 7 validator runs, 0 failed. All prior Review Findings items are checked.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-09T16:01:26.685504+00:00
+- actor: claude-code
+  id: 01m4gpbz2pdzbg0xagxek288dg
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 913 passed, 0 failed
+    - commit: 5ca30c9
+    - review: clean — 0 findings
+  timestamp: 2026-10-09T16:01:34.294970+00:00
 depends_on:
 - 01M4GH3SXGTK24GQS301VHFTW2
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: e480
 title: Add emit(chunk:) and update(title:kind:locations:) on ToolContext
 ---
 ## Problem

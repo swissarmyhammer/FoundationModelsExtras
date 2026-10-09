@@ -210,7 +210,7 @@ struct MarketplaceConfigTests {
         sha: "0123456789abcdef0123456789abcdef01234567",
         path: "catalog",
         alias: "team",
-        select: .plugins(["sah"]),
+        select: .skills(["sah"]),
         autoUpdate: false),
       MarketplaceSource("file:///Users/me/skills", select: .skills(["plan", "review"])),
     ])

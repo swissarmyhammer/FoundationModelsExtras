@@ -15,8 +15,8 @@ import Foundation
 /// it: no field names a folder of the cache or a file in it. Thus a later
 /// change of the cache layout breaks no consumer.
 public struct MarketplaceListing: Sendable, Hashable {
-  /// The name of the marketplace: the `name` field of the catalog of the
-  /// snapshot it serves, else the pre-fetch key, else the alias.
+  /// The name of the marketplace: the display id that the state file holds
+  /// for the snapshot it serves, else the pre-fetch key, else the alias.
   ///
   /// It is the empty text when the source gives none of the three, which
   /// happens only for a source that has a bad URL and no alias. A caller

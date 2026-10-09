@@ -37,8 +37,8 @@ struct ReadmeSnippetTests {
   /// literal, because the block is the README text.
   private static let skillBody = "Read the diff first."
 
-  /// The path of the fixture skill in the repository: the `skills` folder
-  /// convention of a repository with no catalog.
+  /// The path of the fixture skill in the repository: a skill folder in the
+  /// `skills` folder, which the scan finds.
   private static let skillPath =
     "\(MarketplaceTestSupport.skillsFolderName)/\(skillID)/\(MarketplaceStoreFixture.skillsLayout.documentName)"
 

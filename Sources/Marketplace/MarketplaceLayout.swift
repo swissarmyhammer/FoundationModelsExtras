@@ -1,11 +1,12 @@
 /// The shape of a marketplace tree, as the host names it: the document that
-/// marks an entry folder, the folder names that a scan skips, and the folder
+/// marks a skill folder, the folder names that a scan skips, and the folder
 /// that holds the partials of an entry.
 ///
-/// This package does not know what an entry is. The host names its format,
-/// thus the catalog resolver finds the entries of any dotfolder family. The
-/// resolver reads ``documentName`` and ``excludedDirectoryNames``. The
-/// snapshot writer reads ``partialsDirectoryName``.
+/// This package does not know what a skill is. The host names its format,
+/// thus the scan finds the skills of any dotfolder family. The scan reads
+/// ``documentName`` and ``excludedDirectoryNames``. The snapshot writer reads
+/// ``partialsDirectoryName``. The document of an agent folder is fixed:
+/// ``MarketplaceLayer/agentDocumentName``.
 public struct MarketplaceLayout: Sendable, Hashable {
   /// The folder names that a scan skips when the host names none: the git
   /// folder and the npm folder.
@@ -15,9 +16,9 @@ public struct MarketplaceLayout: Sendable, Hashable {
   /// convention of the dotfolder stack.
   public static let defaultPartialsDirectoryName = "_partials"
 
-  /// The name of the document that marks an entry folder, for example
+  /// The name of the document that marks a skill folder, for example
   /// `SKILL.md`. A folder that holds a regular file with this name is one
-  /// entry. The name has no default: the host names its format.
+  /// skill. The name has no default: the host names its format.
   public var documentName: String
 
   /// The folder names that a scan never reads into.
@@ -29,7 +30,7 @@ public struct MarketplaceLayout: Sendable, Hashable {
   /// Creates a layout.
   ///
   /// - Parameters:
-  ///   - documentName: The name of the document that marks an entry folder.
+  ///   - documentName: The name of the document that marks a skill folder.
   ///   - excludedDirectoryNames: The folder names that a scan skips. The
   ///     default is ``defaultExcludedDirectoryNames``.
   ///   - partialsDirectoryName: The name of the partials folder. The default
