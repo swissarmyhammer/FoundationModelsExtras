@@ -21,6 +21,16 @@ struct MarketplaceStoreTests {
   /// The display id of a fixture marketplace, which is its repository name.
   private static let fixtureID = "fixture"
 
+  /// The catalog `name` that a state file of an earlier version holds.
+  private static let earlierDisplayID = "other-name"
+
+  /// The catalog `version` that a state file of an earlier version holds.
+  private static let earlierCatalogVersion = "9.9.9"
+
+  /// How many first characters of a commit the display text of a
+  /// provenance shows.
+  private static let shortShaLength = 7
+
   /// The name of the symlink that a layer root of a git marketplace ends in.
   private static let currentLinkName = "current"
 
@@ -62,7 +72,6 @@ struct MarketplaceStoreTests {
     #expect(layer.provenance.id == Self.fixtureID)
     #expect(layer.provenance.url == fixture.url)
     #expect(layer.provenance.sha == head)
-    #expect(layer.provenance.catalogVersion == nil)
   }
 
   @Test func aSecondStartWithNoRemoteChangeDoesNoFetch() async throws {
@@ -240,10 +249,11 @@ struct MarketplaceStoreTests {
     #expect(await transport.fetchCredentials == [Self.credential])
   }
 
-  @Test func aCatalogFileInTheTreeDoesNotChangeTheDisplayIDOrTheVersion() async throws {
+  @Test func aCatalogFileInTheTreeDoesNotChangeTheDisplayText() async throws {
     let fixture = try GitFixtureRepository()
-    let catalog = #"{"name": "other-name", "metadata": {"version": "9.9.9"}, "plugins": []}"#
-    try fixture.commit(
+    let catalog =
+      #"{"name": "\#(Self.earlierDisplayID)", "metadata": {"version": "\#(Self.earlierCatalogVersion)"}, "plugins": []}"#
+    let head = try fixture.commit(
       files: Self.skillTree(body: "alpha body").merging([".claude-plugin/marketplace.json": .file(catalog)]) {
         _, later in later
       })
@@ -252,12 +262,37 @@ struct MarketplaceStoreTests {
     await cache.store.start()
 
     let layer = try #require(cache.store.marketplaceLayers().first)
-    #expect(layer.provenance.id == Self.fixtureID)
-    #expect(layer.provenance.catalogVersion == nil)
+    #expect(layer.provenance.displayText == Self.displayText(ofCommit: head))
     #expect(try Self.skillBody(ofFirstLayer: cache.store).contains("alpha body"))
   }
 
+  @Test func theCatalogKeysOfAnEarlierStateFileDoNotNameTheLayer() async throws {
+    let fixture = try GitFixtureRepository()
+    let head = try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let source = MarketplaceSource(fixture.url)
+    let first = try MarketplaceStoreFixture(sources: [source])
+    await first.store.start()
+    try MarketplaceTestSupport.addEarlierCatalogKeys(
+      displayID: Self.earlierDisplayID, catalogVersion: Self.earlierCatalogVersion,
+      toStateFile: MarketplaceCache.stateFile(inCacheDirectory: first.cacheDirectory))
+
+    let restarted = try MarketplaceStoreFixture(sources: [source], cacheDirectory: first.cacheDirectory)
+
+    let layer = try #require(restarted.store.marketplaceLayers().first)
+    #expect(layer.provenance.id == Self.fixtureID)
+    #expect(layer.provenance.displayText == Self.displayText(ofCommit: head))
+  }
+
   // MARK: - Support
+
+  /// The display text of the fixture marketplace at one commit: the
+  /// pre-fetch key and the short commit.
+  ///
+  /// - Parameter commit: The commit of the snapshot.
+  /// - Returns: The text, for example `fixture@1a2b3c4`.
+  private static func displayText(ofCommit commit: String) -> String {
+    "\(fixtureID)@\(commit.prefix(shortShaLength))"
+  }
 
   /// Counts the values of a ``MarketplaceLayerProviding/layerUpdates``
   /// stream, and lets a test wait for a count.

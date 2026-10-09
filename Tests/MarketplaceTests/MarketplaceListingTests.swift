@@ -26,11 +26,11 @@ struct MarketplaceListingTests {
   /// A second commit, which a pin of the host holds.
   private static let pinnedCommit = "89abcdef0123456789abcdef0123456789abcdef"
 
-  /// The `version` field of the catalog of a snapshot.
-  private static let catalogVersion = "1.4.0"
+  /// The catalog `version` that a state file of an earlier version holds.
+  private static let earlierCatalogVersion = "1.4.0"
 
-  /// The `name` field of the catalog, which is the display id.
-  private static let displayID = "swissarmyhammer-skills"
+  /// The catalog `name` that a state file of an earlier version holds.
+  private static let earlierDisplayID = "swissarmyhammer-skills"
 
   /// The message of the last failure that the store recorded.
   private static let failureMessage = "The remote refused the connection."
@@ -106,41 +106,42 @@ struct MarketplaceListingTests {
       MarketplaceStore.listings(of: [source], cacheDirectory: cacheDirectory).first)
 
     #expect(listing.currentSha == nil)
-    #expect(listing.catalogVersion == nil)
     #expect(listing.lastChecked == checked)
   }
 
-  @Test func anInstalledMarketplaceCarriesItsCommitAndItsCatalogVersion() throws {
+  @Test func anInstalledMarketplaceCarriesItsCommit() throws {
     let source = MarketplaceSource(Self.gitURL)
     let cacheDirectory = try TemporaryDirectory.make()
     try Self.write(
-      record: MarketplaceStateRecord(
-        url: Self.gitURL, currentSha: Self.commit, catalogVersion: Self.catalogVersion),
+      record: MarketplaceStateRecord(url: Self.gitURL, currentSha: Self.commit),
       ofSource: source, inCacheDirectory: cacheDirectory)
 
     let listing = try #require(
       MarketplaceStore.listings(of: [source], cacheDirectory: cacheDirectory).first)
 
     #expect(listing.currentSha == Self.commit)
-    #expect(listing.catalogVersion == Self.catalogVersion)
   }
 
   // MARK: - The name of the marketplace
 
-  @Test func aListingCarriesTheDisplayIDOfTheCatalog() throws {
+  @Test func theCatalogKeysOfAnEarlierStateFileDoNotNameTheMarketplace() throws {
     let source = MarketplaceSource(Self.gitURL)
     let cacheDirectory = try TemporaryDirectory.make()
     try Self.write(
-      record: MarketplaceStateRecord(url: Self.gitURL, displayID: Self.displayID),
+      record: MarketplaceStateRecord(url: Self.gitURL, currentSha: Self.commit),
       ofSource: source, inCacheDirectory: cacheDirectory)
+    try MarketplaceTestSupport.addEarlierCatalogKeys(
+      displayID: Self.earlierDisplayID, catalogVersion: Self.earlierCatalogVersion,
+      toStateFile: MarketplaceCache.stateFile(inCacheDirectory: cacheDirectory))
 
     let listing = try #require(
       MarketplaceStore.listings(of: [source], cacheDirectory: cacheDirectory).first)
 
-    #expect(listing.id == Self.displayID)
+    #expect(listing.id == Self.gitKey)
+    #expect(listing.currentSha == Self.commit)
   }
 
-  @Test func aMarketplaceWithNoDisplayIDIsNamedByItsPreFetchKey() throws {
+  @Test func aMarketplaceIsNamedByItsPreFetchKey() throws {
     let source = MarketplaceSource(Self.gitURL)
     let cacheDirectory = try TemporaryDirectory.make()
 
@@ -206,14 +207,12 @@ struct MarketplaceListingTests {
 
   // MARK: - What a consumer of the public API alone can build
 
-  @Test func oneListingGivesTheSixColumnsOfAList() throws {
+  @Test func oneListingGivesTheFiveColumnsOfAList() throws {
     let source = MarketplaceSource(Self.gitURL)
     let cacheDirectory = try TemporaryDirectory.make()
     let checked = Date(timeIntervalSince1970: Self.lastCheckedSeconds)
     try Self.write(
-      record: MarketplaceStateRecord(
-        url: Self.gitURL, currentSha: Self.commit, catalogVersion: Self.catalogVersion,
-        displayID: Self.displayID, lastChecked: checked),
+      record: MarketplaceStateRecord(url: Self.gitURL, currentSha: Self.commit, lastChecked: checked),
       ofSource: source, inCacheDirectory: cacheDirectory)
 
     let listing = try #require(
@@ -221,8 +220,7 @@ struct MarketplaceListingTests {
 
     #expect(
       Self.columns(of: listing) == [
-        Self.displayID, Self.gitURL, Self.commit, Self.catalogVersion,
-        checked.formatted(.iso8601), Self.readyStatus,
+        Self.gitKey, Self.gitURL, Self.commit, checked.formatted(.iso8601), Self.readyStatus,
       ])
   }
 
@@ -280,8 +278,8 @@ struct MarketplaceListingTests {
   /// The text of a column that a listing gives no value for.
   private static let emptyColumn = "-"
 
-  /// The six columns of one row of a list: the id, the URL, the current
-  /// commit, the catalog version, the last check, and the status.
+  /// The five columns of one row of a list: the id, the URL, the current
+  /// commit, the last check, and the status.
   ///
   /// The call reads the listing only, thus it proves that a consumer of the
   /// public API alone writes the whole row.
@@ -293,7 +291,6 @@ struct MarketplaceListingTests {
       listing.id,
       listing.url ?? emptyColumn,
       listing.currentSha ?? emptyColumn,
-      listing.catalogVersion ?? emptyColumn,
       listing.lastChecked.map { $0.formatted(.iso8601) } ?? emptyColumn,
       status(of: listing),
     ]

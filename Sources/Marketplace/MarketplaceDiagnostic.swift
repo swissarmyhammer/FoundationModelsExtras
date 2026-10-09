@@ -22,8 +22,8 @@ public struct MarketplaceDiagnostic: Sendable, Hashable {
   /// How serious this diagnostic is.
   public var severity: Severity
 
-  /// The marketplace that the diagnostic is about: its pre-fetch key or its
-  /// display id. It is `nil` when the diagnostic is not about one
+  /// The marketplace that the diagnostic is about: its display id, which is
+  /// the pre-fetch key. It is `nil` when the diagnostic is not about one
   /// marketplace.
   public var marketplaceID: String?
 

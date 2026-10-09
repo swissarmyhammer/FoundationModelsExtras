@@ -3,8 +3,7 @@
 /// No message holds a URL or a credential: it names only the id that the host
 /// gave.
 public enum MarketplacePinError: Error, Equatable, Sendable {
-  /// No source of the store has that pre-fetch key and no source has that
-  /// display id.
+  /// No source of the store has that display id, which is the pre-fetch key.
   ///
   /// - Parameter id: The id that the host gave.
   case unknownMarketplace(id: String)

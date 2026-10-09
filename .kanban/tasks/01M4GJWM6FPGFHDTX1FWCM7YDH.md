@@ -104,8 +104,24 @@ comments:
     - evidence: commit "refactor(marketplace): share one warning diagnostic constructor". It fixes review round 1. One internal MarketplaceDiagnostic.warning(_:marketplaceID:) replaces three private copies (CatalogResolver, SnapshotWriter, MarketplaceStore). The skill and agent symlink tests and the partials tests in SnapshotWriterTests are now parameterized tests. All six test runs pass (Marketplace 381, core 913).
     - next: review round 2
   timestamp: 2026-10-09T17:08:33.658158+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4gts63d5xgf299v0hnnc0s4
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (01d769b). 0 findings (7 attempted, 0 failed, 0 skipped). 6 files reviewed. The 2 prior Review Findings items are checked.
+    - next: The task is in done. Tell the sessions foundationmodelsagents-3d and skills-79 that this change is in.
+  timestamp: 2026-10-09T17:18:41.773785+00:00
+- actor: claude-code
+  id: 01m4gtse7spwefrey9zzz2dcen
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 6 files
+    - test: green — swift test, Marketplace 381 passed, core 913 passed, 0 failed
+    - commit: 01d769b
+    - review: clean — 0 findings
+  timestamp: 2026-10-09T17:18:50.105302+00:00
+position_column: done
+position_ordinal: e580
 title: 'Marketplace: load skills and agents by a folder scan, with no catalog files, and make agents folders (agents/<name>/AGENT.md)'
 ---
 ## Problem

@@ -658,7 +658,6 @@ struct MarketplaceCacheTests {
       url: "git@github.com:swissarmyhammer/skills.git",
       ref: Self.exampleRef,
       currentSha: Self.exampleShas.first,
-      catalogVersion: "1.2.0",
       lastChecked: Date(timeIntervalSince1970: 0),
       lastUpdated: Date(timeIntervalSince1970: 0))
 
@@ -673,8 +672,7 @@ struct MarketplaceCacheTests {
     let file = MarketplaceCache.stateFile(inCacheDirectory: fixture.root)
     let pendingSha = try #require(Self.exampleShas.last)
     var record = MarketplaceStateRecord(url: "git@github.com:swissarmyhammer/skills.git")
-    record.pending = MarketplacePendingSnapshot(
-      sha: pendingSha, catalogVersion: "1.3.0", displayID: "swissarmyhammer-skills")
+    record.pending = MarketplacePendingSnapshot(sha: pendingSha)
     record.unpinned = true
     var state = MarketplaceState()
     state.marketplaces[fixture.cache.folderName] = record
@@ -694,8 +692,8 @@ struct MarketplaceCacheTests {
           "swissarmyhammer-skills-1a2b3c4d": {
             "url": "git@github.com:swissarmyhammer/skills.git",
             "ref": "main", "pinnedSha": null, "unpinned": true,
-            "pending": { "sha": "\(pendingSha)", "catalogVersion": "1.3.0", "displayID": "skills-next" },
-            "currentSha": "\(sha)", "catalogVersion": "1.2.0", "displayID": "swissarmyhammer-skills",
+            "pending": { "sha": "\(pendingSha)" },
+            "currentSha": "\(sha)",
             "lastChecked": "2026-09-14T19:55:43Z", "lastUpdated": "2026-09-12T08:10:00Z",
             "lastError": null
           }
@@ -712,14 +710,41 @@ struct MarketplaceCacheTests {
     #expect(record.pinnedSha == nil)
     #expect(record.unpinned == true)
     #expect(record.pending?.sha == pendingSha)
-    #expect(record.pending?.catalogVersion == "1.3.0")
-    #expect(record.pending?.displayID == "skills-next")
     #expect(record.currentSha == sha)
-    #expect(record.catalogVersion == "1.2.0")
-    #expect(record.displayID == "swissarmyhammer-skills")
     #expect(record.lastChecked == Date(timeIntervalSince1970: Self.lastCheckedEpochSeconds))
     #expect(record.lastUpdated == Date(timeIntervalSince1970: Self.lastUpdatedEpochSeconds))
     #expect(record.lastError == nil)
+  }
+
+  @Test func aStateFileOfAnEarlierVersionDecodesAndTheNextSaveDropsItsCatalogKeys() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let file = MarketplaceCache.stateFile(inCacheDirectory: fixture.root)
+    let sha = try #require(Self.exampleShas.first)
+    let pendingSha = try #require(Self.exampleShas.last)
+    let text = """
+      {
+        "version": 1,
+        "marketplaces": {
+          "\(fixture.cache.folderName)": {
+            "url": "git@github.com:swissarmyhammer/skills.git",
+            "pending": { "sha": "\(pendingSha)", "catalogVersion": "1.3.0", "displayID": "skills-next" },
+            "currentSha": "\(sha)", "catalogVersion": "1.2.0", "displayID": "swissarmyhammer-skills"
+          }
+        }
+      }
+      """
+    try MarketplaceTestSupport.writeFile(text: text, to: file)
+
+    let state = try MarketplaceState.load(from: file)
+    try state.save(to: file)
+
+    let record = try #require(state.marketplaces[fixture.cache.folderName])
+    #expect(record.currentSha == sha)
+    #expect(record.pending?.sha == pendingSha)
+    let saved = try String(contentsOf: file, encoding: .utf8)
+    #expect(!saved.contains(MarketplaceTestSupport.earlierDisplayIDKey))
+    #expect(!saved.contains(MarketplaceTestSupport.earlierCatalogVersionKey))
   }
 
   /// The seconds since 1970 of `2026-09-14T19:55:43Z`, the `lastChecked`

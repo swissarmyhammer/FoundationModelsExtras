@@ -582,7 +582,13 @@ shallower one wins, and at the same depth the first in path order wins;
 each loser gets one diagnostic. The name `agents` stays reserved for a
 skill. The layout `plugins/<name>/{skills,agents}/` loads with no other
 file. `SkillSelection.all` takes every skill and every agent; `.skills`
-takes the named skills and no agent.
+takes the named skills and no agent. With no catalog file there is no
+catalog `name` and no catalog `version`, thus the display id of a
+marketplace is always its pre-fetch key, and `MarketplaceProvenance`,
+`MarketplaceListing` and `state.json` carry no catalog version. The
+display text of a snapshot is the id and the short commit. A `state.json`
+that an earlier version wrote can still hold `catalogVersion` and
+`displayID`: the store ignores the two keys, and the next write drops them.
 
 **The agents folder of a layer.** The root of a git layer holds each agent
 as a folder, `agents/<name>/AGENT.md`, with the resources of the agent

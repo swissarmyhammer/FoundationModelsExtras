@@ -5,6 +5,37 @@ change is at the top.
 
 ## Unreleased
 
+### Changed (breaking): no catalog version and no catalog display id
+
+The store reads no catalog file, thus no install gives a catalog version or
+a catalog `name`. The fields that held them are removed.
+
+**What changed.**
+
+- `MarketplaceProvenance.catalogVersion` is removed, and
+  `MarketplaceProvenance.init(id:url:sha:)` has no `catalogVersion`
+  parameter. `displayText` is always the id and the short commit, for
+  example `skills@1a2b3c4`, or the id alone before the first install. It
+  never shows `<id>@<catalog version>`.
+- `MarketplaceListing.catalogVersion` is removed, and
+  `MarketplaceListing.init` has no `catalogVersion` parameter.
+- `MarketplaceListing.id` and `MarketplaceProvenance.id` are always the
+  pre-fetch key: the alias of the source, else the repository name. Before,
+  a `name` that an earlier version wrote into `state.json` named the
+  marketplace until the next install. Now that `name` has no effect.
+- `pin(_:sha:)`, `unpin(_:)` and `update(_:force:)` find a marketplace by
+  its pre-fetch key only.
+- `state.json` has no `catalogVersion` and no `displayID` key, in the record
+  of a marketplace and in its `pending` snapshot. A state file that an
+  earlier version wrote still loads: the store ignores the two keys, and the
+  next write of the file drops them.
+
+**Migration.** Remove each read of `catalogVersion`. A list that showed a
+catalog version column shows the commit (`currentSha`) instead. A host that
+named a marketplace by its catalog `name` names it by its alias: set
+`alias` on the source to keep the same name. No change to `state.json` is
+necessary.
+
 ### Changed (breaking): a marketplace is a folder scan, and an agent is a folder (`agents/<name>/AGENT.md`)
 
 A marketplace is only a folder. The `Marketplace` product finds the skills

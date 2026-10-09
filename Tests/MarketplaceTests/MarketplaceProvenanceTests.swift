@@ -1,9 +1,9 @@
 import Marketplace
 import Testing
 
-/// Proves the display text of ``MarketplaceProvenance``: the catalog version
-/// names the snapshot, the short commit stands in when the catalog has no
-/// version, and the URL is never part of the text.
+/// Proves the display text of ``MarketplaceProvenance``: the short commit
+/// names the snapshot, the id alone is the text before the first install, and
+/// the URL is never part of the text.
 ///
 /// The suite imports `Marketplace` without `@testable`, thus it proves the
 /// public surface that a consumer uses.
@@ -15,24 +15,14 @@ struct MarketplaceProvenanceTests {
   /// The `url` field of the source. No display text may hold it.
   private static let url = "https://github.com/swissarmyhammer/skills.git"
 
-  /// The catalog version of the marketplace, when the case gives it one.
-  private static let catalogVersion = "1.2.0"
-
   /// The commit of the snapshot of the marketplace.
   private static let commit = "abc1234def5678"
 
-  /// The first characters of ``commit``: the text a row shows when the
-  /// catalog carries no version.
+  /// The first characters of ``commit``: the text a row shows for the
+  /// snapshot.
   private static let shortCommit = "abc1234"
 
-  @Test func theCatalogVersionNamesTheSnapshot() {
-    let provenance = MarketplaceProvenance(
-      id: Self.marketplaceID, url: Self.url, sha: Self.commit, catalogVersion: Self.catalogVersion)
-
-    #expect(provenance.displayText == "\(Self.marketplaceID)@\(Self.catalogVersion)")
-  }
-
-  @Test func theShortCommitNamesTheSnapshotWhenTheCatalogHasNoVersion() {
+  @Test func theShortCommitNamesTheSnapshot() {
     let provenance = MarketplaceProvenance(id: Self.marketplaceID, url: Self.url, sha: Self.commit)
 
     #expect(provenance.displayText == "\(Self.marketplaceID)@\(Self.shortCommit)")
@@ -45,8 +35,7 @@ struct MarketplaceProvenanceTests {
   }
 
   @Test func theTextNeverHoldsTheURL() {
-    let provenance = MarketplaceProvenance(
-      id: Self.marketplaceID, url: Self.url, sha: Self.commit, catalogVersion: Self.catalogVersion)
+    let provenance = MarketplaceProvenance(id: Self.marketplaceID, url: Self.url, sha: Self.commit)
 
     #expect(!provenance.displayText.contains(Self.url))
   }

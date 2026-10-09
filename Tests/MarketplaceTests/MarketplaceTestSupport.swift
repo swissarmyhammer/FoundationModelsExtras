@@ -1,6 +1,7 @@
 import FixtureSupport
 import Foundation
 import MarketplaceFixtures
+import Testing
 
 @testable import Marketplace
 
@@ -46,7 +47,10 @@ actor CredentialRequestRecorder {
 /// the snapshot writer suite scan the agents of ``twoPluginAgentTree``, and
 /// the agent tests write agent documents with ``agentDocument(named:)``. `ReadmeSnippetTests`
 /// and `DocumentationTests` both find the marketplace section of the README
-/// with ``readmePath`` and ``readmeMarketplaceHeading``.
+/// with ``readmePath`` and ``readmeMarketplaceHeading``. The cache suite, the
+/// listing suite and the store suite prove that the two catalog keys of an
+/// earlier state file change nothing, and the listing suite and the store
+/// suite write those keys with ``addEarlierCatalogKeys(displayID:catalogVersion:toStateFile:)``.
 ///
 /// The file helper does not call `MarketplaceConfig.save(to:)`, because that
 /// is the code under test: a test that writes its fixture with the code it
@@ -197,6 +201,44 @@ enum MarketplaceTestSupport {
       at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     try text.write(to: file, atomically: true, encoding: .utf8)
   }
+
+  /// The key of the catalog `name` that an earlier version of this package
+  /// wrote into each record of `state.json`.
+  static let earlierDisplayIDKey = "displayID"
+
+  /// The key of the catalog `version` that an earlier version of this
+  /// package wrote into each record of `state.json`.
+  static let earlierCatalogVersionKey = "catalogVersion"
+
+  /// Adds the two catalog keys of an earlier version of this package to each
+  /// record of a state file, as that version wrote them.
+  ///
+  /// This build has no field for the two keys, thus the helper edits the
+  /// JSON of the file directly.
+  ///
+  /// - Parameters:
+  ///   - displayID: The value of ``earlierDisplayIDKey``.
+  ///   - catalogVersion: The value of ``earlierCatalogVersionKey``.
+  ///   - file: The state file to change.
+  /// - Throws: The error of the file read, of the JSON parse or of the file
+  ///   write, or a failed requirement when the file is not a state file.
+  static func addEarlierCatalogKeys(
+    displayID: String, catalogVersion: String, toStateFile file: URL
+  ) throws {
+    let earlierKeys: [String: Any] = [
+      earlierDisplayIDKey: displayID, earlierCatalogVersionKey: catalogVersion,
+    ]
+    var state = try #require(
+      try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    let records = try #require(state[marketplacesKey] as? [String: [String: Any]])
+    state[marketplacesKey] = records.mapValues { record in
+      record.merging(earlierKeys) { _, earlier in earlier }
+    }
+    try JSONSerialization.data(withJSONObject: state).write(to: file, options: .atomic)
+  }
+
+  /// The key of `state.json` that holds one record for each marketplace.
+  private static let marketplacesKey = "marketplaces"
 }
 
 /// Tells whether a shared lock holds one snapshot folder.

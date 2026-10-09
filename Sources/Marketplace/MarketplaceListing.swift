@@ -15,12 +15,11 @@ import Foundation
 /// it: no field names a folder of the cache or a file in it. Thus a later
 /// change of the cache layout breaks no consumer.
 public struct MarketplaceListing: Sendable, Hashable {
-  /// The name of the marketplace: the display id that the state file holds
-  /// for the snapshot it serves, else the pre-fetch key, else the alias.
+  /// The name of the marketplace: the pre-fetch key, else the alias.
   ///
-  /// It is the empty text when the source gives none of the three, which
-  /// happens only for a source that has a bad URL and no alias. A caller
-  /// then writes its own placeholder.
+  /// It is the empty text when the source gives neither, which happens only
+  /// for a source that has a bad URL and no alias. A caller then writes its
+  /// own placeholder.
   public var id: String
 
   /// The pre-fetch key: the alias of the source, else the repository name
@@ -43,10 +42,6 @@ public struct MarketplaceListing: Sendable, Hashable {
   /// first install.
   public var currentSha: String?
 
-  /// The `version` field of the catalog of that snapshot, or `nil` when the
-  /// catalog has none.
-  public var catalogVersion: String?
-
   /// When the store last asked the remote for its head, or `nil` when it
   /// never asked.
   public var lastChecked: Date?
@@ -55,7 +50,7 @@ public struct MarketplaceListing: Sendable, Hashable {
   /// reads with no fetch.
   ///
   /// Such a marketplace has no snapshot of its own, thus it carries no
-  /// commit, no catalog version and no last check.
+  /// commit and no last check.
   public var isLocalFolder: Bool
 
   /// Whether the marketplace holds one commit and follows no ref.
@@ -78,8 +73,6 @@ public struct MarketplaceListing: Sendable, Hashable {
   ///   - url: The normalized URL. The default is `nil`.
   ///   - currentSha: The commit of the snapshot that the consumer reads. The
   ///     default is `nil`.
-  ///   - catalogVersion: The `version` field of the catalog. The default is
-  ///     `nil`.
   ///   - lastChecked: When the store last asked the remote for its head. The
   ///     default is `nil`.
   ///   - isLocalFolder: Whether the marketplace is a folder on this
@@ -92,7 +85,6 @@ public struct MarketplaceListing: Sendable, Hashable {
     key: String? = nil,
     url: String? = nil,
     currentSha: String? = nil,
-    catalogVersion: String? = nil,
     lastChecked: Date? = nil,
     isLocalFolder: Bool = false,
     holdsOneCommit: Bool = false,
@@ -102,7 +94,6 @@ public struct MarketplaceListing: Sendable, Hashable {
     self.key = key
     self.url = url
     self.currentSha = currentSha
-    self.catalogVersion = catalogVersion
     self.lastChecked = lastChecked
     self.isLocalFolder = isLocalFolder
     self.holdsOneCommit = holdsOneCommit
@@ -111,8 +102,7 @@ public struct MarketplaceListing: Sendable, Hashable {
 }
 
 extension MarketplaceListing {
-  /// The name of a marketplace that gives no display id, no pre-fetch key
-  /// and no alias.
+  /// The name of a marketplace that gives no pre-fetch key and no alias.
   private static let unnamed = ""
 
   /// Reads one listing for each source out of the state file of a cache
@@ -175,11 +165,10 @@ extension MarketplaceListing {
       key: key, normalizedURL: location.normalizedURL)
     let record = state.marketplaces[folderName]
     return MarketplaceListing(
-      id: record?.displayID ?? key,
+      id: key,
       key: key,
       url: location.normalizedURL,
       currentSha: record?.currentSha,
-      catalogVersion: record?.catalogVersion,
       lastChecked: record?.lastChecked,
       holdsOneCommit: holdsOneCommit(record: record, source: source),
       lastError: record?.lastError)

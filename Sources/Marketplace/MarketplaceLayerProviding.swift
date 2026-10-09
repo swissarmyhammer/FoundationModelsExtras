@@ -10,10 +10,6 @@ import FoundationModelsExtras
 public struct MarketplaceProvenance: Sendable, Equatable {
   /// The display id of the marketplace: the pre-fetch key, which is the
   /// alias of the source, else the repository name.
-  ///
-  /// A state file that an earlier version of this package wrote can hold
-  /// the `name` field of a catalog file. That id stays until the next
-  /// install of the marketplace.
   public var id: String
 
   /// The `url` field of the source, as the host wrote it.
@@ -23,46 +19,32 @@ public struct MarketplaceProvenance: Sendable, Equatable {
   /// before the first install.
   public var sha: String?
 
-  /// The `version` field of the catalog file of that snapshot, or `nil`.
-  ///
-  /// The scan of a marketplace reads no catalog file, thus an install of
-  /// this version gives `nil`. A state file that an earlier version wrote
-  /// can hold a value until the next install.
-  public var catalogVersion: String?
-
   /// Creates a provenance by directly assigning every field.
   ///
   /// - Parameters:
   ///   - id: The display id of the marketplace.
   ///   - url: The `url` field of the source.
   ///   - sha: The commit of the snapshot. The default is `nil`.
-  ///   - catalogVersion: The `version` field of the catalog. The default
-  ///     is `nil`.
-  public init(id: String, url: String, sha: String? = nil, catalogVersion: String? = nil) {
+  public init(id: String, url: String, sha: String? = nil) {
     self.id = id
     self.url = url
     self.sha = sha
-    self.catalogVersion = catalogVersion
   }
 
-  /// How many first characters of ``sha`` a row shows when the catalog
-  /// carries no version: the usual short form of a commit.
+  /// How many first characters of ``sha`` a row shows: the usual short form
+  /// of a commit.
   private static let shortShaLength = 7
 
   /// The text a display row shows for this marketplace, for example
-  /// `swissarmyhammer-skills@1.2.0`.
+  /// `skills@1a2b3c4`.
   ///
-  /// The catalog version names the snapshot when the catalog has one.
-  /// Without a version, the short commit names it instead, thus a row
-  /// still says which snapshot a skill came from. Without a commit too,
-  /// the id alone is the text.
+  /// The short commit names the snapshot, thus a row says which snapshot a
+  /// skill came from. Before the first install there is no commit, and the
+  /// id alone is the text.
   ///
   /// ``url`` is never part of the text: a URL can hold a credential, and
   /// a row must never show one.
   public var displayText: String {
-    if let catalogVersion {
-      return "\(id)@\(catalogVersion)"
-    }
     if let sha {
       return "\(id)@\(sha.prefix(Self.shortShaLength))"
     }
@@ -148,9 +130,8 @@ public struct MarketplaceLayer: Sendable {
 public protocol MarketplaceLayerProviding: Sendable {
   /// Gives the current marketplace layers, lowest precedence first.
   ///
-  /// The consumer calls this again on every update, because the commit
-  /// and the catalog version of a layer change while its root stays the
-  /// same.
+  /// The consumer calls this again on every update, because the commit of a
+  /// layer changes while its root stays the same.
   ///
   /// - Returns: The layers, lowest precedence first.
   func marketplaceLayers() -> [MarketplaceLayer]

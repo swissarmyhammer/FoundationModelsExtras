@@ -255,10 +255,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     sourceDiagnostics = Mutex(preparation.sources.map { _ in [] })
     let diskState = Self.state(inDirectory: cacheDirectory)
     pinOverrides = Self.pinOverrides(ofPrepared: preparation.sources, state: diskState)
-    served = Mutex(
-      Self.servedFromDisk(
-        prepared: preparation.sources, state: diskState,
-        seedState: seedDirectory.map(Self.state(inDirectory:)) ?? MarketplaceState()))
+    served = Mutex(Self.servedFromDisk(prepared: preparation.sources))
   }
 
   /// Reads the pin that the host set in an earlier run out of `state.json`.
@@ -319,9 +316,9 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// This is the read behind a list command. The call opens no connection,
   /// starts no fetch, and writes nothing, thus it needs no store and no
-  /// ``start()``. A listing carries the name, the URL, the commit, the
-  /// catalog version, the last check and the last failure of one
-  /// marketplace, which is the whole of one row.
+  /// ``start()``. A listing carries the name, the URL, the commit, the last
+  /// check and the last failure of one marketplace, which is the whole of
+  /// one row.
   ///
   /// - Parameters:
   ///   - sources: The marketplaces, in list order.
@@ -397,7 +394,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// too.
   ///
   /// - Parameters:
-  ///   - id: The pre-fetch key or the display id of the marketplace.
+  ///   - id: The display id of the marketplace, which is its pre-fetch key.
   ///   - sha: The commit to hold. It must be a hexadecimal object name.
   /// - Throws: ``MarketplacePinError`` when no marketplace has that id, or
   ///   when the marketplace is a folder on this computer;
@@ -420,8 +417,8 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// fetches the remote head again. It goes into `state.json`, thus a later
   /// run of the host reads it too.
   ///
-  /// - Parameter id: The pre-fetch key or the display id of the
-  ///   marketplace.
+  /// - Parameter id: The display id of the marketplace, which is its
+  ///   pre-fetch key.
   /// - Throws: ``MarketplacePinError`` when no marketplace has that id, or
   ///   when the marketplace is a folder on this computer; else the error of
   ///   the file write.
@@ -437,7 +434,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
 
   /// The marketplace that one id names.
   ///
-  /// - Parameter id: The pre-fetch key or the display id.
+  /// - Parameter id: The display id, which is the pre-fetch key.
   /// - Returns: The list index of the marketplace.
   /// - Throws: ``MarketplacePinError/unknownMarketplace(id:)``.
   private func indexOfMarketplace(named id: String) throws -> Int {
@@ -539,19 +536,14 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
       }
       return
     }
-    let installedID = pending.displayID ?? prepared[index].key
     try updateRecord(forFolder: remote.cache.folderName, ofSource: prepared[index].source) {
       record in
       record.pending = nil
       record.currentSha = pending.sha
-      record.catalogVersion = pending.catalogVersion
-      record.displayID = installedID
       record.lastUpdated = Date()
     }
-    serve(
-      atIndex: index, cache: remote.cache, sha: pending.sha, displayID: installedID,
-      catalogVersion: pending.catalogVersion)
-    eventSubscribers.publish(.updated(id: installedID, from: previous, to: pending.sha))
+    serve(atIndex: index, cache: remote.cache, sha: pending.sha)
+    eventSubscribers.publish(.updated(id: displayID(atIndex: index), from: previous, to: pending.sha))
     updateSubscribers.publish(())
   }
 
@@ -674,8 +666,8 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// updated.
   ///
   /// - Parameters:
-  ///   - id: The pre-fetch key or the display id of one marketplace, or
-  ///     `nil` for every marketplace. The default is `nil`.
+  ///   - id: The display id of one marketplace, which is its pre-fetch key,
+  ///     or `nil` for every marketplace. The default is `nil`.
   ///   - force: Whether to materialize again even when the remote head is
   ///     the snapshot that `current` names. The default is `false`.
   /// - Returns: One event for each marketplace that installed a snapshot,
@@ -901,14 +893,14 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// - Parameters:
   ///   - index: The marketplace to test.
-  ///   - id: The pre-fetch key or the display id, or `nil` for every
+  ///   - id: The display id, which is the pre-fetch key, or `nil` for every
   ///     marketplace.
   /// - Returns: `true` when the store syncs this marketplace.
   private func names(index: Int, id: String?) -> Bool {
     guard let id else {
       return true
     }
-    return id == prepared[index].key || id == displayID(atIndex: index)
+    return id == displayID(atIndex: index)
   }
 
   /// Syncs one marketplace, and keeps the last good snapshot on a failure.
@@ -1014,9 +1006,6 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     let source = prepared[index].source
     let fetched = try await fetch(remote: remote, revision: pin ?? remote.ref ?? Self.defaultRef)
     let snapshot = try materialize(remote: remote, source: source, commit: fetched)
-    // The scan reads no catalog file, thus the display id of a new snapshot
-    // is the pre-fetch key, and the snapshot has no catalog version.
-    let installedID = prepared[index].key
     // A cold start has no session to keep stable, thus `.nextLaunch`
     // holds back only an update of a marketplace that the store serves.
     let deferred = policy.applyUpdates == .nextLaunch && previous != nil
@@ -1026,13 +1015,12 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     } else {
       try remote.cache.installUnderWriterLock(
         snapshotAt: snapshot.staged, sha: fetched, ref: pin == nil ? remote.ref : nil)
-      serve(atIndex: index, cache: remote.cache, sha: fetched, displayID: installedID, catalogVersion: nil)
+      serve(atIndex: index, cache: remote.cache, sha: fetched)
     }
     record(diagnostics: snapshot.diagnostics, atIndex: index)
-    try recordInstall(remote: remote, ofIndex: index, sha: fetched, displayID: installedID, pending: deferred)
+    try recordInstall(remote: remote, ofIndex: index, sha: fetched, pending: deferred)
     return published(
-      atIndex: index, installedID: installedID, previous: previous, installed: fetched,
-      head: head, deferred: deferred)
+      atIndex: index, previous: previous, installed: fetched, head: head, deferred: deferred)
   }
 
   /// Publishes the event of one install and makes the result of the pass.
@@ -1043,27 +1031,25 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// - Parameters:
   ///   - index: The marketplace.
-  ///   - installedID: The display id of the new snapshot.
   ///   - previous: The commit that `current` named before this pass.
   ///   - installed: The commit of the new snapshot.
   ///   - head: The commit that the remote head names.
   ///   - deferred: Whether the snapshot waits for the next ``start()``.
   /// - Returns: The status, and the event.
   private func published(
-    atIndex index: Int, installedID: String, previous: String?, installed: String,
-    head: String, deferred: Bool
+    atIndex index: Int, previous: String?, installed: String, head: String, deferred: Bool
   ) -> PassResult {
+    let id = displayID(atIndex: index)
     let event: MarketplaceEvent =
       deferred
-      ? .updateAvailable(id: displayID(atIndex: index), from: previous, to: installed)
-      : .updated(id: installedID, from: previous, to: installed)
+      ? .updateAvailable(id: id, from: previous, to: installed)
+      : .updated(id: id, from: previous, to: installed)
     eventSubscribers.publish(event)
     if !deferred {
       updateSubscribers.publish(())
     }
     return PassResult(
-      status: MarketplaceStatus(
-        id: displayID(atIndex: index), current: deferred ? previous : installed, latest: head),
+      status: MarketplaceStatus(id: id, current: deferred ? previous : installed, latest: head),
       event: event)
   }
 
@@ -1219,17 +1205,12 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   - index: The marketplace.
   ///   - cache: The cache folder of the marketplace.
   ///   - sha: The commit of the new snapshot.
-  ///   - displayID: The display id of the snapshot.
-  ///   - catalogVersion: The catalog version that the state file holds for
-  ///     the snapshot, or `nil`.
-  private func serve(
-    atIndex index: Int, cache: MarketplaceCache, sha: String, displayID: String, catalogVersion: String?
-  ) {
-    let url = prepared[index].source.url
+  private func serve(atIndex index: Int, cache: MarketplaceCache, sha: String) {
+    let provenance = MarketplaceProvenance(
+      id: displayID(atIndex: index), url: prepared[index].source.url, sha: sha)
     let lease = try? cache.leaseCurrentSnapshot()
     let superseded = served.withLock { layers -> SnapshotLease? in
-      layers[index].layer.provenance = MarketplaceProvenance(
-        id: displayID, url: url, sha: sha, catalogVersion: catalogVersion)
+      layers[index].layer.provenance = provenance
       let previous = layers[index].lease
       layers[index].lease = lease
       return previous
@@ -1240,10 +1221,10 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// The display id of one marketplace.
   ///
   /// - Parameter index: The marketplace.
-  /// - Returns: The display id of the snapshot it serves: the pre-fetch key,
-  ///   or an id that an earlier version wrote into the state file.
+  /// - Returns: The pre-fetch key of the marketplace: the alias of the
+  ///   source, else the repository name.
   private func displayID(atIndex index: Int) -> String {
-    served.withLock { $0[index].layer.provenance.id }
+    prepared[index].key
   }
 
   /// Makes one layer for each source from what the disk already holds.
@@ -1253,21 +1234,17 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// grow when the first snapshot arrives.
   ///
   /// - Parameters:
-  ///   - prepared: The sources, in list order.
-  ///   - state: The state file of the cache directory.
-  ///   - seedState: The state file of the read-only seed folder.
+  /// - Parameter prepared: The sources, in list order.
   /// - Returns: One served marketplace for each source, in list order.
-  private static func servedFromDisk(
-    prepared: [PreparedSource], state: MarketplaceState, seedState: MarketplaceState
-  ) -> [ServedMarketplace] {
+  private static func servedFromDisk(prepared: [PreparedSource]) -> [ServedMarketplace] {
     prepared.map { entry in
       switch entry.kind {
       case .git(let remote):
-        return servedFromCache(entry: entry, cache: remote.cache, state: state, leased: true)
+        return servedFromCache(entry: entry, cache: remote.cache, leased: true)
       case .seed(_, let seed):
         // The seed folder is read only: the store never cleans it up,
         // thus it needs no lease on a snapshot of it.
-        return servedFromCache(entry: entry, cache: seed, state: seedState, leased: false)
+        return servedFromCache(entry: entry, cache: seed, leased: false)
       case .local(let root):
         return ServedMarketplace(
           layer: MarketplaceLayer(
@@ -1285,19 +1262,14 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   - entry: The source of the marketplace.
   ///   - cache: The folder of the marketplace, in the cache or in the seed
   ///     folder.
-  ///   - state: The state file that belongs to that folder.
   ///   - leased: Whether the store takes a shared lock on the snapshot.
   /// - Returns: The served marketplace.
   private static func servedFromCache(
-    entry: PreparedSource, cache: MarketplaceCache, state: MarketplaceState, leased: Bool
+    entry: PreparedSource, cache: MarketplaceCache, leased: Bool
   ) -> ServedMarketplace {
-    let stored = state.marketplaces[cache.folderName]
-    let sha = cache.currentSha()
     let layer = MarketplaceLayer(
       layer: DotfolderStack.Layer(source: .marketplace, root: cache.currentLink),
-      provenance: MarketplaceProvenance(
-        id: stored?.displayID ?? entry.key, url: entry.source.url, sha: sha,
-        catalogVersion: sha == nil ? nil : stored?.catalogVersion))
+      provenance: MarketplaceProvenance(id: entry.key, url: entry.source.url, sha: cache.currentSha()))
     return ServedMarketplace(layer: layer, lease: leased ? try? cache.leaseCurrentSnapshot() : nil)
   }
 
@@ -1323,11 +1295,10 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   - remote: The remote of the marketplace.
   ///   - index: The marketplace.
   ///   - sha: The commit of the new snapshot.
-  ///   - displayID: The display id of the marketplace.
   ///   - pending: Whether the snapshot waits for the next ``start()``.
   /// - Throws: The error of the file read or of the file write.
   private func recordInstall(
-    remote: GitRemote, ofIndex index: Int, sha: String, displayID: String, pending: Bool
+    remote: GitRemote, ofIndex index: Int, sha: String, pending: Bool
   ) throws {
     let now = Date()
     try updateRecord(forFolder: remote.cache.folderName, ofSource: prepared[index].source) {
@@ -1338,12 +1309,10 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
       guard pending else {
         record.pending = nil
         record.currentSha = sha
-        record.catalogVersion = nil
-        record.displayID = displayID
         record.lastUpdated = now
         return
       }
-      record.pending = MarketplacePendingSnapshot(sha: sha, catalogVersion: nil, displayID: displayID)
+      record.pending = MarketplacePendingSnapshot(sha: sha)
     }
   }
 

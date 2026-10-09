@@ -6,17 +6,13 @@ import Foundation
 /// snapshot folder is already under `snapshots/`, and the next
 /// ``MarketplaceStore/start()`` makes `current` name it. The record thus
 /// replaces a timer with a flag on the disk, and it survives a restart.
+///
+/// A record that an earlier version of this package wrote can also hold
+/// `catalogVersion` and `displayID`. The decoder ignores the two keys, and
+/// the next save of the state file drops them.
 internal struct MarketplacePendingSnapshot: Sendable, Hashable, Codable {
   /// The commit of the snapshot that waits.
   var sha: String
-
-  /// The `version` field of the catalog of that snapshot, or `nil` when the
-  /// catalog has none.
-  var catalogVersion: String?
-
-  /// The display id that the marketplace takes when the store serves the
-  /// snapshot, or `nil` when the catalog names none.
-  var displayID: String?
 }
 
 /// What the cache knows about one marketplace.
@@ -24,6 +20,11 @@ internal struct MarketplacePendingSnapshot: Sendable, Hashable, Codable {
 /// Every field but ``url`` is optional, because a record starts before the
 /// first fetch: the store writes the url, and it fills the rest in as it
 /// learns each value.
+///
+/// A record that an earlier version of this package wrote can also hold
+/// `catalogVersion` and `displayID`, from a catalog file. The store reads no
+/// catalog file now, thus the record has no field for them: the decoder
+/// ignores the two keys, and the next save of the state file drops them.
 internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
   /// The `url` field of the source, as the host wrote it.
   var url: String
@@ -55,17 +56,6 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
   /// first install.
   var currentSha: String?
 
-  /// The `version` field of the catalog of the current snapshot, or `nil`
-  /// when the catalog has none.
-  var catalogVersion: String?
-
-  /// The display id of the marketplace: the `name` field of the catalog of
-  /// the current snapshot, or `nil` before the first fetch.
-  ///
-  /// A new process reads it, thus a row shows the same name across a
-  /// restart, with no fetch.
-  var displayID: String?
-
   /// When the store last asked the remote for its head, or `nil` when it
   /// never asked.
   var lastChecked: Date?
@@ -85,8 +75,6 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
   ///   - ref: The branch or the tag that the store follows.
   ///   - pinnedSha: The commit that the host pinned.
   ///   - currentSha: The commit of the snapshot that `current` names.
-  ///   - catalogVersion: The `version` field of the catalog.
-  ///   - displayID: The `name` field of the catalog.
   ///   - lastChecked: When the store last asked the remote for its head.
   ///   - lastUpdated: When the store last installed a snapshot.
   ///   - lastError: The message of the last failure.
@@ -95,8 +83,6 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
     ref: String? = nil,
     pinnedSha: String? = nil,
     currentSha: String? = nil,
-    catalogVersion: String? = nil,
-    displayID: String? = nil,
     lastChecked: Date? = nil,
     lastUpdated: Date? = nil,
     lastError: String? = nil
@@ -105,8 +91,6 @@ internal struct MarketplaceStateRecord: Sendable, Hashable, Codable {
     self.ref = ref
     self.pinnedSha = pinnedSha
     self.currentSha = currentSha
-    self.catalogVersion = catalogVersion
-    self.displayID = displayID
     self.lastChecked = lastChecked
     self.lastUpdated = lastUpdated
     self.lastError = lastError

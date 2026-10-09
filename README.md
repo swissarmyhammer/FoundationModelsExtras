@@ -332,9 +332,12 @@ file-system event to a watcher. `update(_:force:)`, `check()`,
 `MarketplaceStore.listings(of:cacheDirectory:)` is the read behind a list
 command. It reads `state.json` of the cache, opens no connection and needs
 no store, and it gives one `MarketplaceListing` for each source: the name,
-the pre-fetch key, the normalized URL, the current commit, the catalog
-version, the last check, whether the marketplace is a folder on this
-computer, whether it holds one commit, and the message of the last failure.
+the pre-fetch key, the normalized URL, the current commit, the last check,
+whether the marketplace is a folder on this computer, whether it holds one
+commit, and the message of the last failure. The name of a marketplace is
+its pre-fetch key: the alias of the source, else the repository name. The
+`displayText` of a `MarketplaceProvenance` is that name and the short
+commit, for example `skills@1a2b3c4`.
 A source whose URL is of no supported form gives a listing that carries the
 message of the parser, thus a list shows every source that the host named.
 `MarketplaceStore.cacheDirectoryVariable` and
