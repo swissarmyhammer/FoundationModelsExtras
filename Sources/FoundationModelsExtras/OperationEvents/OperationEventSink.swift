@@ -9,9 +9,19 @@ public protocol OperationEventSink: Sendable {
     /// Delivery-only: a record is never staged for a future turn and never recorded to the transcript.
     /// - Parameter record: The record to receive.
     func post(invocation record: ToolInvocationRecord) async
+
+    /// Receives one posted ``ToolDisplayEvent``: output or metadata of a tool
+    /// call for the client.
+    /// Display-only: the event never goes into the model input, is never
+    /// combined with another event, and is never recorded in the journal.
+    /// - Parameter event: The event to receive.
+    func post(display event: ToolDisplayEvent) async
 }
 
 extension OperationEventSink {
     /// Blanket default: ignores the record.
     public func post(invocation record: ToolInvocationRecord) async {}
+
+    /// Blanket default: ignores the display event.
+    public func post(display event: ToolDisplayEvent) async {}
 }

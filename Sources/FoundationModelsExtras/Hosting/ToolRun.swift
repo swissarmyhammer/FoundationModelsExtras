@@ -257,8 +257,8 @@ final class ToolCallState: Sendable {
 }
 
 /// The one route of the events of one run. It lets one `.completed` event
-/// through, keeps the state of the timeout, and delivers the events upstream
-/// in order.
+/// through, keeps the state of the timeout, and delivers the events and the
+/// display events upstream in order.
 actor RunEventFunnel: OperationEventSink {
     /// The sink of the session.
     private let upstream: any OperationEventSink
@@ -318,11 +318,22 @@ actor RunEventFunnel: OperationEventSink {
             }
         }
         hasDeliveredAnyEvent = true
-        let delivery = enqueue(event)
+        let delivery = enqueue { await $0.post(event: event) }
         if event.kind == .progress {
             await runPlane.updateProgress(completionToken: completionToken, detail: event.detail)
         }
         await delivery.value
+    }
+
+    /// Sends `event` upstream, in order with the other events of the run.
+    ///
+    /// A display event is not an ``OperationEvent``. It changes no timeout
+    /// state, it does not count as an event of the run for the terminal
+    /// event, and it never changes the progress detail on the run plane.
+    ///
+    /// - Parameter event: The display event.
+    func post(display event: ToolDisplayEvent) async {
+        await enqueue { await $0.post(display: event) }.value
     }
 
     /// Sends `terminal` upstream when no terminal event went yet, and the run
@@ -332,7 +343,7 @@ actor RunEventFunnel: OperationEventSink {
     func settleRun(with terminal: OperationEvent) async {
         guard !hasDeliveredTerminal, hasDeliveredAnyEvent || terminal.outcome != .succeeded else { return }
         hasDeliveredTerminal = true
-        await enqueue(terminal).value
+        await enqueue { await $0.post(event: terminal) }.value
     }
 
     /// Waits until a full window of `seconds` passes with no progress and no
@@ -368,9 +379,15 @@ actor RunEventFunnel: OperationEventSink {
         return resetCount
     }
 
-    /// Adds the upstream delivery of `event` behind the earlier deliveries.
-    private func enqueue(_ event: OperationEvent) -> Task<Void, Never> {
+    /// Adds `delivery` to the upstream sink behind the earlier deliveries.
+    ///
+    /// - Parameter delivery: Posts one event or one display event to the
+    ///   upstream sink that it gets.
+    /// - Returns: The task of the delivery.
+    private func enqueue(
+        _ delivery: @escaping @Sendable (any OperationEventSink) async -> Void
+    ) -> Task<Void, Never> {
         let upstream = upstream
-        return deliveries.enqueue { await upstream.post(event: event) }
+        return deliveries.enqueue { await delivery(upstream) }
     }
 }

@@ -202,6 +202,21 @@ struct ToolContextMountTests {
         #expect(ULID(ulidString: output.text) != nil)
     }
 
+    @Test("the display events of a mounted tool reach the sink stamped again under the token of the mounting context")
+    func mountedToolDisplayEventsCarryTheContextCorrelation() async throws {
+        let host = Self.makeHost()
+
+        let mounted = host.context.mount(Fixtures.DisplayOnceTool())
+        _ = try await mounted.call(arguments: MountArguments(value: "inner chunk"))
+
+        let expected = ToolDisplayEvent(
+            tool: Self.hostTool, op: Self.hostOp, correlationID: Self.hostToken,
+            kind: .contentChunk(.text("inner chunk")))
+        #expect(await host.sink.displays == [expected])
+        // The display event is not an operation event of the mounting run.
+        #expect(await host.sink.events.isEmpty)
+    }
+
     @Test("a mounted call that fails and is caught leaves the one terminal event to the mounting run")
     func caughtMountedFailureLeavesTheTerminalToTheMountingRun() async throws {
         let run = await Self.nestingRun(around: Fixtures.ThrowingTool())

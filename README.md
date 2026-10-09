@@ -825,7 +825,10 @@ questions that those runs ask the user.
   post events (`post(_:)`, `progress(_:plan:)`, where an optional
   `PlanSnapshot` sends the agent plan to the host and never to the model),
   send mail to the calling session while the run continues (`message(_:)`, a
-  `.message` event that is never terminal), attach records (`attach(_:)`), ask
+  `.message` event that is never terminal), send output and metadata of the
+  call to the client only (`post(display:)`, a `ToolDisplayEvent` that the
+  sink gets in `post(display:)`, that never goes into the model input, and
+  that a host never combines or records), attach records (`attach(_:)`), ask
   the user (`elicit(_:)`), read the background runs (`backgroundRuns()`), wait
   for a run (`wait(completionToken:seconds:)`), stop a run
   (`cancel(completionToken:)`), and mount a tool of its own (`mount(_:op:as:)`).

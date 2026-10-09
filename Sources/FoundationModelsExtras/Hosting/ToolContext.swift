@@ -206,6 +206,19 @@ public struct ToolContext: Sendable {
         await sink.post(event: stamped(.message, detail: text))
     }
 
+    /// Sends `kind` to the client as a ``ToolDisplayEvent``, stamped with the
+    /// `tool`, `op` and `completionToken` of this run.
+    ///
+    /// The event goes to ``OperationEventSink/post(display:)`` of the sink.
+    /// It never goes into the model input, it never changes the progress
+    /// detail of the run, and a host never combines it with another event.
+    ///
+    /// - Parameter kind: The output or the metadata for the client.
+    public func post(display kind: ToolDisplayEvent.Kind) async {
+        await sink.post(
+            display: ToolDisplayEvent(tool: tool, op: op, correlationID: completionToken, kind: kind))
+    }
+
     /// Attaches `attachment` to the call of this context.
     ///
     /// The records go on the ``ToolCallReport`` of the call, in call order,
@@ -274,8 +287,10 @@ public struct ToolContext: Sendable {
     /// context and span. Each event of a synchronous call goes through
     /// ``post(_:)``, so it has the correlation of THIS run. The terminal event
     /// of a synchronous call goes as a `.progress` event with the same
-    /// detail, because only THIS run gives its own terminal event. Each record
-    /// that a synchronous call attaches goes on THIS run.
+    /// detail, because only THIS run gives its own terminal event. Each
+    /// display event of a synchronous call goes through ``post(display:)``,
+    /// so it also has the correlation of THIS run. Each record that a
+    /// synchronous call attaches goes on THIS run.
     ///
     /// A background call is a full background run, the same as a top-level
     /// one: the run plane tracks it, and its events and its terminal go to
@@ -397,10 +412,10 @@ extension ToolInvocationRecord {
 }
 
 /// The sink of a synchronous call that ``ToolContext/mount(_:op:as:)``
-/// mounted. It posts each event through the mounting context, so the event
-/// gets the correlation of the mounting run. It also gives each record of a
-/// mounted call to the mounting context, so the records go on the report of
-/// the mounting run.
+/// mounted. It posts each event and each display event through the mounting
+/// context, so the event gets the correlation of the mounting run. It also
+/// gives each record of a mounted call to the mounting context, so the
+/// records go on the report of the mounting run.
 ///
 /// The terminal event of the mounted run is not a terminal event of the
 /// mounting run. The mounting run can catch a failure of the mounted call and
@@ -420,6 +435,14 @@ private struct MountedRunUpstreamSink: OperationEventSink, ToolCallReportSink {
             return
         }
         await context.progress(event.detail)
+    }
+
+    /// Posts `event` through the mounting context, so it gets the stamps of
+    /// the mounting run.
+    ///
+    /// - Parameter event: The display event of the mounted run.
+    func post(display event: ToolDisplayEvent) async {
+        await context.post(display: event.kind)
     }
 
     /// Attaches each record of `report` to the mounting context, in order.

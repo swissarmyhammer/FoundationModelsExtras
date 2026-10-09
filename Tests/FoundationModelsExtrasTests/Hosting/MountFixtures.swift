@@ -36,10 +36,14 @@ enum MountFixtures {
 
     // MARK: - Sink
 
-    /// A sink that keeps each event and each report, in order.
+    /// A sink that keeps each event, each display event and each report, in
+    /// order.
     actor RecordingSink: OperationEventSink, ToolCallReportSink {
         /// Each event, in post order.
         private(set) var events: [OperationEvent] = []
+
+        /// Each display event, in post order.
+        private(set) var displays: [ToolDisplayEvent] = []
 
         /// Each report, in post order.
         private(set) var reports: [ToolCallReport] = []
@@ -47,6 +51,11 @@ enum MountFixtures {
         /// Keeps `event`.
         func post(event: OperationEvent) {
             events.append(event)
+        }
+
+        /// Keeps `event`.
+        func post(display event: ToolDisplayEvent) {
+            displays.append(event)
         }
 
         /// Keeps `report`.
@@ -281,6 +290,18 @@ enum MountFixtures {
         func call(arguments: MountArguments) async throws -> String {
             await ToolContext.current?.progress("halfway")
             return "progressed: \(arguments.value)"
+        }
+    }
+
+    /// Posts one display event with the value of the call as a text chunk,
+    /// then returns.
+    struct DisplayOnceTool: Tool {
+        let name = "display_once_tool"
+        let description = "posts one display event then returns"
+
+        func call(arguments: MountArguments) async throws -> String {
+            await ToolContext.current?.post(display: .contentChunk(.text(arguments.value)))
+            return "displayed: \(arguments.value)"
         }
     }
 

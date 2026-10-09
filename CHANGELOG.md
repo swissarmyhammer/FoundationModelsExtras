@@ -5,6 +5,46 @@ change is at the top.
 
 ## Unreleased
 
+### Added: a display-only event lane for tools (`ToolDisplayEvent`, `OperationEventSink.post(display:)`, `ToolContext.post(display:)`)
+
+A tool can now send output and metadata of its call to the client of the
+host, for example the ACP `tool_call_content_chunk` and `tool_call_update`
+updates. Before, a tool had only `progress(_:plan:)`. A new progress event
+replaces the earlier one, a host can combine progress events, and the host
+puts the progress `detail` in the model input. Thus progress is not a
+usable display stream.
+
+**What changed.**
+
+- `ToolDisplayContent` is new. It holds text (`.text`), a diff of one file
+  (`.diff(path:oldText:newText:)`, where `oldText == nil` is a new file), or
+  a JSON text (`.json`).
+- `ToolDisplayEvent` is new. It has a `tool`, an `op`, a `correlationID` (the
+  completion token of the run) and a `kind`:
+  - `.contentChunk(ToolDisplayContent)` adds one part of the output.
+  - `.contentReplace([ToolDisplayContent])` replaces the full output.
+  - `.metadata(title:kind:locations:rawInput:)` sets new metadata of the
+    call. A `nil` field does not change the value that the client has.
+    `ToolDisplayEvent.ToolKind` has the ACP tool kinds (the wire value of
+    `switchMode` is `"switch_mode"`), and `ToolDisplayEvent.Location` has a
+    `path` and an optional `line`.
+- `OperationEventSink.post(display:)` is new. Its default implementation does
+  nothing, the same as `post(invocation:)`.
+- `ToolContext.post(display:)` is new. It stamps the kind with the `tool`, the
+  `op` and the `completionToken` of the run, the same as each other event.
+- A display event never goes into the model input. It is not an
+  `OperationEvent`, so it never changes the progress detail of a run, it
+  changes no timeout state, and the run event funnel does not count it as an
+  event of the run for the terminal event.
+- A display event is never combined with another display event, and a host
+  never records it in the journal. The type is not `Codable`.
+- A synchronous call that `ToolContext.mount(_:op:as:)` mounts sends each
+  display event again under the stamps of the mounting run.
+
+**Migration.** No change is necessary. A host that wants the display events
+must implement `post(display:)` on its sink, and send each event to its
+client without a change.
+
 ### Changed (breaking): a background call answers with its own result when the run ends inside the settle period
 
 The rule is now: a background call goes to the background only when its run
