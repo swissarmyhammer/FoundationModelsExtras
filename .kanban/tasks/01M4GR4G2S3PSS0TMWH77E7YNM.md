@@ -48,8 +48,24 @@ comments:
     - evidence: commit subject "feat(marketplace)!: remove catalogVersion and catalog displayID from provenance" (new local commit, not pushed)
     - next: review
   timestamp: 2026-10-09T17:39:43.246660+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4gwfpbh2ce535y68swgx1zs
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (f7095e5). 0 findings, 0 confirmed, 2 refuted. 12 files reviewed. CHANGELOG.md, README.md and plan.md have no matching validator. The .kanban files are excluded by .reviewignore.
+    - next: none. The task is in done.
+  timestamp: 2026-10-09T17:48:27.889149+00:00
+- actor: claude-code
+  id: 01m4gwfx291swq55sr0kq272hf
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 17 files
+    - test: green — swift test, Marketplace 382 passed, core 913 passed, 0 failed
+    - commit: f7095e5
+    - review: clean — 0 findings
+  timestamp: 2026-10-09T17:48:34.761197+00:00
+position_column: done
+position_ordinal: e680
 title: 'Marketplace: remove catalogVersion and the catalog display id from the public API and the state file'
 ---
 ## Problem
