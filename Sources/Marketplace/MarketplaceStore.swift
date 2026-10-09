@@ -1467,11 +1467,9 @@ fileprivate struct Preparation {
     }
     if source.select != .all {
       diagnostics.append(
-        MarketplaceDiagnostic(
-          severity: .warning, marketplaceID: key,
-          message:
-            #"The source "\#(source.url)" names a folder on this computer, thus the store reads that folder as it is. A "select" field needs a snapshot of a fetched commit, thus the store ignores it here."#
-        ))
+        .warning(
+          #"The source "\#(source.url)" names a folder on this computer, thus the store reads that folder as it is. A "select" field needs a snapshot of a fetched commit, thus the store ignores it here."#,
+          marketplaceID: key))
     }
     sources.append(
       MarketplaceStore.PreparedSource(

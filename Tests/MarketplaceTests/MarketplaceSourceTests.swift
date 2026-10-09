@@ -287,6 +287,19 @@ struct MarketplaceSourceTests {
     #expect(diagnostic.description == "[warning] The list is empty.")
   }
 
+  @Test func aWarningWithNoMarketplaceIDIsAWarningWithNoID() {
+    let warning = MarketplaceDiagnostic.warning("The list is empty.")
+
+    #expect(warning == MarketplaceDiagnostic(severity: .warning, marketplaceID: nil, message: "The list is empty."))
+  }
+
+  @Test func aWarningWithAMarketplaceIDKeepsTheID() {
+    let warning = MarketplaceDiagnostic.warning("The select field is ignored.", marketplaceID: "skills")
+
+    #expect(
+      warning == MarketplaceDiagnostic(severity: .warning, marketplaceID: "skills", message: "The select field is ignored."))
+  }
+
   // MARK: - Helpers
 
   /// Encodes `value` to JSON and decodes it again.

@@ -52,6 +52,58 @@ comments:
     - evidence: commit subject "feat(marketplace)!: load skills and agents by folder scan, remove catalog files"
     - next: none. Tests were green before the commit (Marketplace 381 tests, core 913 tests).
   timestamp: 2026-10-09T16:37:22.909281+00:00
+- actor: claude-code
+  id: 01m4gs58cb87708z6h0x2fpmry
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (commit 8c7acc1). 2 findings (2 confirmed, 3 refuted). Sources/Marketplace/SnapshotWriter.swift:428, Tests/MarketplaceTests/SnapshotWriterTests.swift:689
+    - next: Correct the 2 open items in "## Review Findings (2026-10-09 11:37)". The task stays in review.
+  timestamp: 2026-10-09T16:50:20.171624+00:00
+- actor: claude-code
+  id: 01m4gs7xgtsg5amgeahg6z0a39
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — Marketplace sources, tests, fixtures, docs
+    - test: green — swift test, Marketplace 381 passed, core 913 passed, 0 failed
+    - commit: 8c7acc1
+    - review: findings — Sources/Marketplace/SnapshotWriter.swift:428, Tests/MarketplaceTests/SnapshotWriterTests.swift:689
+  timestamp: 2026-10-09T16:51:47.354573+00:00
+- actor: claude-code
+  id: 01m4gszzc2z7rdsxhxce7cpnk2
+  text: |-
+    Review findings of 2026-10-09 11:37 corrected. Notes for the next agent:
+    - New internal static `MarketplaceDiagnostic.warning(_:marketplaceID:)` in `Sources/Marketplace/MarketplaceDiagnostic.swift`. The default `marketplaceID` is `nil` (the store adds the marketplace later).
+    - `TreeScanner.diagnostic(saying:)` (CatalogResolver.swift) and `SnapshotRun.diagnostic(saying:)` (SnapshotWriter.swift) are deleted. All their callers use `.warning(...)`.
+    - The search of the whole Marketplace module found one more copy of the warning construction: the "select field is ignored" warning in `MarketplaceStore.addLocal`. It now uses `.warning(message, marketplaceID: key)`. No other `severity: .warning` construction stays in `Sources/`.
+    - Two new unit tests in `MarketplaceSourceTests` prove the constructor (RED was a compile failure: no member `warning`).
+    - SnapshotWriterTests: the new test `aSymlinkThatLeavesAnAgentFolderIsRejectedAndNoFolderStays` is deleted. The parameterized symlink test is now `aSymlinkThatLeavesItsEntryFolderIsRejectedAndNoFolderStays(target:kind:)`, with the five targets times `[.skill, .agent]`.
+    - The same skill/agent copy pattern was also in the new test `anAgentGetsThePartialsOfItsPluginFolder`, a copy of `thePartialsOfAFolderAboveTheSkillsFolderAreCopied`. Both are folded into one parameterized test `thePartialsOfAFolderAboveAnEntryAreCopied(entry:snapshotFolder:)` with the arguments `entriesUnderAPluginFolder` (one skill, one agent).
+    - Discovery: a private nested enum cannot be the parameter type of an internal `@Test` method (compile error "method must be declared private because its parameter uses a private type"). `MemoryEntryKind` is now internal, with a doc note that tells why.
+    - The other new tests (`anAgentFolderIsCopiedAsATree`, `aTreeWithNoEntryCopiesNoPartials`, `thePluginLayoutGivesEachAgentFolderItsResourcesAndThePluginPartials`) have no skill copy. `anAgentFileAboveTheFileLimitIsRejectedAndNoFolderStays` is not a new test (the commit changed only its path), thus it stays.
+  timestamp: 2026-10-09T17:04:55.682166+00:00
+- actor: claude-code
+  id: 01m4gt02mktx9qbqm0vz6rcqhq
+  text: |-
+    ### implement — changed
+    - evidence: 6 files — Sources/Marketplace/MarketplaceDiagnostic.swift, Sources/Marketplace/CatalogResolver.swift, Sources/Marketplace/SnapshotWriter.swift, Sources/Marketplace/MarketplaceStore.swift, Tests/MarketplaceTests/MarketplaceSourceTests.swift, Tests/MarketplaceTests/SnapshotWriterTests.swift. `swift test`: Marketplace 381 tests in 28 suites passed; core 913 tests in 87 suites passed, 0 failed, 11 known issues (pre-existing, TelemetryCaptureTests). No Swift compiler warning; the one build tool warning (mlx-swift_Cmlx.bundle) comes from a dependency. Both findings of "## Review Findings (2026-10-09 11:37)" are checked. Not committed.
+    - next: /review
+  timestamp: 2026-10-09T17:04:59.027346+00:00
+- actor: claude-code
+  id: 01m4gt66s0174c3f8xbgd0sgq0
+  text: |-
+    ### test - green
+    - evidence: swift test, exit 0. Test run lines: 131 tests in 12 suites, 40 tests in 4 suites, 44 tests in 10 suites, 26 tests in 5 suites, 381 tests in 28 suites (Marketplace target), 913 tests in 87 suites (core target). All passed, 0 failures, 0 skipped.
+    - note: the 11 known issues come from TelemetryCaptureTests. They use withKnownIssue on purpose to prove that the capture reports a forbidden string. They are expected.
+    - note: one build line, "missing creator for mutated node" for the mlx-swift_Cmlx.bundle, comes from the build system and a dependency. It does not come from this source.
+    - next: review
+  timestamp: 2026-10-09T17:08:19.872750+00:00
+- actor: claude-code
+  id: 01m4gt6m7tjze4ca255vj6hn1t
+  text: |-
+    ### commit — changed
+    - evidence: commit "refactor(marketplace): share one warning diagnostic constructor". It fixes review round 1. One internal MarketplaceDiagnostic.warning(_:marketplaceID:) replaces three private copies (CatalogResolver, SnapshotWriter, MarketplaceStore). The skill and agent symlink tests and the partials tests in SnapshotWriterTests are now parameterized tests. All six test runs pass (Marketplace 381, core 913).
+    - next: review round 2
+  timestamp: 2026-10-09T17:08:33.658158+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'Marketplace: load skills and agents by a folder scan, with no catalog files, and make agents folders (agents/<name>/AGENT.md)'
@@ -105,3 +157,167 @@ This change is breaking (`feat!`).
 - FoundationModelsSkills (session foundationmodelsskills-be): it uses `MarketplaceLayout` and `SkillSelection`. `.plugins` goes away.
 
 When this change is in, tell the sessions foundationmodelsagents-3d and skills-79.
+
+## Review Findings (2026-10-09 11:37)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 22 file(s) reviewed, 128 not reviewed.
+
+> 6 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 6 file(s)
+
+> 122 file(s) not reviewed — no validator matched:
+> - `CHANGELOG.md` — no validator matches this file
+> - `README.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/algorithmic-art/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/brand-guidelines/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/canvas-design/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/doc-coauthoring/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/docx/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/frontend-design/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/internal-comms/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/mcp-builder/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/pdf/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/pptx/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/skill-creator/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/slack-gif-creator/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/theme-factory/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/web-artifacts-builder/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/webapp-testing/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/anthropics-skills/skills/xlsx/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-and-codex/.agents/plugins/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-and-codex/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-and-codex/skills/from-claude/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-and-codex/skills/from-codex/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-plugins-official/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-plugins-official/plugins/code-review/commands/code-review.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-plugins-official/plugins/frontend-design/skills/frontend-design/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/claude-plugins-official/plugins/skill-creator/skills/skill-creator/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/codex-catalog/.agents/plugins/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/codex-catalog/plugins/tools/skills/format/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/codex-catalog/plugins/tools/skills/lint/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/codex-catalog/plugins/tools/skills/notes/README.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/duplicate-skills/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/duplicate-skills/first/alpha/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/duplicate-skills/first/shared/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/duplicate-skills/second/skills/shared/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/nameless-root/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/remote-plugins/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/remote-plugins/skills/local-one/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/renamed-skills/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/renamed-skills/skills/new-name/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/renamed-skills/skills/steady/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/repository-scan/docs/README.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/repository-scan/gamma/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/repository-scan/nested/deep/delta/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/repository-scan/skills/alpha/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/repository-scan/skills/beta/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/repository-scan/skills/gamma/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/single-skill-repository/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/single-skill-repository/skills/solo/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/committer.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/double-check.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/explorer.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/general-purpose.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/implementer.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/planner.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/reviewer.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/agents/tester.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/skills/_partials/sah-architecture-awareness.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/skills/_partials/sah-findings-are-requirements.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/skills/code-context/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-agents/skills/review/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-skills/.claude-plugin/marketplace.json` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-skills/skills/_partials/sah-task-standards.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-skills/skills/code-context/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-skills/skills/commit/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-skills/skills/tdd/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/catalogs/swissarmyhammer-skills/skills/tdd/writing-good-tests.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/agent-library/plugins/code-tools/_partials/house-rules.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/agent-library/plugins/code-tools/agents/security-reviewer/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/agent-library/plugins/code-tools/agents/security-reviewer/checklist.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/agent-library/plugins/code-tools/skills/review/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/agent-library/plugins/docs-tools/agents/doc-writer/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/algorithmic-art/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/brand-guidelines/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/canvas-design/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/doc-coauthoring/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/docx/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/frontend-design/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/internal-comms/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/mcp-builder/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/pdf/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/pptx/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/skill-creator/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/slack-gif-creator/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/theme-factory/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/web-artifacts-builder/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/webapp-testing/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/anthropics-skills/skills/xlsx/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/claude-plugins-official/plugins/code-review/commands/code-review.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/claude-plugins-official/plugins/frontend-design/skills/frontend-design/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/claude-plugins-official/plugins/skill-creator/skills/skill-creator/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/duplicate-skills/first/alpha/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/duplicate-skills/first/shared/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/duplicate-skills/second/skills/shared/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/nameless-root/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/repository-scan/docs/README.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/repository-scan/gamma/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/repository-scan/nested/deep/delta/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/repository-scan/skills/alpha/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/repository-scan/skills/beta/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/repository-scan/skills/gamma/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/single-skill-repository/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/single-skill-repository/skills/solo/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/committer/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/double-check/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/explorer/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/general-purpose/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/implementer/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/planner/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/reviewer/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/agents/tester/AGENT.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/skills/_partials/sah-architecture-awareness.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/skills/_partials/sah-findings-are-requirements.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/skills/code-context/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-agents/skills/review/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-skills/skills/_partials/sah-task-standards.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-skills/skills/code-context/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-skills/skills/commit/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-skills/skills/tdd/SKILL.md` — no validator matches this file
+> - `Tests/MarketplaceTests/Fixtures/marketplaces/swissarmyhammer-skills/skills/tdd/writing-good-tests.md` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+> ⚠️ tool rule 'code-hygiene/disallowed-constructs-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> disallowed-constructs-swift found no file at Sources/Marketplace/MarketplaceCatalog.swift, so its constructs are unread
+
+> ⚠️ tool rule 'code-hygiene/disallowed-constructs-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> disallowed-constructs-swift found no file at Tests/MarketplaceTests/MarketplaceCatalogTests.swift, so its constructs are unread
+
+> ⚠️ tool rule 'code-hygiene/function-length-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> function-length-swift found no file at Sources/Marketplace/MarketplaceCatalog.swift, so its bodies are unread
+
+> ⚠️ tool rule 'code-hygiene/function-length-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> function-length-swift found no file at Tests/MarketplaceTests/MarketplaceCatalogTests.swift, so its bodies are unread
+
+> ⚠️ tool rule 'code-hygiene/idioms-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> idioms-swift found no file at Sources/Marketplace/MarketplaceCatalog.swift, so its declarations are unread
+
+> ⚠️ tool rule 'code-hygiene/idioms-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> idioms-swift found no file at Tests/MarketplaceTests/MarketplaceCatalogTests.swift, so its declarations are unread
+
+> ⚠️ tool rule 'code-hygiene/magic-numbers-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> magic-numbers-swift found no file at Sources/Marketplace/MarketplaceCatalog.swift, so its literals are unread
+
+> ⚠️ tool rule 'code-hygiene/magic-numbers-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> magic-numbers-swift found no file at Tests/MarketplaceTests/MarketplaceCatalogTests.swift, so its literals are unread
+
+> ⚠️ tool rule 'code-hygiene/missing-docs-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> missing-docs-swift found no file at Sources/Marketplace/MarketplaceCatalog.swift, so its declarations are unread
+
+> ⚠️ tool rule 'code-hygiene/missing-docs-swift' declined an item — it judged the rest of the code, and this it could not judge:
+> missing-docs-swift found no file at Tests/MarketplaceTests/MarketplaceCatalogTests.swift, so its declarations are unread
+
+- [x] `Sources/Marketplace/SnapshotWriter.swift:428` `reuse/reuse` — The new private static helper `SnapshotRun.diagnostic(saying:)` builds the same warning `MarketplaceDiagnostic` as the new `TreeScanner.diagnostic(saying:)` in CatalogResolver.swift. Both fix `severity: .warning` and `marketplaceID: nil`. Two copies of one constructor can drift apart, and a later change to the warning shape would need two edits. Keep one warning constructor in a shared place, for example a static on `MarketplaceDiagnostic` or an internal free function in the Marketplace module. Have both `SnapshotRun` and `TreeScanner` call it, and remove the private copy.
+- [x] `Tests/MarketplaceTests/SnapshotWriterTests.swift:689` `duplication/duplication` — The new test aSymlinkThatLeavesAnAgentFolderIsRejectedAndNoFolderStays repeats the body of the existing parameterized test aSymlinkThatLeavesTheSkillFolderIsRejectedAndNoFolderStays. Both build a one-entry tree with a symlink whose target escapes, expect SnapshotError.escapingSymlink, and expect no snapshot folder. The only differences are the target string and the agent kind. Copies of this logic can drift apart. Delete the new test. Give the existing parameterized symlink test a kind argument (skill or agent, using the MemoryEntryKind helper oneEntry already takes), and add the agent case to its argument list. Keep one shared body for both kinds.

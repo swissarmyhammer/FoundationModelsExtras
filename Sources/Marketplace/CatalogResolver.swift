@@ -268,7 +268,7 @@ fileprivate struct TreeScanner {
     do {
       guard let name = try rootEntryName(documentName: document) else {
         let message = "The root \(document) has no frontmatter name that is one folder name. The resolver skips it."
-        return Diagnosed(value: nil, diagnostics: [diagnostic(saying: message)])
+        return Diagnosed(value: nil, diagnostics: [.warning(message)])
       }
       return Diagnosed(value: ResolvedEntry(name: name, path: folder))
     } catch {
@@ -344,7 +344,7 @@ fileprivate struct TreeScanner {
     return Diagnosed(
       value: skills.filter { wanted.contains($0.name) },
       diagnostics: names.filter { !known.contains($0) }.map { name in
-        diagnostic(saying: #"The selected skill "\#(name)" is not in the marketplace."#)
+        MarketplaceDiagnostic.warning(#"The selected skill "\#(name)" is not in the marketplace."#)
       })
   }
 
@@ -427,14 +427,6 @@ fileprivate struct TreeScanner {
 
   // MARK: - Diagnostics
 
-  /// Makes a warning about this marketplace.
-  ///
-  /// - Parameter message: The text of the diagnostic.
-  /// - Returns: The warning. The store adds the marketplace to it.
-  func diagnostic(saying message: String) -> MarketplaceDiagnostic {
-    MarketplaceDiagnostic(severity: .warning, marketplaceID: nil, message: message)
-  }
-
   /// Makes the error for a path that the source cannot read.
   ///
   /// - Parameters:
@@ -454,9 +446,8 @@ fileprivate struct TreeScanner {
   /// - Returns: A warning that names the folder and the two documents.
   func twoDocumentsDiagnostic(folder: String) -> MarketplaceDiagnostic {
     let documents = EntryKind.allCases.map { $0.documentName(in: layout) }.joined(separator: " and ")
-    return diagnostic(
-      saying:
-        #"The folder "\#(CatalogPath.display(path: folder))" holds \#(documents). A folder is one skill or one agent, thus the resolver skips it."#
+    return .warning(
+      #"The folder "\#(CatalogPath.display(path: folder))" holds \#(documents). A folder is one skill or one agent, thus the resolver skips it."#
     )
   }
 
@@ -471,9 +462,8 @@ fileprivate struct TreeScanner {
   func duplicateDiagnostic(loser: ResolvedEntry, winner: ResolvedEntry, kind: EntryKind) -> MarketplaceDiagnostic {
     let loserPath = CatalogPath.display(path: loser.path)
     let winnerPath = CatalogPath.display(path: winner.path)
-    return diagnostic(
-      saying:
-        #"Two \#(kind.pluralNoun) have the name "\#(winner.name)": "\#(loserPath)" and "\#(winnerPath)". The resolver uses "\#(winnerPath)"."#
+    return .warning(
+      #"Two \#(kind.pluralNoun) have the name "\#(winner.name)": "\#(loserPath)" and "\#(winnerPath)". The resolver uses "\#(winnerPath)"."#
     )
   }
 
@@ -483,9 +473,8 @@ fileprivate struct TreeScanner {
   /// - Parameter skill: The skill that the resolver does not use.
   /// - Returns: A warning that names the skill folder and the reserved name.
   func reservedNameDiagnostic(skill: ResolvedEntry) -> MarketplaceDiagnostic {
-    diagnostic(
-      saying:
-        #"The skill "\#(CatalogPath.display(path: skill.path))" has the name "\#(skill.name)", which a layer root keeps for the agent folders. The resolver skips it."#
+    .warning(
+      #"The skill "\#(CatalogPath.display(path: skill.path))" has the name "\#(skill.name)", which a layer root keeps for the agent folders. The resolver skips it."#
     )
   }
 
@@ -498,9 +487,8 @@ fileprivate struct TreeScanner {
   func oldAgentFileDiagnostic(name: String, inFolder folder: String) -> MarketplaceDiagnostic {
     let agentFolder = CatalogPath.child(named: String(name.dropLast(Self.oldAgentFileExtension.count)), of: folder)
     let target = CatalogPath.child(named: MarketplaceLayer.agentDocumentName, of: agentFolder)
-    return diagnostic(
-      saying:
-        #"The agent file "\#(CatalogPath.child(named: name, of: folder))" is in the old layout. Move it to "\#(target)". The resolver skips it."#
+    return .warning(
+      #"The agent file "\#(CatalogPath.child(named: name, of: folder))" is in the old layout. Move it to "\#(target)". The resolver skips it."#
     )
   }
 }

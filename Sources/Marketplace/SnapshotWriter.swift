@@ -390,7 +390,7 @@ fileprivate struct SnapshotRun {
     }
     let message =
       #"Two folders give "\#(relativePath)": "\#(earlier)" and "\#(treePath)". The snapshot uses "\#(treePath)"."#
-    report.diagnostics.append(Self.diagnostic(saying: message))
+    report.diagnostics.append(.warning(message))
   }
 
   /// Forgets each write into the partials folder of the snapshot.
@@ -418,15 +418,7 @@ fileprivate struct SnapshotRun {
     }
     let message =
       #"The file "\#(path)" is a large file storage pointer, not the content. The snapshot holds the pointer."#
-    report.diagnostics.append(Self.diagnostic(saying: message))
-  }
-
-  /// Makes one warning about this marketplace.
-  ///
-  /// - Parameter message: The text of the diagnostic.
-  /// - Returns: The warning. The store adds the marketplace to it.
-  private static func diagnostic(saying message: String) -> MarketplaceDiagnostic {
-    MarketplaceDiagnostic(severity: .warning, marketplaceID: nil, message: message)
+    report.diagnostics.append(.warning(message))
   }
 
   // MARK: - Names and paths

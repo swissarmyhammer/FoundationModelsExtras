@@ -42,6 +42,18 @@ public struct MarketplaceDiagnostic: Sendable, Hashable {
     self.marketplaceID = marketplaceID
     self.message = message
   }
+
+  /// Makes a warning. Each part of the module that finds a warning uses this
+  /// constructor, so all the warnings have one shape.
+  ///
+  /// - Parameters:
+  ///   - message: The text of the diagnostic.
+  ///   - marketplaceID: The marketplace that the warning is about. It is
+  ///     `nil` when the store adds the marketplace later.
+  /// - Returns: A diagnostic with the ``Severity/warning`` severity.
+  static func warning(_ message: String, marketplaceID: String? = nil) -> MarketplaceDiagnostic {
+    MarketplaceDiagnostic(severity: .warning, marketplaceID: marketplaceID, message: message)
+  }
 }
 
 extension MarketplaceDiagnostic: CustomStringConvertible {

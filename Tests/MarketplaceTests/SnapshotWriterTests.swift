@@ -139,7 +139,10 @@ struct SnapshotWriterTests {
   }
 
   /// The kind of the one entry of an in-memory tree.
-  private enum MemoryEntryKind {
+  ///
+  /// A parameterized test takes it as an argument, thus it is `internal`
+  /// and not `private`.
+  enum MemoryEntryKind {
     /// The folder is a skill.
     case skill
 
@@ -322,18 +325,24 @@ struct SnapshotWriterTests {
 
   // MARK: - The partials of the folders above an entry
 
-  @Test func thePartialsOfAFolderAboveTheSkillsFolderAreCopied() throws {
+  /// One entry under the plugin folder `tools/` of each kind: the document
+  /// of the entry, and the top folder that the entry gives in the snapshot.
+  private static let entriesUnderAPluginFolder: [([String: String], String)] = [
+    (["tools/skills/alpha/SKILL.md": skillFile(named: "alpha")], "alpha"),
+    (["tools/agents/planner/AGENT.md": MarketplaceTestSupport.agentDocument(named: "planner")], agentsName),
+  ]
+
+  @Test(arguments: entriesUnderAPluginFolder)
+  func thePartialsOfAFolderAboveAnEntryAreCopied(entry: [String: String], snapshotFolder: String) throws {
     let destination = try Destination()
     defer { destination.remove() }
 
     let report = try Self.writeTree(
-      [
-        "tools/skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
-        "tools/_partials/note.md": "from the plugin folder",
-      ], layout: Self.layout, to: destination)
+      entry.merging(["tools/_partials/note.md": "from the plugin folder"]) { $1 }, layout: Self.layout,
+      to: destination)
 
     #expect(report.diagnostics.isEmpty)
-    #expect(try destination.names() == [Self.partialsName, "alpha"])
+    #expect(try destination.names() == [Self.partialsName, snapshotFolder])
     #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the plugin folder")
   }
 
@@ -369,20 +378,6 @@ struct SnapshotWriterTests {
     #expect(report.diagnostics.isEmpty)
     #expect(try destination.names() == [Self.partialsName, Self.agentsName])
     #expect(try destination.names(inFolder: Self.partialsName) == ["sah-x.md"])
-  }
-
-  @Test func anAgentGetsThePartialsOfItsPluginFolder() throws {
-    let destination = try Destination()
-    defer { destination.remove() }
-
-    let report = try Self.writeTree(
-      [
-        "plugins/p/agents/planner/AGENT.md": MarketplaceTestSupport.agentDocument(named: "planner"),
-        "plugins/p/_partials/house.md": "from the plugin folder",
-      ], layout: Self.layout, to: destination)
-
-    #expect(report.diagnostics.isEmpty)
-    #expect(try destination.text(ofFile: "\(Self.partialsName)/house.md") == "from the plugin folder")
   }
 
   @Test func aTreeCopiesThePartialsOfTheRoot() throws {
@@ -686,18 +681,6 @@ struct SnapshotWriterTests {
     #expect(!destination.folderExists)
   }
 
-  @Test func aSymlinkThatLeavesAnAgentFolderIsRejectedAndNoFolderStays() throws {
-    let destination = try Destination()
-    defer { destination.remove() }
-    let tree = Self.oneEntry(
-      holding: [CatalogTreeEntry(name: "link.md", kind: .symlink(target: "../outside.md"))], kind: .agent)
-
-    #expect(throws: SnapshotError.escapingSymlink(path: "tool/link.md", target: "../outside.md")) {
-      _ = try Self.write(tree, to: destination)
-    }
-    #expect(!destination.folderExists)
-  }
-
   @Test func aSkillFolderNamedAgentsIsNotCopied() throws {
     let destination = try Destination()
     defer { destination.remove() }
@@ -800,11 +783,13 @@ struct SnapshotWriterTests {
     #expect(!destination.folderExists)
   }
 
-  @Test(arguments: ["../../outside.md", "../outside.md", "/etc/passwd", "~/secret", "sub/../../outside.md"])
-  func aSymlinkThatLeavesTheSkillFolderIsRejectedAndNoFolderStays(target: String) throws {
+  @Test(
+    arguments: ["../../outside.md", "../outside.md", "/etc/passwd", "~/secret", "sub/../../outside.md"],
+    [MemoryEntryKind.skill, .agent])
+  func aSymlinkThatLeavesItsEntryFolderIsRejectedAndNoFolderStays(target: String, kind: MemoryEntryKind) throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: "link.md", kind: .symlink(target: target))])
+    let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: "link.md", kind: .symlink(target: target))], kind: kind)
 
     #expect(throws: SnapshotError.escapingSymlink(path: "tool/link.md", target: target)) {
       _ = try Self.write(tree, to: destination)
