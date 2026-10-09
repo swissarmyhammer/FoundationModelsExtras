@@ -25,21 +25,6 @@ struct BackgroundToolRunnerTests {
     /// that stays on its gate passes.
     private static let configuredSiteGrace: TimeInterval = 0.25
 
-    /// A sink that stages each event for a later prompt, and takes back the
-    /// events of a run on request.
-    private actor StagingSink: OperationEventSink, StagedEventWithdrawing {
-        /// The staged events, in post order.
-        private(set) var staged: [OperationEvent] = []
-
-        func post(event: OperationEvent) {
-            staged.append(event)
-        }
-
-        func withdrawStagedEvents(correlationID: String) {
-            staged.removeAll { $0.correlationID == correlationID }
-        }
-    }
-
     /// A background tool that states no grace and returns at once.
     private struct NoGraceTool: Tool, BackgroundTool {
         let name = "no_grace_tool"
@@ -270,7 +255,7 @@ struct BackgroundToolRunnerTests {
     @Test("an inline result leaves nothing staged for a later prompt, and a pending run still stages its progress")
     func inlineResultWithdrawsWhatTheRunStaged() async throws {
         let runPlane = RunPlane()
-        let sink = StagingSink()
+        let sink = Fixtures.StagingSink()
         let site = Fixtures.site(runPlane: runPlane, sink: sink, inlineSettleGrace: Fixtures.pendingAtOnceGrace)
         let gate = RunLatch()
         gate.open()
@@ -302,7 +287,7 @@ struct BackgroundToolRunnerTests {
 
     @Test("a run that throws inside the grace also takes back its staged events")
     func inlineErrorWithdrawsWhatTheRunStaged() async throws {
-        let sink = StagingSink()
+        let sink = Fixtures.StagingSink()
         let site = Fixtures.site(runPlane: RunPlane(), sink: sink, inlineSettleGrace: Fixtures.pendingAtOnceGrace)
         let gate = RunLatch()
         gate.open()

@@ -127,33 +127,6 @@ struct ToolDisplayHelperTests {
         }
     }
 
-    /// A sink that stages each event for a later prompt, keeps each display
-    /// event, and records how many display events it had when the runner
-    /// took back the staged events of a run.
-    private actor StagingDisplaySink: OperationEventSink, StagedEventWithdrawing {
-        /// The staged events, in post order.
-        private(set) var staged: [OperationEvent] = []
-
-        /// Each display event, in post order.
-        private(set) var displays: [ToolDisplayEvent] = []
-
-        /// The number of display events at the withdraw, or `nil` before it.
-        private(set) var displayCountAtWithdraw: Int?
-
-        func post(event: OperationEvent) {
-            staged.append(event)
-        }
-
-        func post(display event: ToolDisplayEvent) {
-            displays.append(event)
-        }
-
-        func withdrawStagedEvents(correlationID: String) {
-            displayCountAtWithdraw = displays.count
-            staged.removeAll { $0.correlationID == correlationID }
-        }
-    }
-
     // MARK: - Each runner path
 
     @Test("ContextBindingTool: emit and update reach the sink under the token of the call, and post no operation event")
@@ -220,7 +193,7 @@ struct ToolDisplayHelperTests {
 
     @Test("a run that answers in its settle period keeps its display events: the sink has them before the withdraw, and the withdraw takes back only the staged operation events")
     func inlineAnswerDoesNotWithdrawTheDisplays() async throws {
-        let sink = StagingDisplaySink()
+        let sink = Fixtures.StagingSink()
         let gate = RunLatch()
         gate.open()
         let runner = BackgroundToolRunner(

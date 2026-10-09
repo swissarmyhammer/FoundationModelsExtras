@@ -49,6 +49,61 @@ comments:
     - evidence: d710d56 feat(hosting): add emit(chunk:) and update(title:kind:locations:) to ToolContext
     - next: none. The commit is local. It is not pushed.
   timestamp: 2026-10-09T15:20:55.290658+00:00
+- actor: claude-code
+  id: 01m4gm1tz09qrh799gqddvx9s6
+  text: |-
+    ### commit — correction
+    - The commit comment above names sha d710d56. That sha does not exist now. The committer amended the commit. The correct sha is ba381a0.
+  timestamp: 2026-10-09T15:21:05.248113+00:00
+- actor: claude-code
+  id: 01m4gmcxs86g69p5d0vh7118vy
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (ba381a0). 1 finding (1 confirmed, 4 refuted). Tests/FoundationModelsExtrasTests/Hosting/ToolDisplayHelperTests.swift:133 (reuse/reuse).
+    - next: Do the open item in "Review Findings (2026-10-09 10:21)". Then run /review again. The task stays in review.
+  timestamp: 2026-10-09T15:27:08.584938+00:00
+- actor: claude-code
+  id: 01m4gmd71zcyjpy1jf5jrx1p7e
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 9 files
+    - test: green — swift test, 913 passed, 0 failed
+    - commit: ba381a0
+    - review: findings — Tests/FoundationModelsExtrasTests/Hosting/ToolDisplayHelperTests.swift:133
+  timestamp: 2026-10-09T15:27:18.079023+00:00
+- actor: claude-code
+  id: 01m4gmma7g8a4e5cpfhn8fww1j
+  text: |-
+    Review finding fixed (reuse/reuse, ToolDisplayHelperTests.swift StagingDisplaySink).
+    - Moved the staging sink into MountFixtures as the internal actor `MountFixtures.StagingSink`. It stages each operation event, keeps each display event, records `displayCountAtWithdraw`, and withdraws staged events by correlationID. Each member has a doc comment.
+    - Removed the private actor `StagingSink` from BackgroundToolRunnerTests. Its two tests (inlineResultWithdrawsWhatTheRunStaged, inlineErrorWithdrawsWhatTheRunStaged) now use `Fixtures.StagingSink()`.
+    - Removed the private actor `StagingDisplaySink` from ToolDisplayHelperTests. The test inlineAnswerDoesNotWithdrawTheDisplays now uses `Fixtures.StagingSink()`.
+    - No other copy of the staging sink is in the two files. The test suite has no other actor that conforms to StagedEventWithdrawing.
+    - This is a refactor of test fixtures. The existing tests cover it, so no new RED step was possible.
+    - Note: `dump validators` gave a rule file of 754k characters. I read only the rules that apply to this change (reuse, duplication, documentation).
+  timestamp: 2026-10-09T15:31:10.704279+00:00
+- actor: claude-code
+  id: 01m4gmmcwsmradf1g0m7ka9j3s
+  text: |-
+    ### implement — changed
+    - evidence: 3 files — Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/BackgroundToolRunnerTests.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolDisplayHelperTests.swift. `swift test`: exit 0, 913 tests in 87 suites passed, 0 failures, 11 known issues (the planned withKnownIssue checks in TelemetryCaptureTests). One build-tool warning only (mlx-swift_Cmlx.bundle "missing creator for mutated node"), no source warning.
+    - next: /review
+  timestamp: 2026-10-09T15:31:13.433094+00:00
+- actor: claude-code
+  id: 01m4gmqmmsjcby2zjv7nnzzc2a
+  text: |-
+    ### test — green
+    - evidence: swift test — 913 tests in 87 suites passed, 0 failed, 0 skipped. 11 known issues: these are the planned withKnownIssue checks in TelemetryCaptureTests. They are not skips. One build-tool warning only (mlx-swift_Cmlx.bundle "missing creator for mutated node"). It does not come from the source. No source warning.
+    - next: review
+  timestamp: 2026-10-09T15:32:59.673944+00:00
+- actor: claude-code
+  id: 01m4gmr52avqjt6r6fdxrbk5mf
+  text: |-
+    ### commit — changed
+    - evidence: commit subject "test(hosting): share one staging sink in MountFixtures". Tests green, 913 passed.
+    - change: The staging sink is now a shared internal actor in MountFixtures. BackgroundToolRunnerTests and ToolDisplayHelperTests both use it. This fixes the review finding.
+    - next: review
+  timestamp: 2026-10-09T15:33:16.490374+00:00
 depends_on:
 - 01M4GH3SXGTK24GQS301VHFTW2
 position_column: doing
@@ -83,3 +138,16 @@ Terminals are out of scope. Do not add terminal support.
 ## Related
 
 - Depends on ^1vhftw2 (Add a display-only event lane for tools).
+
+## Review Findings (2026-10-09 10:21)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 7 file(s) reviewed, 8 not reviewed.
+
+> 6 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 6 file(s)
+
+> 2 file(s) not reviewed — no validator matched:
+> - `CHANGELOG.md` — no validator matches this file
+> - `README.md` — no validator matches this file
+
+- [x] `Tests/FoundationModelsExtrasTests/Hosting/ToolDisplayHelperTests.swift:133` `reuse/reuse` — The new private actor StagingDisplaySink reimplements the staging sink that already exists as the private actor StagingSink in BackgroundToolRunnerTests. Both stage each OperationEvent, both conform to OperationEventSink and StagedEventWithdrawing, and both withdraw by correlationID. The new copy only adds a display list and a displayCountAtWithdraw record. Two diverging copies of the withdraw contract can drift apart, so one fix would need to be made in two places. Move the staging sink into MountFixtures (internal, shared by the test files) and extend it with a display list and the displayCountAtWithdraw record. Then have BackgroundToolRunnerTests and ToolDisplayHelperTests both use the shared type. If the sink must stay test-local, state in a comment why the copy is intentional.

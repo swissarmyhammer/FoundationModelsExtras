@@ -64,6 +64,39 @@ enum MountFixtures {
         }
     }
 
+    /// A sink that stages each event for a later prompt, keeps each display
+    /// event, and takes back the staged events of a run on request. It
+    /// records how many display events it had when the runner took back the
+    /// staged events of a run.
+    actor StagingSink: OperationEventSink, StagedEventWithdrawing {
+        /// The staged events, in post order.
+        private(set) var staged: [OperationEvent] = []
+
+        /// Each display event, in post order.
+        private(set) var displays: [ToolDisplayEvent] = []
+
+        /// The number of display events at the last withdraw, or `nil` before
+        /// the first withdraw.
+        private(set) var displayCountAtWithdraw: Int?
+
+        /// Stages `event`.
+        func post(event: OperationEvent) {
+            staged.append(event)
+        }
+
+        /// Keeps `event`. A withdraw does not remove it.
+        func post(display event: ToolDisplayEvent) {
+            displays.append(event)
+        }
+
+        /// Records the display count, then removes each staged event of the
+        /// run `correlationID`.
+        func withdrawStagedEvents(correlationID: String) {
+            displayCountAtWithdraw = displays.count
+            staged.removeAll { $0.correlationID == correlationID }
+        }
+    }
+
     // MARK: - Harness
 
     /// The wiring of one test: the run plane, the sink and the mounted tool.
