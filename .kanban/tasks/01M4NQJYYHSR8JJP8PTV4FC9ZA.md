@@ -27,6 +27,38 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/ModelPool/EmbeddingBatchDivision.swift (new), Sources/FoundationModelsExtras/ModelPool/MLXModelLoader.swift, Tests/FoundationModelsExtrasTests/ModelPool/EmbeddingBatchDivisionTests.swift (new), IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift, CHANGELOG.md. `swift build` OK; `swift test`: 919 tests in 88 suites passed (11 known issues, all from before); `swift test --package-path IntegrationTests`: 35 tests in 9 suites passed. Only warning: the SwiftPM "missing creator for mutated node" of the mlx-swift_Cmlx bundle, from before this change.
     - next: /review
   timestamp: 2026-10-11T15:21:44.293090+00:00
+- actor: claude-code
+  id: 01m4ns85t9195dphgzrm97b89a
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (82c5791): 1 finding, 1 confirmed, 0 refuted — IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift:68
+    - next: Replace the magic numbers in PooledEmbedderIntegrationTests.swift with named constants. Do this in all of the file. Then run the review again.
+  timestamp: 2026-10-11T15:28:08.009708+00:00
+- actor: claude-code
+  id: 01m4ns8j5m1b7fztz552rpfgbd
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 5 files
+    - test: green — swift test, 919 passed
+    - commit: 82c5791
+    - review: findings — IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift:68
+  timestamp: 2026-10-11T15:28:20.660608+00:00
+- actor: claude-code
+  id: 01m4nsg12nvkwn7r56dp42kmyr
+  text: |-
+    Finding work (code-hygiene/magic-numbers-swift, "Magic numbers should be replaced by named constants."):
+    - I ran swiftlint `no_magic_numbers` with `allowed_numbers: [0, 1, -1, 100]` (the rule config) on all of PooledEmbedderIntegrationTests.swift. It found only one literal: the `2` in `longIndex = shortCount / 2`.
+    - Fix: `MixedLengthTexts` now has two named counts, `shortCountBeforeLong = 7` and `shortCountAfterLong = 8`. `shortCount` is their sum, and `longIndex` is `shortCountBeforeLong`. The texts are the same as before (15 short texts, the long text at index 7).
+    - After the edit, swiftlint found 0 violations in the file.
+    - `swift test --package-path IntegrationTests --filter PooledEmbedderIntegrationTests`: 7 tests in 2 suites passed. The only build warning is the SwiftPM "missing creator for mutated node" of the mlx-swift_Cmlx bundle, from before this change.
+  timestamp: 2026-10-11T15:32:25.301221+00:00
+- actor: claude-code
+  id: 01m4nsg2rskfk1qa0pv286fcsf
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift. swiftlint no_magic_numbers: 0 violations. swift test --package-path IntegrationTests --filter PooledEmbedderIntegrationTests: 7 tests in 2 suites passed.
+    - next: /test, then /review
+  timestamp: 2026-10-11T15:32:27.033161+00:00
 position_column: doing
 position_ordinal: '80'
 title: Sort embed texts by token count and divide them into sub-batches, so one long text does not pad the short ones
@@ -75,3 +107,15 @@ The budget limits the size of one tensor. It does not cut a text. Make it a name
 - [x] No text is cut.
 - [x] An integration test with the real Qwen3-Embedding-0.6B model embeds a mixed list of short texts and one long text, and the time is much less than one padded call.
 - [x] `swift build` and `swift test` pass with no warnings. #model-pool #feature #cross-repo
+
+## Review Findings (2026-10-11 10:24)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 4 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `CHANGELOG.md` — no validator matches this file
+
+- [x] `IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift:68` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.

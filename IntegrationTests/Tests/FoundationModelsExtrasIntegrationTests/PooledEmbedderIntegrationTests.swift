@@ -46,8 +46,16 @@ private enum BatchLengthTexts {
 /// pads each short text to its length. Divided into sub-batches by token
 /// count, the long text goes in a sub-batch by itself.
 private enum MixedLengthTexts {
+    /// The count of short texts before the long text in ``all``. It is not
+    /// zero, thus the sort changes the order of the texts.
+    static let shortCountBeforeLong = 7
+
+    /// The count of short texts after the long text in ``all``. It is not
+    /// zero, thus the long text is in the middle of ``all``.
+    static let shortCountAfterLong = 8
+
     /// The count of short texts.
-    static let shortCount = 15
+    static let shortCount = shortCountBeforeLong + shortCountAfterLong
 
     /// The count of sentences in the long text: more than 1,000 tokens. One
     /// padded tensor of all the texts is then large enough that the time of
@@ -63,9 +71,9 @@ private enum MixedLengthTexts {
     /// The short texts.
     static let shorts = (1...shortCount).map { "Find the tool number \($0) of the folder." }
 
-    /// The place of the long text in ``all``: in the middle, so that the sort
-    /// changes the order of the texts.
-    static let longIndex = shortCount / 2
+    /// The place of the long text in ``all``: after
+    /// ``shortCountBeforeLong`` short texts.
+    static let longIndex = shortCountBeforeLong
 
     /// The short texts, with the long text at ``longIndex``.
     static let all = Array(shorts[..<longIndex]) + [long] + Array(shorts[longIndex...])
