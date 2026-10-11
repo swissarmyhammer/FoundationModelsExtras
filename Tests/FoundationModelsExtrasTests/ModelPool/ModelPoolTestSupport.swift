@@ -281,8 +281,21 @@ enum QueueMetricDimensions {
     /// - Returns: The queue name, then the model ref when the queue belongs
     ///   to one model.
     static func queue(of telemetry: QueueTelemetry) -> [(String, String)] {
-        let modelDimension = telemetry.model.map { [(ExtrasTelemetry.DimensionKey.modelRef, $0.stringValue)] } ?? []
-        return [(ExtrasTelemetry.DimensionKey.queueName, telemetry.name.rawValue)] + modelDimension
+        queue(named: telemetry.name.rawValue, model: telemetry.model?.stringValue)
+    }
+
+    /// Gives the dimensions of the depth meter of a queue, from the values
+    /// that a consumer sees. A suite that imports the module with no
+    /// `@testable` cannot see `QueueTelemetry`, so it uses this function.
+    ///
+    /// - Parameters:
+    ///   - name: The name of the queue, as its dimension value.
+    ///   - model: The model ref of the queue, as its dimension value, or `nil`
+    ///     when the queue does not belong to one model.
+    /// - Returns: The queue name, then the model ref when `model` is not `nil`.
+    static func queue(named name: String, model: String? = nil) -> [(String, String)] {
+        let modelDimension = model.map { [(ExtrasTelemetry.DimensionKey.modelRef, $0)] } ?? []
+        return [(ExtrasTelemetry.DimensionKey.queueName, name)] + modelDimension
     }
 
     /// Gives the dimensions of the timers and of the task counter of one
