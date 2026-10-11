@@ -32,8 +32,31 @@ struct ToolCallSpanTests {
     /// place of the telemetry may carry it.
     private static let unknownOutcome = "unknown-outcome-3c8e"
 
+    /// The time that ``SlowReportSink`` holds each report post. A duration
+    /// that does not include the report is clearly shorter than this time.
+    private static let slowReportDelay = Duration.seconds(Fixtures.shortInterval)
+
+    /// The largest difference that a test accepts between the duration on the
+    /// timer and the duration of the span. It is half of ``slowReportDelay``,
+    /// thus a timer that stops before the report is outside this limit.
+    private static let sameIntervalTolerance = slowReportDelay / 2
+
     /// The error that a failing body throws.
     private struct Boom: Error {}
+
+    /// A sink that holds each report post for ``slowReportDelay``, then
+    /// returns. It keeps no event.
+    private actor SlowReportSink: OperationEventSink, ToolCallReportSink {
+        /// Drops `event`. The test reads the telemetry only.
+        func post(event: OperationEvent) {}
+
+        /// Holds the post of `report` for ``slowReportDelay``.
+        func post(report: ToolCallReport) async {
+            // The test does not cancel the call. If a cancel stops the sleep
+            // early, the duration is too short and the test fails.
+            try? await Task.sleep(for: ToolCallSpanTests.slowReportDelay)
+        }
+    }
 
     @Test("the span carries the tool name, the session and the run kind, and the call gives back the body value")
     func theSpanCarriesTheCallIdentity() async throws {
@@ -267,6 +290,42 @@ struct ToolCallSpanTests {
         try Self.expectOneCall(in: context, toolName: tool.name, outcome: .succeeded)
     }
 
+    @Test("a bound call whose report is slow records a duration that includes the report, over the same interval as the span")
+    func aBoundCallTimesItsReport() async throws {
+        let tool = Fixtures.AttachingNonStringOutputTool()
+        let bound = ContextBindingTool(
+            wrapping: tool, site: Fixtures.site(runPlane: RunPlane(), sink: SlowReportSink()))
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            _ = try await bound.call(arguments: MountArguments(value: "x"))
+            return context
+        }
+
+        try Self.expectOneCall(in: context, toolName: tool.name, outcome: .succeeded)
+        let timer = try context.metricsFactory.expectTimer(
+            ExtrasTelemetry.MetricName.toolDuration,
+            Self.dimensions(toolName: tool.name, outcomeValue: OperationOutcome.succeeded.rawValue))
+        let recorded = Duration.nanoseconds(try #require(timer.values.first))
+        let span = try #require(context.spans.first)
+        let spanned = Duration.nanoseconds(
+            Int64(span.endInstant.nanosecondsSinceEpoch - span.startInstant.nanosecondsSinceEpoch))
+        #expect(recorded >= Self.slowReportDelay)
+        #expect(max(spanned, recorded) - min(spanned, recorded) < Self.sameIntervalTolerance)
+    }
+
+    /// The dimensions of each tool-call metric of one call.
+    ///
+    /// - Parameters:
+    ///   - toolName: The model-facing name of the tool.
+    ///   - outcomeValue: The `tool.outcome` value of the call.
+    /// - Returns: The tool name and the outcome, in that order.
+    private static func dimensions(toolName: String, outcomeValue: String) -> [(String, String)] {
+        [
+            (ExtrasTelemetry.AttributeKey.toolName, toolName),
+            (ExtrasTelemetry.AttributeKey.outcome, outcomeValue),
+        ]
+    }
+
     /// Expects that the capture holds the telemetry of one tool call: one
     /// span, one "enter" log record, one count on the counter and one
     /// duration on the timer. Each metric has the tool name and the outcome
@@ -300,10 +359,7 @@ struct ToolCallSpanTests {
         toolName: String,
         outcomeValue: String
     ) throws {
-        let dimensions = [
-            (ExtrasTelemetry.AttributeKey.toolName, toolName),
-            (ExtrasTelemetry.AttributeKey.outcome, outcomeValue),
-        ]
+        let dimensions = Self.dimensions(toolName: toolName, outcomeValue: outcomeValue)
         let counter = try context.metricsFactory.expectCounter(ExtrasTelemetry.MetricName.toolCalls, dimensions)
         let timer = try context.metricsFactory.expectTimer(ExtrasTelemetry.MetricName.toolDuration, dimensions)
         #expect(counter.values == [oneCall])

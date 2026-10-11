@@ -94,9 +94,13 @@ enum ToolCallSpan {
     /// and one duration of the call.
     ///
     /// The duration is the time from the start of the call to this record.
-    /// For a ``ToolRunKind/background`` call, the caller records the outcome
-    /// when the run has started, so the duration measures the start only, as
-    /// the span does.
+    /// The span ends when the body of
+    /// ``withSpan(tracer:toolName:sessionID:runKind:_:)`` returns. Thus the
+    /// caller records the outcome as the last step of that body, after all
+    /// the work of the call, so the duration and the span measure the same
+    /// interval. For a ``ToolRunKind/background`` call, the caller records
+    /// the outcome when the run has started, so the duration measures the
+    /// start only, as the span does.
     ///
     /// The span attribute and the metric dimensions carry the bounded
     /// telemetry value of the outcome from

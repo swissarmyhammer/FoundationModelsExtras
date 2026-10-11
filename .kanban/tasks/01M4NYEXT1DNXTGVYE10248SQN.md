@@ -27,10 +27,26 @@ comments:
     - evidence: 2 files — Sources/FoundationModelsExtras/Hosting/ToolContext.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolContextTests.swift; `swift test` 937 tests passed, 11 known issues
     - next: /test, then /review
   timestamp: 2026-10-11T18:22:53.549185+00:00
+- actor: claude-code
+  id: 01m4p3nk8g4rqd8194pjh76k4a
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (42d7f37). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. The engine reviewed 2 files. An ignore rule (.kanban/) excluded 4 files.
+    - next: none. The task is in done.
+  timestamp: 2026-10-11T18:30:13.520538+00:00
+- actor: claude-code
+  id: 01m4p3nwpda5tz7vb147jabf4t
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 937 passed
+    - commit: 42d7f37
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T18:30:23.181817+00:00
 depends_on:
 - 01M4NXYSFK4SHNDB2YFVSVB1HX
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ea80
 title: 'Tool hosting: nested mounts in ToolContext keep the session tracer'
 ---
 ## What

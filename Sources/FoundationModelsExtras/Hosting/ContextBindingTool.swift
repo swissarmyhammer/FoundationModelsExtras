@@ -28,8 +28,12 @@ struct ContextBindingTool<
         self.site = site
     }
 
-    /// Runs one call in a new context, records its outcome on its span, and
-    /// posts its report when the call attached a record.
+    /// Runs one call in a new context, posts its report when the call attached
+    /// a record, then records its outcome on its span.
+    ///
+    /// The record comes after the report, at the end of the span body. Thus
+    /// the duration on the timer and the span measure the same interval, and
+    /// both include the time of the report.
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool, as is.
@@ -39,8 +43,8 @@ struct ContextBindingTool<
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { call in
             let settlement = await settle(arguments: arguments)
-            ToolCallSpan.record(outcome: settlement.recordedOutcome, on: call)
             await site.sink.postToolCallReport(closing: settlement.closeRecord, attachments: settlement.attachments)
+            ToolCallSpan.record(outcome: settlement.recordedOutcome, on: call)
             return try settlement.outcome.get()
         }
     }
