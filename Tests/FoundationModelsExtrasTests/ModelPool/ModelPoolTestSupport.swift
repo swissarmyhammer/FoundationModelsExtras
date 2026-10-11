@@ -271,3 +271,39 @@ struct FixedLoader: PooledModelLoader {
     /// - Parameter container: The container to evict.
     func evict(_ container: any Sendable) async {}
 }
+
+/// Builds the dimensions that the queue metrics carry. Each test suite of a
+/// queue uses these helpers, so a change to the dimensions occurs in one place.
+enum QueueMetricDimensions {
+    /// Gives the dimensions of the depth meter of a queue.
+    ///
+    /// - Parameter telemetry: The recorder of the queue.
+    /// - Returns: The queue name, then the model ref when the queue belongs
+    ///   to one model.
+    static func queue(of telemetry: QueueTelemetry) -> [(String, String)] {
+        let modelDimension = telemetry.model.map { [(ExtrasTelemetry.DimensionKey.modelRef, $0.stringValue)] } ?? []
+        return [(ExtrasTelemetry.DimensionKey.queueName, telemetry.name.rawValue)] + modelDimension
+    }
+
+    /// Gives the dimensions of the timers and of the task counter of one
+    /// completed job.
+    ///
+    /// - Parameters:
+    ///   - queue: The dimensions of the queue.
+    ///   - outcome: The outcome of the job, as its dimension value.
+    /// - Returns: The dimensions of the queue, then the outcome.
+    static func job(queue: [(String, String)], outcome: String) -> [(String, String)] {
+        queue + [(ExtrasTelemetry.DimensionKey.queueOutcome, outcome)]
+    }
+
+    /// Gives the dimensions of the timers and of the task counter of one
+    /// completed job of the queue that `telemetry` records.
+    ///
+    /// - Parameters:
+    ///   - telemetry: The recorder of the queue.
+    ///   - outcome: The outcome of the job.
+    /// - Returns: The dimensions of the queue, then the outcome.
+    static func job(of telemetry: QueueTelemetry, outcome: QueueOutcome) -> [(String, String)] {
+        job(queue: queue(of: telemetry), outcome: outcome.rawValue)
+    }
+}

@@ -454,14 +454,6 @@ struct GenerationQueueWorkerTests {
 
         /// The outcome of a job that was cancelled.
         static let cancelled = "cancelled"
-
-        /// Gives the dimensions of the timers and of the counter.
-        ///
-        /// - Parameter outcome: The outcome of the job.
-        /// - Returns: The queue name, then the outcome.
-        static func dimensions(outcome: String) -> [(String, String)] {
-            queueDimensions + [("queue.outcome", outcome)]
-        }
     }
 
     /// The error that the body of the failing job throws.
@@ -502,7 +494,7 @@ struct GenerationQueueWorkerTests {
     ///   - ran: `true` when the job started before it completed.
     /// - Throws: When `metrics` has no such timer or counter.
     private static func expectOneJob(in metrics: TestMetrics, outcome: String, ran: Bool) throws {
-        let dimensions = QueueMetric.dimensions(outcome: outcome)
+        let dimensions = QueueMetricDimensions.job(queue: QueueMetric.queueDimensions, outcome: outcome)
         #expect(try metrics.expectCounter(QueueMetric.tasks, dimensions).values == [oneTask])
         #expect(try metrics.expectTimer(QueueMetric.wait, dimensions).values.count == oneDuration)
         if ran {
@@ -535,7 +527,7 @@ struct GenerationQueueWorkerTests {
             _ = try await Self.outcome(of: second.box, named: "the second result").get()
         }
 
-        let dimensions = QueueMetric.dimensions(outcome: QueueMetric.succeeded)
+        let dimensions = QueueMetricDimensions.job(queue: QueueMetric.queueDimensions, outcome: QueueMetric.succeeded)
         let wait = try metrics.expectTimer(QueueMetric.wait, dimensions).values
         let run = try metrics.expectTimer(QueueMetric.run, dimensions).values
         try #require(wait.count == Self.secondWaitingJob + 1 && run.count == Self.secondWaitingJob + 1)
@@ -562,8 +554,8 @@ struct GenerationQueueWorkerTests {
 
         let depth = try metrics.expectMeter(QueueMetric.depth, QueueMetric.queueDimensions)
         #expect(depth.values == Self.depthOfThreeJobs)
-        #expect(try metrics.expectCounter(QueueMetric.tasks, QueueMetric.dimensions(outcome: QueueMetric.succeeded))
-            .values.count == Self.threeJobs)
+        let succeeded = QueueMetricDimensions.job(queue: QueueMetric.queueDimensions, outcome: QueueMetric.succeeded)
+        #expect(try metrics.expectCounter(QueueMetric.tasks, succeeded).values.count == Self.threeJobs)
     }
 
     @Test("a waiting job that is cancelled records cancelled, a wait time and no run time")

@@ -705,15 +705,6 @@ struct ModelPoolTests {
     /// The values of the task counter after one completed job.
     private static let oneTask: [Int64] = [1]
 
-    /// Gives the dimensions of the task counter of one job that succeeded.
-    ///
-    /// - Parameter queue: The dimensions of the queue: the queue name, then
-    ///   the model ref when the queue belongs to one model.
-    /// - Returns: The dimensions of the queue, then the outcome.
-    private static func succeededTaskDimensions(_ queue: [(String, String)]) -> [(String, String)] {
-        queue + [(ExtrasTelemetry.DimensionKey.queueOutcome, QueueOutcome.succeeded.rawValue)]
-    }
-
     @Test("an acquire of a new key records one task of the admission queue, with no model ref")
     func anAcquireRecordsAnAdmissionTask() async throws {
         let metrics = TestMetrics()
@@ -724,9 +715,9 @@ struct ModelPoolTests {
             try await Self.acquire(from: pool, with: loader)
         }
 
-        let admission = [(ExtrasTelemetry.DimensionKey.queueName, QueueName.admission.rawValue)]
+        let admission = QueueTelemetry(name: .admission)
         let tasks = try metrics.expectCounter(
-            ExtrasTelemetry.MetricName.queueTasks, Self.succeededTaskDimensions(admission))
+            ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(of: admission, outcome: .succeeded))
         #expect(tasks.values == Self.oneTask)
         withExtendedLifetime(hold) {}
     }
@@ -745,12 +736,9 @@ struct ModelPoolTests {
             try await embedder.embed(texts: ["one"])
         }
 
-        let modelQueue = [
-            (ExtrasTelemetry.DimensionKey.queueName, QueueName.model.rawValue),
-            (ExtrasTelemetry.DimensionKey.modelRef, key.ref.stringValue),
-        ]
+        let modelQueue = QueueTelemetry(name: .model, model: key.ref)
         let tasks = try metrics.expectCounter(
-            ExtrasTelemetry.MetricName.queueTasks, Self.succeededTaskDimensions(modelQueue))
+            ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(of: modelQueue, outcome: .succeeded))
         #expect(tasks.values == Self.oneTask)
     }
 }

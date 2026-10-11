@@ -231,6 +231,15 @@ private final class Job<T: Sendable>: QueuedJob {
     ///
     /// - Parameter resume: Gives the result of the job to its submitter.
     func refuse(_ resume: Resume) {
+        finishCancelledBeforeRun(resume)
+    }
+
+    /// Records a job that was cancelled before it started as cancelled, with
+    /// no run time, and gives `CancellationError` to its submitter. This is
+    /// the one place that sets the outcome of a job that never ran.
+    ///
+    /// - Parameter resume: Gives the result of the job to its submitter.
+    private func finishCancelledBeforeRun(_ resume: Resume) {
         queue.telemetry.completed(ticket, outcome: .cancelled)
         resume(.failure(CancellationError()))
     }
@@ -248,8 +257,7 @@ private final class Job<T: Sendable>: QueuedJob {
         switch previous {
         case .waiting(let resume):
             queue.releaseJobCount()
-            queue.telemetry.completed(ticket, outcome: .cancelled)
-            resume(.failure(CancellationError()))
+            finishCancelledBeforeRun(resume)
         case .running(let task):
             task.cancel()
         case .new, .finished:
@@ -262,7 +270,7 @@ private final class Job<T: Sendable>: QueuedJob {
     func run() async {
         let task = state.withLock { state -> Task<Void, Never>? in
             guard case .waiting(let resume) = state else { return nil }
-            let started = startedTicket()
+            let started = recordStart()
             let task = Task.detached(priority: priority) {
                 let result: Result<T, any Error>
                 do {
@@ -279,10 +287,10 @@ private final class Job<T: Sendable>: QueuedJob {
         await task?.value
     }
 
-    /// Records that the job starts now.
+    /// Records in the telemetry that the job starts now.
     ///
-    /// - Returns: The ticket of the job, with the start instant.
-    private func startedTicket() -> QueueTicket {
+    /// - Returns: A copy of the ticket of the job, with the start instant.
+    private func recordStart() -> QueueTicket {
         var started = ticket
         queue.telemetry.started(&started)
         return started
