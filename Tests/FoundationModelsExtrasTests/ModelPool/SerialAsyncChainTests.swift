@@ -70,12 +70,17 @@ extension SerialAsyncChainTests {
     private static let allDeliveryCount = laterDeliveryCount + 1
 
     /// The depth after each enqueue, while the held delivery blocks the
-    /// later deliveries.
-    private static let depthWhileHeld: [Double] = [1, 2, 3]
+    /// later deliveries: it goes up by 1 at each enqueue, to
+    /// ``allDeliveryCount``.
+    private static let depthWhileHeld = (1...allDeliveryCount).map(Double.init)
+
+    /// The depth after the end of each delivery: it goes down by 1 at each
+    /// end, back to 0.
+    private static let depthAfterEachEnd = (0..<allDeliveryCount).reversed().map(Double.init)
 
     /// The depth after each change: up at each enqueue, then down at the end
     /// of each delivery, back to 0.
-    private static let depthOfAllDeliveries: [Double] = [1, 2, 3, 2, 1, 0]
+    private static let depthOfAllDeliveries = depthWhileHeld + depthAfterEachEnd
 
     /// The time that the wait-time test holds the first delivery, in
     /// nanoseconds.

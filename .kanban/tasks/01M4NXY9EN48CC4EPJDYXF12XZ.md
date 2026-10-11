@@ -32,6 +32,31 @@ comments:
   id: 01m4pj8bvtpgkcvjjysx4f3dbf
   text: 'Correction to the step record above: the count is 7 files, not 6. The list of 7 paths is correct.'
   timestamp: 2026-10-11T22:45:08.602036+00:00
+- actor: claude-code
+  id: 01m4pjvyh8bcsnny77ha8y5n4t
+  text: |-
+    ### review — findings
+    - evidence: review sha 079af17~1..079af17, 2 findings — Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift:74, Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift:78 (code-hygiene/magic-numbers-swift)
+    - next: /implement to correct the open items in the `## Review Findings (2026-10-11 17:52)` section
+  timestamp: 2026-10-11T22:55:50.312166+00:00
+- actor: claude-code
+  id: 01m4pjw020xrpv2wc1xd9vf933
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 7 files
+    - test: green — swift test, 979 passed
+    - commit: 079af17
+    - review: findings — Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift:74, Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift:78
+  timestamp: 2026-10-11T22:55:51.872928+00:00
+- actor: claude-code
+  id: 01m4pk06q8few1t2pr0v71tdv5
+  text: |-
+    Fixed both `code-hygiene/magic-numbers-swift` findings in SerialAsyncChainTests.swift. The depth arrays now come from `allDeliveryCount`: `depthWhileHeld = (1...allDeliveryCount)`, the new `depthAfterEachEnd = (0..<allDeliveryCount).reversed()`, and `depthOfAllDeliveries = depthWhileHeld + depthAfterEachEnd`. Each one has a doc comment. `swiftlint lint --only-rule no_magic_numbers` shows 0 violations in SerialAsyncChainTests, ToolContextTests, MountFixtures, ToolCallSpanTests and ExtrasContentSafetyTests. Before the fix, it showed 5 violations, all in SerialAsyncChainTests. The lines this task added to ToolContextTests use only 0 and 1 in the depth array, and these values are permitted.
+
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift; `swift test`: 979 tests in 90 suites passed (11 known issues), 0 failures, no compiler warnings
+    - next: /test, then /review
+  timestamp: 2026-10-11T22:58:09.768389+00:00
 depends_on:
 - 01M4NXXX8C2BZAAK141DW9063W
 position_column: doing
@@ -65,3 +90,13 @@ Files:
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 
 #telemetry #feature
+
+## Review Findings (2026-10-11 17:52)
+
+> Scope: `review sha 079af17~1..079af17` — reviewed the diffs only — lines this change added or modified. 7 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift:74` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift:78` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
