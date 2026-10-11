@@ -102,10 +102,26 @@ comments:
     - evidence: `swift build --build-tests` has no error and no warning (only the mlx-swift_Cmlx.bundle "missing creator" line of the dependency build). `swift test`: 973 tests in 90 suites passed with 11 known issues (these were there before), and 381 tests in 28 suites passed. 11 files: Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueEnqueueTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestSupport.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestingSPIPublicSurfaceTests.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolContextTests.swift, Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/MountingFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolCallSpanTests.swift, .kanban task card
     - next: /review
   timestamp: 2026-10-11T22:15:18.441151+00:00
+- actor: claude-code
+  id: 01m4ph64pxexdmj1nky580vcwx
+  text: |-
+    ### review — clean
+    - evidence: `review sha 65feb7d~1..65feb7d` — 0 findings (0 confirmed, 0 refuted). 10 files reviewed. All 5 prior findings are checked.
+    - next: none. The task is in `done`.
+  timestamp: 2026-10-11T22:26:27.165195+00:00
+- actor: claude-code
+  id: 01m4ph65gazf43gkgecxnz06p1
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — 10 files
+    - test: green — swift test, 973 passed
+    - commit: 65feb7d
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T22:26:27.978108+00:00
 depends_on:
 - 01M4NXXETD1P6X4V8RMA0XRDQ5
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: f080
 title: 'Queue metrics: RunPlane records the open runs and the timing of each run, and a span covers each run body'
 ---
 ## What

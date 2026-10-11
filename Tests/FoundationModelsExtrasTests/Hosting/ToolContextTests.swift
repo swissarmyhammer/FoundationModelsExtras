@@ -1,6 +1,8 @@
 @_spi(Testing) @testable import FoundationModelsExtras
 import Foundation
 import FoundationModels
+import Metrics
+import MetricsTestKit
 import TelemetryTestSupport
 import Testing
 import Tracing
@@ -734,5 +736,73 @@ struct ToolContextTests {
         let names = try await Self.toolNamesOnTheHostTracer(afterCalling: outer)
 
         #expect(names == [.string(MountFixtures.FastTool().name), .string(outer.name)])
+    }
+}
+
+// MARK: - The queue metrics of the run funnel
+
+/// Exercises the queue metrics of the delivery chain of a ``RunEventFunnel``.
+/// Each event and each display event that the funnel sends upstream is one
+/// task of the `tool_events` queue.
+extension ToolContextTests {
+    /// The dimensions of the depth meter of the delivery chain of a funnel.
+    private static let toolEventsQueue = QueueMetricDimensions.queue(named: "tool_events")
+
+    /// The number of deliveries of
+    /// ``postAMessageADisplayEventAndTheTerminalEvent(detail:display:to:)``.
+    private static let deliveriesOfOneRun = 3
+
+    /// The depth after each change when each post waits for its delivery: up
+    /// and down one time for each of the three deliveries.
+    private static let depthOfThreeDeliveriesInTurn: [Double] = [1, 0, 1, 0, 1, 0]
+
+    /// Posts a message, a display event and the terminal event of one run
+    /// through a new funnel to `sink`.
+    ///
+    /// - Parameters:
+    ///   - detail: The detail of the message and of the terminal event.
+    ///   - display: The text of the display event.
+    ///   - sink: The upstream sink of the funnel.
+    private static func postAMessageADisplayEventAndTheTerminalEvent(
+        detail: String, display: String, to sink: any OperationEventSink
+    ) async {
+        let completionToken = RunPlane.makeCompletionToken()
+        let funnel = RunEventFunnel(upstream: sink, runPlane: RunPlane(), completionToken: completionToken)
+        let context = makeContext(sink: funnel, completionToken: completionToken)
+
+        await context.message(detail)
+        await context.post(display: .contentChunk(.text(display)))
+        await context.post(OperationEvent.terminal(outcome: .succeeded, detail: detail))
+    }
+
+    @Test("each delivery of the run funnel records one tool_events count, and the depth goes back to 0")
+    func theFunnelRecordsToolEventsQueueMetrics() async throws {
+        let metrics = TestMetrics()
+        let sink = RecordingSink()
+
+        await withMetricsFactory(metrics) {
+            await Self.postAMessageADisplayEventAndTheTerminalEvent(detail: "mail", display: "chunk", to: sink)
+        }
+
+        #expect(await sink.events.map(\.kind) == [.message, .completed])
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.toolEventsQueue, outcome: .succeeded, ran: true, count: Self.deliveriesOfOneRun)
+        #expect(
+            try QueueMetricExpectations.depth(in: metrics, queue: Self.toolEventsQueue)
+                == Self.depthOfThreeDeliveriesInTurn)
+    }
+
+    @Test("the metrics of the run funnel never hold the event detail or the display content")
+    func theFunnelMetricsHoldNoDetailAndNoDisplayContent() async throws {
+        let detail = "a secret tool event detail"
+        let display = "a secret display chunk"
+
+        let capture = try await TelemetryCapture.run(forbidding: [detail, display]) { capture in
+            await Self.postAMessageADisplayEventAndTheTerminalEvent(
+                detail: detail, display: display, to: RecordingSink())
+            return capture
+        }
+
+        #expect(!capture.metricRecords.isEmpty)
     }
 }

@@ -42,17 +42,34 @@ enum MountFixtures {
     static let spanNamesOfASettledBackgroundCall = [ExtrasTelemetry.SpanName.tool, ExtrasTelemetry.SpanName.run]
         .sorted()
 
-    /// The metric labels of one background call whose run settled, sorted:
-    /// the tool-call metrics of the start, and the queue metrics of the run
-    /// on the run plane.
-    static let metricLabelsOfASettledBackgroundCall = [
+    /// The tool-call metric labels of one call, sorted: the count and the
+    /// duration.
+    static let metricLabelsOfOneToolCall = [
         ExtrasTelemetry.MetricName.toolCalls,
         ExtrasTelemetry.MetricName.toolDuration,
+    ].sorted()
+
+    /// The queue metric labels of one queue whose tasks completed, sorted:
+    /// the depth, the wait time, the run time and the count.
+    static let metricLabelsOfOneQueue = [
         ExtrasTelemetry.MetricName.queueDepth,
         ExtrasTelemetry.MetricName.queueWait,
         ExtrasTelemetry.MetricName.queueRun,
         ExtrasTelemetry.MetricName.queueTasks,
     ].sorted()
+
+    /// The metric labels of one run-to-completion call that sends its
+    /// terminal event upstream, sorted: the tool-call metrics, and the queue
+    /// metrics of the delivery on the `tool_events` queue. A call that fails
+    /// or times out sends its terminal event. A silent success sends no event.
+    static let metricLabelsOfACallThatSendsItsTerminal = (metricLabelsOfOneToolCall + metricLabelsOfOneQueue).sorted()
+
+    /// The metric labels of one background call whose run settled, sorted:
+    /// the tool-call metrics of the start, the queue metrics of the run on
+    /// the `run_plane` queue, and the queue metrics of the event deliveries of
+    /// the run on the `tool_events` queue.
+    static let metricLabelsOfASettledBackgroundCall =
+        (metricLabelsOfOneToolCall + metricLabelsOfOneQueue + metricLabelsOfOneQueue).sorted()
 
     // MARK: - Sink
 

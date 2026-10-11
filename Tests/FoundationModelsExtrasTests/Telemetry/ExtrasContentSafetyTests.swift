@@ -87,7 +87,9 @@ struct ExtrasContentSafetyTests {
             return context
         }
 
-        Self.expectOneCall(in: context)
+        // The failed call sends its terminal event upstream, thus the capture
+        // also holds the queue metrics of that delivery.
+        Self.expectOneCall(in: context, metricLabels: Fixtures.metricLabelsOfACallThatSendsItsTerminal)
         let span = try #require(context.spans.first)
         #expect(span.status == SpanStatus(code: .error))
         #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == .string(Self.contentErrorType))
@@ -97,14 +99,16 @@ struct ExtrasContentSafetyTests {
     /// recorded nothing passes the content check with no issue, thus each
     /// test states what the capture measured.
     ///
-    /// - Parameter context: The capture of the call.
-    private static func expectOneCall(in context: TelemetryCapture.Context) {
+    /// - Parameters:
+    ///   - context: The capture of the call.
+    ///   - metricLabels: The sorted metric labels of the call. The default is
+    ///     the tool-call metrics of a call that sends no event upstream.
+    private static func expectOneCall(
+        in context: TelemetryCapture.Context, metricLabels: [String] = Fixtures.metricLabelsOfOneToolCall
+    ) {
         #expect(context.spans.count == recordsOfOneCall)
         #expect(context.logRecords.count == recordsOfOneCall)
-        #expect(context.metricRecords.map(\.label).sorted() == [
-            ExtrasTelemetry.MetricName.toolCalls,
-            ExtrasTelemetry.MetricName.toolDuration,
-        ])
+        #expect(context.metricRecords.map(\.label).sorted() == metricLabels)
     }
 
     /// Expects that the capture measured one background call and its settled

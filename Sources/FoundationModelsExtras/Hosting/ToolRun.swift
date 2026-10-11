@@ -283,8 +283,9 @@ actor RunEventFunnel: OperationEventSink {
     /// The elicitations of this run that have no answer yet.
     private var pendingElicitationIds: Set<ULID> = []
 
-    /// The upstream deliveries, in order.
-    private var deliveries = SerialAsyncChain()
+    /// The upstream deliveries, in order. Each delivery is one task of the
+    /// `tool_events` queue metrics.
+    private var deliveries = SerialAsyncChain(telemetry: QueueTelemetry(name: .toolEvents))
 
     /// Makes the funnel of one run.
     ///

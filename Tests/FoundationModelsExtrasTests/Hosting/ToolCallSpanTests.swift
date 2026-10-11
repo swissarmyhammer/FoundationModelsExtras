@@ -209,7 +209,11 @@ struct ToolCallSpanTests {
             return context
         }
 
-        try Self.expectOneCall(in: context, toolName: tool.name, outcome: .failed)
+        // The failed call sends its terminal event upstream, thus the capture
+        // also holds the queue metrics of that delivery.
+        try Self.expectOneCall(
+            in: context, toolName: tool.name, outcome: .failed,
+            metricLabels: Fixtures.metricLabelsOfACallThatSendsItsTerminal)
         let span = try #require(context.spans.first)
         #expect(span.status == SpanStatus(code: .error))
         #expect(
@@ -235,7 +239,11 @@ struct ToolCallSpanTests {
         #expect(span.errors.isEmpty)
         #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == nil)
         #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.outcome) == .string(QueueOutcome.timedOut.rawValue))
-        try Self.expectOneCall(in: context, toolName: tool.name, outcome: .timedOut)
+        // The timed-out call sends its terminal event upstream, thus the
+        // capture also holds the queue metrics of that delivery.
+        try Self.expectOneCall(
+            in: context, toolName: tool.name, outcome: .timedOut,
+            metricLabels: Fixtures.metricLabelsOfACallThatSendsItsTerminal)
     }
 
     @Test("a background call gives one count and one duration of its start")
@@ -345,13 +353,16 @@ struct ToolCallSpanTests {
     ///   - outcome: How the call ended. Its wire value is the expected
     ///     `tool.outcome` value, thus it must be a case that this package
     ///     knows.
+    ///   - metricLabels: The sorted metric labels of the call. The default is
+    ///     the tool-call metrics of a call that sends no event upstream.
     /// - Throws: When the capture has no such counter or timer.
     private static func expectOneCall(
         in context: TelemetryCapture.Context,
         toolName: String,
-        outcome: OperationOutcome
+        outcome: OperationOutcome,
+        metricLabels: [String] = Fixtures.metricLabelsOfOneToolCall
     ) throws {
-        try expectOneCall(in: context, toolName: toolName, outcomeValue: outcome.rawValue)
+        try expectOneCall(in: context, toolName: toolName, outcomeValue: outcome.rawValue, metricLabels: metricLabels)
     }
 
     /// Expects that the capture holds the telemetry of one tool call, with
@@ -361,14 +372,17 @@ struct ToolCallSpanTests {
     ///   - context: The capture of the call.
     ///   - toolName: The model-facing name of the tool.
     ///   - outcomeValue: The expected `tool.outcome` value.
+    ///   - metricLabels: The sorted metric labels of the call. The default is
+    ///     the tool-call metrics of a call that sends no event upstream.
     /// - Throws: When the capture has no such counter or timer.
     private static func expectOneCall(
         in context: TelemetryCapture.Context,
         toolName: String,
-        outcomeValue: String
+        outcomeValue: String,
+        metricLabels: [String] = Fixtures.metricLabelsOfOneToolCall
     ) throws {
         try expectToolCallMetrics(in: context, toolName: toolName, outcomeValue: outcomeValue)
-        #expect(context.metricRecords.count == metricsOfOneCall)
+        #expect(context.metricRecords.map(\.label) == metricLabels)
         #expect(context.spans.map(\.operationName) == [ExtrasTelemetry.SpanName.tool])
         #expect(context.logRecords.map { "\($0.message)" } == [
             ExtrasTelemetry.EnterRecord.message(forSpanNamed: ExtrasTelemetry.SpanName.tool),
