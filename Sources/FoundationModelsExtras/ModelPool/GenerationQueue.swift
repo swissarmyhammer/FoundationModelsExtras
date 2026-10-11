@@ -1,4 +1,6 @@
+import Metrics
 import Synchronization
+import Tracing
 
 /// A work queue in front of one shared model. One worker runs the jobs one at
 /// a time, first in first out.
@@ -6,6 +8,13 @@ import Synchronization
 /// A job is one call to the model. A submitter waits only for the result of
 /// its own job. When the submitter is cancelled, a waiting job never starts,
 /// and a running job gets the cancel on its task.
+///
+/// A job runs on a task of its own, which inherits no task-local value of the
+/// submitter. The job restores only the telemetry of the submitter around its
+/// body: the trace context (`ServiceContext.current`), the tracer that
+/// `withTracer` bound, and the metrics factory that `withMetricsFactory`
+/// bound. Thus a span that the body opens has the span of the submitter as
+/// its parent, and ``ModelCallMark/current`` is `nil` in the body.
 public final class GenerationQueue: Sendable {
     /// The input of the worker loop.
     private let jobs: AsyncStream<any QueuedJob>.Continuation
@@ -200,14 +209,18 @@ private final class Job<T: Sendable>: QueuedJob {
     /// job with no ticket.
     private let ticket: QueueTicket
 
+    /// The trace context and the tracer of the submitter, from the enqueue.
+    private let submitter: SubmitterTelemetry
+
     /// Makes a new job, and records that the queue accepted it. Make the job
     /// on the task of the submitter: the ticket keeps the metrics factory of
-    /// that task.
+    /// that task, and ``submitter`` keeps its trace context and its tracer.
     init(queue: GenerationQueue, priority: TaskPriority, body: @escaping @Sendable () async throws -> T) {
         self.queue = queue
         self.priority = priority
         self.body = body
         self.ticket = queue.telemetry.enqueued()
+        self.submitter = SubmitterTelemetry()
     }
 
     /// Keeps the resume of the submitter. The caller counts the job.
@@ -265,18 +278,21 @@ private final class Job<T: Sendable>: QueuedJob {
         }
     }
 
-    /// Runs the job on a new detached task, which inherits no task-local of
-    /// the submitter, and waits for it. Only the worker loop calls this.
+    /// Runs the job on a new detached task, and waits for it. Only the worker
+    /// loop calls this.
+    ///
+    /// The detached task inherits no task-local of the submitter. Thus
+    /// ``ModelCallMark/current`` and each other task-local of the submitter
+    /// stay out of the job. The task restores only the trace context and the
+    /// tracer of ``submitter``, and the metrics factory of the ticket, around
+    /// the body.
     func run() async {
         let task = state.withLock { state -> Task<Void, Never>? in
             guard case .waiting(let resume) = state else { return nil }
             let started = recordStart()
             let task = Task.detached(priority: priority) {
-                let result: Result<T, any Error>
-                do {
-                    result = .success(try await self.body())
-                } catch {
-                    result = .failure(error)
+                let result = await self.submitter.restore(factory: started.factory) {
+                    await self.runBody()
                 }
                 self.finish(result: result, ticket: started)
                 resume(consume result)
@@ -285,6 +301,17 @@ private final class Job<T: Sendable>: QueuedJob {
             return task
         }
         await task?.value
+    }
+
+    /// Runs the body of the job.
+    ///
+    /// - Returns: The value of the body, or the error that it threw.
+    private func runBody() async -> Result<T, any Error> {
+        do {
+            return .success(try await body())
+        } catch {
+            return .failure(error)
+        }
     }
 
     /// Records in the telemetry that the job starts now.
@@ -320,6 +347,49 @@ private final class Job<T: Sendable>: QueuedJob {
             .succeeded
         case .failure(let error):
             error is CancellationError ? .cancelled : .failed
+        }
+    }
+}
+
+/// The trace context and the tracer of the task that submits a job. The job
+/// restores them around its body, on a detached task that inherits neither.
+///
+/// The job restores no other task-local of the submitter. Thus
+/// ``ModelCallMark/current`` stays `nil` in the body.
+private struct SubmitterTelemetry: Sendable {
+    /// The trace context of the submitter, or `nil` when it had none.
+    private let context: ServiceContext?
+
+    /// The active tracer of the submitter: the tracer that `withTracer`
+    /// bound, or else the bootstrapped instrument when it is a tracer. It is
+    /// `nil` when the active instrument is not a tracer. Then the job binds
+    /// no tracer, and sees the same bootstrapped instrument.
+    private let tracer: (any Tracer)?
+
+    /// Reads the trace context and the active tracer of the current task.
+    /// Call this on the task of the submitter.
+    init() {
+        context = ServiceContext.current
+        // `withTracer` accepts only a `Tracer`, thus a task-local instrument
+        // is always a tracer. The task-local itself is not public, but
+        // `instrument` gives it first.
+        tracer = InstrumentationSystem.instrument as? any Tracer
+    }
+
+    /// Runs `body` with the trace context, the tracer and `factory` bound as
+    /// the task-local values of the current task.
+    ///
+    /// - Parameters:
+    ///   - factory: The metrics factory of the submitter, from the ticket of
+    ///     the job.
+    ///   - body: The work to run.
+    /// - Returns: What `body` returns.
+    func restore<Value>(factory: any MetricsFactory, _ body: () async -> Value) async -> Value {
+        await withMetricsFactory(factory) {
+            await ServiceContext.withValue(context) {
+                guard let tracer else { return await body() }
+                return await withTracer(tracer) { await body() }
+            }
         }
     }
 }

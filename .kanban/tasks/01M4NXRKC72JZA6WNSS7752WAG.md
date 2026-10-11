@@ -1,10 +1,28 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m4p9by170de24s6sgf5t91q9
+  text: |-
+    Research:
+    - `withTracer` binds `InstrumentationSystem._taskLocalInstrument`. That task-local is `internal`, and `withTaskLocalInstrument` is `package`. Thus this repo cannot read the task-local directly. `InstrumentationSystem.instrument` is public and gives the task-local instrument, or else the bootstrapped instrument. `withTracer` accepts only a `Tracer`, thus `InstrumentationSystem.instrument as? any Tracer` gives the bound tracer exactly. When it gives the bootstrapped tracer, a bind of it in the job changes nothing. When the bootstrapped instrument is a multiplex (not a `Tracer`), the job binds nothing and sees the same global instrument.
+    - `ServiceContext.withValue(_:isolation:operation:)` restores the trace context.
+    - The job ticket (`QueueTicket.factory`) already keeps the metrics factory of the submitter, from `Job.init`, which runs on the task of the submitter in `submit` and in `enqueue`. The job reuses that factory for `withMetricsFactory`. It does not read the factory a second time.
+    - The Job reads the context and the tracer in `Job.init`, which `submit(isolation:onQueued:_:)` and `enqueue(_:)` call on the task of the submitter. This is the same place that reads the factory into the ticket.
+    - The `ModelCallMark` test passes before the change too: it is a guard that the restore stays selective.
+  timestamp: 2026-10-11T20:09:48.327849+00:00
+- actor: claude-code
+  id: 01m4p9qnj44zcqr41mba44erhw
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Sources/FoundationModelsExtras/ModelPool/GenerationQueue.swift (new private `SubmitterTelemetry`; `Job` keeps it; `run()` restores the trace context, the tracer and the ticket factory around `runBody()`; doc comments updated), Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift (4 new tests in `GenerationQueueWorkerTaskTests`). RED: 3 of the new tests failed for the expected reason (no job span, missing metric); the ModelCallMark guard passed before and after. GREEN: `swift test --filter GenerationQueueWorkerTaskTests` 6/6 passed. Full `swift test`: 952 tests in 89 suites passed, 11 known issues (the existing `withKnownIssue` tests of TelemetryCapture), no warning except the mlx-swift `missing creator for mutated node` line.
+    - next: /review
+  timestamp: 2026-10-11T20:16:12.868552+00:00
 depends_on:
 - 01M4NXR89BEEM8Q023M7S472C8
-position_column: todo
-position_ordinal: '8280'
+position_column: doing
+position_ordinal: '80'
 title: 'GenerationQueue: carry the trace context of the submitter into the job, so spans inside a model call keep their parent'
 ---
 ## What
@@ -25,16 +43,16 @@ Limit: a log record that a job body writes is not visible to `TelemetryCapture`.
 
 ## Acceptance Criteria
 
-- [ ] A span that opens inside a job body has the span of the submitter as its parent.
-- [ ] `TelemetryCapture.run(forbidding:)` sees a span and a metric that a job body writes.
-- [ ] `ModelCallMark.current` is still `nil` inside a job body (the detach still isolates the job).
+- [x] A span that opens inside a job body has the span of the submitter as its parent.
+- [x] `TelemetryCapture.run(forbidding:)` sees a span and a metric that a job body writes.
+- [x] `ModelCallMark.current` is still `nil` inside a job body (the detach still isolates the job).
 
 ## Tests
 
-- [ ] Add tests in the existing `Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift`: open a span with `W3CInMemoryTracer` (from `TelemetryTestSupport`), submit a job that opens a child span, and check the parent id and the trace id.
-- [ ] Add a test that a metric that a job body records reaches the `TestMetrics` of the `withMetricsFactory` of the submitter.
-- [ ] Add a test that `ModelCallMark.current` is `nil` in the job.
-- [ ] `swift test` passes with no warnings.
+- [x] Add tests in the existing `Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift`: open a span with `W3CInMemoryTracer` (from `TelemetryTestSupport`), submit a job that opens a child span, and check the parent id and the trace id.
+- [x] Add a test that a metric that a job body records reaches the `TestMetrics` of the `withMetricsFactory` of the submitter.
+- [x] Add a test that `ModelCallMark.current` is `nil` in the job.
+- [x] `swift test` passes with no warnings.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.

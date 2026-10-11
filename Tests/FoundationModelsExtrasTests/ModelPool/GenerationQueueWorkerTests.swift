@@ -1,8 +1,11 @@
 import FoundationModelsExtras
+import InMemoryTracing
 import Metrics
 import MetricsTestKit
 import Synchronization
+import TelemetryTestSupport
 import Testing
+import Tracing
 import ULID
 
 /// The generation queue is a work queue with one worker.
@@ -719,7 +722,8 @@ struct GenerationQueueWorkerTests {
 }
 
 /// An item runs on a task that the worker makes, which inherits no task-local
-/// of its submitter.
+/// of its submitter. The item restores only the telemetry of its submitter:
+/// the trace context, the tracer and the metrics factory.
 @Suite("Generation queue: an item runs on the worker task")
 struct GenerationQueueWorkerTaskTests {
     /// The task-local that the test binds around the submission.
@@ -751,5 +755,90 @@ struct GenerationQueueWorkerTaskTests {
 
         #expect(seen == nil)
         #expect(await queue.isRunning == false)
+    }
+
+    /// The name of the span that the submitter opens around a submission.
+    private static let submitterSpanName = "probe.submitter"
+
+    /// The name of the span that a job body opens.
+    private static let jobSpanName = "probe.job"
+
+    /// The label of the counter that a job body increments.
+    private static let jobCounterLabel = "probe.job.counter"
+
+    /// The count that one increment adds to a counter.
+    private static let oneIncrement: Int64 = 1
+
+    /// Opens the submitter span, and in it submits a job that opens the job
+    /// span and increments the job counter. The global tracer and the global
+    /// metrics factory of the task give the span and the counter.
+    ///
+    /// - Parameter queue: The queue to submit to.
+    /// - Throws: The error of the submission.
+    private static func submitTracedJob(to queue: GenerationQueue) async throws {
+        try await withSpan(submitterSpanName) { _ in
+            try await queue.submit {
+                withSpan(jobSpanName) { _ in
+                    Metrics.Counter(label: jobCounterLabel).increment()
+                }
+            }
+        }
+    }
+
+    @Test("a span that a job body opens has the span of the submitter as its parent, in the same trace")
+    func aJobSpanHasTheSubmitterSpanAsItsParent() async throws {
+        let queue = GenerationQueue()
+        let tracer = W3CInMemoryTracer()
+
+        try await withTracer(tracer) {
+            try await Self.submitTracedJob(to: queue)
+        }
+
+        let spans = tracer.finishedSpans
+        let submitter = try #require(spans.first { $0.operationName == Self.submitterSpanName })
+        let job = try #require(spans.first { $0.operationName == Self.jobSpanName })
+        #expect(job.parentSpanID == submitter.spanID)
+        #expect(job.traceID == submitter.traceID)
+    }
+
+    @Test("a metric that a job body records reaches the metrics factory that the submitter binds")
+    func aJobMetricReachesTheFactoryOfTheSubmitter() async throws {
+        let queue = GenerationQueue()
+        let metrics = TestMetrics()
+
+        try await withMetricsFactory(metrics) {
+            try await Self.submitTracedJob(to: queue)
+        }
+
+        #expect(try metrics.expectCounter(Self.jobCounterLabel).values == [Self.oneIncrement])
+    }
+
+    @Test("a capture sees the span and the metric that a job body writes")
+    func aCaptureSeesTheSpanAndTheMetricOfAJob() async throws {
+        let queue = GenerationQueue()
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            try await Self.submitTracedJob(to: queue)
+            return context
+        }
+
+        #expect(context.spans.contains { $0.operationName == Self.jobSpanName })
+        #expect(context.metricRecords.contains { $0.label == Self.jobCounterLabel })
+    }
+
+    @Test("a job body sees no ModelCallMark of its submitter, also when the submitter binds a tracer and a span")
+    func aJobSeesNoModelCallMarkOfItsSubmitter() async throws {
+        let queue = GenerationQueue()
+        let mark = ModelCallMark(sessionID: ULID())
+
+        let markInJob = try await withTracer(W3CInMemoryTracer()) {
+            try await withSpan(Self.submitterSpanName) { _ in
+                try await ModelCallMark.$current.withValue(mark) {
+                    try await queue.submit { ModelCallMark.current }
+                }
+            }
+        }
+
+        #expect(markInJob == nil)
     }
 }
