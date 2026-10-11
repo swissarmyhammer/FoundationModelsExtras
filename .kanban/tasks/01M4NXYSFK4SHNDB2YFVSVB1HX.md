@@ -17,10 +17,26 @@ comments:
     - evidence: 3 files — Sources/FoundationModelsExtras/Hosting/RunToCompletionRunner.swift (the span body gives a timeout back as a `Result` value through the new private `spanResult(of:)`, and the runner throws it after the span ends; it records the outcome with `ToolCallSpan.record(outcomeOf:on:)`), Sources/FoundationModelsExtras/Hosting/ToolCallSpan.swift (new `record(outcomeOf:on:)` and `outcomeOfTerminalWithNoOutcome = .lost`), Tests/FoundationModelsExtrasTests/Hosting/ToolCallSpanTests.swift (2 new tests: the timeout, and a terminal event with no outcome; the failure test now also checks the error status and the `error.type`). TDD: the timeout test failed first on `span.status == nil` and `error.type == nil`; the nil-outcome test failed first to compile (no `record(outcomeOf:on:)`). `swift test`: XCTest 381 tests pass; Swift Testing 935 tests in 89 suites pass with 11 known issues that the suites declare; 0 failures; 0 compiler warnings. The only build line is the known "missing creator for mutated node ... mlx-swift_Cmlx.bundle" line of SwiftPM (recorded on ^483vhbg).
     - next: review. Note: `BackgroundToolRunner` can also use `record(outcomeOf:on:)`; task ^z87gyn owns that runner.
   timestamp: 2026-10-11T18:09:37.106446+00:00
+- actor: claude-code
+  id: 01m4p2t2dq9fq2jywpd844kg53
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 0069daa). 0 findings, 0 confirmed, 0 refuted. 3 files reviewed. 4 .kanban files not reviewed (ignore rule).
+    - next: none. The task is in done.
+  timestamp: 2026-10-11T18:15:11.543051+00:00
+- actor: claude-code
+  id: 01m4p2td3w3fsmmjssz3k7kc06
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 935 passed
+    - commit: 0069daa
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T18:15:22.492207+00:00
 depends_on:
 - 01M4NXQSMZF2TE7AP0GW9G6HM8
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: e980
 title: 'Tool-call telemetry: a run-to-completion timeout is not an error, and each call records one count and one duration'
 ---
 ## What

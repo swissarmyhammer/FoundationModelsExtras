@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Tracing
 import ULID
 
 /// What a running tool can use: the run plane, the event sink and the session
@@ -25,6 +26,11 @@ public struct ToolContext: Sendable {
     /// The sink of the session. Each background run that this context mounts
     /// posts to it.
     private let sessionSink: any OperationEventSink
+
+    /// The tracer of the session, or `nil` for `InstrumentationSystem.tracer`
+    /// at call time. Each tool that this context mounts records its spans
+    /// with it.
+    private let tracer: (any Tracer)?
 
     /// Tells if a cancel of the run was asked.
     private let cancellationProbe: @Sendable () -> Bool
@@ -93,7 +99,8 @@ public struct ToolContext: Sendable {
     /// that it mounts posts to the sink of the session of `site`.
     ///
     /// - Parameters:
-    ///   - site: The session, its run plane, its sink and its settle period.
+    ///   - site: The session, its run plane, its sink, its tracer and its
+    ///     settle period.
     ///   - inlineSettleDeadline: The end of the settle period of the run, or
     ///     `nil`.
     ///   - sink: The sink that each capability posts to.
@@ -118,6 +125,7 @@ public struct ToolContext: Sendable {
         self.runPlane = site.runPlane
         self.sink = sink
         self.sessionSink = site.sessionSink
+        self.tracer = site.tracer
         self.tool = tool
         self.op = op
         self.completionToken = completionToken
@@ -342,7 +350,7 @@ public struct ToolContext: Sendable {
             sink: MountedRunUpstreamSink(context: self),
             sessionSink: sessionSink,
             op: op,
-            tracer: nil,
+            tracer: tracer,
             inlineSettleGrace: inlineSettleGrace,
             inlineSettleDeadline: inlineSettleDeadline
         )
@@ -380,7 +388,7 @@ public struct ToolContext: Sendable {
         postingTo sink: any OperationEventSink
     ) -> any Tool<T.Arguments, T.Output> {
         let site = MountSite(
-            sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: nil,
+            sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: tracer,
             inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline)
         return Self.mount(tool, on: site, as: configuration)
     }

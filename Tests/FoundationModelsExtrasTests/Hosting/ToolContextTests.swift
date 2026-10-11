@@ -1,14 +1,17 @@
 @_spi(Testing) @testable import FoundationModelsExtras
 import Foundation
 import FoundationModels
+import TelemetryTestSupport
 import Testing
+import Tracing
 import ULID
 
 /// The bound ``ToolContext``: the binding through `ToolContext.$current`, the
 /// rule that work with no task-local values sees `nil`, the stamps of each
 /// event, the plan on a progress event, the `elicit(_:)` round trip through a
-/// real ``RunPlane``, and the run-plane capabilities `backgroundRuns()`,
-/// `wait` and `cancel` against a fake background run.
+/// real ``RunPlane``, the run-plane capabilities `backgroundRuns()`, `wait`
+/// and `cancel` against a fake background run, and the tracer of each tool
+/// that the context mounts.
 @Suite("ToolContext: ambient task-local capability surface", .timeLimit(.minutes(1)))
 struct ToolContextTests {
     // MARK: - Fixtures
@@ -640,5 +643,108 @@ struct ToolContextTests {
         let outcome = await context.cancel(completionToken: RunPlane.makeCompletionToken())
 
         #expect(outcome == .unknownToken)
+    }
+
+    // MARK: - The tracer of a nested mount
+
+    /// The overload of ``ToolContext`` that a nesting fixture tool mounts its
+    /// inner tool with.
+    enum NestedMountOverload: CaseIterable, Sendable {
+        /// ``ToolContext/mount(_:op:as:)``.
+        case onTheSession
+
+        /// ``ToolContext/mount(_:op:as:postingTo:)``.
+        case postingToOwnSink
+    }
+
+    /// Mounts ``MountFixtures/FastTool`` on the bound context with
+    /// `overload`, and calls it in band.
+    ///
+    /// - Parameters:
+    ///   - overload: The mount overload.
+    ///   - arguments: The arguments of the inner call.
+    /// - Returns: The output of the inner call.
+    /// - Throws: When no context is bound, or the inner call throws.
+    private static func callInnerFastTool(
+        mountedWith overload: NestedMountOverload,
+        arguments: MountArguments
+    ) async throws -> String {
+        let context = try #require(ToolContext.current)
+        let inner = MountFixtures.FastTool()
+        let mounted =
+            switch overload {
+            case .onTheSession: context.mount(inner)
+            case .postingToOwnSink: context.mount(inner, postingTo: RecordingSink())
+            }
+        return try await mounted.call(arguments: arguments)
+    }
+
+    /// A `String` tool that makes one nested call. A runner mounts it, so
+    /// its context comes from ``ToolRun``.
+    private struct NestingStringTool: Tool {
+        let name = "nesting_string_tool"
+        let description = "mounts the fast tool on its own context and calls it in band"
+        let overload: NestedMountOverload
+
+        func call(arguments: MountArguments) async throws -> String {
+            try await ToolContextTests.callInnerFastTool(mountedWith: overload, arguments: arguments)
+        }
+    }
+
+    /// A tool with an output that is not `String`, that makes one nested
+    /// call. Only a bound context wraps it, so its context comes from
+    /// ``ContextBindingTool``.
+    private struct NestingNonStringTool: Tool {
+        let name = "nesting_non_string_tool"
+        let description = "mounts the fast tool on its own context, calls it in band, and returns a non-String output"
+        let overload: NestedMountOverload
+
+        func call(arguments: MountArguments) async throws -> NonStringToolOutput {
+            NonStringToolOutput(
+                text: try await ToolContextTests.callInnerFastTool(mountedWith: overload, arguments: arguments))
+        }
+    }
+
+    /// Mounts `tool` synchronously on a host site that has its own
+    /// ``W3CInMemoryTracer``, calls it one time, and gives the tool name of
+    /// each span that the host tracer finished, in end order.
+    ///
+    /// - Parameter tool: The outer tool. It makes one nested call.
+    /// - Returns: The tool name attribute of each finished span.
+    /// - Throws: When the mounted tool does not keep its types, or the call
+    ///   throws.
+    private static func toolNamesOnTheHostTracer<T: Tool>(
+        afterCalling tool: T
+    ) async throws -> [SpanAttribute?] where T.Arguments == MountArguments {
+        let tracer = W3CInMemoryTracer()
+        let site = MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: RecordingSink(), tracer: tracer)
+        let wrapped = ToolMounting.makeWrapped(tool: tool, site: site, configuration: .synchronous)
+        let mounted = try #require(wrapped as? any Tool<MountArguments, T.Output>)
+
+        _ = try await mounted.call(arguments: MountArguments(value: "nested"))
+
+        return tracer.finishedSpans.map { $0.attributes.get(ExtrasTelemetry.AttributeKey.toolName) }
+    }
+
+    @Test(
+        "an inner call of a String tool records its span on the tracer of the host site",
+        arguments: NestedMountOverload.allCases)
+    func aNestedMountInARunKeepsTheHostTracer(overload: NestedMountOverload) async throws {
+        let outer = NestingStringTool(overload: overload)
+
+        let names = try await Self.toolNamesOnTheHostTracer(afterCalling: outer)
+
+        #expect(names == [.string(MountFixtures.FastTool().name), .string(outer.name)])
+    }
+
+    @Test(
+        "an inner call of a tool with a non-String output records its span on the tracer of the host site",
+        arguments: NestedMountOverload.allCases)
+    func aNestedMountInABoundCallKeepsTheHostTracer(overload: NestedMountOverload) async throws {
+        let outer = NestingNonStringTool(overload: overload)
+
+        let names = try await Self.toolNamesOnTheHostTracer(afterCalling: outer)
+
+        #expect(names == [.string(MountFixtures.FastTool().name), .string(outer.name)])
     }
 }
