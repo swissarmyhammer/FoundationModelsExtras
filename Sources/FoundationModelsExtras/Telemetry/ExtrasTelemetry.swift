@@ -2,8 +2,9 @@ import Logging
 import Metrics
 
 /// The telemetry vocabulary of the core target: the span names, the attribute
-/// keys, the metric names, the log metadata keys and the carrier keys of the
-/// W3C trace context, and the logger and the tool-call metrics that use them.
+/// keys, the metric names, the dimension keys, the log metadata keys and the
+/// carrier keys of the W3C trace context, the queue names and the bounded
+/// outcome values, and the logger and the tool-call metrics that use them.
 ///
 /// Each package keeps all of its telemetry names in one vocabulary file. No
 /// other source file of the core target writes a telemetry name as a string
@@ -16,8 +17,10 @@ import Metrics
 /// of the family bootstrap the backend. Until one does, each metric does
 /// nothing, and each logger writes through the default handler of swift-log.
 ///
-/// A metric dimension carries the tool name and the outcome only. It never
-/// carries tool arguments or tool output, because a dimension leaves the
+/// A metric dimension carries names and bounded values only: the tool name,
+/// the queue name, the model ref of a queue that belongs to one model, and the
+/// bounded telemetry value of an outcome. It never carries tool arguments,
+/// tool output or the content of a queue task, because a dimension leaves the
 /// process through the metrics backend of the host.
 enum ExtrasTelemetry {
     /// The label of each logger of the core target.
@@ -40,7 +43,8 @@ enum ExtrasTelemetry {
         /// The ``ToolCallSpan/ToolRunKind`` of the call.
         static let runKind = "tool.run_kind"
 
-        /// The ``OperationOutcome`` of the call.
+        /// The bounded telemetry value of the ``OperationOutcome`` of the
+        /// call, from ``ExtrasTelemetry/telemetryOutcome(of:)``.
         static let outcome = "tool.outcome"
 
         /// The type of the error that ended a traced call: the type name, then
@@ -56,6 +60,34 @@ enum ExtrasTelemetry {
 
         /// The timer that records the duration of each tool call.
         static let toolDuration = "FoundationModelsExtras.tool.duration"
+
+        /// The meter of the depth of a queue: the count of its tasks that are
+        /// not finished, waiting and running together.
+        static let queueDepth = "FoundationModelsExtras.queue.depth"
+
+        /// The timer that records the time of each queue task from its
+        /// enqueue to its start.
+        static let queueWait = "FoundationModelsExtras.queue.wait"
+
+        /// The timer that records the time of each queue task from its start
+        /// to its end.
+        static let queueRun = "FoundationModelsExtras.queue.run"
+
+        /// The counter that counts each queue task that completes.
+        static let queueTasks = "FoundationModelsExtras.queue.tasks"
+    }
+
+    /// The dimension keys of the queue metrics of the core target.
+    enum DimensionKey {
+        /// The ``QueueName`` of the queue.
+        static let queueName = "queue.name"
+
+        /// The `ModelRef.stringValue` of the model that the queue belongs to.
+        /// Only a queue of one model has this dimension.
+        static let modelRef = "model.ref"
+
+        /// The ``QueueOutcome`` of a completed queue task.
+        static let queueOutcome = "queue.outcome"
     }
 
     /// The metadata keys of the log records of the core target.
@@ -194,12 +226,99 @@ enum ExtrasTelemetry {
     /// - Parameters:
     ///   - toolName: The model-facing name of the tool.
     ///   - outcome: How the call ended.
-    /// - Returns: The tool name and the outcome, with the attribute keys of
-    ///   the tool span as the dimension names.
+    /// - Returns: The tool name and the telemetry value of the outcome, with
+    ///   the attribute keys of the tool span as the dimension names.
     private static func toolCallDimensions(toolName: String, outcome: OperationOutcome) -> [(String, String)] {
         [
             (AttributeKey.toolName, toolName),
-            (AttributeKey.outcome, outcome.rawValue),
+            (AttributeKey.outcome, telemetryOutcome(of: outcome).rawValue),
         ]
     }
+
+    /// Gives the bounded telemetry value of a tool outcome.
+    ///
+    /// Each telemetry use of a tool outcome, a metric dimension or a span
+    /// attribute, uses this value and never `OperationOutcome.rawValue`. The
+    /// `rawValue` of ``OperationOutcome/other(_:)`` is the text of the tool,
+    /// thus it has no cardinality limit, and it can hold content. The
+    /// `rawValue` stays the wire format.
+    ///
+    /// The value keeps each case of ``OperationOutcome`` separate. It never
+    /// gives `failed` for ``OperationOutcome/lost``, because "we do not know
+    /// if this ran" is not the claim "this ran and failed". It keeps
+    /// ``OperationOutcome/stopped`` and ``OperationOutcome/cancelled``
+    /// separate, because a stop is authoritative and a cancel is only a
+    /// request.
+    ///
+    /// - Parameter outcome: How a tool call or a run ended.
+    /// - Returns: One fixed value for each case. Each
+    ///   ``OperationOutcome/other(_:)`` gives ``QueueOutcome/other``.
+    static func telemetryOutcome(of outcome: OperationOutcome) -> QueueOutcome {
+        switch outcome {
+        case .succeeded: .succeeded
+        case .failed: .failed
+        case .timedOut: .timedOut
+        case .stopped: .stopped
+        case .cancelled: .cancelled
+        case .lost: .lost
+        case .other: .other
+        }
+    }
+}
+
+/// The name of each queue of the package that records queue metrics. It is
+/// the value of the ``ExtrasTelemetry/DimensionKey/queueName`` dimension.
+///
+/// No other queue name is possible, thus the dimension has a fixed
+/// cardinality.
+enum QueueName: String, Sendable, CaseIterable {
+    /// The work queue of one pooled model.
+    case model
+
+    /// The admission queue of the model pool.
+    case admission
+
+    /// The generation queue of a session.
+    case generation
+
+    /// The open runs of the run plane.
+    case runPlane = "run_plane"
+
+    /// The queue of the elicitation requests.
+    case elicitation
+
+    /// The delivery chain of the tool events.
+    case toolEvents = "tool_events"
+
+    /// The mailbox that posts messages to a session.
+    case mailbox
+}
+
+/// The bounded telemetry value of how a queue task or a tool call ended. It is
+/// the value of the ``ExtrasTelemetry/DimensionKey/queueOutcome`` dimension,
+/// and ``ExtrasTelemetry/telemetryOutcome(of:)`` gives it for an
+/// ``OperationOutcome``.
+enum QueueOutcome: String, Sendable, CaseIterable {
+    /// The work finished and reported success.
+    case succeeded
+
+    /// The work finished and reported failure.
+    case failed
+
+    /// The own hard timeout of the work ended it.
+    case timedOut = "timed_out"
+
+    /// The work was terminated authoritatively.
+    case stopped
+
+    /// Cancellation was requested, or the task was cancelled before it
+    /// started.
+    case cancelled
+
+    /// The outcome is unknowable.
+    case lost
+
+    /// An outcome that this package does not know. The value never holds the
+    /// text of that outcome.
+    case other
 }

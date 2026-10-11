@@ -28,6 +28,10 @@ struct ToolCallSpanTests {
     /// timer.
     private static let metricsOfOneCall = 2
 
+    /// The wire text of a tool outcome that this package does not know. No
+    /// place of the telemetry may carry it.
+    private static let unknownOutcome = "unknown-outcome-3c8e"
+
     /// The error that a failing body throws.
     private struct Boom: Error {}
 
@@ -87,6 +91,39 @@ struct ToolCallSpanTests {
         #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.runKind) == .string("foreground"))
         #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.outcome) == .string(OperationOutcome.timedOut.rawValue))
         try Self.expectOneCall(in: context, toolName: Self.toolName, outcome: .timedOut)
+    }
+
+    @Test("an outcome that this package does not know gives tool.outcome=other on the span and on each metric")
+    func anUnknownOutcomeGivesOtherOnTheSpanAndTheMetrics() async throws {
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            try await ToolCallSpan.withSpan(
+                tracer: nil, toolName: Self.toolName, sessionID: ULID(), runKind: .foreground
+            ) { call in
+                ToolCallSpan.record(outcome: .other(Self.unknownOutcome), on: call)
+            }
+            return context
+        }
+
+        let span = try #require(context.spans.first)
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.outcome) == .string(QueueOutcome.other.rawValue))
+        try Self.expectOneCall(in: context, toolName: Self.toolName, outcomeValue: QueueOutcome.other.rawValue)
+    }
+
+    @Test("the text of an outcome that this package does not know goes to no place of the telemetry")
+    func theTextOfAnUnknownOutcomeDoesNotLeak() async throws {
+        let context = try await TelemetryCapture.run(forbidding: [Self.unknownOutcome]) { context in
+            try await ToolCallSpan.withSpan(
+                tracer: context.tracer, toolName: Self.toolName, sessionID: ULID(), runKind: .foreground
+            ) { call in
+                ToolCallSpan.record(outcome: .other(Self.unknownOutcome), on: call)
+            }
+            return context
+        }
+
+        // A capture that recorded nothing would pass with no issue, thus the
+        // test states what the capture measured.
+        #expect(context.spans.count == 1)
+        #expect(context.metricRecords.count == Self.metricsOfOneCall)
     }
 
     @Test("an error of the body gives the span the error status and error.type, no recorded error, and is thrown again")
@@ -193,16 +230,34 @@ struct ToolCallSpanTests {
     /// - Parameters:
     ///   - context: The capture of the call.
     ///   - toolName: The model-facing name of the tool.
-    ///   - outcome: How the call ended.
+    ///   - outcome: How the call ended. Its wire value is the expected
+    ///     `tool.outcome` value, thus it must be a case that this package
+    ///     knows.
     /// - Throws: When the capture has no such counter or timer.
     private static func expectOneCall(
         in context: TelemetryCapture.Context,
         toolName: String,
         outcome: OperationOutcome
     ) throws {
+        try expectOneCall(in: context, toolName: toolName, outcomeValue: outcome.rawValue)
+    }
+
+    /// Expects that the capture holds the telemetry of one tool call, with
+    /// `outcomeValue` as the `tool.outcome` dimension of each metric.
+    ///
+    /// - Parameters:
+    ///   - context: The capture of the call.
+    ///   - toolName: The model-facing name of the tool.
+    ///   - outcomeValue: The expected `tool.outcome` value.
+    /// - Throws: When the capture has no such counter or timer.
+    private static func expectOneCall(
+        in context: TelemetryCapture.Context,
+        toolName: String,
+        outcomeValue: String
+    ) throws {
         let dimensions = [
             (ExtrasTelemetry.AttributeKey.toolName, toolName),
-            (ExtrasTelemetry.AttributeKey.outcome, outcome.rawValue),
+            (ExtrasTelemetry.AttributeKey.outcome, outcomeValue),
         ]
         let counter = try context.metricsFactory.expectCounter(ExtrasTelemetry.MetricName.toolCalls, dimensions)
         let timer = try context.metricsFactory.expectTimer(ExtrasTelemetry.MetricName.toolDuration, dimensions)

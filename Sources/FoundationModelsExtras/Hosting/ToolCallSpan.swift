@@ -97,11 +97,16 @@ enum ToolCallSpan {
     /// when the run has started, so the duration measures the start only, as
     /// the span does.
     ///
+    /// The span attribute and the metric dimensions carry the bounded
+    /// telemetry value of the outcome from
+    /// ``ExtrasTelemetry/telemetryOutcome(of:)``, never the text of an
+    /// ``OperationOutcome/other(_:)`` outcome.
+    ///
     /// - Parameters:
     ///   - outcome: How the call ended.
     ///   - call: The open call.
     static func record(outcome: OperationOutcome, on call: Call) {
-        call.span.attributes[ExtrasTelemetry.AttributeKey.outcome] = outcome.rawValue
+        call.span.attributes[ExtrasTelemetry.AttributeKey.outcome] = ExtrasTelemetry.telemetryOutcome(of: outcome).rawValue
         ExtrasTelemetry.recordToolCall(
             toolName: call.toolName, outcome: outcome, duration: ContinuousClock.now - call.start)
     }

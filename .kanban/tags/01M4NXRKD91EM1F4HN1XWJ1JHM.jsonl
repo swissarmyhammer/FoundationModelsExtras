@@ -1,0 +1,1 @@
+{"id":"01M4NXRKDAVSCWNRSW73STXJC2","timestamp":"2026-10-11T16:47:00.522150Z","op":"create","item_id":"01M4NXRKD91EM1F4HN1XWJ1JHM","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 1d76db\n+tag_name: bug\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 1d76db\n-tag_name: bug\n","transaction_id":null}

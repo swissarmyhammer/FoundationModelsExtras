@@ -101,6 +101,49 @@ struct ExtrasTelemetryTests {
         #expect(ExtrasTelemetry.errorType(of: error) == String(reflecting: ParseError.self))
     }
 
+    /// Each tool outcome, with the one telemetry value that it must give.
+    private static let telemetryOutcomes: [(OperationOutcome, QueueOutcome)] = [
+        (.succeeded, .succeeded),
+        (.failed, .failed),
+        (.timedOut, .timedOut),
+        (.stopped, .stopped),
+        (.cancelled, .cancelled),
+        (.lost, .lost),
+        (.other(payload), .other),
+    ]
+
+    @Test("each tool outcome gives its one fixed telemetry value")
+    func eachToolOutcomeGivesItsTelemetryValue() {
+        for (outcome, expected) in Self.telemetryOutcomes {
+            #expect(ExtrasTelemetry.telemetryOutcome(of: outcome) == expected)
+        }
+    }
+
+    @Test("an outcome that this package does not know gives other, never its own text")
+    func anUnknownOutcomeGivesOther() {
+        let value = ExtrasTelemetry.telemetryOutcome(of: .other(Self.payload))
+
+        #expect(value == .other)
+        #expect(value.rawValue == "other")
+    }
+
+    @Test("a lost outcome gives lost, not failed")
+    func aLostOutcomeGivesLost() {
+        let value = ExtrasTelemetry.telemetryOutcome(of: .lost)
+
+        #expect(value == .lost)
+        #expect(value.rawValue == "lost")
+    }
+
+    @Test("the dimension of a tool-call metric uses the telemetry value of an unknown outcome, and the wire value does not change")
+    func theToolCallDimensionUsesTheTelemetryValue() {
+        let outcome = OperationOutcome.other(Self.payload)
+        let counter = ExtrasTelemetry.makeToolCallCounter(toolName: Self.toolName, outcome: outcome)
+
+        #expect(counter.dimensions.elementsEqual([("tool.name", Self.toolName), ("tool.outcome", "other")], by: ==))
+        #expect(outcome.rawValue == Self.payload)
+    }
+
     @Test("the error type of a custom-reflectable enum error is the type name only, never the label of its mirror")
     func theErrorTypeOfACustomReflectableErrorIsTheTypeName() {
         let error = CustomError.missing(Self.payload)
