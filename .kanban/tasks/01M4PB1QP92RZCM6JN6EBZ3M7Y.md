@@ -29,8 +29,24 @@ comments:
   id: 01m4pbv422f2bdxecythd28e4r
   text: 'Correction to the step record: the concurrent Mailbox task is ^a0xrdq5 (01M4NXXETD1P6X4V8RMA0XRDQ5), not ^dxrdq5.'
   timestamp: 2026-10-11T20:53:03.170770+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4pc92eexc8vg1kv3gwyxxvg
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 7742182). 0 findings, 0 confirmed, 0 refuted; 7 validator runs, 0 failed. Reviewed 4 Swift files. Not reviewed: 4 .kanban files (.reviewignore) and README.md (no validator matches it).
+    - next: none. The task moved to done.
+  timestamp: 2026-10-11T21:00:40.270581+00:00
+- actor: claude-code
+  id: 01m4pc9c7xzffh36n4d0jwcr1e
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 964 tests in 90 suites passed, 0 warnings
+    - commit: 7742182
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T21:00:50.301236+00:00
+position_column: done
+position_ordinal: ee80
 title: Replace the wait-tool text in PendingRunEnvelope with PendingRunEnvelope.pendingWorkInstruction
 ---
 ## Why
