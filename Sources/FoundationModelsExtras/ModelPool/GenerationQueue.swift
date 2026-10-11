@@ -19,8 +19,22 @@ public final class GenerationQueue: Sendable {
     /// lock of a job. No code takes this lock while it holds the lock of a job.
     private let unfinished = Mutex<Int>(0)
 
+    /// The recorder of the metrics of this queue: the depth, and the wait
+    /// time, the run time and the count of each job.
+    let telemetry: QueueTelemetry
+
+    /// Makes an idle queue with the queue name
+    /// ``QueueName/generation`` and no model, and starts its worker loop.
+    public convenience init() {
+        self.init(telemetry: QueueTelemetry(name: .generation))
+    }
+
     /// Makes an idle queue and starts its worker loop.
-    public init() {
+    ///
+    /// - Parameter telemetry: The recorder of the metrics of the queue. It
+    ///   gives the queue name and the model of each metric.
+    init(telemetry: QueueTelemetry) {
+        self.telemetry = telemetry
         let (stream, jobs) = AsyncStream.makeStream(of: (any QueuedJob).self)
         self.jobs = jobs
         Task.detached {
@@ -100,12 +114,16 @@ public final class GenerationQueue: Sendable {
     /// - Returns: The number of jobs ahead of `job`, or `nil` when the job was
     ///   cancelled first.
     private func enqueue<T>(_ job: Job<T>, resume: @escaping Job<T>.Resume) -> Int? {
-        unfinished.withLock { count -> Int? in
+        let jobsAhead = unfinished.withLock { count -> Int? in
             guard job.wait(resume) else { return nil }
             jobs.yield(job)
             count += 1
             return count - 1
         }
+        if jobsAhead == nil {
+            job.refuse(resume)
+        }
+        return jobsAhead
     }
 
     /// Throws when the current task is inside an open model call on this
@@ -147,7 +165,9 @@ private protocol QueuedJob: Sendable {
 }
 
 /// One submission and its state. Each change of state occurs under one lock,
-/// so exactly one path resumes the submitter.
+/// so exactly one path resumes the submitter. That same path records the
+/// completion of the job, thus each job records its completion exactly one
+/// time. The path records the metrics after it releases the lock.
 private final class Job<T: Sendable>: QueuedJob {
     /// Gives the result of the job to its submitter. The resume takes the
     /// result, so the job keeps no reference to it after the submitter
@@ -175,28 +195,44 @@ private final class Job<T: Sendable>: QueuedJob {
     /// The state of the job.
     private let state = Mutex(State.new)
 
-    /// Makes a new job.
+    /// The queue ticket of the job, from the enqueue. The job gets it when
+    /// it is made, before the queue counts it, thus ``run()`` never sees a
+    /// job with no ticket.
+    private let ticket: QueueTicket
+
+    /// Makes a new job, and records that the queue accepted it. Make the job
+    /// on the task of the submitter: the ticket keeps the metrics factory of
+    /// that task.
     init(queue: GenerationQueue, priority: TaskPriority, body: @escaping @Sendable () async throws -> T) {
         self.queue = queue
         self.priority = priority
         self.body = body
+        self.ticket = queue.telemetry.enqueued()
     }
 
     /// Keeps the resume of the submitter. The caller counts the job.
     ///
     /// - Parameter resume: Gives the result of the job to its submitter.
     /// - Returns: `true` when the job now waits, or `false` when the job was
-    ///   cancelled first. Then the submitter gets `CancellationError` at once.
+    ///   cancelled first. Then the caller calls ``refuse(_:)`` after it
+    ///   releases the lock of the count.
     func wait(_ resume: @escaping Resume) -> Bool {
-        let waits = state.withLock { state -> Bool in
+        state.withLock { state -> Bool in
             guard case .new = state else { return false }
             state = .waiting(resume)
             return true
         }
-        if !waits {
-            resume(.failure(CancellationError()))
-        }
-        return waits
+    }
+
+    /// Records a job that was cancelled before it waited as cancelled, and
+    /// gives `CancellationError` to its submitter. Call this only when
+    /// ``wait(_:)`` returned `false`: then ``cancel()`` finished the job and
+    /// recorded nothing.
+    ///
+    /// - Parameter resume: Gives the result of the job to its submitter.
+    func refuse(_ resume: Resume) {
+        queue.telemetry.completed(ticket, outcome: .cancelled)
+        resume(.failure(CancellationError()))
     }
 
     /// Cancels the job on the task that calls it, with no wait. A job that
@@ -212,6 +248,7 @@ private final class Job<T: Sendable>: QueuedJob {
         switch previous {
         case .waiting(let resume):
             queue.releaseJobCount()
+            queue.telemetry.completed(ticket, outcome: .cancelled)
             resume(.failure(CancellationError()))
         case .running(let task):
             task.cancel()
@@ -225,6 +262,7 @@ private final class Job<T: Sendable>: QueuedJob {
     func run() async {
         let task = state.withLock { state -> Task<Void, Never>? in
             guard case .waiting(let resume) = state else { return nil }
+            let started = startedTicket()
             let task = Task.detached(priority: priority) {
                 let result: Result<T, any Error>
                 do {
@@ -232,7 +270,7 @@ private final class Job<T: Sendable>: QueuedJob {
                 } catch {
                     result = .failure(error)
                 }
-                self.finish()
+                self.finish(result: result, ticket: started)
                 resume(consume result)
             }
             state = .running(task)
@@ -241,9 +279,39 @@ private final class Job<T: Sendable>: QueuedJob {
         await task?.value
     }
 
-    /// Marks the running job as finished, before its submitter resumes.
-    private func finish() {
+    /// Records that the job starts now.
+    ///
+    /// - Returns: The ticket of the job, with the start instant.
+    private func startedTicket() -> QueueTicket {
+        var started = ticket
+        queue.telemetry.started(&started)
+        return started
+    }
+
+    /// Marks the running job as finished, and records its completion,
+    /// before its submitter resumes.
+    ///
+    /// - Parameters:
+    ///   - result: The result of the body of the job.
+    ///   - started: The ticket of the job, with the start instant.
+    private func finish(result: Result<T, any Error>, ticket started: QueueTicket) {
         state.withLock { $0 = .finished }
         queue.releaseJobCount()
+        queue.telemetry.completed(started, outcome: Self.outcome(of: result))
+    }
+
+    /// Gives the outcome of a job that ran.
+    ///
+    /// - Parameter result: The result of the body of the job.
+    /// - Returns: ``QueueOutcome/succeeded`` for a value,
+    ///   ``QueueOutcome/cancelled`` for a `CancellationError`, and
+    ///   ``QueueOutcome/failed`` for each other error.
+    private static func outcome(of result: Result<T, any Error>) -> QueueOutcome {
+        switch result {
+        case .success:
+            .succeeded
+        case .failure(let error):
+            error is CancellationError ? .cancelled : .failed
+        }
     }
 }

@@ -1,4 +1,6 @@
 @testable import FoundationModelsExtras
+import Metrics
+import MetricsTestKit
 import Testing
 
 /// `enqueue` puts a job in the generation queue and returns at once. It
@@ -72,5 +74,70 @@ struct GenerationQueueEnqueueTests {
         }.value
 
         #expect(await BoundedWait.conditionReached("the enqueued job runs") { log.values == ["ran"] })
+    }
+
+    /// The model of the queue in the test of a model queue.
+    private static let model: ModelRef = "org/queued-model"
+
+    /// The depth values of one job: up at the enqueue, down at the end.
+    private static let depthOfOneJob: [Double] = [1, 0]
+
+    /// The values of the task counter after one completed job.
+    private static let oneTask: [Int64] = [1]
+
+    /// Gives the dimensions of the depth meter of a queue.
+    ///
+    /// - Parameter telemetry: The recorder of the queue.
+    /// - Returns: The queue name, then the model ref when the queue has one.
+    private static func queueDimensions(of telemetry: QueueTelemetry) -> [(String, String)] {
+        [(ExtrasTelemetry.DimensionKey.queueName, telemetry.name.rawValue)]
+            + (telemetry.model.map { [(ExtrasTelemetry.DimensionKey.modelRef, $0.stringValue)] } ?? [])
+    }
+
+    /// Gives the dimensions of the timers and of the counter of a queue for
+    /// one job that succeeded.
+    ///
+    /// - Parameter telemetry: The recorder of the queue.
+    /// - Returns: The dimensions of the queue, then the outcome.
+    private static func succeededDimensions(of telemetry: QueueTelemetry) -> [(String, String)] {
+        queueDimensions(of: telemetry) + [(ExtrasTelemetry.DimensionKey.queueOutcome, QueueOutcome.succeeded.rawValue)]
+    }
+
+    @Test("an enqueued job records one succeeded task of the generation queue with the factory of the caller")
+    func anEnqueuedJobRecordsOneTask() async throws {
+        let metrics = TestMetrics()
+        let queue = GenerationQueue()
+        let telemetry = QueueTelemetry(name: .generation)
+
+        withMetricsFactory(metrics) {
+            queue.enqueue {}
+        }
+
+        let completed = await BoundedWait.conditionReached("the enqueued job completes") {
+            (try? metrics.expectCounter(ExtrasTelemetry.MetricName.queueTasks, Self.succeededDimensions(of: telemetry)))?
+                .values == Self.oneTask
+        }
+        #expect(completed)
+        let depth = try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, Self.queueDimensions(of: telemetry))
+        #expect(depth.values == Self.depthOfOneJob)
+        let run = try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, Self.succeededDimensions(of: telemetry))
+        #expect(run.values.count == Self.oneTask.count)
+    }
+
+    @Test("a queue made with a recorder of one model records its queue name and the model ref")
+    func aModelQueueRecordsItsNameAndModel() async throws {
+        let metrics = TestMetrics()
+        let telemetry = QueueTelemetry(name: .model, model: Self.model)
+        let queue = GenerationQueue(telemetry: telemetry)
+
+        try await withMetricsFactory(metrics) {
+            try await queue.submit {}
+        }
+
+        let tasks = try metrics.expectCounter(
+            ExtrasTelemetry.MetricName.queueTasks, Self.succeededDimensions(of: telemetry))
+        #expect(tasks.values == Self.oneTask)
+        let depth = try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, Self.queueDimensions(of: telemetry))
+        #expect(depth.values == Self.depthOfOneJob)
     }
 }

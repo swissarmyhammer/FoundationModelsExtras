@@ -1,4 +1,6 @@
 @testable import FoundationModelsExtras
+import Metrics
+import MetricsTestKit
 import Synchronization
 import Testing
 
@@ -698,5 +700,57 @@ struct ModelPoolTests {
         #expect(embedderHold?.key == embedding)
         #expect(pool.footprint.totalBytes == chatBytes + embedderBytes)
         #expect(pool.residentModelCount == [chat, embedding].count)
+    }
+
+    /// The values of the task counter after one completed job.
+    private static let oneTask: [Int64] = [1]
+
+    /// Gives the dimensions of the task counter of one job that succeeded.
+    ///
+    /// - Parameter queue: The dimensions of the queue: the queue name, then
+    ///   the model ref when the queue belongs to one model.
+    /// - Returns: The dimensions of the queue, then the outcome.
+    private static func succeededTaskDimensions(_ queue: [(String, String)]) -> [(String, String)] {
+        queue + [(ExtrasTelemetry.DimensionKey.queueOutcome, QueueOutcome.succeeded.rawValue)]
+    }
+
+    @Test("an acquire of a new key records one task of the admission queue, with no model ref")
+    func anAcquireRecordsAnAdmissionTask() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool()
+        let loader = RecordingLoader(name: "A", log: Recorder<String>())
+
+        let hold = try await withMetricsFactory(metrics) {
+            try await Self.acquire(from: pool, with: loader)
+        }
+
+        let admission = [(ExtrasTelemetry.DimensionKey.queueName, QueueName.admission.rawValue)]
+        let tasks = try metrics.expectCounter(
+            ExtrasTelemetry.MetricName.queueTasks, Self.succeededTaskDimensions(admission))
+        #expect(tasks.values == Self.oneTask)
+        withExtendedLifetime(hold) {}
+    }
+
+    @Test("an embed call through a hold records one task of the model queue with the model ref of the key")
+    func anEmbedThroughAHoldRecordsAModelTask() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool()
+        let key = ModelPoolKey(ref: "org/embedder", role: .embedding)
+        let loader = FixedLoader(container: FakeEmbedding(vector: [1, 0], log: Recorder()))
+        let hold = try await pool.acquire(
+            key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: loader)
+        let embedder = try PooledEmbedder(hold: hold)
+
+        _ = try await withMetricsFactory(metrics) {
+            try await embedder.embed(texts: ["one"])
+        }
+
+        let modelQueue = [
+            (ExtrasTelemetry.DimensionKey.queueName, QueueName.model.rawValue),
+            (ExtrasTelemetry.DimensionKey.modelRef, key.ref.stringValue),
+        ]
+        let tasks = try metrics.expectCounter(
+            ExtrasTelemetry.MetricName.queueTasks, Self.succeededTaskDimensions(modelQueue))
+        #expect(tasks.values == Self.oneTask)
     }
 }

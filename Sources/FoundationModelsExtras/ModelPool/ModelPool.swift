@@ -17,8 +17,10 @@ public final class ModelPool: Sendable {
     fileprivate struct Entry {
         let container: any Sendable
         let loader: any PooledModelLoader
-        /// The one work queue of the model. All holds of the key share it.
-        let queue = GenerationQueue()
+        /// The one work queue of the model. All holds of the key share it. Its
+        /// metrics have the queue name ``QueueName/model`` and the model ref
+        /// of the key.
+        let queue: GenerationQueue
         /// The weights, and the session of each hold.
         var bytes: Int64
         var holds = 1
@@ -75,8 +77,9 @@ public final class ModelPool: Sendable {
     /// cancels that task and runs its termination handler, cannot deadlock.
     private let publishing = Mutex(())
 
-    /// The queue of the loads and the evictions.
-    let admissions = GenerationQueue()
+    /// The queue of the loads and the evictions. Its metrics have the queue
+    /// name ``QueueName/admission`` and no model.
+    let admissions = GenerationQueue(telemetry: QueueTelemetry(name: .admission))
 
     /// The loader of ``acquire(_:)``.
     public let loader: any PooledModelLoader
@@ -286,7 +289,8 @@ public final class ModelPool: Sendable {
     private func makeResident(
         _ key: ModelPoolKey, container: any Sendable, loader: any PooledModelLoader, bytes: Int64, sessionBytes: Int64
     ) -> ModelHold {
-        let entry = Entry(container: container, loader: loader, bytes: bytes)
+        let queue = GenerationQueue(telemetry: QueueTelemetry(name: .model, model: key.ref))
+        let entry = Entry(container: container, loader: loader, queue: queue, bytes: bytes)
         publishToEachStream { state in
             state.loadingBytes = 0
             state.entries[key] = entry

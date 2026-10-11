@@ -1,4 +1,6 @@
 import FoundationModelsExtras
+import Metrics
+import MetricsTestKit
 import Synchronization
 import Testing
 import ULID
@@ -422,6 +424,221 @@ struct GenerationQueueWorkerTests {
         #expect(!holderWaits.isSet)
         #expect(waiterWaits.count == 1)
         #expect(await queue.isRunning == false)
+    }
+
+    /// The queue metrics as the metrics backend of a consumer sees them: the
+    /// metric names, and the dimensions of a queue made with
+    /// ``GenerationQueue/init()``.
+    private enum QueueMetric {
+        /// The meter of the depth of the queue.
+        static let depth = "FoundationModelsExtras.queue.depth"
+
+        /// The timer of the wait time of each job.
+        static let wait = "FoundationModelsExtras.queue.wait"
+
+        /// The timer of the run time of each job.
+        static let run = "FoundationModelsExtras.queue.run"
+
+        /// The counter of the completed jobs.
+        static let tasks = "FoundationModelsExtras.queue.tasks"
+
+        /// The dimensions of the depth meter.
+        static let queueDimensions = [("queue.name", "generation")]
+
+        /// The outcome of a job that returned a value.
+        static let succeeded = "succeeded"
+
+        /// The outcome of a job whose body threw an error that is not
+        /// `CancellationError`.
+        static let failed = "failed"
+
+        /// The outcome of a job that was cancelled.
+        static let cancelled = "cancelled"
+
+        /// Gives the dimensions of the timers and of the counter.
+        ///
+        /// - Parameter outcome: The outcome of the job.
+        /// - Returns: The queue name, then the outcome.
+        static func dimensions(outcome: String) -> [(String, String)] {
+            queueDimensions + [("queue.outcome", outcome)]
+        }
+    }
+
+    /// The error that the body of the failing job throws.
+    private struct BodyError: Error {}
+
+    /// The time that the first job of the timing test runs, in nanoseconds.
+    private static let firstRunNanoseconds: Int64 = 20_000_000
+
+    /// The number of jobs in the depth test: a holder and two waiting jobs.
+    private static let threeJobs = 3
+
+    /// The depth values of a holder and two waiting jobs: up for each job,
+    /// then down for each job.
+    private static let depthOfThreeJobs: [Double] = [1, 2, 3, 2, 1, 0]
+
+    /// The depth values of one job.
+    private static let depthOfOneJob: [Double] = [1, 0]
+
+    /// The count that one completed job adds to the task counter.
+    private static let oneTask: Int64 = 1
+
+    /// The count of durations that one completed job records on a timer.
+    private static let oneDuration = 1
+
+    /// The index of the first waiting job in the values of a timer. The
+    /// holder completes first.
+    private static let firstWaitingJob = 1
+
+    /// The index of the second waiting job in the values of a timer.
+    private static let secondWaitingJob = 2
+
+    /// Expects that `metrics` holds one completed job with `outcome`: one
+    /// wait time, one count, and one run time when the job ran.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the queue recorded into.
+    ///   - outcome: The outcome of the job.
+    ///   - ran: `true` when the job started before it completed.
+    /// - Throws: When `metrics` has no such timer or counter.
+    private static func expectOneJob(in metrics: TestMetrics, outcome: String, ran: Bool) throws {
+        let dimensions = QueueMetric.dimensions(outcome: outcome)
+        #expect(try metrics.expectCounter(QueueMetric.tasks, dimensions).values == [oneTask])
+        #expect(try metrics.expectTimer(QueueMetric.wait, dimensions).values.count == oneDuration)
+        if ran {
+            #expect(try metrics.expectTimer(QueueMetric.run, dimensions).values.count == oneDuration)
+        } else {
+            #expect(throws: TestMetricsError.self) {
+                try metrics.expectTimer(QueueMetric.run, dimensions)
+            }
+        }
+    }
+
+    @Test("the second of two jobs in sequence waits at least the run time of the first job")
+    func theSecondJobWaitsAtLeastTheRunTimeOfTheFirst() async throws {
+        let metrics = TestMetrics()
+        let queue = GenerationQueue()
+        let log = ItemLog()
+        let release = Flag()
+
+        try await withMetricsFactory(metrics) {
+            let holder = try await Self.startHolder(on: queue, log: log, release: release)
+            let first = Self.submit(to: queue) {
+                try await Task.sleep(for: .nanoseconds(Self.firstRunNanoseconds))
+                return "first"
+            }
+            _ = await BoundedWait.conditionReached("the first job waits") { await queue.waitingCount == 1 }
+            let second = await Self.submitWaiting("second", to: queue, log: log, waiting: Self.itemsBehindTheFirst)
+            release.set()
+            _ = try await Self.outcome(of: holder.box, named: "the holder result").get()
+            _ = try await Self.outcome(of: first.box, named: "the first result").get()
+            _ = try await Self.outcome(of: second.box, named: "the second result").get()
+        }
+
+        let dimensions = QueueMetric.dimensions(outcome: QueueMetric.succeeded)
+        let wait = try metrics.expectTimer(QueueMetric.wait, dimensions).values
+        let run = try metrics.expectTimer(QueueMetric.run, dimensions).values
+        try #require(wait.count == Self.secondWaitingJob + 1 && run.count == Self.secondWaitingJob + 1)
+        #expect(run[Self.firstWaitingJob] >= Self.firstRunNanoseconds)
+        #expect(wait[Self.secondWaitingJob] >= run[Self.firstWaitingJob])
+    }
+
+    @Test("the depth goes up for each job that waits or runs, and goes back to 0 when the queue is idle")
+    func theDepthCountsEachJobAndGoesBackToZero() async throws {
+        let metrics = TestMetrics()
+        let queue = GenerationQueue()
+        let log = ItemLog()
+        let release = Flag()
+
+        try await withMetricsFactory(metrics) {
+            let holder = try await Self.startHolder(on: queue, log: log, release: release)
+            let second = await Self.submitWaiting("second", to: queue, log: log, waiting: 1)
+            let third = await Self.submitWaiting("third", to: queue, log: log, waiting: Self.itemsBehindTheFirst)
+            release.set()
+            _ = try await Self.outcome(of: holder.box, named: "the holder result").get()
+            _ = try await Self.outcome(of: second.box, named: "the second result").get()
+            _ = try await Self.outcome(of: third.box, named: "the third result").get()
+        }
+
+        let depth = try metrics.expectMeter(QueueMetric.depth, QueueMetric.queueDimensions)
+        #expect(depth.values == Self.depthOfThreeJobs)
+        #expect(try metrics.expectCounter(QueueMetric.tasks, QueueMetric.dimensions(outcome: QueueMetric.succeeded))
+            .values.count == Self.threeJobs)
+    }
+
+    @Test("a waiting job that is cancelled records cancelled, a wait time and no run time")
+    func aCancelledWaitingJobRecordsNoRunTime() async throws {
+        let metrics = TestMetrics()
+        let queue = GenerationQueue()
+        let log = ItemLog()
+        let release = Flag()
+
+        try await withMetricsFactory(metrics) {
+            let holder = try await Self.startHolder(on: queue, log: log, release: release)
+            let cancelled = await Self.submitWaiting("cancelled", to: queue, log: log, waiting: 1)
+            cancelled.task.cancel()
+            #expect(Self.isCancellation(try await Self.outcome(of: cancelled.box, named: "the cancelled result")))
+            release.set()
+            _ = try await Self.outcome(of: holder.box, named: "the holder result").get()
+        }
+
+        try Self.expectOneJob(in: metrics, outcome: QueueMetric.cancelled, ran: false)
+        #expect(try metrics.expectMeter(QueueMetric.depth, QueueMetric.queueDimensions).lastValue == 0)
+    }
+
+    @Test("a running job that is cancelled records its run time and cancelled when its body throws CancellationError")
+    func aCancelledRunningJobRecordsItsRunTime() async throws {
+        let metrics = TestMetrics()
+        let queue = GenerationQueue()
+        let log = ItemLog()
+
+        let outcome = try await withMetricsFactory(metrics) {
+            let running = Self.submit(to: queue) {
+                await log.enter("running")
+                while !Task.isCancelled {
+                    await Task.yield()
+                }
+                throw CancellationError()
+            }
+            _ = await BoundedWait.conditionReached("the job runs") { await log.started == ["running"] }
+            running.task.cancel()
+            return try await Self.outcome(of: running.box, named: "the running result")
+        }
+
+        #expect(Self.isCancellation(outcome))
+        try Self.expectOneJob(in: metrics, outcome: QueueMetric.cancelled, ran: true)
+        #expect(try metrics.expectMeter(QueueMetric.depth, QueueMetric.queueDimensions).values == Self.depthOfOneJob)
+    }
+
+    @Test("a job whose body throws an error that is not CancellationError records failed")
+    func aJobWhoseBodyThrowsRecordsFailed() async throws {
+        let metrics = TestMetrics()
+        let queue = GenerationQueue()
+
+        let outcome = await withMetricsFactory(metrics) {
+            await Task { try await queue.submit { throw BodyError() } }.result
+        }
+
+        #expect(throws: BodyError.self) { try outcome.get() }
+        try Self.expectOneJob(in: metrics, outcome: QueueMetric.failed, ran: true)
+        #expect(try metrics.expectMeter(QueueMetric.depth, QueueMetric.queueDimensions).values == Self.depthOfOneJob)
+    }
+
+    @Test("a job of a submitter that is cancelled before it submits records cancelled and no run time")
+    func aJobOfAnAlreadyCancelledSubmitterRecordsCancelled() async throws {
+        let metrics = TestMetrics()
+        let queue = GenerationQueue()
+
+        let outcome = await withMetricsFactory(metrics) {
+            await Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return try await queue.submit {}
+            }.result
+        }
+
+        #expect(Self.isCancellation(outcome))
+        try Self.expectOneJob(in: metrics, outcome: QueueMetric.cancelled, ran: false)
+        #expect(try metrics.expectMeter(QueueMetric.depth, QueueMetric.queueDimensions).values == Self.depthOfOneJob)
     }
 
     /// The model the marks of the refusal tests name.
