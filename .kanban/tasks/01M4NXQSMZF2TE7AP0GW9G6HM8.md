@@ -29,9 +29,25 @@ comments:
     - evidence: 6 files — Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/QueueTelemetry.swift (new), Sources/FoundationModelsExtras/Hosting/ToolCallSpan.swift, Tests/FoundationModelsExtrasTests/Telemetry/QueueTelemetryTests.swift (new), Tests/FoundationModelsExtrasTests/Telemetry/ExtrasTelemetryTests.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolCallSpanTests.swift. `swift test --filter 'FoundationModelsExtrasTests.(QueueTelemetry|ExtrasTelemetry|ToolCallSpan)'`: 31 tests in 3 suites pass. `swift test`: exit 0, 933 Swift Testing tests in 89 suites pass (11 known issues come from the existing withKnownIssue tests of TelemetryCaptureTests), and the XCTest runs pass.
     - next: /review
   timestamp: 2026-10-11T17:50:29.311195+00:00
+- actor: claude-code
+  id: 01m4p1wd06xjq0c32nfsfjkegm
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 67ae3df). 6 files reviewed. 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed.
+    - next: none. The task is in done.
+  timestamp: 2026-10-11T17:58:59.334312+00:00
+- actor: claude-code
+  id: 01m4p1wp9se31rc9k8mmqs5sx6
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files
+    - test: green — swift test, 933 passed
+    - commit: 67ae3df
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T17:59:08.857983+00:00
 depends_on: []
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: e880
 title: 'Telemetry: add the queue vocabulary and a shared QueueTelemetry recorder (depth, wait time, run time)'
 ---
 ## What

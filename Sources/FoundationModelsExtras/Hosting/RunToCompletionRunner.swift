@@ -27,12 +27,21 @@ struct RunToCompletionRunner<
     /// Runs one call and returns the output of the tool. The span of the call
     /// records the outcome of the run, so a timeout is not a failure.
     ///
+    /// A timeout gives the span `tool.outcome=timed_out` and no error status
+    /// and no `error.type`. The call throws the timeout after the span ends.
+    /// Each other error of the tool gives the span the error status.
+    ///
+    /// Each call records exactly one count and one duration. When the
+    /// terminal event of the run has no outcome, the call records
+    /// ``ToolCallSpan/outcomeOfTerminalWithNoOutcome``, which is
+    /// ``OperationOutcome/lost``.
+    ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool.
     /// - Throws: The error of the tool, or
     ///   ``ToolMountError/timedOut(tool:timeoutSeconds:)``.
     func callToCompletion(arguments: Arguments) async throws -> String {
-        try await ToolCallSpan.withSpan(
+        let result = try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { call in
             // A synchronous call keeps the settle period of its caller, so an
@@ -42,10 +51,27 @@ struct RunToCompletionRunner<
                 inlineSettleDeadline: site.inlineSettleDeadline)
             await run.open()
             let settlement = await run.execute(arguments: arguments)
-            if let outcome = settlement.terminal.outcome {
-                ToolCallSpan.record(outcome: outcome, on: call)
-            }
-            return try settlement.result.get()
+            ToolCallSpan.record(outcomeOf: settlement.terminal, on: call)
+            return try Self.spanResult(of: settlement.result)
+        }
+        return try result.get()
+    }
+
+    /// Gives back the result of a call as the span body must see it.
+    ///
+    /// The span body gives a timeout back as a value, so the span does not
+    /// record the timeout as an error. The body throws each other error, so
+    /// the span gets the error status for it.
+    ///
+    /// - Parameter result: The result of the call.
+    /// - Returns: The output of the tool, or the timeout as a failure.
+    /// - Throws: Each error of the call that is not a timeout.
+    private static func spanResult(of result: Result<String, any Error>) throws -> Result<String, any Error> {
+        switch result {
+        case .failure(ToolMountError.timedOut):
+            return result
+        case .success, .failure:
+            return .success(try result.get())
         }
     }
 }

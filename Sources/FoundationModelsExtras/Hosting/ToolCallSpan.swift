@@ -15,7 +15,8 @@ import ULID
 /// starts. A tool call can suspend for a long time, and the record shows a
 /// call that hangs.
 ///
-/// The caller writes the outcome with ``record(outcome:on:)``, because only
+/// The caller writes the outcome with ``record(outcome:on:)``, or with
+/// ``record(outcomeOf:on:)`` for the terminal event of a run, because only
 /// the caller knows how the call ended. That record also adds one count to
 /// the counter ``ExtrasTelemetry/MetricName/toolCalls`` and one duration to
 /// the timer ``ExtrasTelemetry/MetricName/toolDuration``. Both metrics have
@@ -109,5 +110,27 @@ enum ToolCallSpan {
         call.span.attributes[ExtrasTelemetry.AttributeKey.outcome] = ExtrasTelemetry.telemetryOutcome(of: outcome).rawValue
         ExtrasTelemetry.recordToolCall(
             toolName: call.toolName, outcome: outcome, duration: ContinuousClock.now - call.start)
+    }
+
+    /// The outcome that ``record(outcomeOf:on:)`` records for a terminal
+    /// event with no outcome.
+    ///
+    /// It is ``OperationOutcome/lost``, because the event does not tell how
+    /// the call ended: the outcome is unknowable. Its telemetry value is
+    /// ``QueueOutcome/lost``.
+    static let outcomeOfTerminalWithNoOutcome = OperationOutcome.lost
+
+    /// Writes the outcome of the terminal event of the call onto its span,
+    /// and records one count and one duration of the call.
+    ///
+    /// The call records exactly one count and one duration also when
+    /// `terminal` has no outcome. The outcome is then
+    /// ``outcomeOfTerminalWithNoOutcome``.
+    ///
+    /// - Parameters:
+    ///   - terminal: The terminal event of the run of the call.
+    ///   - call: The open call.
+    static func record(outcomeOf terminal: OperationEvent, on call: Call) {
+        record(outcome: terminal.outcome ?? outcomeOfTerminalWithNoOutcome, on: call)
     }
 }

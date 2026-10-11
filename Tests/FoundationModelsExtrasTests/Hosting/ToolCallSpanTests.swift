@@ -93,6 +93,25 @@ struct ToolCallSpanTests {
         try Self.expectOneCall(in: context, toolName: Self.toolName, outcome: .timedOut)
     }
 
+    @Test("a terminal event with no outcome records one count and one duration of lost")
+    func aTerminalEventWithNoOutcomeRecordsOneCall() async throws {
+        let terminal = OperationEvent(
+            tool: Self.toolName, op: Self.toolName, correlationID: ULID().description, kind: .completed, detail: "")
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            try await ToolCallSpan.withSpan(
+                tracer: nil, toolName: Self.toolName, sessionID: ULID(), runKind: .foreground
+            ) { call in
+                ToolCallSpan.record(outcomeOf: terminal, on: call)
+            }
+            return context
+        }
+
+        let span = try #require(context.spans.first)
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.outcome) == .string(QueueOutcome.lost.rawValue))
+        try Self.expectOneCall(in: context, toolName: Self.toolName, outcome: .lost)
+    }
+
     @Test("an outcome that this package does not know gives tool.outcome=other on the span and on each metric")
     func anUnknownOutcomeGivesOtherOnTheSpanAndTheMetrics() async throws {
         let context = try await TelemetryCapture.run(forbidding: []) { context in
@@ -168,6 +187,32 @@ struct ToolCallSpanTests {
         }
 
         try Self.expectOneCall(in: context, toolName: tool.name, outcome: .failed)
+        let span = try #require(context.spans.first)
+        #expect(span.status == SpanStatus(code: .error))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.errorType)
+                == .string(String(reflecting: Fixtures.FixtureError.self)))
+    }
+
+    @Test("a run-to-completion call that times out records timed_out with no error status, and throws the timeout")
+    func aTimedOutCallIsNotAnError() async throws {
+        let tool = Fixtures.SleepingTool()
+        let harness = Fixtures.runToCompletionHarness(wrapping: tool, timeout: Fixtures.shortInterval)
+        let timeout = ToolMountError.timedOut(tool: tool.name, timeoutSeconds: Fixtures.shortInterval)
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            await #expect(throws: timeout) {
+                _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            }
+            return context
+        }
+
+        let span = try #require(context.spans.first)
+        #expect(span.status == nil)
+        #expect(span.errors.isEmpty)
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == nil)
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.outcome) == .string(QueueOutcome.timedOut.rawValue))
+        try Self.expectOneCall(in: context, toolName: tool.name, outcome: .timedOut)
     }
 
     @Test("a background call gives one count and one duration of its start")
