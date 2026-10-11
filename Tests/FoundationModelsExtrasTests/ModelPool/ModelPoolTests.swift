@@ -702,9 +702,6 @@ struct ModelPoolTests {
         #expect(pool.residentModelCount == [chat, embedding].count)
     }
 
-    /// The values of the task counter after one completed job.
-    private static let oneTask: [Int64] = [1]
-
     @Test("an acquire of a new key records one task of the admission queue, with no model ref")
     func anAcquireRecordsAnAdmissionTask() async throws {
         let metrics = TestMetrics()
@@ -715,10 +712,9 @@ struct ModelPoolTests {
             try await Self.acquire(from: pool, with: loader)
         }
 
-        let admission = QueueTelemetry(name: .admission)
-        let tasks = try metrics.expectCounter(
-            ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(of: admission, outcome: .succeeded))
-        #expect(tasks.values == Self.oneTask)
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: QueueMetricDimensions.queue(of: QueueTelemetry(name: .admission)),
+            outcome: .succeeded, ran: true)
         withExtendedLifetime(hold) {}
     }
 
@@ -736,9 +732,8 @@ struct ModelPoolTests {
             try await embedder.embed(texts: ["one"])
         }
 
-        let modelQueue = QueueTelemetry(name: .model, model: key.ref)
-        let tasks = try metrics.expectCounter(
-            ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(of: modelQueue, outcome: .succeeded))
-        #expect(tasks.values == Self.oneTask)
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: QueueMetricDimensions.queue(of: QueueTelemetry(name: .model, model: key.ref)),
+            outcome: .succeeded, ran: true)
     }
 }

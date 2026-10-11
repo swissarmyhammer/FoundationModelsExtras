@@ -371,12 +371,7 @@ enum MountFixtures {
         let description = "posts its own terminal event then returns"
 
         func call(arguments: MountArguments) async throws -> String {
-            await ToolContext.current?.post(
-                OperationEvent(
-                    tool: "", op: "", correlationID: "", kind: .completed,
-                    detail: "my own terminal", outcome: .succeeded
-                )
-            )
+            await ToolContext.current?.post(OperationEvent.terminal(outcome: .succeeded, detail: "my own terminal"))
             return "own-terminal: \(arguments.value)"
         }
     }

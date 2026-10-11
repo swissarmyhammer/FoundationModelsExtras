@@ -29,9 +29,9 @@ struct AmbientNonStringOutputTool: Tool {
 
     func call(arguments: AmbientToolArguments) async throws -> NonStringToolOutput {
         await ToolContext.current?.post(
-            OperationEvent(
-                tool: "ambient-fixture", op: "run thing", correlationID: "restamped-by-context",
-                kind: .completed, detail: arguments.value))
+            OperationEvent.terminal(
+                tool: "ambient-fixture", op: "run thing", token: "restamped-by-context", outcome: nil,
+                detail: arguments.value))
         return NonStringToolOutput(text: ToolContext.current?.completionToken ?? "unbound")
     }
 }

@@ -199,12 +199,7 @@ struct ToolContextTests {
 
         #expect(ToolContext.current == nil)
         await ToolContext.current?.progress("never delivered")
-        await ToolContext.current?.post(
-            OperationEvent(
-                tool: "", op: "", correlationID: "", kind: .completed,
-                detail: "never delivered", outcome: .succeeded
-            )
-        )
+        await ToolContext.current?.post(OperationEvent.terminal(outcome: .succeeded, detail: "never delivered"))
 
         #expect(await sink.events.isEmpty)
     }
@@ -257,8 +252,7 @@ struct ToolContextTests {
 
         await context.message("first mail")
         await context.message("second mail")
-        await context.post(
-            OperationEvent(tool: "", op: "", correlationID: "", kind: .completed, detail: "done", outcome: .succeeded))
+        await context.post(OperationEvent.terminal(outcome: .succeeded, detail: "done"))
 
         let events = await sink.events
         #expect(events.map(\.kind) == [.message, .message, .completed])
@@ -272,8 +266,7 @@ struct ToolContextTests {
         let funnel = RunEventFunnel(upstream: sink, runPlane: RunPlane(), completionToken: completionToken)
         let context = Self.makeContext(sink: funnel, completionToken: completionToken)
 
-        await context.post(
-            OperationEvent(tool: "", op: "", correlationID: "", kind: .completed, detail: "done", outcome: .succeeded))
+        await context.post(OperationEvent.terminal(outcome: .succeeded, detail: "done"))
         await context.message("too late")
 
         let events = await sink.events
@@ -286,12 +279,7 @@ struct ToolContextTests {
         let completionToken = RunPlane.makeCompletionToken()
         let context = Self.makeContext(sink: sink, completionToken: completionToken)
 
-        await context.post(
-            OperationEvent(
-                tool: "", op: "", correlationID: "", kind: .completed,
-                detail: "done", outcome: .succeeded
-            )
-        )
+        await context.post(OperationEvent.terminal(outcome: .succeeded, detail: "done"))
 
         let events = await sink.events
         #expect(events.count == 1)

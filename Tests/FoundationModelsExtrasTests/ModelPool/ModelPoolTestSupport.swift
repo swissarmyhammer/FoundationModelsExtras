@@ -347,21 +347,65 @@ enum QueueMetricExpectations {
     static func expectCompletedJobs(
         in metrics: TestMetrics, queue: [(String, String)], outcome: String, ran: Bool, count: Int = 1
     ) throws {
-        let dimensions = QueueMetricDimensions.job(queue: queue, outcome: outcome)
-        let tasks = try metrics.expectCounter(ExtrasTelemetry.MetricName.queueTasks, dimensions)
-        #expect(tasks.values == Array(repeating: oneTask, count: count))
-        try expectDurations(in: metrics, timer: ExtrasTelemetry.MetricName.queueWait, dimensions, count: count)
-        if ran {
-            try expectDurations(in: metrics, timer: ExtrasTelemetry.MetricName.queueRun, dimensions, count: count)
-        } else {
+        try expectCompletedJobs(in: metrics, queue: queue, [CompletedJobs(outcome: outcome, ran: ran, count: count)])
+    }
+
+    /// The completed jobs of one outcome that a test expects.
+    struct CompletedJobs {
+        /// The value of the `queue.outcome` dimension.
+        let outcome: String
+
+        /// `true` when the jobs started before they completed, thus they
+        /// record a run time.
+        let ran: Bool
+
+        /// The number of completed jobs.
+        var count = 1
+    }
+
+    /// Expects that `metrics` holds each group of `expected` as completed
+    /// jobs of `queue`, and no completed job with an outcome that `expected`
+    /// does not name. A test whose queue completes jobs with more than one
+    /// outcome calls this function.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the queue recorded into.
+    ///   - queue: The dimensions of the queue.
+    ///   - expected: The completed jobs of each outcome.
+    /// - Throws: When `metrics` has no such timer or counter.
+    static func expectCompletedJobs(
+        in metrics: TestMetrics, queue: [(String, String)], _ expected: [CompletedJobs]
+    ) throws {
+        for jobs in expected {
+            try expectCompletedJobs(in: metrics, queue: queue, jobs)
+        }
+        let expectedOutcomes = Set(expected.map(\.outcome))
+        for other in QueueOutcome.allCases.map(\.rawValue) where !expectedOutcomes.contains(other) {
             #expect(throws: TestMetricsError.self) {
-                try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions)
+                try taskCounts(in: metrics, queue: queue, outcome: other)
             }
         }
-        for other in QueueOutcome.allCases.map(\.rawValue) where other != outcome {
+    }
+
+    /// Expects that `metrics` holds the completed jobs `jobs` of `queue`: one
+    /// count, one wait time, and one run time when the jobs ran, for each job.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the queue recorded into.
+    ///   - queue: The dimensions of the queue.
+    ///   - jobs: The completed jobs of one outcome.
+    /// - Throws: When `metrics` has no such timer or counter.
+    private static func expectCompletedJobs(
+        in metrics: TestMetrics, queue: [(String, String)], _ jobs: CompletedJobs
+    ) throws {
+        let counts = try taskCounts(in: metrics, queue: queue, outcome: jobs.outcome)
+        #expect(counts == Array(repeating: oneTask, count: jobs.count))
+        expectDurations(try waitTimes(in: metrics, queue: queue, outcome: jobs.outcome), count: jobs.count)
+        if jobs.ran {
+            expectDurations(try runTimes(in: metrics, queue: queue, outcome: jobs.outcome), count: jobs.count)
+        } else {
             #expect(throws: TestMetricsError.self) {
-                try metrics.expectCounter(
-                    ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(queue: queue, outcome: other))
+                try runTimes(in: metrics, queue: queue, outcome: jobs.outcome)
             }
         }
     }
@@ -394,20 +438,69 @@ enum QueueMetricExpectations {
         try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, queue).values
     }
 
-    /// Expects that the timer `label` of `dimensions` holds `count` durations,
-    /// and that no duration is negative.
+    /// Gives the values of the task counter of the completed jobs of `queue`
+    /// with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the queue recorded into.
+    ///   - queue: The dimensions of the queue.
+    ///   - outcome: The value of the `queue.outcome` dimension.
+    /// - Returns: The count that each completed job added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func taskCounts(in metrics: TestMetrics, queue: [(String, String)], outcome: String) throws -> [Int64] {
+        try metrics.expectCounter(
+            ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(queue: queue, outcome: outcome)
+        ).values
+    }
+
+    /// Gives the wait times of the completed jobs of `queue` with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the queue recorded into.
+    ///   - queue: The dimensions of the queue.
+    ///   - outcome: The value of the `queue.outcome` dimension.
+    /// - Returns: The wait time of each job in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func waitTimes(in metrics: TestMetrics, queue: [(String, String)], outcome: String) throws -> [Int64] {
+        try durations(in: metrics, timer: ExtrasTelemetry.MetricName.queueWait, queue: queue, outcome: outcome)
+    }
+
+    /// Gives the run times of the completed jobs of `queue` with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the queue recorded into.
+    ///   - queue: The dimensions of the queue.
+    ///   - outcome: The value of the `queue.outcome` dimension.
+    /// - Returns: The run time of each job in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func runTimes(in metrics: TestMetrics, queue: [(String, String)], outcome: String) throws -> [Int64] {
+        try durations(in: metrics, timer: ExtrasTelemetry.MetricName.queueRun, queue: queue, outcome: outcome)
+    }
+
+    /// Gives the values of the timer `label` of the completed jobs of `queue`
+    /// with `outcome`.
     ///
     /// - Parameters:
     ///   - metrics: The factory that the queue recorded into.
     ///   - label: The label of the timer.
-    ///   - dimensions: The dimensions of the timer.
-    ///   - count: The number of durations.
+    ///   - queue: The dimensions of the queue.
+    ///   - outcome: The value of the `queue.outcome` dimension.
+    /// - Returns: The durations in nanoseconds, in order.
     /// - Throws: When `metrics` has no such timer.
-    private static func expectDurations(
-        in metrics: TestMetrics, timer label: String, _ dimensions: [(String, String)], count: Int
-    ) throws {
-        let timer = try metrics.expectTimer(label, dimensions)
-        #expect(timer.values.count == count)
-        #expect(timer.values.allSatisfy { $0 >= noTime })
+    private static func durations(
+        in metrics: TestMetrics, timer label: String, queue: [(String, String)], outcome: String
+    ) throws -> [Int64] {
+        try metrics.expectTimer(label, QueueMetricDimensions.job(queue: queue, outcome: outcome)).values
+    }
+
+    /// Expects that `durations` holds `count` values, and that no value is
+    /// negative.
+    ///
+    /// - Parameters:
+    ///   - durations: The values of one timer, in nanoseconds.
+    ///   - count: The number of values.
+    private static func expectDurations(_ durations: [Int64], count: Int) {
+        #expect(durations.count == count)
+        #expect(durations.allSatisfy { $0 >= noTime })
     }
 }

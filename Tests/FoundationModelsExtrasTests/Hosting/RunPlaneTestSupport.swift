@@ -133,6 +133,29 @@ enum FakeRun {
     ///   - detail: The detail of the event. The default is empty.
     /// - Returns: The terminal event.
     static func terminalEvent(token: String, outcome: OperationOutcome?, detail: String = "") -> OperationEvent {
+        OperationEvent.terminal(tool: tool, op: op, token: token, outcome: outcome, detail: detail)
+    }
+}
+
+extension OperationEvent {
+    /// Makes a terminal event: an event of the kind
+    /// ``OperationEventKind/completed``. Each test that needs a terminal event
+    /// calls this function, so the shape of the event occurs in one place.
+    ///
+    /// - Parameters:
+    ///   - tool: The tool name. The default is empty, for a test where the
+    ///     context of the run stamps the tool name.
+    ///   - op: The op. The default is empty, for a test where the context of
+    ///     the run stamps the op.
+    ///   - token: The completion token of the run, as the correlation ID. The
+    ///     default is empty, for a test where the context of the run stamps
+    ///     the token.
+    ///   - outcome: The outcome of the event, or `nil` for no outcome.
+    ///   - detail: The detail of the event. The default is empty.
+    /// - Returns: The terminal event.
+    static func terminal(
+        tool: String = "", op: String = "", token: String = "", outcome: OperationOutcome?, detail: String = ""
+    ) -> OperationEvent {
         OperationEvent(tool: tool, op: op, correlationID: token, kind: .completed, detail: detail, outcome: outcome)
     }
 }

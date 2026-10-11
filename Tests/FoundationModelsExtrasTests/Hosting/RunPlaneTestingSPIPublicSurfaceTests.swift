@@ -14,12 +14,6 @@ import Testing
 /// is not available.
 @Suite("RunPlane start, updateProgress and wait over the Testing SPI", .timeLimit(.minutes(1)))
 struct RunPlaneTestingSPIPublicSurfaceTests {
-    /// The tool name of each run.
-    private static let tool = "spi_tool"
-
-    /// The op of each run.
-    private static let op = "run task"
-
     /// Starts a run on `runPlane` that waits on `latch`, then returns a
     /// terminal event with `detail`.
     ///
@@ -37,26 +31,16 @@ struct RunPlaneTestingSPIPublicSurfaceTests {
         detail: String
     ) async -> RunPlane.StartResult {
         await runPlane.start(
-            tool: tool,
-            op: op,
+            tool: FakeRun.tool,
+            op: FakeRun.op,
             kind: .swiftTask,
             completionToken: token,
             canceler: nil,
             body: {
                 await latch.waitUntilOpen()
-                return Self.terminalEvent(token: token, detail: detail)
+                return FakeRun.terminalEvent(token: token, outcome: .succeeded, detail: detail)
             }
         )
-    }
-
-    /// The terminal event of a run that succeeded.
-    ///
-    /// - Parameters:
-    ///   - token: The completion token of the run.
-    ///   - detail: The detail of the event.
-    /// - Returns: The event.
-    private static func terminalEvent(token: String, detail: String) -> OperationEvent {
-        OperationEvent(tool: tool, op: op, correlationID: token, kind: .completed, detail: detail, outcome: .succeeded)
     }
 
     @Test("a started run shows its progress, and a wait gets its terminal event when it settles")
@@ -75,7 +59,7 @@ struct RunPlaneTestingSPIPublicSurfaceTests {
         latch.open()
         let outcome = await runPlane.wait(completionToken: token, seconds: nil)
 
-        #expect(outcome == .settled(Self.terminalEvent(token: token, detail: "done")))
+        #expect(outcome == .settled(FakeRun.terminalEvent(token: token, outcome: .succeeded, detail: "done")))
     }
 
     @Test("a start with a token that names a run does not start a second run")
@@ -89,6 +73,7 @@ struct RunPlaneTestingSPIPublicSurfaceTests {
         latch.open()
 
         #expect(second == .duplicateToken)
-        #expect(await runPlane.wait(completionToken: token, seconds: nil) == .settled(Self.terminalEvent(token: token, detail: "first")))
+        let firstTerminal = FakeRun.terminalEvent(token: token, outcome: .succeeded, detail: "first")
+        #expect(await runPlane.wait(completionToken: token, seconds: nil) == .settled(firstTerminal))
     }
 }

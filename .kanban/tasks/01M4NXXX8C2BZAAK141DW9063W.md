@@ -71,6 +71,37 @@ comments:
     - evidence: `swift build --build-tests` has no error and no warning. `swift test`: 973 tests in 90 suites passed with 11 known issues (these were there before), and 381 tests in 28 suites passed. 5 files: Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneActorTests.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestSupport.swift, Tests/FoundationModelsExtrasTests/Telemetry/QueueTelemetryTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/MailboxTests.swift
     - next: /review
   timestamp: 2026-10-11T21:53:56.098633+00:00
+- actor: claude-code
+  id: 01m4pfqy7ktrrffgxrrz3x3wrq
+  text: |-
+    ### review — findings
+    - evidence: `review sha c0e46ae~1..c0e46ae` — 2 findings (2 confirmed, 1 refuted). Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestSupport.swift:135, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift:347
+    - next: /implement the open items of the `## Review Findings (2026-10-11 16:56)` section
+  timestamp: 2026-10-11T22:01:13.203865+00:00
+- actor: claude-code
+  id: 01m4pfqz8s84y1w0qwvvtzmyhw
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 5 files
+    - test: green — swift test, 973 passed
+    - commit: c0e46ae
+    - review: findings — Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestSupport.swift:135, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift:347
+  timestamp: 2026-10-11T22:01:14.265614+00:00
+- actor: claude-code
+  id: 01m4pghkr1nckvx7z7e5a961n0
+  text: |-
+    The 2 review findings of 16:56 are done. Each is now `- [x]`.
+    - Finding 1 (terminal event): one shared helper `OperationEvent.terminal(tool:op:token:outcome:detail:)` in `RunPlaneTestSupport.swift` builds each completed event of the test target. The tool, the op and the token have empty defaults, for a context that stamps them. `FakeRun.terminalEvent` is now a one-line forwarder that names the fake tool and op. `RunPlaneTestingSPIPublicSurfaceTests` uses `FakeRun.tool`, `FakeRun.op` and `FakeRun.terminalEvent`; its own `tool`, `op` and `terminalEvent` are deleted. The whole-target search found 7 more hand-built completed events; each now calls `OperationEvent.terminal`: `ToolContextTests` (4), `MountFixtures.OwnTerminalTool`, `MountingFixtures.AmbientNonStringOutputTool`, `ToolCallSpanTests.aTerminalEventWithNoOutcomeRecordsOneCall`.
+    - Finding 2 (queue metrics): `GenerationQueueWorkerTests` calls `QueueMetricExpectations` (String outcomes, `QueueMetricDimensions.queue(named:)`). Its `expectOneJob`, `oneTask`, `oneDuration` and the metric-name strings in `QueueMetric` are deleted; `QueueMetric` keeps only the queue dimensions and the outcome strings. New readers in `QueueMetricExpectations`: `taskCounts`, `waitTimes`, `runTimes` (String outcome). The whole-target search found more copies; each now uses the shared helpers: `ModelPoolTests` (2 tests, `oneTask` deleted), `GenerationQueueEnqueueTests` (2 tests, `oneTask` deleted). What stays: the metric-name pins in `QueueTelemetryTests` and the label list in `MountFixtures`, which are not metric checks.
+    - Discovery: `expectCompletedJobs` also checks that no other outcome has a count. `aCancelledWaitingJobRecordsNoRunTime` has a holder job that succeeds beside the cancelled job, so that check failed. Fix: a new `expectCompletedJobs(in:queue:_ expected: [CompletedJobs])` takes one group for each outcome and excludes all of them from the other-outcome check. The single-outcome function forwards to it, so each other caller keeps the same checks. The test now also checks the holder (succeeded, ran).
+  timestamp: 2026-10-11T22:15:14.433352+00:00
+- actor: claude-code
+  id: 01m4pghqn9m4gchhhpcfq3kgf0
+  text: |-
+    ### implement — changed
+    - evidence: `swift build --build-tests` has no error and no warning (only the mlx-swift_Cmlx.bundle "missing creator" line of the dependency build). `swift test`: 973 tests in 90 suites passed with 11 known issues (these were there before), and 381 tests in 28 suites passed. 11 files: Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueEnqueueTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestSupport.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestingSPIPublicSurfaceTests.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolContextTests.swift, Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/MountingFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolCallSpanTests.swift, .kanban task card
+    - next: /review
+  timestamp: 2026-10-11T22:15:18.441151+00:00
 depends_on:
 - 01M4NXXETD1P6X4V8RMA0XRDQ5
 position_column: doing
@@ -126,3 +157,13 @@ Approach:
 - [x] `Tests/FoundationModelsExtrasTests/Hosting/RunPlaneActorTests.swift:634` `reuse/reuse` — The `expectOneTask` helper repeats the one-completed-queue-task assertions that already exist in other test suites. Three copies of the same queue-metric check can drift apart. Move the shared queue-metric assertions into `ModelPoolTestSupport.swift` next to `QueueMetricDimensions`, parameterized by the `ran` flag, and call that helper from all three suites. Do the same for the `depth` reader.
 - [x] `Tests/FoundationModelsExtrasTests/Hosting/RunPlaneActorTests.swift:714` `reuse/reuse` — `aDuplicateTokenRecordsNothing` builds the same completed `OperationEvent` inline that `settleRun` already builds. The same event shape is now written in two places in one file. Give `settleRun` (or a small sibling helper) an entry point that takes the token and the start closure, or extract a helper that builds the completed event from a token and an outcome. Call it from both places.
 - [x] `Tests/FoundationModelsExtrasTests/Hosting/RunPlaneActorTests.swift:848` `reuse/reuse` — The test hard-codes the "enter" log message text, which rebuilds the format that the production helper already produces. If the message format changes, this constant goes stale while the production helper still passes. Replace the literal with `ExtrasTelemetry.EnterRecord.message(forSpanNamed: runSpanName)`, as `ToolCallSpanTests.swift` does, and remove the hand-written string.
+
+## Review Findings (2026-10-11 16:56)
+
+> Scope: `review sha c0e46ae~1..c0e46ae` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestSupport.swift:135` `reuse/reuse` — The new static func FakeRun.terminalEvent builds the same OperationEvent as an existing helper. A second copy must now be kept in step with the first. Call the existing terminalEvent helper, or move one shared helper into RunPlaneTestSupport.swift and make RunPlaneTestingSPIPublicSurfaceTests use it. Then delete the duplicate.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift:347` `reuse/reuse` — The new shared QueueMetricExpectations.expectCompletedJobs repeats the checks of an existing queue-metric helper in GenerationQueueWorkerTests. That suite keeps its own copy, so the checks are still in two places, which is the reason for this change. Migrate GenerationQueueWorkerTests.expectOneJob and its QueueMetric helper to call QueueMetricExpectations.expectCompletedJobs, then delete the local copies.

@@ -118,8 +118,8 @@ struct ToolCallSpanTests {
 
     @Test("a terminal event with no outcome records one count and one duration of lost")
     func aTerminalEventWithNoOutcomeRecordsOneCall() async throws {
-        let terminal = OperationEvent(
-            tool: Self.toolName, op: Self.toolName, correlationID: ULID().description, kind: .completed, detail: "")
+        let terminal = OperationEvent.terminal(
+            tool: Self.toolName, op: Self.toolName, token: ULID().description, outcome: nil)
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
             try await ToolCallSpan.withSpan(
