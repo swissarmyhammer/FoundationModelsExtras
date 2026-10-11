@@ -26,10 +26,26 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/ModelPool/Mailbox.swift, Sources/FoundationModelsExtras/Telemetry/QueueTelemetry.swift, Sources/FoundationModelsExtras/ModelPool/GenerationQueue.swift, Tests/FoundationModelsExtrasTests/ModelPool/MailboxTests.swift, README.md (already in commit 7742182); `swift test --filter MailboxTelemetryTests` 9/9 pass; `swift test` 964 tests pass
     - next: /review
   timestamp: 2026-10-11T20:57:58.733305+00:00
+- actor: claude-code
+  id: 01m4pcpdcekp68grv6h44v8cam
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit f3469aa) — 0 findings, 0 confirmed, 1 refuted; 4 source files reviewed, 4 .kanban files not reviewed (.reviewignore)
+    - next: none — the task is in done
+  timestamp: 2026-10-11T21:07:57.454371+00:00
+- actor: claude-code
+  id: 01m4pcpegqjqk69dakebv5ckbq
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 files
+    - test: green — swift test, 964 passed
+    - commit: f3469aa
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T21:07:58.615543+00:00
 depends_on:
 - 01M4NXRKC72JZA6WNSS7752WAG
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: ef80
 title: 'Queue metrics: Mailbox records depth and task timing for each letter'
 ---
 ## What

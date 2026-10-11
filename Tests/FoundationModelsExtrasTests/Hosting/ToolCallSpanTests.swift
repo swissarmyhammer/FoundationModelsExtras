@@ -245,12 +245,20 @@ struct ToolCallSpanTests {
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
             _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            // The run continues after the call. Its body ends here, thus the
+            // capture holds each record of the run when the test reads it.
+            await harness.runPlane.joinRunBodies()
             return context
         }
 
-        let span = try #require(context.spans.first)
+        let span = try #require(context.spans.first { $0.operationName == ExtrasTelemetry.SpanName.tool })
         #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.runKind) == .string("background"))
-        try Self.expectOneCall(in: context, toolName: tool.name, outcome: .succeeded)
+        try Self.expectToolCallMetrics(in: context, toolName: tool.name, outcomeValue: OperationOutcome.succeeded.rawValue)
+        #expect(context.spans.map(\.operationName).sorted() == Fixtures.spanNamesOfASettledBackgroundCall)
+        #expect(context.logRecords.map { "\($0.message)" }.sorted() == Fixtures.spanNamesOfASettledBackgroundCall.map {
+            ExtrasTelemetry.EnterRecord.message(forSpanNamed: $0)
+        })
+        #expect(context.metricRecords.map(\.label) == Fixtures.metricLabelsOfASettledBackgroundCall)
     }
 
     @Test("the tool span carries no tool argument and no tool output")
@@ -359,15 +367,32 @@ struct ToolCallSpanTests {
         toolName: String,
         outcomeValue: String
     ) throws {
-        let dimensions = Self.dimensions(toolName: toolName, outcomeValue: outcomeValue)
-        let counter = try context.metricsFactory.expectCounter(ExtrasTelemetry.MetricName.toolCalls, dimensions)
-        let timer = try context.metricsFactory.expectTimer(ExtrasTelemetry.MetricName.toolDuration, dimensions)
-        #expect(counter.values == [oneCall])
-        #expect(timer.values.count == 1)
+        try expectToolCallMetrics(in: context, toolName: toolName, outcomeValue: outcomeValue)
         #expect(context.metricRecords.count == metricsOfOneCall)
         #expect(context.spans.map(\.operationName) == [ExtrasTelemetry.SpanName.tool])
         #expect(context.logRecords.map { "\($0.message)" } == [
             ExtrasTelemetry.EnterRecord.message(forSpanNamed: ExtrasTelemetry.SpanName.tool),
         ])
+    }
+
+    /// Expects that the capture holds the tool-call metrics of one call: one
+    /// count on the counter and one duration on the timer, with `toolName`
+    /// and `outcomeValue` as their dimensions.
+    ///
+    /// - Parameters:
+    ///   - context: The capture of the call.
+    ///   - toolName: The model-facing name of the tool.
+    ///   - outcomeValue: The expected `tool.outcome` value.
+    /// - Throws: When the capture has no such counter or timer.
+    private static func expectToolCallMetrics(
+        in context: TelemetryCapture.Context,
+        toolName: String,
+        outcomeValue: String
+    ) throws {
+        let dimensions = Self.dimensions(toolName: toolName, outcomeValue: outcomeValue)
+        let counter = try context.metricsFactory.expectCounter(ExtrasTelemetry.MetricName.toolCalls, dimensions)
+        let timer = try context.metricsFactory.expectTimer(ExtrasTelemetry.MetricName.toolDuration, dimensions)
+        #expect(counter.values == [oneCall])
+        #expect(timer.values.count == 1)
     }
 }

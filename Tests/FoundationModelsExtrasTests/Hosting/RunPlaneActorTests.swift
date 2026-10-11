@@ -1,6 +1,11 @@
 @_spi(Testing) @testable import FoundationModelsExtras
 import Foundation
+import InMemoryTracing
+import Metrics
+import MetricsTestKit
+import TelemetryTestSupport
 import Testing
+import Tracing
 import ULID
 
 /// Exercises the ``RunPlane`` actor: tracked background runs (start, list,
@@ -558,4 +563,352 @@ struct RunPlaneActorTests {
 
     /// The turns that the body of a swept run takes to unwind.
     private static let unwindTurns = 100
+}
+
+// MARK: - The queue metrics of the runs
+
+/// Exercises the queue metrics of the run plane. Each run is one task of the
+/// `run_plane` queue: the depth goes up at the start and down at the settle,
+/// and the settle records one wait time, one run time and one count with the
+/// bounded outcome of the terminal event.
+extension RunPlaneActorTests {
+    /// The dimensions of the depth meter of the `run_plane` queue.
+    private static let runQueue = QueueMetricDimensions.queue(named: "run_plane")
+
+    /// The depth values of one run: up at the start, then down at the settle.
+    private static let depthOfOneRun: [Double] = [1, 0]
+
+    /// The depth values while one queue task is open: up at its enqueue, and
+    /// no completion yet.
+    private static let depthWhileOneTaskIsOpen: [Double] = [1]
+
+    /// The count that one completed queue task adds to the task counter.
+    private static let oneTask: Int64 = 1
+
+    /// The terminal outcome of each test run, and the value of the
+    /// `queue.outcome` dimension that its settle must record. A terminal event
+    /// with no outcome records `lost`.
+    private static let terminalOutcomes: [(OperationOutcome?, String)] = [
+        (.succeeded, "succeeded"),
+        (.failed, "failed"),
+        (.timedOut, "timed_out"),
+        (.stopped, "stopped"),
+        (.cancelled, "cancelled"),
+        (.lost, "lost"),
+        (.other("a custom outcome"), "other"),
+        (nil, "lost"),
+    ]
+
+    /// Starts a run on `runPlane` whose body returns a terminal event with
+    /// `outcome` at once, and waits until the run settles.
+    ///
+    /// - Parameters:
+    ///   - runPlane: The run plane.
+    ///   - outcome: The outcome of the terminal event.
+    /// - Returns: The completion token of the run.
+    /// - Throws: When the run did not settle.
+    @discardableResult
+    private static func settleRun(on runPlane: RunPlane, outcome: OperationOutcome?) async throws -> String {
+        let token = RunPlane.makeCompletionToken()
+        await runPlane.start(
+            tool: FakeRun.tool, op: FakeRun.op, kind: .swiftTask, completionToken: token, canceler: nil
+        ) {
+            OperationEvent(
+                tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed, detail: "",
+                outcome: outcome)
+        }
+        _ = try #require(await runPlane.wait(completionToken: token, seconds: nil).settledTerminal)
+        return token
+    }
+
+    /// Expects that `metrics` holds one completed task of `queue` with the
+    /// `queue.outcome` value `outcome`, and no completed task with an other
+    /// outcome: one count, one wait time, and one run time when `ran` is true.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the run plane recorded into.
+    ///   - queue: The dimensions of the queue.
+    ///   - outcome: The value of the `queue.outcome` dimension.
+    ///   - ran: `true` when the task records a run time.
+    /// - Throws: When `metrics` has no such timer or counter.
+    private static func expectOneTask(
+        in metrics: TestMetrics, queue: [(String, String)], outcome: String, ran: Bool
+    ) throws {
+        let dimensions = QueueMetricDimensions.job(queue: queue, outcome: outcome)
+        #expect(try metrics.expectCounter(ExtrasTelemetry.MetricName.queueTasks, dimensions).values == [oneTask])
+        #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueWait, dimensions).values.count == 1)
+        if ran {
+            #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions).values.count == 1)
+        } else {
+            #expect(throws: TestMetricsError.self) {
+                try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions)
+            }
+        }
+        for other in QueueOutcome.allCases.map(\.rawValue) where other != outcome {
+            #expect(throws: TestMetricsError.self) {
+                try metrics.expectCounter(
+                    ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(queue: queue, outcome: other))
+            }
+        }
+    }
+
+    /// Gives the values of the depth meter of `queue`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the run plane recorded into.
+    ///   - queue: The dimensions of the queue.
+    /// - Returns: The depth after each change, in order.
+    /// - Throws: When `metrics` has no such meter.
+    private static func depth(in metrics: TestMetrics, queue: [(String, String)]) throws -> [Double] {
+        try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, queue).values
+    }
+
+    @Test(
+        "a run that settles records one count with the bounded outcome of its terminal event, a wait time and a run time, and the depth goes back to 0",
+        arguments: terminalOutcomes
+    )
+    func aSettledRunRecordsItsBoundedOutcome(outcome: OperationOutcome?, recorded: String) async throws {
+        let metrics = TestMetrics()
+        let runPlane = RunPlane()
+
+        _ = try await withMetricsFactory(metrics) {
+            try await Self.settleRun(on: runPlane, outcome: outcome)
+        }
+
+        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: recorded, ran: true)
+        #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
+    }
+
+    @Test("a run that the sweep settles records one count with the outcome of its canceler, also after its body ends")
+    func aSweptRunRecordsOneCount() async throws {
+        let metrics = TestMetrics()
+        let runPlane = RunPlane()
+        let latch = RunLatch()
+
+        await withMetricsFactory(metrics) {
+            _ = await FakeRun.start(on: runPlane, latch: latch, kind: .process, cancelerOutcome: .stopped)
+            _ = await runPlane.sweep()
+        }
+        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: QueueOutcome.stopped.rawValue, ran: true)
+
+        // The body ends after the sweep. Its terminal event finds no open
+        // run, thus it records no second count.
+        latch.open()
+        await runPlane.joinRunBodies()
+
+        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: QueueOutcome.stopped.rawValue, ran: true)
+        #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
+    }
+
+    @Test("a start with a token in use records nothing")
+    func aDuplicateTokenRecordsNothing() async throws {
+        let metrics = TestMetrics()
+        let runPlane = RunPlane()
+        let latch = RunLatch()
+
+        try await withMetricsFactory(metrics) { () async throws in
+            let token = await FakeRun.start(on: runPlane, latch: latch)
+            let refused = await runPlane.start(
+                tool: FakeRun.tool, op: FakeRun.op, kind: .swiftTask, completionToken: token, canceler: nil
+            ) {
+                OperationEvent(
+                    tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed, detail: "",
+                    outcome: .failed)
+            }
+            #expect(refused == .duplicateToken)
+            #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthWhileOneTaskIsOpen)
+            latch.open()
+            _ = await runPlane.wait(completionToken: token, seconds: nil)
+        }
+
+        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: QueueOutcome.succeeded.rawValue, ran: true)
+        #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
+    }
+
+    @Test("no metric dimension carries the completion token or the op of a run")
+    func noMetricDimensionCarriesTheTokenOrTheOp() async throws {
+        let (context, token) = try await TelemetryCapture.run(forbidding: []) { context in
+            (context, try await Self.settleRun(on: RunPlane(), outcome: .succeeded))
+        }
+
+        let values = context.metricRecords.flatMap(\.dimensions).map(\.value)
+        #expect(!values.isEmpty)
+        #expect(!values.contains(token))
+        #expect(!values.contains(FakeRun.op))
+    }
+}
+
+// MARK: - The queue metrics of the elicitations
+
+/// Exercises the queue metrics of the pending elicitations. Each pending
+/// elicitation is one task of the `elicitation` queue. Its wait is the think
+/// time of the user, thus it records a wait time and no run time, and it
+/// records nothing on the `run_plane` queue or on the tool-call metrics.
+extension RunPlaneActorTests {
+    /// The dimensions of the depth meter of the `elicitation` queue.
+    private static let elicitationQueue = QueueMetricDimensions.queue(named: "elicitation")
+
+    /// The depth values of one elicitation: up when it is pending, then down
+    /// when it leaves the list.
+    private static let depthOfOneElicitation: [Double] = [1, 0]
+
+    /// Expects that the wait of an elicitation reached no `run_plane` metric
+    /// and no tool-call metric.
+    ///
+    /// - Parameter metrics: The factory that the run plane recorded into.
+    private static func expectNoRunOrToolMetric(in metrics: TestMetrics) {
+        #expect(throws: TestMetricsError.self) { try depth(in: metrics, queue: runQueue) }
+        #expect(!metrics.timers.map(\.label).contains(ExtrasTelemetry.MetricName.toolDuration))
+        #expect(!metrics.counters.map(\.label).contains(ExtrasTelemetry.MetricName.toolCalls))
+    }
+
+    @Test("an elicitation that gets an answer records one count, a wait time and no run time, and the depth goes back to 0")
+    func anAnsweredElicitationRecordsOneCount() async throws {
+        let metrics = TestMetrics()
+        let runPlane = RunPlane()
+        let elicitationId = ULID()
+
+        try await withMetricsFactory(metrics) { () async throws in
+            let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
+                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId))
+            }
+            #expect(await Self.isPending(elicitationId, on: runPlane))
+            #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .delivered)
+            #expect(try await answering.deliveredAnswer() == .decline)
+        }
+
+        try Self.expectOneTask(
+            in: metrics, queue: Self.elicitationQueue, outcome: QueueOutcome.succeeded.rawValue, ran: false)
+        #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
+        Self.expectNoRunOrToolMetric(in: metrics)
+    }
+
+    @Test("an accepted URL elicitation records its one count at its completion, not at its accept")
+    func anAcceptedElicitationRecordsOneCountAtItsCompletion() async throws {
+        let metrics = TestMetrics()
+        let runPlane = RunPlane()
+        let elicitationId = ULID()
+        let request = ElicitationRequest(
+            message: "open this",
+            elicitationId: elicitationId,
+            url: try #require(URL(string: "https://example.com/flow"))
+        )
+
+        try await withMetricsFactory(metrics) { () async throws in
+            let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
+                await runPlane.awaitAnswer(to: request)
+            }
+            #expect(await Self.isPending(elicitationId, on: runPlane))
+            #expect(
+                await runPlane.respond(elicitationId: elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
+            #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthWhileOneTaskIsOpen)
+            #expect(await runPlane.complete(elicitationId: elicitationId) == .completed)
+            #expect(try await answering.deliveredAnswer() == .accept(content: nil))
+        }
+
+        try Self.expectOneTask(
+            in: metrics, queue: Self.elicitationQueue, outcome: QueueOutcome.succeeded.rawValue, ran: false)
+        #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
+        Self.expectNoRunOrToolMetric(in: metrics)
+    }
+
+    @Test("an elicitation that the sweep removes records one cancelled count, and the depth goes back to 0")
+    func aSweptElicitationRecordsOneCancelledCount() async throws {
+        let metrics = TestMetrics()
+        let runPlane = RunPlane()
+        let elicitationId = ULID()
+
+        try await withMetricsFactory(metrics) { () async throws in
+            let rejected = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId) that the sweep rejects") {
+                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId))
+            }
+            #expect(await Self.isPending(elicitationId, on: runPlane))
+            _ = await runPlane.sweep()
+            #expect(try await rejected.deliveredAnswer() == .cancel)
+        }
+
+        try Self.expectOneTask(
+            in: metrics, queue: Self.elicitationQueue, outcome: QueueOutcome.cancelled.rawValue, ran: false)
+        #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
+        Self.expectNoRunOrToolMetric(in: metrics)
+    }
+}
+
+// MARK: - The span of each run body
+
+/// Exercises the span of each run body: one `FoundationModelsExtras.run` span
+/// and one "enter" log record for each body, with the tool name, the run kind
+/// and the completion token. A body that does not return leaves an open span
+/// and its "enter" record.
+extension RunPlaneActorTests {
+    /// The name of the span of each run body.
+    private static let runSpanName = "FoundationModelsExtras.run"
+
+    /// The message of the "enter" record of each run body.
+    private static let runEnterMessage = "enter FoundationModelsExtras.run"
+
+    /// Whether `context` holds the "enter" record of a run body.
+    ///
+    /// - Parameter context: The capture.
+    /// - Returns: `true` when a record has the message of the run body.
+    private static func hasRunEnterRecord(in context: TelemetryCapture.Context) -> Bool {
+        context.logRecords.contains { "\($0.message)" == runEnterMessage }
+    }
+
+    @Test("a body that does not return has an open span and an enter record; the span ends when the body returns")
+    func aHungBodyHasAnOpenSpanAndAnEnterRecord() async throws {
+        try await TelemetryCapture.run(forbidding: []) { context in
+            let runPlane = RunPlane()
+            let latch = RunLatch()
+            let token = await FakeRun.start(on: runPlane, latch: latch, kind: .process)
+
+            #expect(await BoundedWait.conditionReached("the enter record of the run body") {
+                Self.hasRunEnterRecord(in: context)
+            })
+            #expect(context.tracer.activeSpans.map(\.operationName) == [Self.runSpanName])
+            #expect(context.spans.isEmpty)
+            let record = try #require(context.logRecords.first { "\($0.message)" == Self.runEnterMessage })
+            #expect(record.metadata[ExtrasTelemetry.LogMetadataKey.toolName] == "\(FakeRun.tool)")
+            #expect(record.metadata[ExtrasTelemetry.LogMetadataKey.backgroundRunKind] == "\(RunKind.process.rawValue)")
+
+            latch.open()
+            _ = await runPlane.wait(completionToken: token, seconds: nil)
+
+            #expect(context.tracer.activeSpans.isEmpty)
+            #expect(context.logRecords.filter { "\($0.message)" == Self.runEnterMessage }.count == 1)
+            let span = try #require(context.spans.first)
+            #expect(context.spans.count == 1)
+            #expect(span.operationName == Self.runSpanName)
+            #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.toolName) == .string(FakeRun.tool))
+            #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.backgroundRunKind) == .string(RunKind.process.rawValue))
+            #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.completionToken) == .string(token))
+        }
+    }
+
+    @Test("the telemetry of a run never holds its progress detail or its terminal detail")
+    func theTelemetryHoldsNoDetail() async throws {
+        let progressDetail = "a secret progress detail"
+        let terminalDetail = "a secret terminal detail"
+
+        let context = try await TelemetryCapture.run(forbidding: [progressDetail, terminalDetail]) { context in
+            let runPlane = RunPlane()
+            let settledLatch = RunLatch()
+            let settled = await FakeRun.start(on: runPlane, latch: settledLatch, detailOnSettle: terminalDetail)
+            await runPlane.updateProgress(completionToken: settled, detail: progressDetail)
+            settledLatch.open()
+            _ = await runPlane.wait(completionToken: settled, seconds: nil)
+
+            // The terminal event of a swept run carries its progress detail.
+            let sweptLatch = RunLatch()
+            let swept = await FakeRun.start(on: runPlane, latch: sweptLatch, kind: .process)
+            await runPlane.updateProgress(completionToken: swept, detail: progressDetail)
+            _ = await runPlane.sweep()
+            sweptLatch.open()
+            await runPlane.joinRunBodies()
+            return context
+        }
+
+        #expect(context.spans.map(\.operationName) == [Self.runSpanName, Self.runSpanName])
+        #expect(!context.metricRecords.isEmpty)
+    }
 }

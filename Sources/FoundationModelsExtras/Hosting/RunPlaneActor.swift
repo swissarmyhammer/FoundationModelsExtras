@@ -1,4 +1,6 @@
 import Foundation
+import Logging
+import Tracing
 import ULID
 
 /// The background runs of one session, and the questions that those runs ask.
@@ -7,6 +9,16 @@ import ULID
 /// plane holds events and outcomes, never bulk output. A completion token
 /// names a run: it is a ULID string, and it is also the `correlationID` of
 /// each event of the run.
+///
+/// The run plane records two queues of queue metrics. Each run is one task
+/// of the `run_plane` queue: it starts at once, and it completes when it
+/// settles, with the bounded outcome of its terminal event. Each pending
+/// elicitation is one task of the `elicitation` queue: its wait is the think
+/// time of the user, thus it records a wait time and no run time. Each run
+/// body runs in one ``ExtrasTelemetry/SpanName/run`` span, with one "enter"
+/// log record, so a body that hangs shows an open span. No metric dimension
+/// carries a completion token or an op, and no telemetry record carries a
+/// progress detail, a terminal event or the content of an elicitation.
 public actor RunPlane {
     /// What ``start(tool:op:kind:completionToken:canceler:body:)`` did.
     ///
@@ -43,6 +55,10 @@ public actor RunPlane {
 
         /// The waits for this run, by waiter id.
         var waiters: [UUID: Waiter] = [:]
+
+        /// The queue ticket of the run, from its start. The settle of the
+        /// run completes it.
+        let ticket: QueueTicket
     }
 
     /// One ``wait(completionToken:seconds:)`` that waits for an open run.
@@ -75,6 +91,10 @@ public actor RunPlane {
 
         /// Gets the answer that resumes the run.
         let answer = Promise<ElicitationResponse>()
+
+        /// The queue ticket of the elicitation, from the time it became
+        /// pending. Its exit from the list completes it.
+        let ticket: QueueTicket
     }
 
     /// Nanoseconds in one second.
@@ -100,6 +120,16 @@ public actor RunPlane {
     /// Whether a ``sweep()`` runs now. A second sweep at the same time
     /// returns nothing.
     private var isSweeping = false
+
+    /// The recorder of the queue metrics of the runs. A run is enqueued and
+    /// started at once, and its settle completes it.
+    private let runTelemetry = QueueTelemetry(name: .runPlane)
+
+    /// The recorder of the queue metrics of the pending elicitations. An
+    /// elicitation is enqueued when it becomes pending and is never started,
+    /// thus its wait time is the think time of the user and it records no
+    /// run time.
+    private let elicitationTelemetry = QueueTelemetry(name: .elicitation)
 
     /// Gets the terminal event of each run that settles by itself. Weak,
     /// because the observer is the session that owns this run plane.
@@ -153,8 +183,10 @@ public actor RunPlane {
         guard index(of: completionToken) == nil, settled[completionToken] == nil else {
             return .duplicateToken
         }
+        var ticket = runTelemetry.enqueued()
+        runTelemetry.started(&ticket)
         let work = Task { [weak self] in
-            let terminal = await body()
+            let terminal = await Self.runTraced(body, tool: tool, op: op, kind: kind, completionToken: completionToken)
             await self?.settleByItself(completionToken, with: terminal)
             await self?.endBody(completionToken)
         }
@@ -165,7 +197,10 @@ public actor RunPlane {
             work.cancel()
             return .cancelled
         }
-        runs.append(Run(token: completionToken, tool: tool, op: op, kind: kind, canceler: canceler ?? cooperative))
+        runs.append(
+            Run(
+                token: completionToken, tool: tool, op: op, kind: kind, canceler: canceler ?? cooperative,
+                ticket: ticket))
         return .started
     }
 
@@ -295,7 +330,8 @@ public actor RunPlane {
         guard elicitationIndex(of: request.elicitationId) == nil else {
             return .cancel
         }
-        let elicitation = Elicitation(id: request.elicitationId, mode: request.mode)
+        let elicitation = Elicitation(
+            id: request.elicitationId, mode: request.mode, ticket: elicitationTelemetry.enqueued())
         elicitations.append(elicitation)
         Task { await posting() }
         return await elicitation.answer.value
@@ -327,7 +363,7 @@ public actor RunPlane {
             elicitations[index].accepted = response
             return .acceptedAwaitingCompletion
         }
-        elicitations.remove(at: index).answer.fulfill(response)
+        finish(elicitations.remove(at: index), with: response)
         return .delivered
     }
 
@@ -341,7 +377,7 @@ public actor RunPlane {
         guard let index = elicitationIndex(of: elicitationId), let accepted = elicitations[index].accepted else {
             return .noPendingElicitation
         }
-        elicitations.remove(at: index).answer.fulfill(accepted)
+        finish(elicitations.remove(at: index), with: accepted)
         return .completed
     }
 
@@ -381,7 +417,7 @@ public actor RunPlane {
             terminals.append(swept)
         }
         for elicitation in elicitations {
-            elicitation.answer.fulfill(.cancel)
+            finish(elicitation, with: .cancel)
         }
         elicitations.removeAll()
         return terminals
@@ -481,7 +517,12 @@ public actor RunPlane {
         await settlementObserver?.deliver(settledTerminal: terminal)
     }
 
-    /// Moves an open run to the settled runs, and resumes each wait for it.
+    /// Moves an open run to the settled runs, records the completion of its
+    /// queue task, and resumes each wait for it.
+    ///
+    /// This is the one place where a run leaves the open runs, thus each run
+    /// records one completion only: the settle by the body and the settle by
+    /// the sweep both come here, and the later one finds no open run.
     ///
     /// - Parameters:
     ///   - token: The completion token of the run.
@@ -492,10 +533,102 @@ public actor RunPlane {
         guard let index = index(of: token) else { return false }
         let run = runs.remove(at: index)
         settled[token] = terminal
+        runTelemetry.completed(run.ticket, outcome: Self.queueOutcome(of: terminal))
         for waiter in run.waiters.values {
             waiter.resume(with: .settled(terminal))
         }
         return true
+    }
+
+    /// Gives the bounded queue outcome of the terminal event of a run.
+    ///
+    /// - Parameter terminal: The terminal event of the run.
+    /// - Returns: The telemetry value of the outcome of the event. An event
+    ///   with no outcome gives ``QueueOutcome/lost``, as the tool-call
+    ///   metrics do.
+    private static func queueOutcome(of terminal: OperationEvent) -> QueueOutcome {
+        ExtrasTelemetry.telemetryOutcome(of: terminal.outcome ?? ToolCallSpan.outcomeOfTerminalWithNoOutcome)
+    }
+
+    /// Records the completion of `elicitation`, then gives `response` to the
+    /// run that waits for it. Call this one time for each elicitation that
+    /// leaves the list.
+    ///
+    /// - Parameters:
+    ///   - elicitation: The elicitation that left the list.
+    ///   - response: The answer that resumes the run.
+    private func finish(_ elicitation: Elicitation, with response: ElicitationResponse) {
+        elicitationTelemetry.completed(elicitation.ticket, outcome: Self.queueOutcome(of: response))
+        elicitation.answer.fulfill(response)
+    }
+
+    /// Gives the bounded queue outcome of the answer to an elicitation.
+    ///
+    /// - Parameter response: The answer.
+    /// - Returns: ``QueueOutcome/succeeded`` for an accept or a decline,
+    ///   because the user gave an answer, and ``QueueOutcome/cancelled`` for
+    ///   a cancel, which is also the answer of the sweep.
+    private static func queueOutcome(of response: ElicitationResponse) -> QueueOutcome {
+        switch response.action {
+        case .accept, .decline: .succeeded
+        case .cancel: .cancelled
+        }
+    }
+
+    /// Runs `body` in one ``ExtrasTelemetry/SpanName/run`` span, and writes one
+    /// "enter" log record before the body starts.
+    ///
+    /// The span and the record carry the tool name, the run kind and the
+    /// completion token only. They never carry the op, a progress detail or
+    /// the terminal event. A body that does not return keeps its span open,
+    /// and its "enter" record shows the hung run. The span uses
+    /// `InstrumentationSystem.tracer` at call time, thus the task-local
+    /// tracer and the span of the caller, which the task of the body
+    /// inherits.
+    ///
+    /// - Parameters:
+    ///   - body: The work of the run.
+    ///   - tool: The name of the tool that owns the run.
+    ///   - op: The op of the run, for the terminal event of the fallback only.
+    ///   - kind: The kind of work of the run.
+    ///   - completionToken: The completion token of the run.
+    /// - Returns: The terminal event of `body`.
+    private static func runTraced(
+        _ body: @Sendable () async -> OperationEvent,
+        tool: String,
+        op: String,
+        kind: RunKind,
+        completionToken: String
+    ) async -> OperationEvent {
+        let logger = ExtrasTelemetry.makeLogger()
+        do {
+            return try await TracedCall.run(
+                ExtrasTelemetry.SpanName.run,
+                logger: logger,
+                attributes: { attributes in
+                    attributes[ExtrasTelemetry.AttributeKey.toolName] = tool
+                    attributes[ExtrasTelemetry.AttributeKey.backgroundRunKind] = kind.rawValue
+                    attributes[ExtrasTelemetry.AttributeKey.completionToken] = completionToken
+                },
+                metadata: [
+                    ExtrasTelemetry.LogMetadataKey.toolName: .string(tool),
+                    ExtrasTelemetry.LogMetadataKey.backgroundRunKind: .string(kind.rawValue),
+                    ExtrasTelemetry.LogMetadataKey.completionToken: .string(completionToken),
+                ]
+            ) { _ in
+                await body()
+            }
+        } catch {
+            // `TracedCall.run` throws only the error of its body, and `body`
+            // does not throw. The type of `TracedCall.run` still admits an
+            // error, thus the run settles as lost if one ever comes.
+            assertionFailure("the span of a run body threw, but the body does not throw")
+            logger.error(
+                "the span of a run body threw; the run settles as lost",
+                metadata: [ExtrasTelemetry.AttributeKey.errorType: .string(ExtrasTelemetry.errorType(of: error))])
+            return OperationEvent(
+                tool: tool, op: op, correlationID: completionToken, kind: .completed, detail: "", outcome: .lost)
+        }
     }
 
     /// The index of the open run with `token`, or `nil`.

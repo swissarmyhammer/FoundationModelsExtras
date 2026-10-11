@@ -30,6 +30,10 @@ enum ExtrasTelemetry {
     enum SpanName {
         /// The span of one mounted tool call.
         static let tool = "FoundationModelsExtras.tool"
+
+        /// The span of the body of one background run of the run plane. It
+        /// starts when the body starts, and it ends when the body returns.
+        static let run = "FoundationModelsExtras.run"
     }
 
     /// The attribute keys of the spans of the core target.
@@ -42,6 +46,14 @@ enum ExtrasTelemetry {
 
         /// The ``ToolCallSpan/ToolRunKind`` of the call.
         static let runKind = "tool.run_kind"
+
+        /// The ``RunKind`` of a background run of the run plane.
+        static let backgroundRunKind = "run.kind"
+
+        /// The completion token of a background run. It is a span attribute
+        /// and log metadata only, never a metric dimension, because each run
+        /// has a new token and the cardinality has no limit.
+        static let completionToken = "run.completion_token"
 
         /// The bounded telemetry value of the ``OperationOutcome`` of the
         /// call, from ``ExtrasTelemetry/telemetryOutcome(of:)``.
@@ -105,6 +117,14 @@ enum ExtrasTelemetry {
         /// The session that the call runs in. It has the same key as the span
         /// attribute.
         static let sessionID = AttributeKey.sessionID
+
+        /// The ``RunKind`` of a background run. It has the same key as the
+        /// span attribute.
+        static let backgroundRunKind = AttributeKey.backgroundRunKind
+
+        /// The completion token of a background run. It has the same key as
+        /// the span attribute.
+        static let completionToken = AttributeKey.completionToken
     }
 
     /// The carrier keys of the W3C trace context: the fields that carry the

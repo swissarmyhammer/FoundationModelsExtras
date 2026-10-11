@@ -34,6 +34,26 @@ enum MountFixtures {
     /// The number of polls before a bounded poll stops.
     static let pollAttempts = 1_000
 
+    // MARK: - Telemetry of a background call
+
+    /// The span names of one background call whose run settled, sorted: the
+    /// tool span, which ends when the call returns, and the run span, which
+    /// ends when the run body returns. The two spans can end in each order.
+    static let spanNamesOfASettledBackgroundCall = [ExtrasTelemetry.SpanName.tool, ExtrasTelemetry.SpanName.run]
+        .sorted()
+
+    /// The metric labels of one background call whose run settled, sorted:
+    /// the tool-call metrics of the start, and the queue metrics of the run
+    /// on the run plane.
+    static let metricLabelsOfASettledBackgroundCall = [
+        ExtrasTelemetry.MetricName.toolCalls,
+        ExtrasTelemetry.MetricName.toolDuration,
+        ExtrasTelemetry.MetricName.queueDepth,
+        ExtrasTelemetry.MetricName.queueWait,
+        ExtrasTelemetry.MetricName.queueRun,
+        ExtrasTelemetry.MetricName.queueTasks,
+    ].sorted()
+
     // MARK: - Sink
 
     /// A sink that keeps each event, each display event and each report, in

@@ -51,10 +51,13 @@ struct ExtrasContentSafetyTests {
 
         let context = try await TelemetryCapture.run(forbidding: Self.forbidden) { context in
             _ = try await harness.mounted.call(arguments: MountArguments(value: Self.argument))
+            // The run continues after the call. Its body ends here, thus the
+            // capture holds each record of the run when it checks them.
+            await harness.runPlane.joinRunBodies()
             return context
         }
 
-        Self.expectOneCall(in: context)
+        Self.expectOneSettledBackgroundCall(in: context)
     }
 
     @Test("a bound call of a tool whose output is not String carries no content in its telemetry")
@@ -102,6 +105,17 @@ struct ExtrasContentSafetyTests {
             ExtrasTelemetry.MetricName.toolCalls,
             ExtrasTelemetry.MetricName.toolDuration,
         ])
+    }
+
+    /// Expects that the capture measured one background call and its settled
+    /// run: the tool span and the run span, one "enter" record for each, the
+    /// tool-call metrics and the queue metrics of the run.
+    ///
+    /// - Parameter context: The capture of the call.
+    private static func expectOneSettledBackgroundCall(in context: TelemetryCapture.Context) {
+        #expect(context.spans.map(\.operationName).sorted() == Fixtures.spanNamesOfASettledBackgroundCall)
+        #expect(context.logRecords.count == Fixtures.spanNamesOfASettledBackgroundCall.count)
+        #expect(context.metricRecords.map(\.label).sorted() == Fixtures.metricLabelsOfASettledBackgroundCall)
     }
 }
 
