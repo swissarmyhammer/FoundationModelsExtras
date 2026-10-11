@@ -19,10 +19,26 @@ comments:
     - evidence: 2 files — Sources/FoundationModelsExtras/ModelPool/GenerationQueue.swift (new private `SubmitterTelemetry`; `Job` keeps it; `run()` restores the trace context, the tracer and the ticket factory around `runBody()`; doc comments updated), Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueueWorkerTests.swift (4 new tests in `GenerationQueueWorkerTaskTests`). RED: 3 of the new tests failed for the expected reason (no job span, missing metric); the ModelCallMark guard passed before and after. GREEN: `swift test --filter GenerationQueueWorkerTaskTests` 6/6 passed. Full `swift test`: 952 tests in 89 suites passed, 11 known issues (the existing `withKnownIssue` tests of TelemetryCapture), no warning except the mlx-swift `missing creator for mutated node` line.
     - next: /review
   timestamp: 2026-10-11T20:16:12.868552+00:00
+- actor: claude-code
+  id: 01m4pb67cdxhfwfzt698dxby6x
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~2..HEAD` (1d6ff21, 06ad0c0). 0 findings, 0 confirmed, 0 refuted. 7 validator-file pairs attempted, 0 failed. 4 source files reviewed. 4 `.kanban/` files not reviewed, because `.reviewignore` excludes them. The task had no earlier findings section.
+    - next: none. The task moved to `done`.
+  timestamp: 2026-10-11T20:41:38.445537+00:00
+- actor: claude-code
+  id: 01m4pb68kxrfhd1cshb1jq959j
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 953 passed (test step also fixed the hostname lookup in TemplateEngine)
+    - commit: 1d6ff21, 06ad0c0
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T20:41:39.709300+00:00
 depends_on:
 - 01M4NXR89BEEM8Q023M7S472C8
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ed80
 title: 'GenerationQueue: carry the trace context of the submitter into the job, so spans inside a model call keep their parent'
 ---
 ## What

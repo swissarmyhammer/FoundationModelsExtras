@@ -13,6 +13,13 @@ import Synchronization
 /// each occur under one lock and do not suspend. Thus a cancel is never late
 /// for the take: the message is in the queue or in the running batch, and the
 /// cancel finds it.
+///
+/// Each message is one task of the queue metrics, with the queue name
+/// `mailbox` and, when ``init(model:)`` got a model, the model ref. The depth
+/// goes up at ``post(_:)``, and goes down when the message gets its result.
+/// When the message gets its result, the mailbox records one wait time, one
+/// run time when a batch took the message, and one count with the outcome.
+/// The metrics never hold a message or an answer.
 public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
     /// One posted message and its answer.
     public struct Letter: Sendable {
@@ -26,13 +33,23 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
         let result = Promise<Result<Answer, any Error>>()
     }
 
+    /// One letter of the mailbox, and its queue ticket.
+    private struct Entry: Sendable {
+        /// The letter.
+        var letter: Letter
+
+        /// The queue ticket of the letter, from ``Mailbox/post(_:)``. The
+        /// take of the letter into a batch sets its start instant.
+        var ticket: QueueTicket
+    }
+
     /// The letters of the mailbox, and the doorbell of the pump.
     private struct State {
         /// The letters that wait for the pump, in the order they arrived.
-        var waiting: [Letter] = []
+        var waiting: [Entry] = []
 
         /// The letters of the batch that runs.
-        var running: [Letter] = []
+        var running: [Entry] = []
 
         /// Whether ``Mailbox/answerNextBatch(isolation:joining:_:)`` runs a
         /// batch. Not `running.isEmpty`: a cancel can empty `running` while
@@ -46,13 +63,22 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
     /// The state of the mailbox.
     private let state = Mutex(State())
 
-    /// Makes an empty mailbox.
-    public init() {}
+    /// The recorder of the queue metrics of the letters.
+    private let telemetry: QueueTelemetry
+
+    /// Makes an empty mailbox. `Mailbox()` makes a mailbox with no model.
+    ///
+    /// - Parameter model: The model that the mailbox belongs to, or `nil`.
+    ///   It gives the model ref dimension of each queue metric. The queue
+    ///   name is always `mailbox`.
+    public init(model: ModelRef? = nil) {
+        telemetry = QueueTelemetry(name: .mailbox, model: model)
+    }
 
     /// Gives `CancellationError` to each letter that still waits.
     deinit {
-        for letter in state.withLock({ $0.waiting }) {
-            letter.result.fulfill(.failure(CancellationError()))
+        for entry in state.withLock({ $0.waiting }) {
+            finish(entry, with: .failure(CancellationError()))
         }
     }
 
@@ -63,8 +89,9 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
     @discardableResult
     public func post(_ message: Message) -> (id: MessageID, answer: MailboxAnswer<Answer>) {
         let letter = Letter(id: MessageID(), message: message)
+        let entry = Entry(letter: letter, ticket: telemetry.enqueued())
         let doorbell = state.withLock { state in
-            state.waiting.append(letter)
+            state.waiting.append(entry)
             defer { state.doorbell = nil }
             return state.doorbell
         }
@@ -93,16 +120,18 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
     /// - Returns: What occurred to the message.
     @discardableResult
     public func cancel(_ id: MessageID) -> MessageCancellationResult {
-        let (letter, outcome) = state.withLock { state -> (Letter?, MessageCancellationResult) in
-            if let index = state.waiting.firstIndex(where: { $0.id == id }) {
+        let (entry, outcome) = state.withLock { state -> (Entry?, MessageCancellationResult) in
+            if let index = state.waiting.firstIndex(where: { $0.letter.id == id }) {
                 return (state.waiting.remove(at: index), .withdrawn)
             }
-            if let index = state.running.firstIndex(where: { $0.id == id }) {
+            if let index = state.running.firstIndex(where: { $0.letter.id == id }) {
                 return (state.running.remove(at: index), .cancelledInSubmission)
             }
             return (nil, .alreadyAnswered)
         }
-        letter?.result.fulfill(.failure(CancellationError()))
+        if let entry {
+            finish(entry, with: .failure(CancellationError()))
+        }
         return outcome
     }
 
@@ -115,20 +144,20 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
     @discardableResult
     public func replace(_ id: MessageID, with message: Message) -> MessageQueueMutationResult {
         state.withLock { state in
-            guard let index = state.waiting.firstIndex(where: { $0.id == id }) else { return .alreadySent }
-            state.waiting[index].message = message
+            guard let index = state.waiting.firstIndex(where: { $0.letter.id == id }) else { return .alreadySent }
+            state.waiting[index].letter.message = message
             return .applied
         }
     }
 
     /// The letters that wait for the pump, in the order they arrived.
     public var pending: [Letter] {
-        state.withLock { $0.waiting }
+        state.withLock { $0.waiting.map(\.letter) }
     }
 
     /// The count of the waiting messages, and the ids of the running batch.
     public var depth: MessageQueueDepth {
-        state.withLock { MessageQueueDepth(waiting: $0.waiting.count, running: $0.running.map(\.id)) }
+        state.withLock { MessageQueueDepth(waiting: $0.waiting.count, running: $0.running.map(\.letter.id)) }
     }
 
     /// Takes each waiting message that `admitting` accepts into the batch that
@@ -143,11 +172,11 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
         state.withLock { state in
             guard state.isBatchRunning else { return [] }
             // `admitting` runs one time for each letter, so it can keep a budget.
-            let checked = state.waiting.map { (letter: $0, joins: admitting($0.message)) }
-            let joining = checked.filter(\.joins).map(\.letter)
-            state.waiting = checked.filter { !$0.joins }.map(\.letter)
+            let checked = state.waiting.map { (entry: $0, joins: admitting($0.letter.message)) }
+            let joining = checked.filter(\.joins).map { started($0.entry) }
+            state.waiting = checked.filter { !$0.joins }.map(\.entry)
             state.running += joining
-            return joining
+            return joining.map(\.letter)
         }
     }
 
@@ -184,10 +213,35 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
             }
             return state.running
         }
-        for letter in answered {
-            letter.result.fulfill(result)
+        for entry in answered {
+            finish(entry, with: result)
         }
         return true
+    }
+
+    /// Gives `entry` with the start instant set in its ticket. A batch takes
+    /// the entry now. The ticket records no metric here, thus the call is
+    /// correct under the lock.
+    ///
+    /// - Parameter entry: The entry that a batch takes.
+    /// - Returns: The entry, with the start instant in its ticket.
+    private func started(_ entry: Entry) -> Entry {
+        var taken = entry
+        telemetry.started(&taken.ticket)
+        return taken
+    }
+
+    /// Records the completion of `entry`, then gives `result` to its poster.
+    /// Call this after the lock is released, one time for each entry that
+    /// leaves the mailbox.
+    ///
+    /// - Parameters:
+    ///   - entry: The entry that left the mailbox.
+    ///   - result: The result of the letter. It also gives the outcome of
+    ///     the queue metrics.
+    private func finish(_ entry: Entry, with result: Result<Answer, any Error>) {
+        telemetry.completed(entry.ticket, outcome: QueueOutcome(of: result))
+        entry.letter.result.fulfill(result)
     }
 
     /// Waits until a letter waits, and takes the batch that it starts.
@@ -207,10 +261,11 @@ public final class Mailbox<Message: Sendable, Answer: Sendable>: Sendable {
                     return nil
                 }
                 let later = state.waiting.dropFirst()
-                state.running = [first] + later.filter { joins(first.message, $0.message) }
-                state.waiting = later.filter { !joins(first.message, $0.message) }
+                let taken = [first] + later.filter { joins(first.letter.message, $0.letter.message) }
+                state.running = taken.map { started($0) }
+                state.waiting = later.filter { !joins(first.letter.message, $0.letter.message) }
                 state.isBatchRunning = true
-                return state.running
+                return state.running.map(\.letter)
             }
             if let batch { return batch }
             for await _ in rung {}

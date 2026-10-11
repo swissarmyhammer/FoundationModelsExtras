@@ -332,22 +332,7 @@ private final class Job<T: Sendable>: QueuedJob {
     private func finish(result: Result<T, any Error>, ticket started: QueueTicket) {
         state.withLock { $0 = .finished }
         queue.releaseJobCount()
-        queue.telemetry.completed(started, outcome: Self.outcome(of: result))
-    }
-
-    /// Gives the outcome of a job that ran.
-    ///
-    /// - Parameter result: The result of the body of the job.
-    /// - Returns: ``QueueOutcome/succeeded`` for a value,
-    ///   ``QueueOutcome/cancelled`` for a `CancellationError`, and
-    ///   ``QueueOutcome/failed`` for each other error.
-    private static func outcome(of result: Result<T, any Error>) -> QueueOutcome {
-        switch result {
-        case .success:
-            .succeeded
-        case .failure(let error):
-            error is CancellationError ? .cancelled : .failed
-        }
+        queue.telemetry.completed(started, outcome: QueueOutcome(of: result))
     }
 }
 

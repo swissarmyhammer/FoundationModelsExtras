@@ -100,6 +100,22 @@ struct QueueTelemetry: Sendable {
     }
 }
 
+extension QueueOutcome {
+    /// Gives the outcome of a queue task that ran to a result.
+    ///
+    /// - Parameter result: The result of the task.
+    /// - Returns: ``succeeded`` for a value, ``cancelled`` for a
+    ///   `CancellationError`, and ``failed`` for each other error.
+    init(of result: Result<some Any, any Error>) {
+        switch result {
+        case .success:
+            self = .succeeded
+        case .failure(let error):
+            self = error is CancellationError ? .cancelled : .failed
+        }
+    }
+}
+
 /// The record of one queue task between its enqueue and its completion.
 ///
 /// The ticket keeps the metrics factory that was bound when

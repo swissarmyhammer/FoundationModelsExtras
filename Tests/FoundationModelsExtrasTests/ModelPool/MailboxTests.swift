@@ -1,4 +1,7 @@
 @testable import FoundationModelsExtras
+import Metrics
+import MetricsTestKit
+import TelemetryTestSupport
 import Testing
 
 /// The mailbox of the tests: text messages, and text answers.
@@ -663,5 +666,231 @@ struct MailboxTests {
         #expect(result == .alreadyAnswered)
         #expect(greeting.contains("hello"))
         #expect(reply.contains("how are you?"))
+    }
+}
+
+/// Exercises the queue metrics of ``Mailbox``: each letter is one queue task
+/// with the queue name `mailbox`. The depth goes up at ``Mailbox/post(_:)``
+/// and down when the letter has its answer or its cancel. Each letter records
+/// one wait time, one run time when a batch took it, and one count.
+@Suite("Mailbox: the queue metrics of each letter")
+struct MailboxTelemetryTests {
+    /// The value of the queue name dimension of each mailbox.
+    private static let queueName = "mailbox"
+
+    /// The model that a mailbox of the tests with a model belongs to.
+    private static let model: ModelRef = "org/mailbox-model"
+
+    /// The depth values of one letter: up at the post, then down at its end.
+    private static let depthOfOneLetter: [Double] = [1, 0]
+
+    /// The depth values of a letter that starts a batch and a letter that
+    /// joins it: up for each post, then down for each answer.
+    private static let depthOfAJoinedBatch: [Double] = [1, 2, 1, 0]
+
+    /// The count that one completed letter adds to the task counter.
+    private static let oneTask: Int64 = 1
+
+    /// The number of letters in the test of a joined letter.
+    private static let twoLetters = 2
+
+    /// The error of a batch that fails.
+    private struct BatchFailure: Error {}
+
+    /// Gives the dimensions of the depth meter of a mailbox.
+    ///
+    /// - Parameter model: The model of the mailbox, or `nil` for no model.
+    /// - Returns: The queue name `mailbox`, then the model ref when set.
+    private static func queueDimensions(model: ModelRef? = nil) -> [(String, String)] {
+        QueueMetricDimensions.queue(named: queueName, model: model?.stringValue)
+    }
+
+    /// Expects that `metrics` holds `count` completed letters with `outcome`:
+    /// one count, one wait time, and one run time when the letter ran, for
+    /// each letter.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the mailbox recorded into.
+    ///   - outcome: The outcome of the letters.
+    ///   - ran: `true` when a batch took the letters before they completed.
+    ///   - count: The number of letters.
+    ///   - model: The model of the mailbox, or `nil` for no model.
+    /// - Throws: When `metrics` has no such timer or counter.
+    private static func expectLetters(
+        in metrics: TestMetrics, outcome: QueueOutcome, ran: Bool, count: Int = 1, model: ModelRef? = nil
+    ) throws {
+        let dimensions = QueueMetricDimensions.job(queue: queueDimensions(model: model), outcome: outcome.rawValue)
+        #expect(try metrics.expectCounter(ExtrasTelemetry.MetricName.queueTasks, dimensions).values == Array(repeating: oneTask, count: count))
+        #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueWait, dimensions).values.count == count)
+        if ran {
+            #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions).values.count == count)
+        } else {
+            #expect(throws: TestMetricsError.self) {
+                try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions)
+            }
+        }
+    }
+
+    /// Gives the values of the depth meter of a mailbox.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the mailbox recorded into.
+    ///   - model: The model of the mailbox, or `nil` for no model.
+    /// - Returns: The depth after each change, in order.
+    /// - Throws: When `metrics` has no such meter.
+    private static func depth(in metrics: TestMetrics, model: ModelRef? = nil) throws -> [Double] {
+        try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, queueDimensions(model: model)).values
+    }
+
+    @Test("a letter that a batch answers records succeeded, a wait time, a run time and one count, and the depth goes back to 0")
+    func anAnsweredLetterRecordsSucceeded() async throws {
+        let metrics = TestMetrics()
+        let mailbox = TestMailbox()
+
+        try await withMetricsFactory(metrics) {
+            let pump = TestPump(mailbox, holding: false)
+            _ = try await mailbox.post("answered").answer.value
+            await pump.stop()
+        }
+
+        try Self.expectLetters(in: metrics, outcome: .succeeded, ran: true)
+        #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
+    }
+
+    @Test("a mailbox made with a model records the model ref dimension, and the queue name is mailbox")
+    func aMailboxWithAModelRecordsTheModelRef() async throws {
+        let metrics = TestMetrics()
+        let mailbox = TestMailbox(model: Self.model)
+
+        try await withMetricsFactory(metrics) {
+            let pump = TestPump(mailbox, holding: false)
+            _ = try await mailbox.post("answered").answer.value
+            await pump.stop()
+        }
+
+        try Self.expectLetters(in: metrics, outcome: .succeeded, ran: true, model: Self.model)
+        #expect(try Self.depth(in: metrics, model: Self.model) == Self.depthOfOneLetter)
+        #expect(throws: TestMetricsError.self) { try Self.depth(in: metrics) }
+    }
+
+    @Test("a letter of a batch that throws records failed with a run time")
+    func aLetterOfAFailedBatchRecordsFailed() async throws {
+        let metrics = TestMetrics()
+        let mailbox = TestMailbox()
+
+        await withMetricsFactory(metrics) {
+            let answer = mailbox.post("failed").answer
+            #expect(await mailbox.answerNextBatch { _ in throw BatchFailure() })
+            await #expect(throws: BatchFailure.self) { try await answer.value }
+        }
+
+        try Self.expectLetters(in: metrics, outcome: .failed, ran: true)
+        #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
+    }
+
+    @Test("a letter that cancel withdraws before a batch takes it records cancelled, a wait time and no run time")
+    func aWithdrawnLetterRecordsNoRunTime() async throws {
+        let metrics = TestMetrics()
+        let mailbox = TestMailbox()
+
+        withMetricsFactory(metrics) {
+            let id = mailbox.post("withdrawn").id
+            #expect(mailbox.cancel(id) == .withdrawn)
+        }
+
+        try Self.expectLetters(in: metrics, outcome: .cancelled, ran: false)
+        #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
+    }
+
+    @Test("a letter that waits when the mailbox is released records cancelled and no run time")
+    func aLetterOfAReleasedMailboxRecordsCancelled() async throws {
+        let metrics = TestMetrics()
+        var mailbox: TestMailbox? = TestMailbox()
+
+        let answer = try withMetricsFactory(metrics) {
+            try #require(mailbox).post("orphan").answer
+        }
+        mailbox = nil
+
+        await #expect(throws: CancellationError.self) { try await answer.value }
+        try Self.expectLetters(in: metrics, outcome: .cancelled, ran: false)
+        #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
+    }
+
+    @Test("a letter that takeJoining adds to the running batch records succeeded with a run time, as the first letter does")
+    func aJoinedLetterRecordsSucceeded() async throws {
+        let metrics = TestMetrics()
+        let mailbox = TestMailbox()
+        let pump = TestPump(mailbox)
+
+        try await withMetricsFactory(metrics) {
+            let first = mailbox.post("first").answer
+            try await pump.waitForBatches(1)
+            let (joinedId, joined) = mailbox.post("joined")
+            try #require(mailbox.takeJoining { _ in true }.map(\.id) == [joinedId])
+            pump.release()
+            _ = try await first.value
+            _ = try await joined.value
+        }
+        await pump.stop()
+
+        try Self.expectLetters(in: metrics, outcome: .succeeded, ran: true, count: Self.twoLetters)
+        #expect(try Self.depth(in: metrics) == Self.depthOfAJoinedBatch)
+    }
+
+    @Test("a running letter that cancel removes records cancelled with a run time one time, and the depth is 0 after the cancel")
+    func aCancelledRunningLetterRecordsItsRunTimeOneTime() async throws {
+        let metrics = TestMetrics()
+        let mailbox = TestMailbox()
+        let pump = TestPump(mailbox)
+
+        try await withMetricsFactory(metrics) {
+            let id = mailbox.post("running").id
+            try await pump.waitForBatches(1)
+            #expect(mailbox.cancel(id) == .cancelledInSubmission)
+        }
+        #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
+
+        pump.release()
+        try await pump.waitForFinished(1)
+        await pump.stop()
+
+        try Self.expectLetters(in: metrics, outcome: .cancelled, ran: true)
+        #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
+        #expect(throws: TestMetricsError.self) {
+            try metrics.expectCounter(
+                ExtrasTelemetry.MetricName.queueTasks,
+                QueueMetricDimensions.job(queue: Self.queueDimensions(), outcome: QueueOutcome.succeeded.rawValue))
+        }
+    }
+
+    @Test("a letter of a batch whose body throws CancellationError records cancelled with a run time")
+    func aLetterOfACancelledBatchRecordsCancelled() async throws {
+        let metrics = TestMetrics()
+        let mailbox = TestMailbox()
+
+        await withMetricsFactory(metrics) {
+            let answer = mailbox.post("cancelled in the body").answer
+            #expect(await mailbox.answerNextBatch { _ in throw CancellationError() })
+            await #expect(throws: CancellationError.self) { try await answer.value }
+        }
+
+        try Self.expectLetters(in: metrics, outcome: .cancelled, ran: true)
+        #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
+    }
+
+    @Test("the metrics of a letter never hold its message or its answer")
+    func theMetricsHoldNoMessageAndNoAnswer() async throws {
+        let message = "a secret message text"
+        let mailbox = TestMailbox()
+
+        let context = try await TelemetryCapture.run(forbidding: [message, TestPump.answer(to: [message])]) { context in
+            let pump = TestPump(mailbox, holding: false)
+            _ = try await mailbox.post(message).answer.value
+            await pump.stop()
+            return context
+        }
+
+        #expect(!context.metricRecords.isEmpty)
     }
 }
