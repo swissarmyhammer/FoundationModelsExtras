@@ -4,11 +4,13 @@ import ULID
 /// The text that a background call returns in place of its result, when the
 /// run continues past its ``BackgroundTool/inlineSettleGrace``.
 ///
-/// `pending` is always `true`, and ``next`` tells the model how to collect
-/// the result later. A run that ended inside its grace answers with its own
-/// result and never with an envelope. ``rendered`` is the wire form.
+/// `pending` is always `true`, and ``next`` tells the model what to do while
+/// the run continues. By default, the session injects the result into the
+/// conversation when the run finishes, and the model calls no tool to wait.
+/// A run that ended inside its grace answers with its own result and never
+/// with an envelope. ``rendered`` is the wire form.
 public struct PendingRunEnvelope: Codable, Sendable, Equatable {
-    /// Always `true`: the model must collect the result later.
+    /// Always `true`: the result is not in this envelope.
     public let pending: Bool
 
     /// The completion token of the run: a ULID string. It is also the
@@ -30,15 +32,31 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
         self.next = next ?? Self.defaultCollectInstruction(forCompletionToken: completionToken)
     }
 
-    /// The default `next` text of a pending envelope.
+    /// What the model must do while work continues in the background, as
+    /// plain text.
+    ///
+    /// The session injects the result into the conversation as a new message
+    /// when the work finishes. Thus the text tells the model not to call a
+    /// tool to wait or to check, and to do nothing when no other work can be
+    /// done. This package owns the one copy of this text. Other packages that
+    /// tell the model about pending work use this property.
+    public static let pendingWorkInstruction: String =
+        "This is not the result. When the work finishes, the session injects its result into this "
+        + "conversation as a new message. That message starts you working again, so you do not need to "
+        + "wait, to check, or to ask for it. Do not call a tool to wait or to check. If you have other "
+        + "work that does not need this result, do that work now. If no other work can be done until "
+        + "the result comes back, do nothing: write no text and call no tool. When the injected result "
+        + "arrives, continue the task from it."
+
+    /// The default `next` text of a pending envelope: one sentence that names
+    /// the run by its completion token, one space, then
+    /// ``pendingWorkInstruction``.
     ///
     /// - Parameter completionToken: The completion token of the run.
-    /// - Returns: The sentence for `completionToken`.
+    /// - Returns: The text for `completionToken`.
     public static func defaultCollectInstruction(forCompletionToken completionToken: String) -> String {
-        "This run continues in the background. Do not answer yet, and never invent or guess its result. "
-            + "The session reports the result when the run settles. "
-            + "To collect it earlier, call the wait tool with completionToken \"\(completionToken)\"; "
-            + "if the run is not finished yet, call wait again with the same completionToken."
+        "This run continues in the background, with completion token \"\(completionToken)\". "
+            + pendingWorkInstruction
     }
 
     /// The envelope as JSON, with the fields always in this order:

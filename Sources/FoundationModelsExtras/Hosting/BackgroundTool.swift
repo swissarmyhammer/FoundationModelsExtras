@@ -75,6 +75,9 @@ public protocol BackgroundTool {
 
 extension BackgroundTool {
     /// The default: ``PendingRunEnvelope/defaultCollectInstruction(forCompletionToken:)``.
+    /// It names the run by its completion token, then gives
+    /// ``PendingRunEnvelope/pendingWorkInstruction``: the session injects the
+    /// result as a new message, so the model calls no tool to wait or to check.
     public func collectInstruction(forCompletionToken completionToken: String) -> String {
         PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken)
     }

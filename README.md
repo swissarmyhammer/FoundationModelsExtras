@@ -797,6 +797,10 @@ batch.
   message starts a batch, and each later message that `joining` accepts comes
   with it. The result of the body goes to each message of the batch, also when
   the body throws or the pump is cancelled.
+- Each message records the queue metrics with the queue name `mailbox`: the
+  depth, the wait time, the run time and one count with the outcome.
+  `Mailbox(model:)` adds the model ref to each metric. The metrics never hold
+  a message or an answer.
 
 Each message gets exactly one result: its answer, the error of its batch, or
 `CancellationError`. No message is lost. A mailbox that is released gives
@@ -869,8 +873,11 @@ questions that those runs ask the user.
   call: the output of the tool, or the error that the tool threw. Only a run
   that continues past the settle period answers with a `PendingRunEnvelope`:
   `pending` (always `true`), the completion token of the run, and what the
-  model must do next (`next`). The host sets the settle period on the
-  `MountSite` (`inlineSettleGrace`). The default is
+  model must do next (`next`). The default `next` names the run by its
+  completion token, then gives `PendingRunEnvelope.pendingWorkInstruction`:
+  the session injects the result into the conversation as a new message, so
+  the model calls no tool to wait or to check. The host sets the settle
+  period on the `MountSite` (`inlineSettleGrace`). The default is
   `ToolMount.defaultInlineSettleGrace` (6 seconds), and `0` answers with the
   envelope at once. A tool that states its own `inlineSettleGrace` wins over
   the site. `ToolContext` gives the settle period to each tool that it mounts,
@@ -899,8 +906,8 @@ questions that those runs ask the user.
 ```swift
 /// Runs the tests in the background. A call waits for the settle period of
 /// the site. A run that ends in that time answers with its own result. A
-/// longer run answers with a pending envelope, and the model collects the
-/// result later.
+/// longer run answers with a pending envelope, and the session injects the
+/// result into the conversation as a new message when the run finishes.
 struct RunTests: Tool, BackgroundTool {
     let name = "run_tests"
     let description = "Runs the tests of the package."
@@ -918,25 +925,6 @@ struct RunTests: Tool, BackgroundTool {
     }
 }
 
-/// Waits for a background run, with the completion token of its envelope.
-struct Wait: Tool {
-    static let waitSeconds: Double = 30
-
-    let name = "wait"
-    let description = "Waits for a background run."
-
-    @Generable
-    struct Arguments {
-        let completionToken: String
-    }
-
-    func call(arguments: Arguments) async throws -> String {
-        let outcome = await ToolContext.current?.wait(completionToken: arguments.completionToken, seconds: Self.waitSeconds)
-        guard case .settled(let terminal) = outcome else { return "The run continues." }
-        return terminal.detail
-    }
-}
-
 // The host mounts each tool on the run plane of its session. `sink`
 // gets each event of each run. `inlineSettleGrace` is how long a
 // background call waits for its run before it answers with a pending
@@ -948,8 +936,12 @@ func mounted(_ tool: any Tool) -> any Tool {
     ToolFailureDelivery.makeWrapped(
         tool: ToolMounting.makeWrapped(tool: tool, site: site, configuration: .synchronous))
 }
-let tools = [mounted(RunTests()), mounted(Wait())]
+let tools = [mounted(RunTests())]
 // Give `tools` to the model session: `LanguageModelSession(tools: tools)`.
+// When a run continues, the session injects its result into the
+// conversation as a new message, so the model calls no tool to wait.
+// The host can read the result from the run plane with
+// `runPlane.wait(completionToken:seconds:)`.
 
 // At the end of the session, the sweep stops each run that is still open.
 let swept = await runPlane.sweep()

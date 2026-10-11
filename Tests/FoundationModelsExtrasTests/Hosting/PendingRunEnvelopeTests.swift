@@ -55,8 +55,9 @@ struct PendingRunEnvelopeTests {
     }
 
     /// The text shapes the default sentence must not carry: a `runCode`
-    /// snippet, the snippet-level `wait` call, any call syntax, and the
-    /// run-plane state names no host reports on the wire.
+    /// snippet, the snippet-level `wait` call, any call syntax, the
+    /// run-plane state names no host reports on the wire, and the old
+    /// wait-tool text that made the model loop.
     private static let forbiddenDefaultCollectInstructionFragments = [
         "runCode",
         "return await wait",
@@ -64,10 +65,38 @@ struct PendingRunEnvelopeTests {
         "snippet",
         "settled",
         "deadline_elapsed",
+        "wait tool",
+        "call wait",
+        "Do not answer yet",
     ]
 
-    @Test("the default next sentence says: the run continues in the background, do not answer, the session reports the result when the run settles, and wait with the same completionToken collects it earlier")
-    func defaultCollectInstructionTeachesTheCollectStep() throws {
+    /// The pending-work text that the user approved, word for word.
+    private static let approvedPendingWorkInstruction =
+        "This is not the result. When the work finishes, the session injects its result into this "
+        + "conversation as a new message. That message starts you working again, so you do not need to "
+        + "wait, to check, or to ask for it. Do not call a tool to wait or to check. If you have other "
+        + "work that does not need this result, do that work now. If no other work can be done until "
+        + "the result comes back, do nothing: write no text and call no tool. When the injected result "
+        + "arrives, continue the task from it."
+
+    @Test("pendingWorkInstruction is the approved text, word for word")
+    func pendingWorkInstructionIsTheApprovedText() {
+        #expect(PendingRunEnvelope.pendingWorkInstruction == Self.approvedPendingWorkInstruction)
+    }
+
+    @Test("the default next sentence is the token sentence, one space, then pendingWorkInstruction")
+    func defaultCollectInstructionIsTheTokenSentenceThenThePendingWorkInstruction() {
+        let completionToken = ULID().ulidString
+
+        #expect(
+            PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken)
+                == "This run continues in the background, with completion token \"\(completionToken)\". "
+                + PendingRunEnvelope.pendingWorkInstruction
+        )
+    }
+
+    @Test("the default next sentence says: the run continues in the background with its token, this is not the result, the session injects the result, call no tool to wait, and do nothing when no other work remains")
+    func defaultCollectInstructionTellsTheModelNotToWait() throws {
         let completionToken = ULID().ulidString
         let rendered = PendingRunEnvelope(completionToken: completionToken).rendered
 
@@ -78,20 +107,17 @@ struct PendingRunEnvelopeTests {
         Self.expect(
             next,
             saysInOrder: [
-                // The run goes on behind the answer.
+                // The run goes on behind the answer, under its real token.
                 "continues in the background",
-                // Do not answer, and do not invent the result.
-                "not answer",
-                "never invent",
-                // The session reports the result when the run settles.
-                "reports the result",
-                "settles",
-                // The earlier collect step, with the real token.
-                "wait tool",
                 completionToken,
-                // What to do when the collect step comes back empty.
-                "wait again",
-                "same completionToken",
+                // The envelope is not the result.
+                "not the result",
+                // The session injects the result as a new message.
+                "injects its result",
+                // No tool call to wait or to check.
+                "Do not call a tool to wait or to check",
+                // With no other work, the model does nothing.
+                "do nothing",
             ]
         )
         for fragment in Self.forbiddenDefaultCollectInstructionFragments {
