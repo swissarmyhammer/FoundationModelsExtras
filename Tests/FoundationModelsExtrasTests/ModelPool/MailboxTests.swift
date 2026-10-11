@@ -688,9 +688,6 @@ struct MailboxTelemetryTests {
     /// joins it: up for each post, then down for each answer.
     private static let depthOfAJoinedBatch: [Double] = [1, 2, 1, 0]
 
-    /// The count that one completed letter adds to the task counter.
-    private static let oneTask: Int64 = 1
-
     /// The number of letters in the test of a joined letter.
     private static let twoLetters = 2
 
@@ -705,9 +702,10 @@ struct MailboxTelemetryTests {
         QueueMetricDimensions.queue(named: queueName, model: model?.stringValue)
     }
 
-    /// Expects that `metrics` holds `count` completed letters with `outcome`:
-    /// one count, one wait time, and one run time when the letter ran, for
-    /// each letter.
+    /// Expects that `metrics` holds `count` completed letters of a mailbox
+    /// with `outcome`, and no letter with an other outcome. The shared
+    /// ``QueueMetricExpectations`` does the checks; this function only names
+    /// the queue of the mailbox.
     ///
     /// - Parameters:
     ///   - metrics: The factory that the mailbox recorded into.
@@ -719,19 +717,12 @@ struct MailboxTelemetryTests {
     private static func expectLetters(
         in metrics: TestMetrics, outcome: QueueOutcome, ran: Bool, count: Int = 1, model: ModelRef? = nil
     ) throws {
-        let dimensions = QueueMetricDimensions.job(queue: queueDimensions(model: model), outcome: outcome.rawValue)
-        #expect(try metrics.expectCounter(ExtrasTelemetry.MetricName.queueTasks, dimensions).values == Array(repeating: oneTask, count: count))
-        #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueWait, dimensions).values.count == count)
-        if ran {
-            #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions).values.count == count)
-        } else {
-            #expect(throws: TestMetricsError.self) {
-                try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions)
-            }
-        }
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: queueDimensions(model: model), outcome: outcome, ran: ran, count: count)
     }
 
-    /// Gives the values of the depth meter of a mailbox.
+    /// Gives the values of the depth meter of a mailbox, from the shared
+    /// ``QueueMetricExpectations``.
     ///
     /// - Parameters:
     ///   - metrics: The factory that the mailbox recorded into.
@@ -739,7 +730,7 @@ struct MailboxTelemetryTests {
     /// - Returns: The depth after each change, in order.
     /// - Throws: When `metrics` has no such meter.
     private static func depth(in metrics: TestMetrics, model: ModelRef? = nil) throws -> [Double] {
-        try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, queueDimensions(model: model)).values
+        try QueueMetricExpectations.depth(in: metrics, queue: queueDimensions(model: model))
     }
 
     @Test("a letter that a batch answers records succeeded, a wait time, a run time and one count, and the depth goes back to 0")
@@ -857,11 +848,6 @@ struct MailboxTelemetryTests {
 
         try Self.expectLetters(in: metrics, outcome: .cancelled, ran: true)
         #expect(try Self.depth(in: metrics) == Self.depthOfOneLetter)
-        #expect(throws: TestMetricsError.self) {
-            try metrics.expectCounter(
-                ExtrasTelemetry.MetricName.queueTasks,
-                QueueMetricDimensions.job(queue: Self.queueDimensions(), outcome: QueueOutcome.succeeded.rawValue))
-        }
     }
 
     @Test("a letter of a batch whose body throws CancellationError records cancelled with a run time")

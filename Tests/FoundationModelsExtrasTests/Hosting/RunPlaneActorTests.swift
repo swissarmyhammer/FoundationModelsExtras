@@ -250,10 +250,7 @@ struct RunPlaneActorTests {
             completionToken: token,
             canceler: { .cancelled },
             body: {
-                OperationEvent(
-                    tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed,
-                    detail: "refused", outcome: .succeeded
-                )
+                FakeRun.terminalEvent(token: token, outcome: .succeeded, detail: "refused")
             }
         )
         #expect(refused == .duplicateToken)
@@ -353,10 +350,7 @@ struct RunPlaneActorTests {
             body: {
                 await latch.waitUntilOpen()
                 bodyEnded.open()
-                return OperationEvent(
-                    tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed,
-                    detail: Self.lateBodyDetail, outcome: .succeeded
-                )
+                return FakeRun.terminalEvent(token: token, outcome: .succeeded, detail: Self.lateBodyDetail)
             }
         )
 
@@ -537,9 +531,7 @@ struct RunPlaneActorTests {
                 await Task.yield()
             }
             steps.append("body ended")
-            return OperationEvent(
-                tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed, detail: "",
-                outcome: .cancelled)
+            return FakeRun.terminalEvent(token: token, outcome: .cancelled)
         }
 
         _ = await runPlane.sweep()
@@ -582,9 +574,6 @@ extension RunPlaneActorTests {
     /// no completion yet.
     private static let depthWhileOneTaskIsOpen: [Double] = [1]
 
-    /// The count that one completed queue task adds to the task counter.
-    private static let oneTask: Int64 = 1
-
     /// The terminal outcome of each test run, and the value of the
     /// `queue.outcome` dimension that its settle must record. A terminal event
     /// with no outcome records `lost`.
@@ -613,54 +602,10 @@ extension RunPlaneActorTests {
         await runPlane.start(
             tool: FakeRun.tool, op: FakeRun.op, kind: .swiftTask, completionToken: token, canceler: nil
         ) {
-            OperationEvent(
-                tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed, detail: "",
-                outcome: outcome)
+            FakeRun.terminalEvent(token: token, outcome: outcome)
         }
         _ = try #require(await runPlane.wait(completionToken: token, seconds: nil).settledTerminal)
         return token
-    }
-
-    /// Expects that `metrics` holds one completed task of `queue` with the
-    /// `queue.outcome` value `outcome`, and no completed task with an other
-    /// outcome: one count, one wait time, and one run time when `ran` is true.
-    ///
-    /// - Parameters:
-    ///   - metrics: The factory that the run plane recorded into.
-    ///   - queue: The dimensions of the queue.
-    ///   - outcome: The value of the `queue.outcome` dimension.
-    ///   - ran: `true` when the task records a run time.
-    /// - Throws: When `metrics` has no such timer or counter.
-    private static func expectOneTask(
-        in metrics: TestMetrics, queue: [(String, String)], outcome: String, ran: Bool
-    ) throws {
-        let dimensions = QueueMetricDimensions.job(queue: queue, outcome: outcome)
-        #expect(try metrics.expectCounter(ExtrasTelemetry.MetricName.queueTasks, dimensions).values == [oneTask])
-        #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueWait, dimensions).values.count == 1)
-        if ran {
-            #expect(try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions).values.count == 1)
-        } else {
-            #expect(throws: TestMetricsError.self) {
-                try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions)
-            }
-        }
-        for other in QueueOutcome.allCases.map(\.rawValue) where other != outcome {
-            #expect(throws: TestMetricsError.self) {
-                try metrics.expectCounter(
-                    ExtrasTelemetry.MetricName.queueTasks, QueueMetricDimensions.job(queue: queue, outcome: other))
-            }
-        }
-    }
-
-    /// Gives the values of the depth meter of `queue`.
-    ///
-    /// - Parameters:
-    ///   - metrics: The factory that the run plane recorded into.
-    ///   - queue: The dimensions of the queue.
-    /// - Returns: The depth after each change, in order.
-    /// - Throws: When `metrics` has no such meter.
-    private static func depth(in metrics: TestMetrics, queue: [(String, String)]) throws -> [Double] {
-        try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, queue).values
     }
 
     @Test(
@@ -675,8 +620,8 @@ extension RunPlaneActorTests {
             try await Self.settleRun(on: runPlane, outcome: outcome)
         }
 
-        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: recorded, ran: true)
-        #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
+        try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: Self.runQueue, outcome: recorded, ran: true)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
     }
 
     @Test("a run that the sweep settles records one count with the outcome of its canceler, also after its body ends")
@@ -689,15 +634,15 @@ extension RunPlaneActorTests {
             _ = await FakeRun.start(on: runPlane, latch: latch, kind: .process, cancelerOutcome: .stopped)
             _ = await runPlane.sweep()
         }
-        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: QueueOutcome.stopped.rawValue, ran: true)
+        try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: Self.runQueue, outcome: .stopped, ran: true)
 
         // The body ends after the sweep. Its terminal event finds no open
         // run, thus it records no second count.
         latch.open()
         await runPlane.joinRunBodies()
 
-        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: QueueOutcome.stopped.rawValue, ran: true)
-        #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
+        try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: Self.runQueue, outcome: .stopped, ran: true)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
     }
 
     @Test("a start with a token in use records nothing")
@@ -711,18 +656,16 @@ extension RunPlaneActorTests {
             let refused = await runPlane.start(
                 tool: FakeRun.tool, op: FakeRun.op, kind: .swiftTask, completionToken: token, canceler: nil
             ) {
-                OperationEvent(
-                    tool: FakeRun.tool, op: FakeRun.op, correlationID: token, kind: .completed, detail: "",
-                    outcome: .failed)
+                FakeRun.terminalEvent(token: token, outcome: .failed)
             }
             #expect(refused == .duplicateToken)
-            #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthWhileOneTaskIsOpen)
+            #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.runQueue) == Self.depthWhileOneTaskIsOpen)
             latch.open()
             _ = await runPlane.wait(completionToken: token, seconds: nil)
         }
 
-        try Self.expectOneTask(in: metrics, queue: Self.runQueue, outcome: QueueOutcome.succeeded.rawValue, ran: true)
-        #expect(try Self.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
+        try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: Self.runQueue, outcome: .succeeded, ran: true)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.runQueue) == Self.depthOfOneRun)
     }
 
     @Test("no metric dimension carries the completion token or the op of a run")
@@ -757,7 +700,7 @@ extension RunPlaneActorTests {
     ///
     /// - Parameter metrics: The factory that the run plane recorded into.
     private static func expectNoRunOrToolMetric(in metrics: TestMetrics) {
-        #expect(throws: TestMetricsError.self) { try depth(in: metrics, queue: runQueue) }
+        #expect(throws: TestMetricsError.self) { try QueueMetricExpectations.depth(in: metrics, queue: runQueue) }
         #expect(!metrics.timers.map(\.label).contains(ExtrasTelemetry.MetricName.toolDuration))
         #expect(!metrics.counters.map(\.label).contains(ExtrasTelemetry.MetricName.toolCalls))
     }
@@ -777,9 +720,9 @@ extension RunPlaneActorTests {
             #expect(try await answering.deliveredAnswer() == .decline)
         }
 
-        try Self.expectOneTask(
-            in: metrics, queue: Self.elicitationQueue, outcome: QueueOutcome.succeeded.rawValue, ran: false)
-        #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.elicitationQueue, outcome: .succeeded, ran: false)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
         Self.expectNoRunOrToolMetric(in: metrics)
     }
 
@@ -801,14 +744,16 @@ extension RunPlaneActorTests {
             #expect(await Self.isPending(elicitationId, on: runPlane))
             #expect(
                 await runPlane.respond(elicitationId: elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
-            #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthWhileOneTaskIsOpen)
+            #expect(
+                try QueueMetricExpectations.depth(in: metrics, queue: Self.elicitationQueue)
+                    == Self.depthWhileOneTaskIsOpen)
             #expect(await runPlane.complete(elicitationId: elicitationId) == .completed)
             #expect(try await answering.deliveredAnswer() == .accept(content: nil))
         }
 
-        try Self.expectOneTask(
-            in: metrics, queue: Self.elicitationQueue, outcome: QueueOutcome.succeeded.rawValue, ran: false)
-        #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.elicitationQueue, outcome: .succeeded, ran: false)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
         Self.expectNoRunOrToolMetric(in: metrics)
     }
 
@@ -827,9 +772,9 @@ extension RunPlaneActorTests {
             #expect(try await rejected.deliveredAnswer() == .cancel)
         }
 
-        try Self.expectOneTask(
-            in: metrics, queue: Self.elicitationQueue, outcome: QueueOutcome.cancelled.rawValue, ran: false)
-        #expect(try Self.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.elicitationQueue, outcome: .cancelled, ran: false)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.elicitationQueue) == Self.depthOfOneElicitation)
         Self.expectNoRunOrToolMetric(in: metrics)
     }
 }
@@ -845,7 +790,7 @@ extension RunPlaneActorTests {
     private static let runSpanName = "FoundationModelsExtras.run"
 
     /// The message of the "enter" record of each run body.
-    private static let runEnterMessage = "enter FoundationModelsExtras.run"
+    private static let runEnterMessage = ExtrasTelemetry.EnterRecord.message(forSpanNamed: runSpanName)
 
     /// Whether `context` holds the "enter" record of a run body.
     ///

@@ -114,17 +114,26 @@ enum FakeRun {
             },
             body: {
                 await latch.waitUntilOpen()
-                return OperationEvent(
-                    tool: tool,
-                    op: op,
-                    correlationID: token,
-                    kind: .completed,
-                    detail: detailOnSettle,
-                    outcome: cancelRequests.values.isEmpty ? .succeeded : .cancelled
+                return terminalEvent(
+                    token: token,
+                    outcome: cancelRequests.values.isEmpty ? .succeeded : .cancelled,
+                    detail: detailOnSettle
                 )
             }
         )
         return token
+    }
+
+    /// Makes the terminal event of a fake run: a completed event with the
+    /// tool and the op of each fake run.
+    ///
+    /// - Parameters:
+    ///   - token: The completion token of the run.
+    ///   - outcome: The outcome of the event, or `nil` for no outcome.
+    ///   - detail: The detail of the event. The default is empty.
+    /// - Returns: The terminal event.
+    static func terminalEvent(token: String, outcome: OperationOutcome?, detail: String = "") -> OperationEvent {
+        OperationEvent(tool: tool, op: op, correlationID: token, kind: .completed, detail: detail, outcome: outcome)
     }
 }
 

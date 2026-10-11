@@ -22,15 +22,6 @@ struct QueueTelemetryTests {
     /// The depth of the queue when each task is finished.
     private static let noTask: Double = 0
 
-    /// The count that one completed task adds to the task counter.
-    private static let oneCount: Int64 = 1
-
-    /// The count of durations that one completed task records on a timer.
-    private static let oneDuration = 1
-
-    /// The smallest duration that a timer can record, in nanoseconds.
-    private static let noTime: Int64 = 0
-
     @Test("the depth goes up at enqueue and back to 0 at completion")
     func theDepthGoesUpAndBackToZero() throws {
         let metrics = TestMetrics()
@@ -42,8 +33,9 @@ struct QueueTelemetryTests {
             telemetry.completed(ticket, outcome: .succeeded)
         }
 
-        let depth = try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, Self.depthDimensions(model: nil))
-        #expect(depth.values == [Self.oneTask, Self.noTask])
+        #expect(
+            try QueueMetricExpectations.depth(in: metrics, queue: Self.queueDimensions())
+                == [Self.oneTask, Self.noTask])
     }
 
     @Test("the depth counts each task that is not finished, and goes back to 0 after each task completes")
@@ -60,8 +52,9 @@ struct QueueTelemetryTests {
             telemetry.completed(second, outcome: .failed)
         }
 
-        let depth = try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, Self.depthDimensions(model: nil))
-        #expect(depth.values == [Self.oneTask, Self.twoTasks, Self.oneTask, Self.noTask])
+        #expect(
+            try QueueMetricExpectations.depth(in: metrics, queue: Self.queueDimensions())
+                == [Self.oneTask, Self.twoTasks, Self.oneTask, Self.noTask])
     }
 
     @Test("a completed task records one wait time, one run time and one count with the queue name and the outcome")
@@ -75,7 +68,8 @@ struct QueueTelemetryTests {
             telemetry.completed(ticket, outcome: .timedOut)
         }
 
-        try Self.expectOneTask(in: metrics, model: nil, outcome: .timedOut, ran: true)
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.queueDimensions(), outcome: .timedOut, ran: true)
     }
 
     @Test("a queue of one model adds the model ref to each dimension list")
@@ -89,9 +83,9 @@ struct QueueTelemetryTests {
             telemetry.completed(ticket, outcome: .succeeded)
         }
 
-        let depth = try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, Self.depthDimensions(model: Self.model))
-        #expect(depth.values == [Self.oneTask, Self.noTask])
-        try Self.expectOneTask(in: metrics, model: Self.model, outcome: .succeeded, ran: true)
+        let queue = Self.queueDimensions(model: Self.model)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: queue) == [Self.oneTask, Self.noTask])
+        try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: queue, outcome: .succeeded, ran: true)
     }
 
     @Test("a task cancelled before it starts records a wait time, no run time and the outcome cancelled")
@@ -104,9 +98,9 @@ struct QueueTelemetryTests {
             telemetry.completed(ticket, outcome: .cancelled)
         }
 
-        try Self.expectOneTask(in: metrics, model: nil, outcome: .cancelled, ran: false)
-        let depth = try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, Self.depthDimensions(model: nil))
-        #expect(depth.lastValue == Self.noTask)
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.queueDimensions(), outcome: .cancelled, ran: false)
+        #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.queueDimensions()).last == Self.noTask)
     }
 
     @Test("a start and a completion in a detached task reach the factory of the submitter")
@@ -123,9 +117,11 @@ struct QueueTelemetryTests {
             telemetry.completed(running, outcome: .succeeded)
         }.value
 
-        try Self.expectOneTask(in: metrics, model: nil, outcome: .succeeded, ran: true)
-        let depth = try metrics.expectMeter(ExtrasTelemetry.MetricName.queueDepth, Self.depthDimensions(model: nil))
-        #expect(depth.values == [Self.oneTask, Self.noTask])
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.queueDimensions(), outcome: .succeeded, ran: true)
+        #expect(
+            try QueueMetricExpectations.depth(in: metrics, queue: Self.queueDimensions())
+                == [Self.oneTask, Self.noTask])
     }
 
     @Test("each queue name and each queue outcome has its fixed raw value")
@@ -149,44 +145,12 @@ struct QueueTelemetryTests {
         #expect(ExtrasTelemetry.DimensionKey.queueOutcome == "queue.outcome")
     }
 
-    /// Gives the dimensions of the depth meter of the test queue.
+    /// Gives the dimensions of the depth meter of the test queue, from the
+    /// constants of this suite and not from the recorder under test.
     ///
     /// - Parameter model: The model of the queue, or `nil` for no model.
     /// - Returns: The queue name, then the model ref when `model` is set.
-    private static func depthDimensions(model: ModelRef?) -> [(String, String)] {
-        [(ExtrasTelemetry.DimensionKey.queueName, queueName.rawValue)]
-            + (model.map { [(ExtrasTelemetry.DimensionKey.modelRef, $0.stringValue)] } ?? [])
-    }
-
-    /// Expects that `metrics` holds the completion of one task: one wait
-    /// time, one count, and one run time when the task ran.
-    ///
-    /// - Parameters:
-    ///   - metrics: The factory that the queue recorded into.
-    ///   - model: The model of the queue, or `nil` for no model.
-    ///   - outcome: How the task ended.
-    ///   - ran: `true` when the task started before it completed.
-    /// - Throws: When `metrics` has no such timer or counter.
-    private static func expectOneTask(
-        in metrics: TestMetrics,
-        model: ModelRef?,
-        outcome: QueueOutcome,
-        ran: Bool
-    ) throws {
-        let dimensions = depthDimensions(model: model) + [(ExtrasTelemetry.DimensionKey.queueOutcome, outcome.rawValue)]
-        let wait = try metrics.expectTimer(ExtrasTelemetry.MetricName.queueWait, dimensions)
-        let tasks = try metrics.expectCounter(ExtrasTelemetry.MetricName.queueTasks, dimensions)
-        #expect(wait.values.count == oneDuration)
-        #expect(wait.values.allSatisfy { $0 >= noTime })
-        #expect(tasks.values == [oneCount])
-        if ran {
-            let run = try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions)
-            #expect(run.values.count == oneDuration)
-            #expect(run.values.allSatisfy { $0 >= noTime })
-        } else {
-            #expect(throws: TestMetricsError.self) {
-                try metrics.expectTimer(ExtrasTelemetry.MetricName.queueRun, dimensions)
-            }
-        }
+    private static func queueDimensions(model: ModelRef? = nil) -> [(String, String)] {
+        QueueMetricDimensions.queue(named: queueName.rawValue, model: model?.stringValue)
     }
 }
