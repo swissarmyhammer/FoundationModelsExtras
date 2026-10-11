@@ -42,6 +42,45 @@ private enum BatchLengthTexts {
     static let all = [short, medium, long]
 }
 
+/// Many short texts and one long text. In one padded tensor, the long text
+/// pads each short text to its length. Divided into sub-batches by token
+/// count, the long text goes in a sub-batch by itself.
+private enum MixedLengthTexts {
+    /// The count of short texts.
+    static let shortCount = 15
+
+    /// The count of sentences in the long text: more than 1,000 tokens. One
+    /// padded tensor of all the texts is then large enough that the time of
+    /// its attention is much more than the fixed time of a model call.
+    static let longSentenceCount = 100
+
+    /// The sentence that the long text repeats.
+    static let longSentence = "The pool shares one embedding model with each user of the key. "
+
+    /// The long text.
+    static let long = String(repeating: longSentence, count: longSentenceCount)
+
+    /// The short texts.
+    static let shorts = (1...shortCount).map { "Find the tool number \($0) of the folder." }
+
+    /// The place of the long text in ``all``: in the middle, so that the sort
+    /// changes the order of the texts.
+    static let longIndex = shortCount / 2
+
+    /// The short texts, with the long text at ``longIndex``.
+    static let all = Array(shorts[..<longIndex]) + [long] + Array(shorts[longIndex...])
+
+    /// A list of the length of ``all`` with only copies of the long text.
+    /// Its tensor shape is (count) x (longest row), the shape of one padded
+    /// call of ``all``, thus its time is the time of one padded call.
+    static let paddedEquivalent = Array(repeating: long, count: all.count)
+}
+
+/// The smallest ratio of the time of one padded call of ``MixedLengthTexts``
+/// to the time of the call of ``MixedLengthTexts/all``. Only one row of the
+/// call has the length of the long text, thus the call must be much faster.
+private let minimumSpeedupOverPaddedCall = 4.0
+
 /// The lowest cosine between the vector of a text in a batch and the vector of
 /// the same text alone. The pad tokens of a batch must not change a vector, thus
 /// only the rounding of the float math can make the two vectors differ.
@@ -100,18 +139,35 @@ extension RealModelSuites {
             #expect(similar > unrelated, "similar texts: \(similar); unrelated texts: \(unrelated)")
         }
 
-        @Test("each text of a batch of texts of different lengths has the vector of the same text embedded alone")
-        func batchVectorEqualsVectorOfTextAlone() async throws {
+        @Test(
+            "each text of a batch of texts of different lengths has the vector of the same text embedded alone",
+            arguments: [BatchLengthTexts.all, MixedLengthTexts.all])
+        func batchVectorEqualsVectorOfTextAlone(texts: [String]) async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
 
-            let outcome = try await Self.embedInBatchAndAlone(texts: BatchLengthTexts.all, in: pool)
+            let outcome = try await Self.embedInBatchAndAlone(texts: texts, in: pool)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
             let cosines = zip(outcome.batch, outcome.alone).map { VectorMath.cosineSimilarity(of: $0, to: $1) }
-            #expect(outcome.batch.count == BatchLengthTexts.all.count)
-            #expect(outcome.alone.count == BatchLengthTexts.all.count)
+            #expect(outcome.batch.count == texts.count)
+            #expect(outcome.alone.count == texts.count)
             #expect(cosines.allSatisfy { $0 >= batchCosineFloor }, "cosines: \(cosines)")
+        }
+
+        @Test("a call of short texts and one long text is much faster than one padded call of the same count of texts")
+        func mixedLengthCallIsFasterThanOnePaddedCall() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+
+            let outcome = try await Self.timeMixedAndPaddedCalls(in: pool)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+
+            let speedup = outcome.paddedDuration / outcome.mixedDuration
+            #expect(outcome.mixedVectorCount == MixedLengthTexts.all.count)
+            #expect(
+                speedup >= minimumSpeedupOverPaddedCall,
+                "mixed call: \(outcome.mixedDuration); padded call: \(outcome.paddedDuration)")
         }
 
         @Test("a router and a registry acquire one embedding key, the model loads one time, and the registry embeds with the router container")
@@ -210,6 +266,28 @@ extension RealModelSuites {
             return BatchOutcome(
                 batch: try await embedder.embed(texts: texts),
                 alone: try await embedSerially(texts, with: embedder))
+        }
+
+        /// Embeds a probe text to warm up the model, then measures one call of
+        /// ``MixedLengthTexts/paddedEquivalent`` and one call of
+        /// ``MixedLengthTexts/all``, through one embedder. The embedder goes on
+        /// return.
+        private static func timeMixedAndPaddedCalls(in pool: ModelPool) async throws -> MixedTimingOutcome {
+            let embedder = try await makeEmbedder(in: pool)
+            _ = try await embedder.embed(texts: [probeText])
+            let padded = try await timedEmbed(of: MixedLengthTexts.paddedEquivalent, with: embedder)
+            let mixed = try await timedEmbed(of: MixedLengthTexts.all, with: embedder)
+            return MixedTimingOutcome(
+                mixedVectorCount: mixed.vectors.count, mixedDuration: mixed.duration, paddedDuration: padded.duration)
+        }
+
+        /// Embeds `texts` in one call, and measures the time of the call.
+        private static func timedEmbed(
+            of texts: [String], with embedder: PooledEmbedder
+        ) async throws -> (vectors: [[Float]], duration: Duration) {
+            let start = ContinuousClock.now
+            let vectors = try await embedder.embed(texts: texts)
+            return (vectors, start.duration(to: .now))
         }
 
         /// Embeds `text` alone, and gives its one vector.
@@ -381,6 +459,16 @@ private struct BatchOutcome {
     let batch: [[Float]]
     /// The vector of each text, from one call for each text.
     let alone: [[Float]]
+}
+
+/// The times of the mixed-length test.
+private struct MixedTimingOutcome {
+    /// The count of vectors of the call of ``MixedLengthTexts/all``.
+    let mixedVectorCount: Int
+    /// The time of the call of ``MixedLengthTexts/all``.
+    let mixedDuration: Duration
+    /// The time of the call of ``MixedLengthTexts/paddedEquivalent``.
+    let paddedDuration: Duration
 }
 
 /// What the two users of one embedding model observed.

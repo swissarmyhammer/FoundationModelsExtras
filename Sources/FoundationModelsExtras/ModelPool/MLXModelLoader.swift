@@ -238,27 +238,44 @@ private struct MLXEmbedding: PooledEmbedding {
                 from: downloader, using: tokenizerLoader, configuration: configuration))
     }
 
-    /// Gives one normalized vector for each text. This pads the tokens of
-    /// `texts` to one length, runs the model, and pools the output. The mask of
-    /// each row comes from its length, and the model and the pooling both get
-    /// it. Thus a pad token changes no vector, and the end token of a text,
-    /// which can equal the pad token, stays in its vector.
+    /// Gives one normalized vector for each text. This tokenizes `texts` one
+    /// time, sorts the token rows by count, and divides them into sub-batches
+    /// with ``EmbeddingBatchDivision``. Thus one long text does not pad the
+    /// short texts of a different sub-batch, and no text is cut. For each
+    /// sub-batch, this pads the rows to one length, runs the model, and pools
+    /// the output. The mask of each row comes from its length, and the model
+    /// and the pooling both get it. Thus a pad token changes no vector, and
+    /// the end token of a text, which can equal the pad token, stays in its
+    /// vector.
     ///
     /// - Parameter texts: The texts.
     /// - Returns: One normalized vector for each text, in the order of `texts`.
     func embed(texts: [String]) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
         return await container.perform { context in
-            let padding = EmbeddingBatchPadding(
-                rows: texts.map { context.tokenizer.encode(text: $0, addSpecialTokens: true) },
-                padToken: context.tokenizer.eosTokenId ?? Self.fallbackPadToken)
-            let tokens = stacked(padding.tokens.map { MLXArray($0) })
-            let mask = stacked(padding.mask.map { MLXArray($0) })
-            let output = context.model(
-                tokens, positionIds: nil, tokenTypeIds: MLXArray.zeros(like: tokens), attentionMask: mask)
-            let pooled = context.pooling(output, mask: mask, normalize: true, applyLayerNorm: true)
-            pooled.eval()
-            return pooled.map { $0.asArray(Float.self) }
+            let division = EmbeddingBatchDivision(
+                rows: texts.map { context.tokenizer.encode(text: $0, addSpecialTokens: true) })
+            let padToken = context.tokenizer.eosTokenId ?? Self.fallbackPadToken
+            return division.inInputOrder(
+                division.subBatches.map { Self.vectors(of: $0.rows, padToken: padToken, in: context) })
         }
+    }
+
+    /// Runs the model on `rows` as one padded tensor, and pools the output.
+    ///
+    /// - Parameters:
+    ///   - rows: The token rows of one sub-batch.
+    ///   - padToken: The token that fills each row after its last real token.
+    ///   - context: The loaded model, its tokenizer and its pooling.
+    /// - Returns: One normalized vector for each row, in the order of `rows`.
+    private static func vectors(of rows: [[Int]], padToken: Int, in context: EmbedderModelContext) -> [[Float]] {
+        let padding = EmbeddingBatchPadding(rows: rows, padToken: padToken)
+        let tokens = stacked(padding.tokens.map { MLXArray($0) })
+        let mask = stacked(padding.mask.map { MLXArray($0) })
+        let output = context.model(
+            tokens, positionIds: nil, tokenTypeIds: MLXArray.zeros(like: tokens), attentionMask: mask)
+        let pooled = context.pooling(output, mask: mask, normalize: true, applyLayerNorm: true)
+        pooled.eval()
+        return pooled.map { $0.asArray(Float.self) }
     }
 }

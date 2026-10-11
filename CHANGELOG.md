@@ -5,6 +5,22 @@ change is at the top.
 
 ## Unreleased
 
+### Changed: an MLX embed call divides its texts into sub-batches by token count
+
+`embed(texts:)` of a `PooledEmbedder` over `MLXModelLoader` now sorts the
+tokenized texts of one call by token count, and divides them into
+sub-batches. In each sub-batch, (texts) x (longest text) is not more than
+16,384 tokens. The model runs on each sub-batch as one padded tensor, and the
+vectors come back in the order of `texts`. Thus one long text does not pad
+each short text of the call to its length. Before, one long text in a call
+made the full call slow: FoundationModelsCodeContext measured approximately
+55 s for each call of 32 chunks.
+
+No text is cut. A text longer than the budget goes in a sub-batch by itself,
+with all its tokens. The vector of each text does not change: it is the
+vector of the same text embedded alone. No API changes, and a caller sets
+nothing.
+
 ### Changed (breaking): no catalog version and no catalog display id
 
 The store reads no catalog file, thus no install gives a catalog version or
