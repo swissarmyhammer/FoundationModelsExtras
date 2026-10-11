@@ -653,4 +653,4 @@ entry, not at the marketplace.
   the rules of the target; `ReadmeSnippetTests` runs the README example and
   proves that its two copies are the same text.
 - **Consumer**: `FoundationModelsSkills` (§6). The public surface is
-  documented in [`README.md`](README.md) and [`CHANGELOG.md`](CHANGELOG.md).
+  documented in [`README.md`](README.md).
