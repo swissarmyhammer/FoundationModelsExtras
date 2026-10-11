@@ -30,6 +30,18 @@ import Testing
     TemplateEngine(partials: partials, environment: environment, wellKnownValues: wellKnownValues)
   }
 
+  @Test func theRealHostnameIsTheOneThatTheKernelGives() {
+    var buffer = [CChar](repeating: 0, count: 256)
+    #expect(gethostname(&buffer, buffer.count) == 0)
+    let bytes = buffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+    let expected = String(decoding: bytes, as: UTF8.self)
+
+    let hostname = WellKnownValues.current(partials: nil).hostname
+
+    #expect(!hostname.isEmpty)
+    #expect(hostname == expected)
+  }
+
   @Test func rendersASimpleVariableSubstitution() throws {
     let engine = Self.makeEngine()
     var context = TemplateContext()

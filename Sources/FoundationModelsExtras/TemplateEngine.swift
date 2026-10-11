@@ -945,9 +945,25 @@ public struct WellKnownValues: Sendable {
     WellKnownValues(
       workingDirectory: FileManager.default.currentDirectoryPath,
       date: dateFormatter.string(from: Date()),
-      hostname: ProcessInfo.processInfo.hostName,
+      hostname: kernelHostname(),
       dotfolderName: partials?.projectDotfolderName
     )
+  }
+
+  /// Reads this machine's hostname from the kernel.
+  ///
+  /// `ProcessInfo.hostName` does a reverse name lookup through the network
+  /// name service. That call can take many seconds, and each caller waits
+  /// for the one before it. A thread of the cooperative pool then stays
+  /// blocked, and a test run or an app that renders many templates stalls.
+  /// `gethostname` asks only the kernel, and it returns at once.
+  ///
+  /// - Returns: The hostname, or `"localhost"` when the kernel gives none.
+  static func kernelHostname() -> String {
+    var buffer = [CChar](repeating: 0, count: Int(NAME_MAX) + 1)
+    guard gethostname(&buffer, buffer.count) == 0 else { return "localhost" }
+    let bytes = buffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+    return bytes.isEmpty ? "localhost" : String(decoding: bytes, as: UTF8.self)
   }
 }
 
