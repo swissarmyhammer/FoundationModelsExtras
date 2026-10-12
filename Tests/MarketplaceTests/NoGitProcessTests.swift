@@ -24,9 +24,6 @@ struct NoGitProcessTests {
   /// The source directory, relative to the package root.
   private static let sourcesPath = PackageManifest.marketplaceSourcesPath
 
-  /// The suffix of a Swift source file.
-  private static let swiftFileSuffix = ".swift"
-
   @Test(arguments: [
     #"process.executableURL = URL(fileURLWithPath: "/usr/bin/git")"#,
     #"process.launchPath = "/usr/bin/git""#,
@@ -59,16 +56,13 @@ struct NoGitProcessTests {
   }
 
   @Test func noFileUnderTheMarketplaceSourcesStartsAGitProcess() throws {
-    let sources = FixtureFile.url(Self.sourcesPath)
-    let files = try FileManager.default.subpathsOfDirectory(atPath: sources.path)
-      .filter { $0.hasSuffix(Self.swiftFileSuffix) }
+    let files = try FixtureFile.swiftSources(under: Self.sourcesPath)
 
-    let offenders = try files.flatMap { relativePath in
-      let text = try String(contentsOf: sources.appendingPathComponent(relativePath), encoding: .utf8)
-      return Self.processLinesNamingGit(in: text).map { "\(Self.sourcesPath)/\(relativePath):\($0)" }
+    let offenders = files.flatMap { file in
+      Self.processLinesNamingGit(in: file.text).map { "\(file.path):\($0)" }
     }
 
-    #expect(!files.isEmpty, "the walk found no Swift file under \(sources.path), thus it proves nothing")
+    #expect(!files.isEmpty, "the walk found no Swift file under \(Self.sourcesPath), thus it proves nothing")
     #expect(
       offenders.isEmpty,
       """

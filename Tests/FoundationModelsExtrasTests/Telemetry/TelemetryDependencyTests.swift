@@ -7,9 +7,6 @@ import Testing
 /// executables of the family bootstrap the backend.
 @Suite("Telemetry dependencies: the APIs only, with no backend")
 struct TelemetryDependencyTests {
-    /// The folder of the library sources, relative to the package root.
-    private static let sourcesPath = "Sources"
-
     /// The text that marks a dependency on swift-otel.
     private static let otelMarker = "swift-otel"
 
@@ -85,37 +82,6 @@ struct TelemetryDependencyTests {
         .product(name: "Tokenizers", package: "swift-transformers"),
     ])
 
-    /// One entry of the `dependencies` list of a target of the manifest.
-    private enum TargetDependency: Hashable, CustomStringConvertible {
-        /// A dependency that the manifest names with a string only: a target
-        /// of the package, or a product with the name of its package.
-        case byName(String)
-
-        /// A `.product(name:package:)` dependency.
-        case product(name: String, package: String)
-
-        /// An entry of a form that the read does not know, as the manifest
-        /// writes it. No allowlist holds it, thus it always fails the check.
-        case unread(String)
-
-        /// The dependency on one product of a package.
-        ///
-        /// - Parameter product: The product that the target links.
-        /// - Returns: The `.product(name:package:)` dependency on `product`.
-        static func linking(_ product: ManifestProduct) -> TargetDependency {
-            .product(name: product.name, package: product.package)
-        }
-
-        /// The dependency as a failed check shows it.
-        var description: String {
-            switch self {
-            case .byName(let name): "\"\(name)\""
-            case .product(let name, let package): "\(name) of \(package)"
-            case .unread(let text): "unread entry \(text)"
-            }
-        }
-    }
-
     @Test("no library source logs or writes signposts through the os framework")
     func noSourceUsesOSLogging() throws {
         let offenders = try Self.librarySourcePaths { text in
@@ -153,14 +119,14 @@ struct TelemetryDependencyTests {
 
     @Test("the marketplace target links the logging, metrics and tracing API products")
     func theMarketplaceTargetLinksTheTelemetryAPIs() throws {
-        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: Self.manifestText())
+        let linked = try PackageManifest.dependencies(ofTarget: PackageManifest.marketplaceTargetName)
 
         #expect(Self.telemetryAPIDependencies.isSubset(of: Set(linked)))
     }
 
     @Test("each dependency of the marketplace target is in its allowlist: no backend, no test kit, no swift-otel")
     func theMarketplaceTargetLinksOnlyItsAllowlist() throws {
-        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: Self.manifestText())
+        let linked = try PackageManifest.dependencies(ofTarget: PackageManifest.marketplaceTargetName)
 
         #expect(!linked.isEmpty)
         #expect(Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist) == [])
@@ -168,7 +134,7 @@ struct TelemetryDependencyTests {
 
     @Test("each dependency of the core target is in its allowlist: no backend, no test kit, no swift-otel")
     func theCoreTargetLinksOnlyItsAllowlist() throws {
-        let linked = try Self.dependencies(ofTarget: PackageManifest.coreTargetName, in: Self.manifestText())
+        let linked = try PackageManifest.dependencies(ofTarget: PackageManifest.coreTargetName)
 
         #expect(!linked.isEmpty)
         #expect(Self.unlistedDependencies(linked, allowed: Self.coreAllowlist) == [])
@@ -178,7 +144,7 @@ struct TelemetryDependencyTests {
     func theCheckFailsForAnUnlistedTelemetryPackage() throws {
         let manifest = Self.marketplaceManifest(adding: #".product(name: "OTLPExporter", package: "swift-otlp-exporter")"#)
 
-        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
+        let linked = try PackageManifest.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
 
         #expect(
             Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist)
@@ -189,7 +155,7 @@ struct TelemetryDependencyTests {
     func theCheckFailsForANonAPIProductOfAListedPackage() throws {
         let manifest = Self.marketplaceManifest(adding: #".product(name: "InMemoryLogging", package: "swift-log")"#)
 
-        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
+        let linked = try PackageManifest.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
 
         #expect(
             Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist)
@@ -201,7 +167,7 @@ struct TelemetryDependencyTests {
         let entry = #".product(name: "Metrics", package: "swift-metrics", condition: .when(platforms: [.macOS]))"#
         let manifest = Self.marketplaceManifest(adding: entry)
 
-        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
+        let linked = try PackageManifest.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
 
         #expect(Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist) == [.unread(entry)])
     }
@@ -221,16 +187,17 @@ struct TelemetryDependencyTests {
     ///
     /// - Parameters:
     ///   - folder: The folder to read, relative to the package root. The
-    ///     default is ``sourcesPath``, which holds each library target.
+    ///     default is `PackageManifest.sourcesPath`, which holds each library
+    ///     target.
     ///   - isOffender: Tells if the text of a source breaks the rule.
     /// - Returns: The paths of the sources that break the rule, in order.
-    /// - Throws: The error of a file that cannot be read.
+    /// - Throws: The error of a folder or a file that cannot be read.
     private static func librarySourcePaths(
-        under folder: String = sourcesPath, where isOffender: (String) -> Bool
+        under folder: String = PackageManifest.sourcesPath, where isOffender: (String) -> Bool
     ) throws -> [String] {
-        let sources = try librarySources(under: folder)
+        let sources = try FixtureFile.swiftSources(under: folder)
         #expect(!sources.isEmpty)
-        return sources.filter { isOffender($0.value) }.keys.sorted()
+        return sources.filter { isOffender($0.text) }.map(\.path)
     }
 
     /// Gives each dependency that is not in an allowlist.
@@ -244,92 +211,6 @@ struct TelemetryDependencyTests {
         _ linked: [TargetDependency], allowed: Set<TargetDependency>
     ) -> [TargetDependency] {
         linked.filter { !allowed.contains($0) }
-    }
-
-    /// Reads each entry of the `dependencies` list of one target.
-    ///
-    /// - Parameters:
-    ///   - target: The name of the target.
-    ///   - manifest: The text of the manifest.
-    /// - Returns: The entries, in the order of the manifest.
-    /// - Throws: A failed requirement when the manifest declares no such
-    ///   target.
-    private static func dependencies(ofTarget target: String, in manifest: String) throws -> [TargetDependency] {
-        try listEntries(ofTarget: target, in: manifest).map(dependency(of:))
-    }
-
-    /// Reads the text of each entry of the `dependencies` list of one target.
-    ///
-    /// The read removes each comment of the manifest first, thus a comment
-    /// is never an entry. Then it takes the text after the opening bracket
-    /// of the list of the `.target` declaration with the name `target`.
-    ///
-    /// - Parameters:
-    ///   - target: The name of the target.
-    ///   - manifest: The text of the manifest.
-    /// - Returns: The text of each entry, with no space at its ends.
-    /// - Throws: A failed requirement when the manifest declares no such
-    ///   target.
-    private static func listEntries(ofTarget target: String, in manifest: String) throws -> [String] {
-        let stringOrComment = #/"[^"\n]*"|//[^\n]*/#
-        let code = manifest.replacing(stringOrComment) { $0.output.hasPrefix("//") ? "" : $0.output }
-        let declaration = try Regex(#"\.target\(\s*name:\s*"\#(target)",\s*dependencies:\s*\["#)
-        let start = try #require(code.firstMatch(of: declaration))
-        return topLevelEntries(of: code[start.range.upperBound...])
-    }
-
-    /// Splits the text of a list at each comma that no parenthesis and no
-    /// bracket of an entry holds. The split stops at the bracket that closes
-    /// the list.
-    ///
-    /// - Parameter list: The text after the opening bracket of the list.
-    /// - Returns: The text of each entry that is not empty, with no space at
-    ///   its ends.
-    private static func topLevelEntries(of list: Substring) -> [String] {
-        var entries = [""]
-        var depth = 0
-        for character in list {
-            switch character {
-            case "]" where depth == 0:
-                return trimmed(entries)
-            case "," where depth == 0:
-                entries.append("")
-                continue
-            case "(", "[":
-                depth += 1
-            case ")", "]":
-                depth -= 1
-            default:
-                break
-            }
-            entries[entries.count - 1].append(character)
-        }
-        return trimmed(entries)
-    }
-
-    /// Removes the space at the ends of each entry, and each entry that is
-    /// then empty.
-    ///
-    /// - Parameter entries: The text of the entries.
-    /// - Returns: The entries that are not empty.
-    private static func trimmed(_ entries: [String]) -> [String] {
-        entries.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-    }
-
-    /// Reads one entry of a `dependencies` list.
-    ///
-    /// - Parameter entry: The text of the entry, with no space at its ends.
-    /// - Returns: The dependency, or ``TargetDependency/unread(_:)`` when the
-    ///   entry has a form that the read does not know.
-    private static func dependency(of entry: String) -> TargetDependency {
-        if let byName = entry.wholeMatch(of: #/"(?<name>[^"]+)"/#) {
-            return .byName(String(byName.output.name))
-        }
-        let product = #/\.product\(\s*name:\s*"(?<name>[^"]+)",\s*package:\s*"(?<package>[^"]+)"\s*\)/#
-        if let match = entry.wholeMatch(of: product) {
-            return .product(name: String(match.output.name), package: String(match.output.package))
-        }
-        return .unread(entry)
     }
 
     /// Makes the text of a manifest that declares the marketplace target with
@@ -355,35 +236,13 @@ struct TelemetryDependencyTests {
         """
     }
 
-    /// Reads the text of the manifest.
-    ///
-    /// - Returns: The text of `Package.swift`.
-    /// - Throws: A `FixtureError` when the manifest cannot be read.
-    private static func manifestText() throws -> String {
-        try FixtureFile.text(PackageManifest.path).get()
-    }
-
     /// Reads each package dependency URL of the manifest.
     ///
     /// - Returns: The URLs, in the order of the manifest.
     /// - Throws: A `FixtureError` when the manifest cannot be read.
     private static func dependencyURLs() throws -> [String] {
-        let manifest = try manifestText()
+        let manifest = try PackageManifest.text()
         let packageURL = #/\.package\(\s*url:\s*"(?<url>[^"]+)"/#
         return manifest.matches(of: packageURL).map { String($0.output.url) }
-    }
-
-    /// Reads each Swift file under one folder of the package.
-    ///
-    /// - Parameter folder: The folder, relative to the package root.
-    /// - Returns: The text of each file, keyed by its path.
-    /// - Throws: The error of a file that cannot be read.
-    private static func librarySources(under folder: String) throws -> [String: String] {
-        let root = FixtureFile.url(folder)
-        let enumerator = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
-        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
-        return try Dictionary(
-            uniqueKeysWithValues: files.map { ($0.path, try String(contentsOf: $0, encoding: .utf8)) }
-        )
     }
 }

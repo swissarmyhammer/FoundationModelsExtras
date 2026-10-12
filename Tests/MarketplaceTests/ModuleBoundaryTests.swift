@@ -1,5 +1,4 @@
 import FixtureSupport
-import Foundation
 import Testing
 
 /// Guards the boundary of the `Marketplace` target: the target knows no skill
@@ -7,15 +6,12 @@ import Testing
 /// and none imports that module. The target also keeps the layout of its cache
 /// to itself, thus no type of that layout stands on the module surface.
 ///
-/// The suite reads the source files as text from the package root, as
-/// `PackageLayoutTests` reads the manifest.
+/// The suite reads the source files as text from the package root, through
+/// the shared `FixtureFile.swiftSources(under:)`.
 @Suite("Module boundary")
 struct ModuleBoundaryTests {
   /// The folder of the marketplace sources, relative to the package root.
   private static let sourcesPath = PackageManifest.marketplaceSourcesPath
-
-  /// The extension of a Swift source file.
-  private static let swiftExtension = "swift"
 
   /// The Skills types that no marketplace source may name.
   private static let skillsTypeNames = ["SkillsRegistry", "SkillDiscovery", "FrontmatterDecoder", "RenderPolicy"]
@@ -42,7 +38,7 @@ struct ModuleBoundaryTests {
   private static let typeDeclarations = ["struct", "enum", "class", "final class", "actor"]
 
   @Test func noMarketplaceSourceNamesASkillsType() throws {
-    let sources = try Self.sourceTexts()
+    let sources = try FixtureFile.swiftSources(under: Self.sourcesPath)
 
     let offenders = sources.flatMap { source in
       Self.skillsTypeNames.filter { source.text.contains($0) }.map { "\(source.path): \($0)" }
@@ -53,7 +49,7 @@ struct ModuleBoundaryTests {
   }
 
   @Test func noMarketplaceSourceImportsTheSkillsModule() throws {
-    let sources = try Self.sourceTexts()
+    let sources = try FixtureFile.swiftSources(under: Self.sourcesPath)
 
     let offenders = sources.filter { $0.text.contains(Self.skillsModuleImport) }.map(\.path)
 
@@ -62,7 +58,7 @@ struct ModuleBoundaryTests {
   }
 
   @Test func noCacheLayoutTypeStandsOnTheModuleSurface() throws {
-    let sources = try Self.sourceTexts()
+    let sources = try FixtureFile.swiftSources(under: Self.sourcesPath)
 
     let offenders = sources.flatMap { source in
       Self.cacheLayoutTypeNames
@@ -88,22 +84,6 @@ struct ModuleBoundaryTests {
       typeDeclarations.contains { declaration in
         text.contains("\(level) \(declaration) \(name)")
       }
-    }
-  }
-
-  /// The text of every Swift source file under ``sourcesPath``, with its
-  /// path relative to the package root.
-  ///
-  /// - Returns: One entry for each file, in enumeration order.
-  /// - Throws: The error of a file read, or a failed requirement when the
-  ///   folder does not enumerate.
-  private static func sourceTexts() throws -> [(path: String, text: String)] {
-    let root = FixtureFile.url(sourcesPath)
-    let enumerator = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
-    let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == swiftExtension }
-    return try files.map { file in
-      (path: file.path.replacingOccurrences(of: FixtureFile.packageRoot.path, with: ""),
-       text: try String(contentsOf: file, encoding: .utf8))
     }
   }
 }

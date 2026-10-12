@@ -100,6 +100,40 @@ comments:
     - evidence: `swift test` exit 0: 1037 Swift Testing tests in 91 suites passed (11 known issues that were there before), 393 tests in 29 suites (MarketplaceTests) passed, 0 failures, 0 compiler warnings (only the mlx-swift "missing creator for mutated node" line of the dependency build). 6 files: Tests/FixtureSupport/PackageManifest.swift (new), Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift, Tests/MarketplaceTests/PackageLayoutTests.swift, Tests/MarketplaceTests/NoGitProcessTests.swift, Tests/MarketplaceTests/ModuleBoundaryTests.swift, Tests/MarketplaceTests/MarketplaceTelemetryTests.swift. The finding is `- [x]`.
     - next: /review
   timestamp: 2026-10-12T15:55:42.540277+00:00
+- actor: claude-code
+  id: 01m4rdedztarhre811z7qfdp66
+  text: |-
+    ### review — findings
+    - evidence: `review sha 9f235ae~1..9f235ae`, 1 finding (1 confirmed, 1 refuted) — Tests/MarketplaceTests/PackageLayoutTests.swift:114
+    - next: /implement the 1 open item in the "Review Findings (2026-10-12 10:57)" section. The task stays in `review`.
+  timestamp: 2026-10-12T15:59:33.370404+00:00
+- actor: claude-code
+  id: 01m4rdefsgawzxjr1tjbx0qmzs
+  text: |-
+    ### finish iteration 3 — findings
+    - implement: changed — 6 files
+    - test: green — swift test, 1037 passed
+    - commit: 9f235ae
+    - review: findings — Tests/MarketplaceTests/PackageLayoutTests.swift:114
+  timestamp: 2026-10-12T15:59:35.216331+00:00
+- actor: claude-code
+  id: 01m4rdxkd5c36eve6z7zqxqhtv
+  text: |-
+    Review finding (reuse, PackageLayoutTests.swift:114) done with a FULL sweep. I compared each function and helper of TelemetryDependencyTests, PackageLayoutTests, NoGitProcessTests, ModuleBoundaryTests and MarketplaceTelemetryTests.
+    - Manifest reader: now `PackageManifest.text()` in Tests/FixtureSupport/PackageManifest.swift. `PackageLayoutTests.manifest()` and `TelemetryDependencyTests.manifestText()` are deleted. Both suites call the shared reader directly.
+    - Target dependencies: both suites had a reader of the dependencies of one target. PackageLayoutTests split the manifest into target blocks (`targetDeclarations`, `targetDeclaration(named:in:)`, `targetMarkers`) and looked for the `.product(...)` text. TelemetryDependencyTests parsed the `dependencies` list (`listEntries`, `topLevelEntries`, `trimmed`, `dependency(of:)`, `TargetDependency`). There is now one copy: `PackageManifest.dependencies(ofTarget:)` and `dependencies(ofTarget:in:)`, plus the public `TargetDependency` enum (new file Tests/FixtureSupport/TargetDependency.swift). The `.product(...)` parse is now `TargetDependency.init(reading:)`. A missing target throws `FixtureError` because FixtureSupport does not link Testing and cannot use `#require`. PackageLayoutTests now compares `TargetDependency` values and does not do a text search. The block splitter is deleted.
+    - Source reader: four copies read the Swift files under a folder: `TelemetryDependencyTests.librarySources`, `ModuleBoundaryTests.sourceTexts`, the inline enumerator in `MarketplaceTelemetryTests` and the inline `subpathsOfDirectory` walk in `NoGitProcessTests`. There is now one copy: `FixtureFile.swiftSources(under:) -> [SourceFile]` (new file Tests/FixtureSupport/SourceFile.swift). It gives paths relative to the package root, sorted. All four suites call it. The private `swiftExtension` and `swiftFileSuffix` constants are deleted.
+    - The "Sources" constant of TelemetryDependencyTests is now `PackageManifest.sourcesPath`, and `marketplaceSourcesPath` is built from it.
+    - Not in scope: GitTreeFileSourceTests and SnapshotWriterTests read temporary folders, not package sources, and only MarketplaceTests has them.
+    - New tests: Tests/FoundationModelsExtrasTests/PackageManifestTests.swift (6 tests) cover the shared readers. RED: the build failed with "type 'PackageManifest' has no member 'text'/'dependencies'" and "type 'FixtureFile' has no member 'swiftSources'". GREEN: 6 of 6 passed.
+  timestamp: 2026-10-12T16:07:50.437624+00:00
+- actor: claude-code
+  id: 01m4rdxpkp2m5fajqqrm7nb7k7
+  text: |-
+    ### implement — changed
+    - evidence: `swift test` passed: 1043 Swift Testing tests in 92 suites (11 known issues, which were there before) and 393 tests in 29 suites (MarketplaceTests). 0 failures. 0 compiler warnings. The only warning is the mlx-swift "missing creator for mutated node" line of the dependency build. 9 files: Tests/FixtureSupport/PackageManifest.swift, Tests/FixtureSupport/TargetDependency.swift (new), Tests/FixtureSupport/SourceFile.swift (new), Tests/FoundationModelsExtrasTests/PackageManifestTests.swift (new), Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift, Tests/MarketplaceTests/PackageLayoutTests.swift, Tests/MarketplaceTests/ModuleBoundaryTests.swift, Tests/MarketplaceTests/MarketplaceTelemetryTests.swift, Tests/MarketplaceTests/NoGitProcessTests.swift. The finding is `- [x]`.
+    - next: /review
+  timestamp: 2026-10-12T16:07:53.718808+00:00
 depends_on:
 - 01M4NYFFAQH23KD4E03AC35EK3
 position_column: doing
@@ -156,3 +190,12 @@ Approach:
 > - `.kanban/ (from .reviewignore)` — 2 file(s)
 
 - [x] `Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:53` `reuse/reuse` — The new coreTarget constant repeats the name of the core target, which another suite already defines. Two copies of one name can drift apart when the target is renamed. Share the target-name constant in one place, for example on FixtureFile or a shared fixture type, and use it from both suites. If the suites must stay separate, state why the copy is kept.
+
+## Review Findings (2026-10-12 10:57)
+
+> Scope: `review sha 9f235ae~1..9f235ae` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/MarketplaceTests/PackageLayoutTests.swift:114` `reuse/reuse` — The new body of `manifest()` reimplements `manifestText()` in TelemetryDependencyTests. Both read `PackageManifest.path` through `FixtureFile.text` and unwrap the result. Two copies of the manifest reader can drift apart. The reader belongs beside `PackageManifest` in FixtureSupport, which this change now shares for names. Move the reader into `PackageManifest` in Tests/FixtureSupport/PackageManifest.swift, for example as `static func text() throws -> String`. Have both `manifest()` and `manifestText()` call it, or delete the private copies and call the shared reader directly.

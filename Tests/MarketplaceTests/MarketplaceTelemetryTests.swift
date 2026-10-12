@@ -88,16 +88,13 @@ struct MarketplaceTelemetryTests {
 
   @Test("no source file of the target but the vocabulary file holds a telemetry name")
   func onlyTheVocabularyFileHoldsATelemetryName() throws {
-    let root = FixtureFile.url(Self.sourcesPath)
-    let enumerator = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
-    let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
-    let others = files.filter { $0.lastPathComponent != Self.vocabularyFileName }
+    let files = try FixtureFile.swiftSources(under: Self.sourcesPath)
+    let others = files.filter { $0.name != Self.vocabularyFileName }
 
     #expect(others.count + MarketplaceTelemetryExpectations.one == files.count)
-    let offenders = try others.filter { file in
-      let text = try String(contentsOf: file, encoding: .utf8)
-      return Self.telemetryLiterals.contains { text.contains($0) }
+    let offenders = others.filter { file in
+      Self.telemetryLiterals.contains { file.text.contains($0) }
     }
-    #expect(offenders.map(\.lastPathComponent) == [])
+    #expect(offenders.map(\.name) == [])
   }
 }
