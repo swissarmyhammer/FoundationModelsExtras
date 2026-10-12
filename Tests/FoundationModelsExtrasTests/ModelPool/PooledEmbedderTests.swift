@@ -1,4 +1,5 @@
 @testable import FoundationModelsExtras
+import TelemetryTestSupport
 import Testing
 
 /// All holds of one key share one queue, and a ``PooledEmbedder`` runs each
@@ -33,6 +34,14 @@ struct PooledEmbedderTests {
     /// The log entry of one load of ``key`` by the loader that
     /// ``embeddingLoader(log:loadsMayEnd:failingLoads:)`` makes.
     private static let loadEntry = "load \(key.ref.stringValue) by \(loaderName)"
+
+    /// The texts of the content-safety test. Each text holds `q` and `z`,
+    /// which no hex trace id or span id holds, thus a text matches no place
+    /// of the capture by chance.
+    private static let distinctiveTexts = ["qz-embed-text-one", "qz-embed-text-two"]
+
+    /// The count of embed spans of one embed call.
+    private static let oneEmbedSpan = 1
 
     /// Acquires ``key`` from `pool`.
     ///
@@ -308,6 +317,24 @@ struct PooledEmbedderTests {
 
         await #expect(throws: expected) { try await embedder.embed(texts: ["one"]) }
         #expect(await BoundedWait.conditionReached("the eviction of the model") { !pool.isResident(Self.key) })
+    }
+
+    @Test("an embed call through the pool and the queue carries no embed text in its spans, log records or metrics")
+    func anEmbedCallCarriesNoTextInItsTelemetry() async throws {
+        let pool = ModelPool(loader: FixedLoader(container: TracedFakeEmbedding(ref: Self.key.ref)))
+        let embedder = PooledEmbedder(ref: Self.key.ref, pool: pool)
+
+        let context = try await TelemetryCapture.run(forbidding: Self.distinctiveTexts) { context in
+            _ = try await embedder.embed(texts: Self.distinctiveTexts)
+            return context
+        }
+
+        // A capture that recorded nothing passes the content check with no
+        // issue, thus the test states what the capture measured.
+        #expect(!context.logRecords.isEmpty)
+        #expect(
+            ModelLoadTelemetryExpectations.spans(named: ExtrasTelemetry.SpanName.embed, in: context.spans).count
+                == Self.oneEmbedSpan)
     }
 
     @Test("the README example: an embedder from a name loads the model on its first call")

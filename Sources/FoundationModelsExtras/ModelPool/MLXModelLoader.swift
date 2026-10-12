@@ -102,7 +102,7 @@ public struct MLXModelLoader: PooledModelLoader {
                 configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
         case .embedding:
             return try await MLXEmbedding.load(
-                configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
+                ref: key.ref, configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
         }
     }
 
@@ -230,6 +230,10 @@ private struct MLXEmbedding: PooledEmbedding {
     /// The token that pads a short text when the tokenizer has no end token.
     private static let fallbackPadToken = 0
 
+    /// The model of the key that loaded this model. The embed telemetry of
+    /// each call records it.
+    let ref: ModelRef
+
     /// The loaded model and its tokenizer.
     let container: EmbedderModelContainer
 
@@ -238,16 +242,18 @@ private struct MLXEmbedding: PooledEmbedding {
     /// weights span.
     ///
     /// - Parameters:
+    ///   - ref: The model of the key of the load.
     ///   - configuration: The model and its revision.
     ///   - downloader: The downloader of the files of the model.
     ///   - tokenizerLoader: The loader of the tokenizer of the model.
     /// - Returns: The loaded model.
     /// - Throws: The error of the download or of the load.
     static func load(
-        configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
+        ref: ModelRef, configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
         tokenizerLoader: any TokenizerLoader
     ) async throws -> MLXEmbedding {
         MLXEmbedding(
+            ref: ref,
             container: try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
                 try await EmbedderModelFactory.shared.loadContainer(
                     from: downloader, using: tokenizerLoader, configuration: configuration)
@@ -264,16 +270,20 @@ private struct MLXEmbedding: PooledEmbedding {
     /// the end token of a text, which can equal the pad token, stays in its
     /// vector.
     ///
+    /// The call runs in the embed span of ``EmbedTelemetry``, with a tokenize
+    /// span and one span for each sub-batch. A call with no texts also has
+    /// its spans, with zero counts.
+    ///
     /// - Parameter texts: The texts.
     /// - Returns: One normalized vector for each text, in the order of `texts`.
+    /// - Throws: The error of the embed telemetry.
     func embed(texts: [String]) async throws -> [[Float]] {
-        guard !texts.isEmpty else { return [] }
-        return await container.perform { context in
-            let division = EmbeddingBatchDivision(
-                rows: texts.map { context.tokenizer.encode(text: $0, addSpecialTokens: true) })
+        try await container.perform { [ref] context in
             let padToken = context.tokenizer.eosTokenId ?? Self.fallbackPadToken
-            return division.inInputOrder(
-                division.subBatches.map { Self.vectors(of: $0.rows, padToken: padToken, in: context) })
+            return try await EmbedTelemetry.traceEmbed(
+                of: ref, texts: texts,
+                tokenize: { context.tokenizer.encode(text: $0, addSpecialTokens: true) },
+                vectors: { Self.vectors(of: $0, padToken: padToken, in: context) })
         }
     }
 

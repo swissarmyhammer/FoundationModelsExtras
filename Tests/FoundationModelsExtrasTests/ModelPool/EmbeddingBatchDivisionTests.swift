@@ -28,6 +28,14 @@ struct EmbeddingBatchDivisionTests {
     /// The token count of a long row: more than ``smallBudget``.
     private static let longLength = 9
 
+    /// The sub-batches of the rows of ``theStatisticsOfACall()`` in
+    /// ``smallBudget``: the two short rows, the medium row, and the long row.
+    private static let subBatchesOfTheCallStatistics = 3
+
+    /// The rows of ``theStatisticsOfACall()`` that are longer than
+    /// ``smallBudget``: the long row.
+    private static let rowsOverTheSmallBudget = 1
+
     /// A row of `count` tokens. Each token is `marker`, so a test can tell the
     /// rows apart.
     private static func row(count: Int, marker: Int) -> [Int] {
@@ -101,5 +109,60 @@ struct EmbeddingBatchDivisionTests {
         let division = EmbeddingBatchDivision(rows: [], tokenBudget: Self.smallBudget)
 
         #expect(division.subBatches.isEmpty)
+    }
+
+    @Test("the division keeps its token budget")
+    func theDivisionKeepsItsTokenBudget() {
+        let division = EmbeddingBatchDivision(rows: [], tokenBudget: Self.smallBudget)
+
+        #expect(division.tokenBudget == Self.smallBudget)
+    }
+
+    @Test("the statistics of a call give the text count, the token count, the longest row, the sub-batch count and the rows over the budget")
+    func theStatisticsOfACall() {
+        let rows = [
+            Self.row(count: Self.longLength, marker: 1), Self.row(count: Self.shortLength, marker: 2),
+            Self.row(count: Self.mediumLength, marker: 3), Self.row(count: Self.shortLength, marker: 4),
+        ]
+
+        let statistics = EmbeddingBatchStatistics(of: EmbeddingBatchDivision(rows: rows, tokenBudget: Self.smallBudget))
+
+        #expect(statistics.textCount == rows.count)
+        #expect(statistics.tokenCount == Self.longLength + Self.shortLength + Self.mediumLength + Self.shortLength)
+        #expect(statistics.maxTokens == Self.longLength)
+        #expect(statistics.subBatchCount == Self.subBatchesOfTheCallStatistics)
+        #expect(statistics.overBudgetRows == Self.rowsOverTheSmallBudget)
+    }
+
+    @Test("the statistics of a sub-batch give its rows, its longest row, its padded tokens and its pad ratio")
+    func theStatisticsOfASubBatch() throws {
+        let rows = [Self.row(count: Self.shortLength, marker: 1), Self.row(count: Self.mediumLength, marker: 2)]
+
+        let statistics = EmbeddingBatchStatistics(of: EmbeddingBatchDivision(rows: rows, tokenBudget: Self.largeBudget))
+        let subBatch = try #require(statistics.subBatches.first)
+
+        let paddedTokens = rows.count * Self.mediumLength
+        let padTokens = paddedTokens - (Self.shortLength + Self.mediumLength)
+        #expect(statistics.subBatches.count == statistics.subBatchCount)
+        #expect(
+            subBatch
+                == EmbeddingBatchStatistics.SubBatch(
+                    rows: rows.count, longestRow: Self.mediumLength, paddedTokens: paddedTokens,
+                    padRatio: Double(padTokens) / Double(paddedTokens)))
+    }
+
+    @Test("the statistics of no rows are all zero, and a sub-batch with no tokens has no padding")
+    func theStatisticsOfNoRows() {
+        let noTokens = EmbeddingBatchStatistics.SubBatch(of: EmbeddingBatchDivision.SubBatch(indices: [0], rows: [[]]))
+
+        let statistics = EmbeddingBatchStatistics(of: EmbeddingBatchDivision(rows: [], tokenBudget: Self.smallBudget))
+
+        #expect(statistics.textCount == 0)
+        #expect(statistics.tokenCount == 0)
+        #expect(statistics.maxTokens == 0)
+        #expect(statistics.subBatchCount == 0)
+        #expect(statistics.overBudgetRows == 0)
+        #expect(noTokens.paddedTokens == 0)
+        #expect(noTokens.padRatio == 0)
     }
 }

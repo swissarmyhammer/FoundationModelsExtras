@@ -38,10 +38,26 @@ comments:
     - blocker: the card asks for a failed-eviction outcome, but `PooledModelLoader.evict(_:)` (ModelPoolKey.swift) is `async` and does not throw, so no eviction can fail. A person must choose: (a) make `evict` `async throws` (public API change, and decide what the pool does after a failed evict), or (b) remove the "failed" half from the card.
     - next: after the decision, run `/implement` (a) or `/review` (b) on this task. Task ^pmdd5ez and the rest of the chain wait on this task.
   timestamp: 2026-10-12T12:27:14.307396+00:00
+- actor: claude-code
+  id: 01m4r41vske95j9x9cgsnr8p47
+  text: |-
+    ### review — clean
+    - evidence: `review sha 31a0532~1..31a0532`: 0 findings (0 confirmed, 0 refuted). 8 source and test files reviewed. 4 `.kanban/` files not reviewed (ignore rule). No prior review findings sections on the task.
+    - next: the task is in `done`. Task ^pmdd5ez is now not blocked by this task.
+  timestamp: 2026-10-12T13:15:24.339051+00:00
+- actor: claude-code
+  id: 01m4r41ynqj82kjybc9k4wneda
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 8 files (from iteration 1; card changed to decision (b))
+    - test: green — swift test, 1007 passed; IntegrationTests pool/evict, 18 passed
+    - commit: 31a0532
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T13:15:27.287108+00:00
 depends_on:
 - 01M4NY08T0DMYJ1BVEG8R1175P
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: f780
 title: 'Model telemetry: log the prewarm error and time each eviction'
 ---
 ## What

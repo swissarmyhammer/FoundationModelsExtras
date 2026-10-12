@@ -760,6 +760,166 @@ enum ModelLoadTelemetryExpectations {
     }
 }
 
+/// An embedding model that runs each call through
+/// ``EmbedTelemetry/traceEmbed(of:texts:tokenBudget:tokenize:vectors:)`` with
+/// a fake tokenizer and a fake model, thus a call records the embed telemetry
+/// with no MLX model.
+///
+/// The tokenizer gives one token for each Unicode scalar of a text, thus the
+/// token count of a text is the count of its scalars. The model gives one
+/// vector for each row: the token count of the row.
+struct TracedFakeEmbedding: PooledEmbedding {
+    /// The model of the telemetry of each call.
+    let ref: ModelRef
+
+    /// The token budget of the division of each call.
+    var tokenBudget = EmbeddingBatchDivision.defaultTokenBudget
+
+    /// Gives one token for each Unicode scalar of `text`: the value of the
+    /// scalar.
+    ///
+    /// - Parameter text: A text of a call.
+    /// - Returns: The tokens of the text.
+    static func tokens(of text: String) -> [Int] {
+        text.unicodeScalars.map { Int($0.value) }
+    }
+
+    /// Gives the vector of a token row: its token count.
+    ///
+    /// - Parameter row: The tokens of one text.
+    /// - Returns: A vector of one value.
+    static func vector(ofRow row: [Int]) -> [Float] {
+        [Float(row.count)]
+    }
+
+    /// Gives the vector of a text: its token count.
+    ///
+    /// - Parameter text: A text of a call.
+    /// - Returns: A vector of one value.
+    static func vector(of text: String) -> [Float] {
+        vector(ofRow: tokens(of: text))
+    }
+
+    /// Gives the division of the rows of `texts`, as a call divides them.
+    ///
+    /// - Parameter texts: The texts of a call.
+    /// - Returns: The division of the tokens of the texts by ``tokenBudget``.
+    func division(of texts: [String]) -> EmbeddingBatchDivision {
+        EmbeddingBatchDivision(rows: texts.map(Self.tokens(of:)), tokenBudget: tokenBudget)
+    }
+
+    /// Runs the embed telemetry with the fake tokenizer and the fake model.
+    ///
+    /// - Parameter texts: The texts.
+    /// - Returns: The vector of each text, from ``vector(of:)``.
+    /// - Throws: The error of the telemetry helper.
+    func embed(texts: [String]) async throws -> [[Float]] {
+        try await EmbedTelemetry.traceEmbed(
+            of: ref, texts: texts, tokenBudget: tokenBudget, tokenize: Self.tokens(of:),
+            vectors: { rows in rows.map(Self.vector(ofRow:)) })
+    }
+}
+
+/// Reads the embed telemetry that a test recorded: the embed span, its
+/// tokenize span and its sub-batch spans, the duration timer, the token
+/// counter and the padded-tokens recorder. Each test suite of the embed
+/// telemetry and of the pooled embedder uses these helpers, so a change to
+/// the names or the dimensions occurs in one place.
+enum EmbedTelemetryExpectations {
+    /// Expects that `span` carries the model ref and the counts of the call
+    /// of `statistics`.
+    ///
+    /// - Parameters:
+    ///   - span: An embed span.
+    ///   - ref: The model of the call.
+    ///   - statistics: The counts of the call.
+    static func expectCallAttributes(
+        of span: FinishedInMemorySpan, ref: ModelRef, statistics: EmbeddingBatchStatistics
+    ) {
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.modelRef) == .string(ref.stringValue))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.embedTextCount) == .int64(Int64(statistics.textCount)))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.embedTokenCount) == .int64(Int64(statistics.tokenCount)))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.embedMaxTokens) == .int64(Int64(statistics.maxTokens)))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.embedSubBatchCount)
+                == .int64(Int64(statistics.subBatchCount)))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.embedOverBudgetRows)
+                == .int64(Int64(statistics.overBudgetRows)))
+    }
+
+    /// Expects that `span` carries the counts of `subBatch`.
+    ///
+    /// - Parameters:
+    ///   - span: A sub-batch span.
+    ///   - subBatch: The counts of the sub-batch.
+    static func expectSubBatchAttributes(of span: FinishedInMemorySpan, _ subBatch: EmbeddingBatchStatistics.SubBatch) {
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.subBatchRows) == .int64(Int64(subBatch.rows)))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.subBatchLongestRow) == .int64(Int64(subBatch.longestRow)))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.subBatchPaddedTokens)
+                == .int64(Int64(subBatch.paddedTokens)))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.subBatchPadRatio) == .double(subBatch.padRatio))
+    }
+
+    /// Gives the spans of `spans` with the name `spanName` whose parent is
+    /// `parent`.
+    ///
+    /// - Parameters:
+    ///   - spanName: The name of the child spans.
+    ///   - parent: The parent span.
+    ///   - spans: The spans that a tracer recorded.
+    /// - Returns: The child spans, in the order of `spans`.
+    static func children(
+        named spanName: String, of parent: FinishedInMemorySpan, in spans: [FinishedInMemorySpan]
+    ) -> [FinishedInMemorySpan] {
+        ModelLoadTelemetryExpectations.spans(named: spanName, in: spans).filter { $0.parentSpanID == parent.spanID }
+    }
+
+    /// Gives the values of the duration timer of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the call recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The duration of each call in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func durations(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try metrics.expectTimer(ExtrasTelemetry.MetricName.embedDuration, modelDimensions(of: ref)).values
+    }
+
+    /// Gives the values of the token counter of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the call recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The token count that each call added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func tokenCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try metrics.expectCounter(ExtrasTelemetry.MetricName.embedTokens, modelDimensions(of: ref)).values
+    }
+
+    /// Gives the values of the padded-tokens recorder of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the call recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The padded tokens of each sub-batch, in order.
+    /// - Throws: When `metrics` has no such recorder.
+    static func paddedTokens(in metrics: TestMetrics, ref: ModelRef) throws -> [Double] {
+        try metrics.expectRecorder(ExtrasTelemetry.MetricName.embedSubBatchPaddedTokens, modelDimensions(of: ref))
+            .values
+    }
+
+    /// Gives the dimensions of an embed metric.
+    ///
+    /// - Parameter ref: The model of the call.
+    /// - Returns: The model ref as its only dimension.
+    private static func modelDimensions(of ref: ModelRef) -> [(String, String)] {
+        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
+    }
+}
+
 extension TelemetryCapture.Context {
     /// The log records of the capture at the error level, in order.
     var errorRecords: [TelemetryCapture.LogRecord] {

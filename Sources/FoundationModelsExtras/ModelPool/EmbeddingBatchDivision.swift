@@ -34,6 +34,10 @@ struct EmbeddingBatchDivision: Equatable {
     /// is in one sub-batch.
     let subBatches: [SubBatch]
 
+    /// The most tokens, (rows) x (longest row), of one sub-batch of this
+    /// division. A row longer than it is in a sub-batch by itself.
+    let tokenBudget: Int
+
     /// Sorts `rows` by token count and divides them into sub-batches. Rows of
     /// one token count keep their input order.
     ///
@@ -42,6 +46,7 @@ struct EmbeddingBatchDivision: Equatable {
     ///   - tokenBudget: The most tokens, (rows) x (longest row), of one
     ///     sub-batch. A row longer than it goes in a sub-batch by itself.
     init(rows: [[Int]], tokenBudget: Int = defaultTokenBudget) {
+        self.tokenBudget = tokenBudget
         let order = rows.indices.sorted { (rows[$0].count, $0) < (rows[$1].count, $1) }
         subBatches = Self.divided(order, lengths: rows.map(\.count), tokenBudget: tokenBudget).map { indices in
             SubBatch(indices: indices, rows: indices.map { rows[$0] })

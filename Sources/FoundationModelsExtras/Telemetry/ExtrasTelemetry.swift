@@ -18,13 +18,13 @@ import Metrics
 /// nothing, and each logger writes through the default handler of swift-log.
 ///
 /// A metric dimension carries names and bounded values only: the tool name,
-/// the queue name, the model ref of a queue, a pool metric or a model metric
-/// that belongs to one model, the role of a model, the bounded telemetry value
-/// of an outcome, the cache result of a pool acquire, and the reason of a
-/// skipped eviction. It never carries tool arguments, tool output, the content
-/// of a queue task, a file path, a cache folder, a URL or the description of a
-/// container or of an error, because a dimension leaves the process through
-/// the metrics backend of the host.
+/// the queue name, the model ref of a queue, a pool metric, a model metric or
+/// an embed metric that belongs to one model, the role of a model, the bounded
+/// telemetry value of an outcome, the cache result of a pool acquire, and the
+/// reason of a skipped eviction. It never carries tool arguments, tool output,
+/// the content of a queue task, embed text, a file path, a cache folder, a URL
+/// or the description of a container or of an error, because a dimension
+/// leaves the process through the metrics backend of the host.
 enum ExtrasTelemetry {
     /// The label of each logger of the core target.
     static let logLabel = "FoundationModelsExtras"
@@ -58,6 +58,21 @@ enum ExtrasTelemetry {
         /// calls the load closure of the model, thus the weights span of an
         /// LLM is inside this span.
         static let modelLoadPreload = "FoundationModelsExtras.model.load.preload"
+
+        /// The span of one embed call of an embedding model: the tokenize
+        /// step, the division into sub-batches, and the model run of each
+        /// sub-batch.
+        static let embed = "FoundationModelsExtras.embed"
+
+        /// The span of the tokenize step of one embed call. It is a child of
+        /// the embed span, thus the tokenize time is separate from the model
+        /// time.
+        static let embedTokenize = "FoundationModelsExtras.embed.tokenize"
+
+        /// The span of the model run of one sub-batch of an embed call: the
+        /// padding, the model and the pooling. It is a child of the embed
+        /// span.
+        static let embedSubBatch = "FoundationModelsExtras.embed.sub_batch"
     }
 
     /// The attribute keys of the spans of the core target.
@@ -109,6 +124,37 @@ enum ExtrasTelemetry {
         /// The bytes that the download of a model completed, from the last
         /// progress of the download. It is 0 when the cache held the files.
         static let downloadBytes = "download.bytes"
+
+        /// The number of texts of an embed call.
+        static let embedTextCount = "embed.text_count"
+
+        /// The sum of the token counts of the texts of an embed call.
+        static let embedTokenCount = "embed.token_count"
+
+        /// The token count of the longest text of an embed call.
+        static let embedMaxTokens = "embed.max_tokens"
+
+        /// The number of sub-batches of an embed call.
+        static let embedSubBatchCount = "embed.sub_batch_count"
+
+        /// The number of texts of an embed call that are longer than the
+        /// token budget of a sub-batch. Each of them is in a sub-batch by
+        /// itself.
+        static let embedOverBudgetRows = "embed.over_budget_rows"
+
+        /// The number of rows of one sub-batch of an embed call.
+        static let subBatchRows = "embed.sub_batch.rows"
+
+        /// The token count of the longest row of one sub-batch. The padding
+        /// makes each row of the sub-batch this long.
+        static let subBatchLongestRow = "embed.sub_batch.longest_row"
+
+        /// The tokens of the padded tensor of one sub-batch: (rows) x
+        /// (longest row).
+        static let subBatchPaddedTokens = "embed.sub_batch.padded_tokens"
+
+        /// The pad tokens of one sub-batch divided by its padded tokens.
+        static let subBatchPadRatio = "embed.sub_batch.pad_ratio"
     }
 
     /// The metric names of the core target.
@@ -176,17 +222,30 @@ enum ExtrasTelemetry {
         /// The recorder of the bytes that the footprint measure of a loaded
         /// model gives.
         static let modelFootprintBytes = "FoundationModelsExtras.model.footprint.bytes"
+
+        /// The timer that records the duration of each embed call of an
+        /// embedding model.
+        static let embedDuration = "FoundationModelsExtras.embed.duration"
+
+        /// The counter that adds the token count of each embed call of an
+        /// embedding model.
+        static let embedTokens = "FoundationModelsExtras.embed.tokens"
+
+        /// The recorder of the padded tokens, (rows) x (longest row), of each
+        /// sub-batch of an embed call.
+        static let embedSubBatchPaddedTokens = "FoundationModelsExtras.embed.sub_batch.padded_tokens"
     }
 
-    /// The dimension keys of the queue metrics, the pool metrics and the
-    /// model metrics of the core target.
+    /// The dimension keys of the queue metrics, the pool metrics, the model
+    /// metrics and the embed metrics of the core target.
     enum DimensionKey {
         /// The ``QueueName`` of the queue.
         static let queueName = "queue.name"
 
         /// The `ModelRef.stringValue` of the model that the queue, the pool
-        /// metric or the model metric belongs to. Only a queue of one model, a
-        /// pool metric of one model and a model metric have this dimension.
+        /// metric, the model metric or the embed metric belongs to. Only a
+        /// queue of one model, a pool metric of one model, a model metric and
+        /// an embed metric have this dimension.
         static let modelRef = "model.ref"
 
         /// The ``QueueOutcome`` of a completed queue task.
