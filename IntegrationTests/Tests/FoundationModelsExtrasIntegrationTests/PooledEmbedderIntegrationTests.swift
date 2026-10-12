@@ -1,6 +1,10 @@
 import FoundationModels
-import FoundationModelsExtras
+@testable import FoundationModelsExtras
+import InMemoryTracing
+import MLXLMCommon
+import TelemetryTestSupport
 import Testing
+import Tracing
 
 /// The most tokens of the long generation that runs while an embed call runs.
 /// The model cannot finish the prompt early, thus the generation runs for some
@@ -94,6 +98,11 @@ private let minimumSpeedupOverPaddedCall = 4.0
 /// only the rounding of the float math can make the two vectors differ.
 private let batchCosineFloor: Float = 0.999
 
+/// The sub-batch count of a call whose texts all go in one sub-batch. The
+/// telemetry test needs more sub-batches than this, so that it sees a real
+/// division.
+private let oneSubBatch = 1
+
 /// The texts that the two users of one embedding model embed.
 private let sharedTexts = ["Route this question to the best model.", "Find the tool that reads a file."]
 
@@ -127,7 +136,8 @@ private let concurrentCalls = [
 extension RealModelSuites {
     /// `PooledEmbedder` with the real MLX embedding model: real vectors, one
     /// model that two users share, one embed call at a time on the queue of the
-    /// model, and the residency that the embedder handles keep.
+    /// model, the residency that the embedder handles keep, and the span tree
+    /// of an embed call with real tokens and real sub-batches.
     @Suite("Pooled embedder with a real model", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
     struct PooledEmbedderIntegrationTests {
         @Test("a real embed by name gives one vector for each text, and a paraphrase has a higher cosine than an unrelated text")
@@ -245,6 +255,38 @@ extension RealModelSuites {
             #expect(
                 outcome.embedEnd < outcome.generationEnd,
                 "the embed ended \(outcome.generationEnd - outcome.embedEnd) before the generation")
+        }
+
+        @Test(
+            """
+            a real embed of texts of mixed length opens one embed span with one tokenize child span and one \
+            sub-batch child span for each sub-batch, with the counts of the real tokens and no text
+            """)
+        func anEmbedCallOpensItsSpanTreeWithTheRealCounts() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+            let tokenizerLoader = RecordingTokenizerLoader()
+
+            let context = try await Self.captureMixedLengthEmbed(in: pool, tokenizerLoader: tokenizerLoader)
+            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+
+            let tokenizer = try #require(await tokenizerLoader.tokenizers.events.first)
+            let statistics = EmbedSpanExpectations.statistics(of: MixedLengthTexts.all, tokenizedBy: tokenizer)
+            try #require(statistics.subBatchCount > oneSubBatch, "the texts divide into more than one sub-batch")
+            let embedSpan = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.embed, in: context.spans)
+            let tokenizeSpans = CapturedSpans.children(
+                named: ExtrasTelemetry.SpanName.embedTokenize, of: embedSpan, in: context.spans)
+            let subBatchSpans = CapturedSpans.children(
+                named: ExtrasTelemetry.SpanName.embedSubBatch, of: embedSpan, in: context.spans)
+
+            #expect(tokenizeSpans.count == CapturedSpans.oneSpanOfEachName)
+            EmbedSpanExpectations.expectCallAttributes(of: embedSpan, statistics: statistics)
+            try #require(subBatchSpans.count == statistics.subBatchCount)
+            for (span, subBatch) in zip(subBatchSpans, statistics.subBatches) {
+                EmbedSpanExpectations.expectSubBatchAttributes(of: span, subBatch)
+            }
+            #expect(!context.logRecords.isEmpty, "the capture holds the log records of the call")
+            #expect(!context.metricRecords.isEmpty, "the capture holds the metrics of the call")
         }
 
         /// Makes an embedder that keeps a new hold of the embedding model.
@@ -417,6 +459,103 @@ extension RealModelSuites {
                 shareOneQueue: llmHold.queue === embeddingHold.queue,
                 vectors: vectors, embedEnd: embedEnd, generationEnd: try await generationEnd)
         }
+
+        /// Makes an embedder whose model loads with `tokenizerLoader`, and
+        /// embeds ``MixedLengthTexts/all`` in one call in a telemetry capture.
+        /// The capture forbids each of the texts in each span, log record and
+        /// metric. The embedder goes on return.
+        ///
+        /// - Parameters:
+        ///   - pool: The pool of the test.
+        ///   - tokenizerLoader: The tokenizer loader of the load of the model.
+        /// - Returns: The capture of the embed call.
+        /// - Throws: The error of the load or of the embed call.
+        private static func captureMixedLengthEmbed(
+            in pool: ModelPool, tokenizerLoader: RecordingTokenizerLoader
+        ) async throws -> TelemetryCapture.Context {
+            let embedder = try await makeEmbedder(in: pool, loader: MLXModelLoader(tokenizerLoader: tokenizerLoader))
+            return try await TelemetryCapture.run(forbidding: MixedLengthTexts.all) { context in
+                _ = try await embedder.embed(texts: MixedLengthTexts.all)
+                return context
+            }
+        }
+    }
+}
+
+/// The checks of the spans of one real embed call.
+///
+/// The unit target has the same checks for a fake model, but a test of this
+/// package cannot see the unit target. Thus these checks compare the span
+/// attributes with one table of expected values.
+private enum EmbedSpanExpectations {
+    /// Gives the counts of one embed call of `texts`, from the real token rows.
+    ///
+    /// `MLXEmbedding` tokenizes each text with its special tokens, and divides
+    /// the rows with the default token budget, thus this does the same.
+    ///
+    /// - Parameters:
+    ///   - texts: The texts of the call.
+    ///   - tokenizer: The tokenizer of the loaded model.
+    /// - Returns: The counts that the spans of the call must carry.
+    static func statistics(
+        of texts: [String], tokenizedBy tokenizer: any MLXLMCommon.Tokenizer
+    ) -> EmbeddingBatchStatistics {
+        let rows = texts.map { tokenizer.encode(text: $0, addSpecialTokens: true) }
+        return EmbeddingBatchStatistics(of: EmbeddingBatchDivision(rows: rows))
+    }
+
+    /// Expects that `span` carries the ref of the embedding model and the
+    /// counts of the call.
+    ///
+    /// - Parameters:
+    ///   - span: The embed span.
+    ///   - statistics: The counts of the call.
+    static func expectCallAttributes(of span: FinishedInMemorySpan, statistics: EmbeddingBatchStatistics) {
+        expect(
+            [
+                (ExtrasTelemetry.AttributeKey.modelRef, .string(IntegrationModels.embedding.ref.stringValue)),
+                (ExtrasTelemetry.AttributeKey.embedTextCount, count(statistics.textCount)),
+                (ExtrasTelemetry.AttributeKey.embedTokenCount, count(statistics.tokenCount)),
+                (ExtrasTelemetry.AttributeKey.embedMaxTokens, count(statistics.maxTokens)),
+                (ExtrasTelemetry.AttributeKey.embedSubBatchCount, count(statistics.subBatchCount)),
+                (ExtrasTelemetry.AttributeKey.embedOverBudgetRows, count(statistics.overBudgetRows)),
+            ], on: span)
+    }
+
+    /// Expects that `span` carries the counts of `subBatch`.
+    ///
+    /// - Parameters:
+    ///   - span: A sub-batch span.
+    ///   - subBatch: The counts of the sub-batch.
+    static func expectSubBatchAttributes(of span: FinishedInMemorySpan, _ subBatch: EmbeddingBatchStatistics.SubBatch) {
+        expect(
+            [
+                (ExtrasTelemetry.AttributeKey.subBatchRows, count(subBatch.rows)),
+                (ExtrasTelemetry.AttributeKey.subBatchLongestRow, count(subBatch.longestRow)),
+                (ExtrasTelemetry.AttributeKey.subBatchPaddedTokens, count(subBatch.paddedTokens)),
+                (ExtrasTelemetry.AttributeKey.subBatchPadRatio, .double(subBatch.padRatio)),
+            ], on: span)
+    }
+
+    /// Expects that `span` carries each attribute of `attributes`.
+    ///
+    /// - Parameters:
+    ///   - attributes: The key and the expected value of each attribute.
+    ///   - span: The span.
+    private static func expect(_ attributes: [(key: String, value: SpanAttribute)], on span: FinishedInMemorySpan) {
+        for attribute in attributes {
+            #expect(
+                span.attributes.get(attribute.key) == attribute.value,
+                "the attribute \(attribute.key) of \(span.operationName)")
+        }
+    }
+
+    /// Gives the span attribute of a count, as the embed telemetry records it.
+    ///
+    /// - Parameter value: The count.
+    /// - Returns: The count as a 64-bit integer attribute.
+    private static func count(_ value: Int) -> SpanAttribute {
+        .int64(Int64(value))
     }
 }
 

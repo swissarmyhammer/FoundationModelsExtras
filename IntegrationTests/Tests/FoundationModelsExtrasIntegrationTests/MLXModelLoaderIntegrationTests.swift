@@ -8,9 +8,6 @@ import Tracing
 /// The tokenizer loads that one load of one real model causes.
 private let tokenizerLoadsOfOneModelLoad = 1
 
-/// The number of spans that one load opens with one name.
-private let oneSpanOfEachName = 1
-
 /// One phase span of a real load, and the span that is its parent.
 private struct PhaseParent {
     /// The name of the phase span.
@@ -45,19 +42,6 @@ private func phaseParents(of role: ModelRole) -> [PhaseParent] {
     case .embedding:
         return installAndDownload + [PhaseParent(phase: weights, parent: load)]
     }
-}
-
-/// Gives the one span of `spans` that has the name `name`.
-///
-/// - Parameters:
-///   - name: The name of the span.
-///   - spans: The spans of one capture.
-/// - Returns: The span with that name.
-/// - Throws: When `spans` holds no span with that name.
-private func onlySpan(named name: String, in spans: [FinishedInMemorySpan]) throws -> FinishedInMemorySpan {
-    let named = spans.filter { $0.operationName == name }
-    #expect(named.count == oneSpanOfEachName, "spans named \(name)")
-    return try #require(named.first)
 }
 
 extension RealModelSuites {
@@ -95,7 +79,7 @@ extension RealModelSuites {
                 return context.spans
             }
 
-            let load = try onlySpan(named: ExtrasTelemetry.SpanName.modelLoad, in: spans)
+            let load = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.modelLoad, in: spans)
             #expect(load.attributes.get(ExtrasTelemetry.AttributeKey.modelRef) == .string(key.ref.stringValue))
             #expect(
                 load.attributes.get(ExtrasTelemetry.AttributeKey.modelRevision)
@@ -104,8 +88,8 @@ extension RealModelSuites {
                 load.attributes.get(ExtrasTelemetry.AttributeKey.modelRole)
                     == .string(ExtrasTelemetry.telemetryRole(of: key.role)))
             for expected in phaseParents(of: key.role) {
-                let phase = try onlySpan(named: expected.phase, in: spans)
-                let parent = try onlySpan(named: expected.parent, in: spans)
+                let phase = try CapturedSpans.onlySpan(named: expected.phase, in: spans)
+                let parent = try CapturedSpans.onlySpan(named: expected.parent, in: spans)
                 #expect(phase.parentSpanID == parent.spanID, "the parent of \(expected.phase)")
                 #expect(phase.traceID == load.traceID, "the trace of \(expected.phase)")
             }
