@@ -30,6 +30,38 @@ comments:
     - evidence: `swift test` 994 tests / 90 suites passed (11 known issues, existing). Files: Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift (new), Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, Sources/FoundationModelsExtras/ModelPool/ResidentHold.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift, Tests/FoundationModelsExtrasTests/Telemetry/TelemetryCaptureTests.swift, Tests/TelemetryTestSupport/TelemetryCapture.swift, Tests/TelemetryTestSupport/TelemetryLogRouting.swift
     - next: review
   timestamp: 2026-10-12T11:43:39.609499+00:00
+- actor: claude-code
+  id: 01m4qz6j3dhvm3cj9qwnn68xtx
+  text: |-
+    ### review — findings
+    - evidence: review sha 1daad46~1..1daad46, 1 finding (1 confirmed, 3 refuted) — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:397
+    - next: implement the open item in the Review Findings (2026-10-12 06:47) section
+  timestamp: 2026-10-12T11:50:35.373575+00:00
+- actor: claude-code
+  id: 01m4qz6mdn0zaq9t6dvnthz585
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 10 files
+    - test: green — swift test, 994 passed; IntegrationTests pool, 20 passed
+    - commit: 1daad46
+    - review: findings — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:397
+  timestamp: 2026-10-12T11:50:37.749503+00:00
+- actor: claude-code
+  id: 01m4qzbgpjf0jcgk2kbnp2x11e
+  text: |-
+    Finding swift/naming-clarity (ModelPool.swift evictIfIdle) is corrected. The same cause was removed from the three files of this task:
+    - ModelPool.swift: `case .evict(let idle, let idleTime)` is now `case .evict(let entry, let idleTime)`, with `entry.loader.evict(entry.container)`. The binding `let start` (an `EvictionStart`, not an instant) is now `let evictionStart`.
+    - PoolTelemetry.swift: `PoolGauges.residentModels: Int` is now `residentModelCount` (it is a count, not a list of models; it agrees with `ModelPool.residentModelCount`).
+    - ResidentHold.swift: in `loaded()`, the bindings of `.started` and `.joined` were named `load`, but they hold a `Task`, and `Load` is the type of the load closure. They are now `task`. In `finish(load:)`, `current` is now `currentTask`.
+    - Tests: `swift test --filter 'ModelPool|ResidentHold|PooledModel'` 49 tests in 2 suites passed. `swift test` 994 tests in 90 suites passed, 11 known issues (existing). The only warning is the known mlx-swift "missing creator for mutated node" line of the dependency build.
+  timestamp: 2026-10-12T11:53:17.778970+00:00
+- actor: claude-code
+  id: 01m4qzbjechwrebrnsnb06e8qk
+  text: |-
+    ### implement — changed
+    - evidence: 3 files — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, Sources/FoundationModelsExtras/ModelPool/ResidentHold.swift, Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift; swift test 994 passed / 90 suites (11 known issues, existing)
+    - next: test, then review
+  timestamp: 2026-10-12T11:53:19.564846+00:00
 depends_on:
 - 01M4NXZ87GYNQQPZAEZTSXP83P
 position_column: doing
@@ -68,3 +100,12 @@ Approach (each name in `ExtrasTelemetry.swift`, metric objects made at call time
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 
 #telemetry #feature
+
+## Review Findings (2026-10-12 06:47)
+
+> Scope: `review sha 1daad46~1..1daad46` — reviewed the diffs only — lines this change added or modified. 10 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:397` `swift/naming-clarity` — The bound name `idle` holds an `Entry` value, not an idle time. It sits next to `idleTime` in the same pattern, so a reader can take `idle` for a duration. The code then reads `idle.loader` and `idle.container`. The name should state the role, for example `entry`. Rename the binding to `entry`: `case .evict(let entry, let idleTime):`, then use `entry.loader.evict(entry.container)` at line 398.

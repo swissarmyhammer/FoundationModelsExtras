@@ -60,11 +60,11 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
         switch state.withLock({ Self.access(state: &$0) }) {
         case .ready(let loaded):
             return loaded
-        case .started(let load):
-            return try await finish(load: load)
-        case .joined(let load):
+        case .started(let task):
+            return try await finish(load: task)
+        case .joined(let task):
             PoolTelemetry.recordLoadJoin()
-            return try await finish(load: load)
+            return try await finish(load: task)
         }
     }
 
@@ -95,7 +95,7 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
     private func finish(load task: Task<Loaded, any Error>) async throws -> Loaded {
         let result = await task.result
         state.withLock { state in
-            guard case .loading(let load, let current) = state, current == task else { return }
+            guard case .loading(let load, let currentTask) = state, currentTask == task else { return }
             switch result {
             case .success(let loaded):
                 state = .loaded(loaded)

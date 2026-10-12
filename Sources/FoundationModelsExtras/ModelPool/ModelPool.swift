@@ -75,7 +75,7 @@ public final class ModelPool: Sendable {
                 residentBytes: residentBytes,
                 loadingBytes: loadingBytes,
                 evictingBytes: evictingBytes,
-                residentModels: residentCount
+                residentModelCount: residentCount
             )
         }
 
@@ -392,10 +392,10 @@ public final class ModelPool: Sendable {
     /// eviction with its idle time. A job that a new hold stopped counts a
     /// skipped eviction. The job records each count after the locks.
     private func evictIfIdle(_ key: ModelPoolKey) async {
-        let start = publish { state in (state.startEviction(of: key, at: .now), [FootprintContinuation]()) }
-        switch start {
-        case .evict(let idle, let idleTime):
-            await idle.loader.evict(idle.container)
+        let evictionStart = publish { state in (state.startEviction(of: key, at: .now), [FootprintContinuation]()) }
+        switch evictionStart {
+        case .evict(let entry, let idleTime):
+            await entry.loader.evict(entry.container)
             publishToEachStream { $0.evicting[key] = nil }
             PoolTelemetry.recordEviction(of: key.ref, idleTime: idleTime)
         case .rehold:

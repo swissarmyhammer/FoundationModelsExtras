@@ -63,7 +63,7 @@ enum PoolTelemetry {
         Meter(label: ExtrasTelemetry.MetricName.poolResidentBytes).set(gauges.residentBytes)
         Meter(label: ExtrasTelemetry.MetricName.poolLoadingBytes).set(gauges.loadingBytes)
         Meter(label: ExtrasTelemetry.MetricName.poolEvictingBytes).set(gauges.evictingBytes)
-        Meter(label: ExtrasTelemetry.MetricName.poolResidentModels).set(gauges.residentModels)
+        Meter(label: ExtrasTelemetry.MetricName.poolResidentModels).set(gauges.residentModelCount)
     }
 
     /// Writes one error record for a failed footprint measure of `ref`. The
@@ -105,5 +105,5 @@ struct PoolGauges: Sendable {
     let evictingBytes: Int64
 
     /// The number of resident models.
-    let residentModels: Int
+    let residentModelCount: Int
 }
