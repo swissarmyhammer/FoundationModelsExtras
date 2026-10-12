@@ -16,11 +16,6 @@ struct NamedThingArguments {
     var name: String
 }
 
-/// The `next` sentence of each fixture background tool: the model must not
-/// wait for the run, because the test collects the result from the run plane.
-private let startedRunInstruction =
-    "The run continues in the background. Do not call a tool again. Tell the user that the run started, and stop."
-
 // MARK: - Run to completion
 
 /// What a tool read from `ToolContext.current` in one call.
@@ -72,6 +67,8 @@ struct VaultCodeTool: Tool {
 // MARK: - Background runs
 
 /// A background tool: each call starts a scan that ends after a short time.
+/// Its pending envelope has the default `next` text, which ends with
+/// ``PendingRunEnvelope/pendingWorkInstruction``.
 struct ArchiveScanTool: Tool, BackgroundTool {
     /// The milliseconds of ``workDuration``.
     private static let workMilliseconds = 500
@@ -85,14 +82,6 @@ struct ArchiveScanTool: Tool, BackgroundTool {
     let name = "start_archive_scan"
     let description = "Starts a scan of an archive by the name of the archive."
     let mount: ToolMount? = ToolMount(mode: .background)
-
-    /// The sentence that tells the model not to wait.
-    ///
-    /// - Parameter completionToken: The completion token of the run.
-    /// - Returns: The sentence.
-    func collectInstruction(forCompletionToken completionToken: String) -> String {
-        startedRunInstruction
-    }
 
     /// Works for a short time, and returns the report.
     ///
@@ -130,7 +119,9 @@ struct QuickScanTool: Tool, BackgroundTool {
     }
 }
 
-/// A background tool whose scan works until a cancel stops it.
+/// A background tool whose scan works until a cancel stops it. Its pending
+/// envelope has the default `next` text, which ends with
+/// ``PendingRunEnvelope/pendingWorkInstruction``.
 struct EndlessScanTool: Tool, BackgroundTool {
     /// How long each scan works when nothing cancels it: longer than a test
     /// can run.
@@ -139,14 +130,6 @@ struct EndlessScanTool: Tool, BackgroundTool {
     let name = "start_full_scan"
     let description = "Starts a full scan of an archive by the name of the archive."
     let mount: ToolMount? = ToolMount(mode: .background)
-
-    /// The sentence that tells the model not to wait.
-    ///
-    /// - Parameter completionToken: The completion token of the run.
-    /// - Returns: The sentence.
-    func collectInstruction(forCompletionToken completionToken: String) -> String {
-        startedRunInstruction
-    }
 
     /// Sleeps until a cancel stops the sleep.
     ///
@@ -217,47 +200,6 @@ struct LockedArchiveTool: Tool {
 
 // MARK: - Per-call mounts
 
-/// A tool that collects the result of a background run for the model.
-struct WaitTool: Tool {
-    /// The arguments of one wait.
-    @Generable
-    struct Arguments {
-        /// The completion token of the run.
-        @Guide(description: "The completionToken of the run")
-        var completionToken: String
-    }
-
-    /// The failure of a call that has no tool context.
-    struct MissingContextError: Error {}
-
-    /// The longest wait of one call, in seconds.
-    private static let deadlineSeconds: Double = 60
-
-    let name = "wait"
-    let description = "Waits for a background run, and returns its result."
-
-    /// Waits for the run through the context of the call.
-    ///
-    /// - Parameter arguments: The run.
-    /// - Returns: The result of the run, or a sentence that tells why there
-    ///   is none.
-    /// - Throws: ``MissingContextError`` when the call has no context, or
-    ///   `CancellationError`.
-    func call(arguments: Arguments) async throws -> String {
-        guard let context = ToolContext.current else { throw MissingContextError() }
-        switch await context.wait(completionToken: arguments.completionToken, seconds: Self.deadlineSeconds) {
-        case .settled(let terminal):
-            return terminal.detail
-        case .deadlineElapsed:
-            return "The run continues. Call wait again with the same completionToken."
-        case .cancelled:
-            throw CancellationError()
-        case .unknownToken:
-            return "No run has the completionToken \(arguments.completionToken)."
-        }
-    }
-}
-
 /// The arguments of ``JobTool``.
 @Generable
 struct JobArguments {
@@ -277,11 +219,17 @@ struct JobTool: Tool, BackgroundTool {
     /// The name of the argument that names the job.
     private static let jobProperty = "job"
 
+    /// The code that the result of the scan job holds.
+    static let scanCode = "TEAL-BADGER-91"
+
+    /// The code that the result of the count job holds.
+    static let countCode = "PLUM-WALRUS-35"
+
     /// The result of the scan job.
-    static let scanResult = "The scan job result is TEAL-BADGER-91."
+    static let scanResult = "The scan job result is \(scanCode)."
 
     /// The result of the count job.
-    static let countResult = "The count job result is PLUM-WALRUS-35."
+    static let countResult = "The count job result is \(countCode)."
 
     let name = "run_job"
     let description = "Runs one job: scan or count."

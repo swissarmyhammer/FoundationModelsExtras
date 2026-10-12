@@ -24,8 +24,8 @@ private enum SessionInstructions {
     }
 
     /// The instructions of a session in which the model must make one
-    /// background call and one synchronous call, and collect the background
-    /// result with the wait tool.
+    /// background call and one synchronous call. The background result comes
+    /// later, in a message that the host injects.
     ///
     /// - Parameters:
     ///   - backgroundCall: How the model makes the background call.
@@ -33,8 +33,23 @@ private enum SessionInstructions {
     /// - Returns: The instructions.
     static func callingBoth(backgroundCall: String, synchronousCall: String) -> String {
         "You are a helpful assistant. To answer the user, first \(backgroundCall). Then \(synchronousCall). "
-            + "When a tool result says that a run continues in the background, call the wait tool with its "
-            + "completionToken. Then reply with both results, word for word."
+            + "The result of a run that continues in the background comes later, in a new message. "
+            + "When you have both results, reply with both results, word for word."
+    }
+}
+
+/// The messages that the host injects into a session of the tool-hosting
+/// suite, the same as a real session does.
+private enum HostMessage {
+    /// The message that gives the model the result of a background run that
+    /// settled.
+    ///
+    /// - Parameters:
+    ///   - completionToken: The completion token of the run.
+    ///   - terminal: The terminal event of the run.
+    /// - Returns: The message.
+    static func settledRun(completionToken: String, terminal: OperationEvent) -> String {
+        "The background run with completion token \"\(completionToken)\" finished. Its result: \(terminal.detail)"
     }
 }
 
@@ -84,6 +99,7 @@ extension RealModelSuites {
 
             let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
             #expect(envelope.pending)
+            #expect(envelope.next.contains(PendingRunEnvelope.pendingWorkInstruction), "next: \(envelope.next)")
             #expect(!answer.text.contains(ArchiveScanTool.code), "answer: \(answer.text)")
             let terminal = try await Self.terminal(of: envelope.completionToken, in: host)
             #expect(terminal.outcome == .succeeded)
@@ -126,6 +142,7 @@ extension RealModelSuites {
 
             let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
             #expect(envelope.pending)
+            #expect(envelope.next.contains(PendingRunEnvelope.pendingWorkInstruction), "next: \(envelope.next)")
             #expect(await host.runPlane.backgroundRuns().contains { $0.completionToken == envelope.completionToken })
             #expect(await host.cancel(completionToken: envelope.completionToken) == .reported(.cancelled))
             let terminal = try await Self.terminal(of: envelope.completionToken, in: host)
@@ -179,7 +196,7 @@ extension RealModelSuites {
             #expect(await host.events.events.contains { $0.kind == .completed && $0.outcome == .failed })
         }
 
-        @Test("one tool gives the model a pending token for its background call and the real result in band for its synchronous call")
+        @Test("one tool gives the model a pending token for its background call and the real result in band for its synchronous call, and the model answers from the injected background result")
         func perCallMountOfOneTool() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
@@ -191,16 +208,16 @@ extension RealModelSuites {
                 backgroundCall: "call the \(tool.name) tool with job \"\(JobTool.scanJob)\"",
                 synchronousCall: "call the \(tool.name) tool with job \"\(JobTool.countJob)\"")
 
-            let answer = try await ToolSession.answer(
+            let answer = try await Self.answerInjectingSettledRuns(
                 to: "Run the scan job and the count job, and tell me both results.", instructions: instructions,
-                tools: [host.mount(tool), host.mount(WaitTool())], in: pool)
+                tools: [host.mount(tool)], host: host, in: pool)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             try await Self.expectPerCallMounts(
-                of: answer, in: host, backgroundResult: JobTool.scanResult, synchronousResult: JobTool.countResult)
+                of: answer, in: host, backgroundCode: JobTool.scanCode, synchronousCode: JobTool.countCode)
         }
 
-        @Test("an operation tool gives the model a pending token for its background operation and the real result in band for its synchronous operation")
+        @Test("an operation tool gives the model a pending token for its background operation and the real result in band for its synchronous operation, and the model answers from the injected background result")
         func perCallMountOfAnOperationTool() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
@@ -212,39 +229,83 @@ extension RealModelSuites {
                 backgroundCall: "call the \(tool.name) tool with op \"\(StartScanOperation.opString)\"",
                 synchronousCall: "call the \(tool.name) tool with op \"\(CountFilesOperation.opString)\"")
 
-            let answer = try await ToolSession.answer(
+            let answer = try await Self.answerInjectingSettledRuns(
                 to: "Start a scan of the archive and count its files, and tell me both report codes.",
-                instructions: instructions, tools: [host.mount(tool), host.mount(WaitTool())], in: pool)
+                instructions: instructions, tools: [host.mount(tool)], host: host, in: pool)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             try await Self.expectPerCallMounts(
-                of: answer, in: host, backgroundResult: StartScanOperation.code, synchronousResult: CountFilesOperation.code)
+                of: answer, in: host, backgroundCode: StartScanOperation.code, synchronousCode: CountFilesOperation.code)
+        }
+
+        /// Asks `prompt` in a new session, and then injects the result of each
+        /// background run as a new message, the same as a real session. The
+        /// host injects the result of a run after the run settles. It injects
+        /// one message for each pending envelope that the model got, also for
+        /// an envelope of a call that the model made after an injection.
+        ///
+        /// - Parameters:
+        ///   - prompt: The request of the user.
+        ///   - instructions: The instructions of the session.
+        ///   - tools: The mounted tools of the session.
+        ///   - host: The host of the session.
+        ///   - pool: The pool of the test.
+        /// - Returns: The answer to the last message, with each tool output of
+        ///   the session.
+        /// - Throws: The error of the load or of a generation, or a failed
+        ///   expectation when a run of an envelope does not settle.
+        private static func answerInjectingSettledRuns(
+            to prompt: String, instructions: String, tools: [any Tool], host: ToolHost, in pool: ModelPool
+        ) async throws -> ToolSession.Answer {
+            try await ToolSession.run(instructions: instructions, tools: tools, in: pool) { session in
+                var answer = try await ToolSession.answer(to: prompt, in: session)
+                var injected: Set<String> = []
+                while let token = pendingTokens(in: answer).first(where: { !injected.contains($0) }) {
+                    injected.insert(token)
+                    let terminal = try await terminal(of: token, in: host)
+                    answer = try await ToolSession.answer(
+                        to: HostMessage.settledRun(completionToken: token, terminal: terminal), in: session)
+                }
+                return answer
+            }
         }
 
         /// Checks the per-call claim on one answer: each run on the run plane
-        /// came from a pending envelope and settles with `backgroundResult`,
-        /// and a tool output that is not an envelope holds `synchronousResult`.
+        /// came from a pending envelope and settles with `backgroundCode`, a
+        /// tool output that is not an envelope holds `synchronousCode`, and
+        /// the text of the answer holds `backgroundCode`, which only the
+        /// injected result gave the model.
         ///
         /// - Parameters:
-        ///   - answer: The answer of the session.
+        ///   - answer: The last answer of the session.
         ///   - host: The host of the session.
-        ///   - backgroundResult: A text that the result of the background call holds.
-        ///   - synchronousResult: A text that the result of the synchronous call holds.
-        /// - Throws: A failed expectation when the model got no pending envelope.
+        ///   - backgroundCode: The code that the result of the background call holds.
+        ///   - synchronousCode: The code that the result of the synchronous call holds.
+        /// - Throws: A failed expectation when a run of an envelope does not settle.
         private static func expectPerCallMounts(
-            of answer: ToolSession.Answer, in host: ToolHost, backgroundResult: String, synchronousResult: String
+            of answer: ToolSession.Answer, in host: ToolHost, backgroundCode: String, synchronousCode: String
         ) async throws {
-            let pending = envelopes(in: answer).filter(\.pending).map(\.completionToken)
+            let pending = pendingTokens(in: answer)
             #expect(!pending.isEmpty, "tool outputs: \(answer.toolOutputs)")
             let inBand = answer.toolOutputs.filter { !PendingRunEnvelope.isRendered(text: $0) }
-            #expect(inBand.contains { $0.contains(synchronousResult) }, "tool outputs: \(answer.toolOutputs)")
+            #expect(inBand.contains { $0.contains(synchronousCode) }, "tool outputs: \(answer.toolOutputs)")
             for token in pending {
                 let terminal = try await terminal(of: token, in: host)
-                #expect(terminal.detail.contains(backgroundResult), "terminal: \(terminal)")
+                #expect(terminal.detail.contains(backgroundCode), "terminal: \(terminal)")
             }
+            #expect(answer.text.contains(backgroundCode), "answer: \(answer.text)")
             // Only a background call is a run: the synchronous call started none.
             let open = await host.runPlane.backgroundRuns().map(\.completionToken)
             #expect(await host.runPlane.settledRunTokens().union(open) == Set(pending))
+        }
+
+        /// The completion token of each pending envelope of a session, in
+        /// order.
+        ///
+        /// - Parameter answer: The answer of a session.
+        /// - Returns: The completion tokens.
+        private static func pendingTokens(in answer: ToolSession.Answer) -> [String] {
+            envelopes(in: answer).filter(\.pending).map(\.completionToken)
         }
 
         /// The envelope of each tool output that is one, in order.

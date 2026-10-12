@@ -57,10 +57,26 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/SerialAsyncChainTests.swift; `swift test`: 979 tests in 90 suites passed (11 known issues), 0 failures, no compiler warnings
     - next: /test, then /review
   timestamp: 2026-10-11T22:58:09.768389+00:00
+- actor: claude-code
+  id: 01m4pk9x0nppsj1j0gdanpv49z
+  text: |-
+    ### review — clean
+    - evidence: review sha 2c9092a~1..2c9092a, 0 findings (0 confirmed, 0 refuted). All prior items in `## Review Findings (2026-10-11 17:52)` are checked.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-11T23:03:27.509233+00:00
+- actor: claude-code
+  id: 01m4pka23hqkft3bhfzv8xc48v
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file
+    - test: green — swift test, 979 passed
+    - commit: 2c9092a
+    - review: clean — 0 findings
+  timestamp: 2026-10-11T23:03:32.721952+00:00
 depends_on:
 - 01M4NXXX8C2BZAAK141DW9063W
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: f180
 title: 'Queue metrics: the tool event delivery chain (SerialAsyncChain in RunEventFunnel) records depth and delivery timing'
 ---
 ## What
