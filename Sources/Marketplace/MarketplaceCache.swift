@@ -454,10 +454,11 @@ internal struct MarketplaceCache: Sendable {
   /// - Throws: ``MarketplaceCacheError`` when the lock or the swap fails,
   ///   else the error of the file work.
   func install(snapshotAt temporary: URL, sha: String, ref: String?) throws {
-    let checked = try Self.validated(sha: sha, ref: ref)
-    try makeFolders()
-    try withWriterLock {
-      try installValidated(snapshotAt: temporary, checked: checked)
+    try timedInstall(sha: sha, ref: ref) { checked in
+      try makeFolders()
+      try withWriterLock {
+        try installValidated(snapshotAt: temporary, checked: checked)
+      }
     }
   }
 
@@ -478,7 +479,34 @@ internal struct MarketplaceCache: Sendable {
   /// - Throws: ``MarketplaceCacheError`` when a value is not safe in a path
   ///   or the swap fails, else the error of the file work.
   func installUnderWriterLock(snapshotAt temporary: URL, sha: String, ref: String?) throws {
-    try installValidated(snapshotAt: temporary, checked: try Self.validated(sha: sha, ref: ref))
+    try timedInstall(sha: sha, ref: ref) { checked in
+      try installValidated(snapshotAt: temporary, checked: checked)
+    }
+  }
+
+  /// Times one install call from its first step: the check of the commit
+  /// and the ref, then `steps` with the checked values.
+  ///
+  /// Both ``install(snapshotAt:sha:ref:)`` and
+  /// ``installUnderWriterLock(snapshotAt:sha:ref:)`` come here, thus each
+  /// install call records one duration on the install timer, with its
+  /// outcome. The check is inside the timed region, thus a commit or a ref
+  /// that is not safe in a path records a `failed` outcome. A writer lock
+  /// that another writer holds, a folder error and a failed swap also
+  /// record `failed`.
+  ///
+  /// - Parameters:
+  ///   - sha: The commit of the snapshot.
+  ///   - ref: The branch or the tag, or `nil` for a pinned commit.
+  ///   - steps: The work of the install, with the checked commit and ref.
+  /// - Throws: ``MarketplaceCacheError`` when a value can leave the cache
+  ///   folder, else the error of `steps`.
+  private func timedInstall(
+    sha: String, ref: String?, _ steps: (_ checked: (sha: String, ref: [String]?)) throws -> Void
+  ) throws {
+    try MarketplaceTelemetry.timeInstall(id: marketplaceID) {
+      try steps(Self.validated(sha: sha, ref: ref))
+    }
   }
 
   /// Checks the commit and the ref of one install.
@@ -496,9 +524,8 @@ internal struct MarketplaceCache: Sendable {
   /// Runs the steps of one install over values that are already checked,
   /// under a writer lock that the caller holds.
   ///
-  /// Both ``install(snapshotAt:sha:ref:)`` and
-  /// ``installUnderWriterLock(snapshotAt:sha:ref:)`` come here, thus each
-  /// install records one duration on the install timer, with its outcome.
+  /// The call records no telemetry of its own: it runs inside the timed
+  /// region of ``timedInstall(sha:ref:_:)``.
   ///
   /// - Parameters:
   ///   - temporary: The folder that holds the materialized snapshot.
@@ -506,10 +533,8 @@ internal struct MarketplaceCache: Sendable {
   /// - Throws: ``MarketplaceCacheError`` when the swap fails, else the
   ///   error of the file work.
   private func installValidated(snapshotAt temporary: URL, checked: (sha: String, ref: [String]?)) throws {
-    try MarketplaceTelemetry.timeInstall(id: marketplaceID) {
-      try publish(snapshotAt: temporary, validatedSha: checked.sha)
-      try activate(checked: checked)
-    }
+    try publish(snapshotAt: temporary, validatedSha: checked.sha)
+    try activate(checked: checked)
   }
 
   /// Writes the ref file, makes `current` name one snapshot that is already

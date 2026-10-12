@@ -173,6 +173,21 @@ enum MarketplaceTelemetryExpectations {
       outcomeKey: MarketplaceTelemetry.DimensionKey.installOutcome, outcome: outcome)
   }
 
+  /// Expects that `metrics` holds no install timer with the outcome
+  /// `outcome`.
+  ///
+  /// - Parameters:
+  ///   - outcome: The outcome that no install must record.
+  ///   - metrics: The factory of the capture.
+  static func expectNoInstallDuration(_ outcome: MarketplaceCallOutcome, in metrics: TestMetrics) {
+    let outcomeKey = MarketplaceTelemetry.DimensionKey.installOutcome
+    #expect(
+      metrics.timers.filter { timer in
+        timer.label == MarketplaceTelemetry.MetricName.installDuration
+          && timer.dimensions.contains { $0.0 == outcomeKey && $0.1 == outcome.rawValue }
+      }.isEmpty)
+  }
+
   /// Gives the values of one counter of the cache of one marketplace: the
   /// writer-lock conflict counter or the removed-snapshot counter.
   ///

@@ -1,5 +1,6 @@
 import FixtureSupport
 import Foundation
+import TelemetryTestSupport
 import Testing
 
 @testable import Marketplace
@@ -50,6 +51,17 @@ struct MarketplaceCacheTests {
   /// The name of the folder that holds the staged snapshots of a test.
   private static let stagingDirectoryName = "staging"
 
+  /// The two entry points of an install.
+  enum InstallEntry: CaseIterable, Sendable {
+    /// ``MarketplaceCache/install(snapshotAt:sha:ref:)``, which takes the
+    /// writer lock itself.
+    case takesTheLock
+
+    /// ``MarketplaceCache/installUnderWriterLock(snapshotAt:sha:ref:)``, for
+    /// a caller that already holds the writer lock.
+    case underTheCallerLock
+  }
+
   /// A temporary cache with one marketplace folder in it.
   private struct CacheFixture: Sendable {
     /// The cache directory that holds `state.json` and the marketplace
@@ -97,6 +109,29 @@ struct MarketplaceCacheTests {
     /// - Throws: The error of the staging or of the install.
     func install(sha: String) throws {
       try cache.install(snapshotAt: try stageSnapshot(sha: sha), sha: sha, ref: exampleRef)
+    }
+
+    /// Installs one staged snapshot through one entry point of the cache.
+    ///
+    /// For ``InstallEntry/underTheCallerLock`` the fixture makes the folders
+    /// and holds the writer lock, as the store does.
+    ///
+    /// - Parameters:
+    ///   - entry: The entry point of the install.
+    ///   - staged: The staged folder.
+    ///   - sha: The commit of the snapshot.
+    ///   - ref: The branch or the tag, or `nil` for a pinned commit.
+    /// - Throws: The error of the install.
+    func install(through entry: InstallEntry, snapshotAt staged: URL, sha: String, ref: String?) throws {
+      switch entry {
+      case .takesTheLock:
+        try cache.install(snapshotAt: staged, sha: sha, ref: ref)
+      case .underTheCallerLock:
+        try cache.makeFolders()
+        try cache.withWriterLock {
+          try cache.installUnderWriterLock(snapshotAt: staged, sha: sha, ref: ref)
+        }
+      }
     }
 
     /// Reads the marker file of the snapshot that `current` names.
@@ -548,6 +583,66 @@ struct MarketplaceCacheTests {
     MarketplaceTelemetryExpectations.expectOneDuration(
       try MarketplaceTelemetryExpectations.installDurations(
         in: context.metricsFactory, id: Self.exampleID, outcome: .failed))
+  }
+
+  @Test(arguments: InstallEntry.allCases, MarketplaceCacheTests.unsafeShaValues)
+  func anInstallWithAnUnsafeShaRecordsOneFailedInstallDuration(entry: InstallEntry, value: String) async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let staged = try fixture.stageSnapshot(sha: try #require(Self.exampleShas.first))
+
+    let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
+      Result { try fixture.install(through: entry, snapshotAt: staged, sha: value, ref: Self.exampleRef) }
+    }
+
+    #expect(throws: MarketplaceCacheError.unsafePathValue(kind: .sha, value: value)) { try installed.get() }
+    try Self.expectOneFailedInstallDuration(in: context)
+  }
+
+  @Test(arguments: InstallEntry.allCases, MarketplaceCacheTests.unsafeRefValues)
+  func anInstallWithAnUnsafeRefRecordsOneFailedInstallDuration(entry: InstallEntry, value: String) async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let sha = try #require(Self.exampleShas.first)
+    let staged = try fixture.stageSnapshot(sha: sha)
+
+    let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
+      Result { try fixture.install(through: entry, snapshotAt: staged, sha: sha, ref: value) }
+    }
+
+    #expect(throws: MarketplaceCacheError.unsafePathValue(kind: .ref, value: value)) { try installed.get() }
+    try Self.expectOneFailedInstallDuration(in: context)
+  }
+
+  @Test func anInstallThatFindsTheWriterLockHeldRecordsOneFailedInstallDuration() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let sha = try #require(Self.exampleShas.first)
+    let staged = try fixture.stageSnapshot(sha: sha)
+    try fixture.cache.makeFolders()
+
+    let (context, installed) = try await fixture.cache.withWriterLock {
+      try await MarketplaceTelemetryExpectations.capture {
+        Result { try fixture.cache.install(snapshotAt: staged, sha: sha, ref: Self.exampleRef) }
+      }
+    }
+
+    #expect(throws: MarketplaceCacheError.writerLockHeld(path: fixture.cache.lockFile.path)) {
+      try installed.get()
+    }
+    try Self.expectOneFailedInstallDuration(in: context)
+  }
+
+  /// Expects that a capture holds one `failed` install duration and no
+  /// `succeeded` one.
+  ///
+  /// - Parameter context: The capture of one install that failed.
+  /// - Throws: When the capture has no `failed` install timer.
+  private static func expectOneFailedInstallDuration(in context: TelemetryCapture.Context) throws {
+    MarketplaceTelemetryExpectations.expectOneDuration(
+      try MarketplaceTelemetryExpectations.installDurations(
+        in: context.metricsFactory, id: exampleID, outcome: .failed))
+    MarketplaceTelemetryExpectations.expectNoInstallDuration(.succeeded, in: context.metricsFactory)
   }
 
   // MARK: - Path safety
