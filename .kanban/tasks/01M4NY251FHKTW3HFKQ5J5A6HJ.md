@@ -134,6 +134,40 @@ comments:
     - evidence: `swift test` passed: 1043 Swift Testing tests in 92 suites (11 known issues, which were there before) and 393 tests in 29 suites (MarketplaceTests). 0 failures. 0 compiler warnings. The only warning is the mlx-swift "missing creator for mutated node" line of the dependency build. 9 files: Tests/FixtureSupport/PackageManifest.swift, Tests/FixtureSupport/TargetDependency.swift (new), Tests/FixtureSupport/SourceFile.swift (new), Tests/FoundationModelsExtrasTests/PackageManifestTests.swift (new), Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift, Tests/MarketplaceTests/PackageLayoutTests.swift, Tests/MarketplaceTests/ModuleBoundaryTests.swift, Tests/MarketplaceTests/MarketplaceTelemetryTests.swift, Tests/MarketplaceTests/NoGitProcessTests.swift. The finding is `- [x]`.
     - next: /review
   timestamp: 2026-10-12T16:07:53.718808+00:00
+- actor: claude-code
+  id: 01m4re6k2kpbe5td75yp0efhyf
+  text: |-
+    ### review — findings
+    - evidence: `review sha 1f4bd04~1..1f4bd04`, 2 findings (2 confirmed, 1 refuted) — Tests/FixtureSupport/PackageManifest.swift:64, Tests/FixtureSupport/PackageManifest.swift:66
+    - next: /implement the 2 open items in the "Review Findings (2026-10-12 11:10)" section. The task stays in `review`.
+  timestamp: 2026-10-12T16:12:45.011172+00:00
+- actor: claude-code
+  id: 01m4re6mxr9emsg1hc9hgqc0zd
+  text: |-
+    ### finish iteration 4 — findings
+    - implement: changed — 9 files
+    - test: green — swift test, 1043 passed
+    - commit: 1f4bd04
+    - review: findings — Tests/FixtureSupport/PackageManifest.swift:64, Tests/FixtureSupport/PackageManifest.swift:66
+  timestamp: 2026-10-12T16:12:46.904069+00:00
+- actor: claude-code
+  id: 01m4rep2ytcvvdmqe2zyj4hdhz
+  text: |-
+    Review findings (PackageManifest.swift:64 and :66, completeness/invariant-propagation) done.
+    - Comments: one `token` regex reads a string literal (with escapes), a `//` line comment, a `/* ... */` block comment, or one character. `removingComments(from:)` puts one space in place of each comment. A string literal is one token, thus `//` or `/*` inside a string stays. `topLevelEntries(of:)` now splits by the same tokens, thus a comma, a bracket or a parenthesis inside a string literal does not split an entry. It also stops at a `)` at depth 0, thus it splits the arguments of a call too.
+    - Declaration: `declarationArguments(ofTarget:in:)` finds `.target(`, `.executableTarget(`, `.testTarget(`, `.macro(`, `.plugin(`, `.binaryTarget(` or `.systemLibrary(` with `name: "<target>"` first (the name is regex-escaped). It reads all the arguments, and `dependencies:` can be in any position. No `dependencies:` argument gives `[]`. A `dependencies:` value that is not a list literal gives one `.unread` entry. The error text is now "the manifest declares no target named X".
+    - Real Package.swift: the forms are `.target`, `.executableTarget`, `.testTarget` and `.macro`. 12 of the 19 targets did not read before the fix: extras-demo, FoundationModelsExtrasTests, OperationsMacros, OperationsTests, OperationsMacrosTests, OperationsCLITests, NotesToolTests, notes, TestSupport, FixtureSupport, MarketplaceTests, record-git-parity-snapshots. The targets in `otherLibraryTargetNames` (Operations, OperationsCLI, MarketplaceFixtures) and `fixturesTargetName` did read: their form is `.target(name:, dependencies:`.
+    - New public `PackageManifest.targetNames()` / `targetNames(in:)`: it reads the name of each entry of the top-level `targets:` argument of the `Package(` call. It does not use the declaration regex, thus the parameterized test `theReadKnowsEachEntryOfEachTargetOfTheRealManifest(target:)` gives each real target to the reader and expects no `.unread` entry. A form that the reader cannot read then fails a test.
+    - New tests (PackageManifestTests): a block comment with a comma and a bracket; a `//` and `/*` inside a string literal; `.executableTarget`; `.testTarget`; `path:` before `dependencies:`; a target with no `dependencies:` (followed by a target with one); the target list of a sample manifest (any kind, a commented-out target, a `targets:` inside a product); the real target list holds the core and marketplace targets; the every-target test (19 cases).
+    - RED: the 6 reader tests failed (5 with "declares no target", the block-comment test with 2 unread entries). With `targetNames` in place and the old reader, the every-target test failed for 12 of 19 targets. GREEN: 15 of 15 tests in the suite passed.
+  timestamp: 2026-10-12T16:21:12.794083+00:00
+- actor: claude-code
+  id: 01m4rep51jv2vr5xkhedb0q6vk
+  text: |-
+    ### implement — changed
+    - evidence: `swift test` exit 0: 1052 Swift Testing tests in 92 suites passed (11 known issues that were there before), 393 tests in 29 suites (MarketplaceTests) passed, 0 failures, 0 compiler warnings (only the mlx-swift "missing creator for mutated node" line of the dependency build). 2 files: Tests/FixtureSupport/PackageManifest.swift, Tests/FoundationModelsExtrasTests/PackageManifestTests.swift. Both findings are `- [x]`.
+    - next: /review
+  timestamp: 2026-10-12T16:21:14.930385+00:00
 depends_on:
 - 01M4NYFFAQH23KD4E03AC35EK3
 position_column: doing
@@ -199,3 +233,13 @@ Approach:
 > - `.kanban/ (from .reviewignore)` — 2 file(s)
 
 - [x] `Tests/MarketplaceTests/PackageLayoutTests.swift:114` `reuse/reuse` — The new body of `manifest()` reimplements `manifestText()` in TelemetryDependencyTests. Both read `PackageManifest.path` through `FixtureFile.text` and unwrap the result. Two copies of the manifest reader can drift apart. The reader belongs beside `PackageManifest` in FixtureSupport, which this change now shares for names. Move the reader into `PackageManifest` in Tests/FixtureSupport/PackageManifest.swift, for example as `static func text() throws -> String`. Have both `manifest()` and `manifestText()` call it, or delete the private copies and call the shared reader directly.
+
+## Review Findings (2026-10-12 11:10)
+
+> Scope: `review sha 1f4bd04~1..1f4bd04` — reviewed the diffs only — lines this change added or modified. 9 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FixtureSupport/PackageManifest.swift:64` `completeness/invariant-propagation` — The comment strip handles only `//` line comments. A `/* ... */` block comment in Package.swift is not removed. A comma or a bracket inside it would split or end the dependencies list early, so the read returns a wrong entry list with no error. The new tests cover only the `//` form, so this gap is not caught. Add a block-comment alternative to the regex, for example `/\*(?s:.*?)\*/`, and drop it with the other comments. Add one test with a `/* [bracket], comma */` entry in the list.
+- [x] `Tests/FixtureSupport/PackageManifest.swift:66` `completeness/invariant-propagation` — The declaration regex matches only `.target(` with `name:` directly followed by `dependencies:`. Other target forms are not read. These are `.executableTarget(`, `.testTarget(`, and a `.target` with `path:` or `exclude:` before `dependencies:`. The read then throws 'declares no target', even though the target exists. The probe's sibling check does not cover this, so the gap is only visible by reading the regex. Confirm the declaration form of each target named in `otherLibraryTargetNames` and `fixturesTargetName`. If any differs, accept any target-declaring keyword (`\.(?:executable)?[tT]arget|\.testTarget`) and allow other named arguments before `dependencies:`. Add a test for one such form.
