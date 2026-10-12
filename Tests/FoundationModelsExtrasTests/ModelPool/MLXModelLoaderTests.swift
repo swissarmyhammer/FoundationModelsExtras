@@ -2,8 +2,11 @@ import FixtureSupport
 import Foundation
 @testable import FoundationModelsExtras
 import HuggingFace
+import InMemoryTracing
 import MLXLMCommon
+import TelemetryTestSupport
 import Testing
+import Tracing
 
 /// The built-in MLX loader keeps the tokenizer loader that its init gets,
 /// measures the weight files of a model in the Hugging Face cache, makes the
@@ -56,6 +59,12 @@ struct MLXModelLoaderTests {
 
     /// The mark of the tokenizer loader that a test gives to a loader.
     private static let tokenizerLoaderMark = "pinned-date chat template"
+
+    /// The bytes of a download whose cache holds the files.
+    private static let noDownloadedBytes: Int64 = 0
+
+    /// The number of download spans that one download opens.
+    private static let oneDownloadSpan = 1
 
     @Test("a loader keeps the tokenizer loader that its init gets")
     func loaderKeepsTheGivenTokenizerLoader() throws {
@@ -185,6 +194,51 @@ struct MLXModelLoaderTests {
         let reports = try await Self.reports(of: StepDownloader(steps: [.allBytes])) { _ in }
 
         #expect(reports == [.loading])
+    }
+
+    @Test("a download opens one download span with the completed bytes of its last report")
+    func aDownloadOpensOneSpanWithItsBytes() async throws {
+        let span = try await Self.downloadSpan(of: StepDownloader(steps: [.noBytes, .partOfFirstFile]))
+
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.downloadBytes) == .int64(SnapshotStep.totalBytes))
+        #expect(span.status == nil)
+    }
+
+    @Test("a download whose cache holds the files opens one download span with no downloaded bytes")
+    func aCachedDownloadSpanHasNoBytes() async throws {
+        let span = try await Self.downloadSpan(of: StepDownloader(steps: [.allBytes]))
+
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.downloadBytes) == .int64(Self.noDownloadedBytes))
+    }
+
+    @Test("a failed download span has the error status and the completed bytes of its last report")
+    func aFailedDownloadSpanHasItsBytes() async throws {
+        let span = try await Self.downloadSpan(of: StepDownloader(steps: [.noBytes, .partOfFirstFile], fails: true))
+
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.downloadBytes)
+                == .int64(SnapshotStep.partOfFirstFile.completedBytes))
+        #expect(span.status?.code == .error)
+    }
+
+    /// Downloads with a ``ProgressReportingDownloader`` over `upstream`
+    /// under a ``W3CInMemoryTracer``, and gives the one download span.
+    ///
+    /// - Parameter upstream: The fake downloader. Its error does not end the
+    ///   test: the span records it.
+    /// - Returns: The one download span of the download.
+    /// - Throws: When the tracer holds no download span, or more than one.
+    private static func downloadSpan(of upstream: StepDownloader) async throws -> FinishedInMemorySpan {
+        let tracer = W3CInMemoryTracer()
+        let downloader = ProgressReportingDownloader(upstream: upstream) { _ in }
+        _ = try? await withTracer(tracer) {
+            try await downloader.download(
+                id: repository, revision: MLXModelLoader.defaultRevision, matching: [], useLatest: false) { _ in }
+        }
+        let spans = ModelLoadTelemetryExpectations.spans(
+            named: ExtrasTelemetry.SpanName.modelLoadDownload, in: tracer.finishedSpans)
+        #expect(spans.count == oneDownloadSpan)
+        return try #require(spans.first)
     }
 
     /// Downloads with a ``ProgressReportingDownloader`` over `upstream`.

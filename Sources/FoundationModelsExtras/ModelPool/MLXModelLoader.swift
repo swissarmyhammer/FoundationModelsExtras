@@ -91,7 +91,9 @@ public struct MLXModelLoader: PooledModelLoader {
     public func load(
         key: ModelPoolKey, progressHandler: @escaping @Sendable (ModelLoadProgress) -> Void
     ) async throws -> any Sendable {
-        try MetalLibraryBootstrap.install()
+        try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadMetalInstall) { _ in
+            try MetalLibraryBootstrap.install()
+        }
         let configuration = ModelConfiguration(id: key.ref.repo, revision: Self.revision(of: key))
         let downloader = ProgressReportingDownloader(upstream: #hubDownloader(), report: progressHandler)
         switch key.role {
@@ -130,8 +132,9 @@ public struct MLXModelLoader: PooledModelLoader {
         }
     }
 
-    /// The revision of `key` that the loader loads.
-    private static func revision(of key: ModelPoolKey) -> String {
+    /// The revision of `key` that the loader loads. The load span of the pool
+    /// records this revision.
+    static func revision(of key: ModelPoolKey) -> String {
         key.ref.revision ?? defaultRevision
     }
 
@@ -171,6 +174,11 @@ public struct MLXModelLoader: PooledModelLoader {
     /// Makes an `MLXLanguageModel` with ``languageModelCapabilities`` and
     /// loads its weights.
     ///
+    /// The `preload()` of the model runs in a preload span. It calls the load
+    /// closure of the model, thus the weights span is inside the preload
+    /// span. A model that the model cache of MLX holds runs no load closure,
+    /// and gives no weights span.
+    ///
     /// - Parameters:
     ///   - configuration: The model and its revision.
     ///   - downloader: The downloader of the files of the model.
@@ -185,11 +193,15 @@ public struct MLXModelLoader: PooledModelLoader {
             configuration: configuration, capabilities: languageModelCapabilities,
             weightsLocation: { id in HubCache.default.repoDirectory(repo: "\(id)", kind: .model) }
         ) { configuration, progress in
-            try await loadModelContainer(
-                from: downloader, using: tokenizerLoader,
-                configuration: configuration, progressHandler: progress)
+            try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
+                try await loadModelContainer(
+                    from: downloader, using: tokenizerLoader,
+                    configuration: configuration, progressHandler: progress)
+            }
         }
-        try await model.preload()
+        try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadPreload) { _ in
+            try await model.preload()
+        }
         return model
     }
 }
@@ -221,7 +233,9 @@ private struct MLXEmbedding: PooledEmbedding {
     /// The loaded model and its tokenizer.
     let container: EmbedderModelContainer
 
-    /// Loads the model of `configuration`.
+    /// Loads the model of `configuration` in a weights span. The factory
+    /// downloads the files first, thus the download span is inside the
+    /// weights span.
     ///
     /// - Parameters:
     ///   - configuration: The model and its revision.
@@ -234,8 +248,10 @@ private struct MLXEmbedding: PooledEmbedding {
         tokenizerLoader: any TokenizerLoader
     ) async throws -> MLXEmbedding {
         MLXEmbedding(
-            container: try await EmbedderModelFactory.shared.loadContainer(
-                from: downloader, using: tokenizerLoader, configuration: configuration))
+            container: try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
+                try await EmbedderModelFactory.shared.loadContainer(
+                    from: downloader, using: tokenizerLoader, configuration: configuration)
+            })
     }
 
     /// Gives one normalized vector for each text. This tokenizes `texts` one

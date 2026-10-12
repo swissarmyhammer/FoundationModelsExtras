@@ -1,5 +1,6 @@
 import Dispatch
 @testable import FoundationModelsExtras
+import InMemoryTracing
 import MetricsTestKit
 import Synchronization
 import Testing
@@ -72,7 +73,7 @@ final class Counter: Sendable {
 /// A loader that writes each load and each eviction to a log.
 ///
 /// A load writes `"load <ref> by <name>"`, then waits until `loadsMayEnd`
-/// finishes. The first `failingLoads` loads then throw ``FakeLoadError``, and
+/// finishes. The first `failingLoads` loads then throw `loadError`, and
 /// each other load gives the model that `makeModel` makes. An eviction writes
 /// `"evict <name of the loader that made the model>"`, then waits until
 /// `evictionsMayEnd` finishes. A footprint measure writes `"measure <ref>"`,
@@ -96,6 +97,9 @@ struct RecordingLoader: PooledModelLoader {
     /// The number of first loads that fail.
     private let failingLoads: Int
 
+    /// The error that each of the first `failingLoads` loads throws.
+    private let loadError: any Error
+
     /// The bytes that each footprint measure gives.
     private let measuredBytes: Int64
 
@@ -118,6 +122,8 @@ struct RecordingLoader: PooledModelLoader {
     ///   - evictionsMayEnd: An eviction ends only after this stream finishes.
     ///     The default stream is finished, so an eviction ends at once.
     ///   - failingLoads: The number of first loads that fail.
+    ///   - loadError: The error that each of the first `failingLoads` loads
+    ///     throws. The default is ``FakeLoadError``.
     ///   - measuredBytes: The bytes that each footprint measure gives.
     ///   - failingMeasures: The number of first footprint measures that fail.
     ///   - makeModel: Makes the model of each load from the name of the
@@ -128,6 +134,7 @@ struct RecordingLoader: PooledModelLoader {
         loadsMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
         evictionsMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
         failingLoads: Int = 0,
+        loadError: any Error = FakeLoadError(),
         measuredBytes: Int64 = 0,
         failingMeasures: Int = 0,
         makeModel: @escaping @Sendable (_ loaderName: String) -> any Sendable = { FakeModel(loaderName: $0) }
@@ -138,6 +145,7 @@ struct RecordingLoader: PooledModelLoader {
         self.loadsMayEnd = loadsMayEnd
         self.evictionsMayEnd = evictionsMayEnd
         self.failingLoads = failingLoads
+        self.loadError = loadError
         self.measuredBytes = measuredBytes
         self.failingMeasures = failingMeasures
     }
@@ -163,13 +171,13 @@ struct RecordingLoader: PooledModelLoader {
     ///
     /// - Parameter key: The key to load.
     /// - Returns: The model that `makeModel` makes.
-    /// - Throws: ``FakeLoadError`` for each of the first `failingLoads` loads.
+    /// - Throws: `loadError` for each of the first `failingLoads` loads.
     func load(_ key: ModelPoolKey) async throws -> any Sendable {
         let attempt = startedLoads.next()
         log.append("load \(key.ref.stringValue) by \(name)")
         for await _ in loadsMayEnd {}
         if attempt <= failingLoads {
-            throw FakeLoadError()
+            throw loadError
         }
         return makeModel(name)
     }
@@ -649,5 +657,76 @@ enum PoolMetricExpectations {
     /// - Returns: The model ref as its only dimension.
     private static func modelDimensions(of ref: ModelRef) -> [(String, String)] {
         [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
+    }
+}
+
+/// Reads the model load telemetry that a test recorded: the load span and
+/// its phase spans, the load timer and the footprint recorder. Each test
+/// suite of the pool and of the MLX loader uses these helpers, so a change to
+/// the names or the dimensions occurs in one place.
+enum ModelLoadTelemetryExpectations {
+    /// Gives the spans of `spans` that have the name `spanName`.
+    ///
+    /// - Parameters:
+    ///   - spanName: The name of the spans to find.
+    ///   - spans: The spans that a tracer recorded.
+    /// - Returns: The spans with that name, in the order of `spans`.
+    static func spans(named spanName: String, in spans: [FinishedInMemorySpan]) -> [FinishedInMemorySpan] {
+        spans.filter { $0.operationName == spanName }
+    }
+
+    /// Expects that `span` carries the model ref, the revision and the role
+    /// of `key`. A key that names no revision has the revision that the MLX
+    /// loader loads.
+    ///
+    /// - Parameters:
+    ///   - span: A load span.
+    ///   - key: The loaded model.
+    static func expectLoadAttributes(of span: FinishedInMemorySpan, key: ModelPoolKey) {
+        let revision = MLXModelLoader.revision(of: key)
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.modelRef) == .string(key.ref.stringValue))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.modelRevision) == .string(revision))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.modelRole)
+                == .string(ExtrasTelemetry.telemetryRole(of: key.role)))
+    }
+
+    /// Gives the values of the load timer of `key` with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - key: The loaded model.
+    ///   - outcome: How the loads ended.
+    /// - Returns: The duration of each load in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func loadDurations(
+        in metrics: TestMetrics, key: ModelPoolKey, outcome: ModelOperationOutcome
+    ) throws -> [Int64] {
+        try metrics.expectTimer(
+            ExtrasTelemetry.MetricName.modelLoadDuration,
+            modelDimensions(of: key) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
+        ).values
+    }
+
+    /// Gives the values of the footprint recorder of `key`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - key: The measured model.
+    /// - Returns: The bytes of each measure, in order.
+    /// - Throws: When `metrics` has no such recorder.
+    static func footprintBytes(in metrics: TestMetrics, key: ModelPoolKey) throws -> [Double] {
+        try metrics.expectRecorder(ExtrasTelemetry.MetricName.modelFootprintBytes, modelDimensions(of: key)).values
+    }
+
+    /// Gives the dimensions of a model metric of one key.
+    ///
+    /// - Parameter key: The model and its role.
+    /// - Returns: The model ref, then the role.
+    private static func modelDimensions(of key: ModelPoolKey) -> [(String, String)] {
+        [
+            (ExtrasTelemetry.DimensionKey.modelRef, key.ref.stringValue),
+            (ExtrasTelemetry.DimensionKey.modelRole, ExtrasTelemetry.telemetryRole(of: key.role)),
+        ]
     }
 }

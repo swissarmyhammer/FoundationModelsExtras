@@ -62,10 +62,26 @@ comments:
     - evidence: 3 files — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, Sources/FoundationModelsExtras/ModelPool/ResidentHold.swift, Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift; swift test 994 passed / 90 suites (11 known issues, existing)
     - next: test, then review
   timestamp: 2026-10-12T11:53:19.564846+00:00
+- actor: claude-code
+  id: 01m4qzg5kgh1gzath6ss23nd2m
+  text: |-
+    ### review — clean
+    - evidence: review sha 353b33d~1..353b33d, 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). All prior findings are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-10-12T11:55:50.256037+00:00
+- actor: claude-code
+  id: 01m4qzg6qkq17tgw4mjn9t1ag9
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 994 passed
+    - commit: 353b33d
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T11:55:51.411266+00:00
 depends_on:
 - 01M4NXZ87GYNQQPZAEZTSXP83P
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: f480
 title: 'Pool cache telemetry: acquire hit/late hit/load, evictions, holds, and the footprint as gauges'
 ---
 ## What

@@ -22,6 +22,7 @@ let mlxPackage = "mlx-swift-lm"
 let huggingFacePackage = "swift-huggingface"
 let transformersPackage = "swift-transformers"
 let ulidPackage = "ULID.swift"
+let tracingPackage = "swift-distributed-tracing"
 
 let package = Package(
     name: "IntegrationTests",
@@ -39,6 +40,9 @@ let package = Package(
         // The session id of a `ModelCallMark` is a ULID. The same floor as the
         // root package.
         .package(url: "https://github.com/yaslab/\(ulidPackage).git", from: "1.3.1"),
+        // The load telemetry test reads the spans of a capture. The same floor
+        // as the root package.
+        .package(url: "https://github.com/apple/\(tracingPackage).git", from: "1.5.0"),
     ],
     targets: [
         .testTarget(
@@ -63,6 +67,12 @@ let package = Package(
                 .product(name: "MLXHuggingFace", package: mlxPackage),
                 .product(name: "Tokenizers", package: transformersPackage),
                 .product(name: "ULID", package: ulidPackage),
+                // The load telemetry test runs a real load in a
+                // `TelemetryCapture`, and reads its spans: `InMemoryTracing`
+                // gives the finished span type, and `Tracing` its attributes.
+                .product(name: "TelemetryTestSupport", package: extrasPackage),
+                .product(name: "InMemoryTracing", package: tracingPackage),
+                .product(name: "Tracing", package: tracingPackage),
             ],
             path: "Tests/\(extrasPackage)IntegrationTests"
         )

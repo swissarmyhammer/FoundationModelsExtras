@@ -1,6 +1,7 @@
 import Foundation
 import MLXLMCommon
 import Synchronization
+import Tracing
 
 /// A downloader that reports the progress of the downloads of an upstream
 /// downloader as ``ModelLoadProgress``: one
@@ -30,6 +31,10 @@ struct ProgressReportingDownloader: Downloader {
     /// download returns, reports all its bytes when the last report did not,
     /// and then reports the load.
     ///
+    /// The download runs in one download span. When the download ends, the
+    /// span gets the completed bytes of the last report, or 0 when the cache
+    /// held the files and no report occurred.
+    ///
     /// - Parameters:
     ///   - id: The repository.
     ///   - revision: The revision, or `nil` for the default.
@@ -43,16 +48,19 @@ struct ProgressReportingDownloader: Downloader {
         id: String, revision: String?, matching patterns: [String], useLatest: Bool,
         progressHandler: @Sendable @escaping (Progress) -> Void
     ) async throws -> URL {
-        let counter = DownloadByteCounter(report: report)
-        let directory = try await upstream.download(
-            id: id, revision: revision, matching: patterns, useLatest: useLatest
-        ) { progress in
-            progressHandler(progress)
-            counter.observe(progress: progress)
+        try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadDownload) { span in
+            let counter = DownloadByteCounter(report: report)
+            defer { span.attributes[ExtrasTelemetry.AttributeKey.downloadBytes] = counter.completedBytes }
+            let directory = try await upstream.download(
+                id: id, revision: revision, matching: patterns, useLatest: useLatest
+            ) { progress in
+                progressHandler(progress)
+                counter.observe(progress: progress)
+            }
+            counter.reportAllBytes()
+            report(.loading)
+            return directory
         }
-        counter.reportAllBytes()
-        report(.loading)
-        return directory
     }
 }
 
@@ -79,9 +87,17 @@ final class DownloadByteCounter: Sendable {
         let totalBytes: Int64
     }
 
+    /// The completed bytes before the first report.
+    private static let noCompletedBytes: Int64 = 0
+
     /// The last report, or `nil` before the first. The lock also keeps the
     /// reports in order.
     private let lastCount = Mutex<ByteCount?>(nil)
+
+    /// The completed bytes of the last report, or 0 before the first report.
+    var completedBytes: Int64 {
+        lastCount.withLock { $0?.completedBytes ?? Self.noCompletedBytes }
+    }
 
     /// Gets each report.
     private let report: @Sendable (ModelLoadProgress) -> Void

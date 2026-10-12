@@ -954,7 +954,8 @@ extension ModelPoolTests {
             ],
             label: ExtrasTelemetry.logLabel
         )
-        #expect(context.logRecords == [expected])
+        // The load span writes its "enter" record at the info level first.
+        #expect(context.logRecords.filter { $0.level == .error } == [expected])
     }
 
     @Test("the telemetry of a failed measure, a load, a hit and an eviction holds no path and no error description")
@@ -977,5 +978,138 @@ extension ModelPoolTests {
 
         #expect(!context.logRecords.isEmpty)
         #expect(!context.metricRecords.isEmpty)
+    }
+}
+
+/// The load telemetry of the model pool: one load span and one "enter" record
+/// for each load, one load duration with its outcome, and one footprint
+/// record for each measured load.
+extension ModelPoolTests {
+    /// The bytes that the footprint measure of the load telemetry tests gives.
+    private static let measuredFootprintBytes: Int64 = 42
+
+    /// The number of load spans that one load opens.
+    private static let oneLoadSpan = 1
+
+    /// The number of "enter" records that one load span writes.
+    private static let oneEnterRecord = 1
+
+    /// The number of load spans of a failed load and a load that succeeds.
+    private static let twoLoadSpans = 2
+
+    /// A folder of the Hugging Face cache that the error of a load can hold.
+    /// No telemetry record may hold it.
+    private static let cachePath = "/Users/someone/.cache/huggingface/hub/models--org--a/snapshots/main"
+
+    /// Expects one load span of ``key`` with its model ref, revision and role
+    /// in `context`, and one "enter" record of that span.
+    ///
+    /// - Parameter context: The capture of one load of ``key``.
+    /// - Throws: When the capture holds no load span.
+    private static func expectOneLoadSpanAndEnterRecord(in context: TelemetryCapture.Context) throws {
+        let spanName = ExtrasTelemetry.SpanName.modelLoad
+        let loads = ModelLoadTelemetryExpectations.spans(named: spanName, in: context.spans)
+        #expect(loads.count == oneLoadSpan)
+        ModelLoadTelemetryExpectations.expectLoadAttributes(of: try #require(loads.first), key: key)
+        let enterMessage = ExtrasTelemetry.EnterRecord.message(forSpanNamed: spanName)
+        #expect(context.logRecords.filter { "\($0.message)" == enterMessage }.count == oneEnterRecord)
+    }
+
+    @Test("an acquire by key opens one load span with the model ref, the revision and the role, and one enter record")
+    func anAcquireByKeyOpensOneLoadSpan() async throws {
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>()))
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            let hold = try await pool.acquire(Self.key)
+            #expect(hold.key == Self.key)
+            return context
+        }
+
+        try Self.expectOneLoadSpanAndEnterRecord(in: context)
+    }
+
+    @Test("an acquire with a loader opens one load span with the model ref, the revision and the role, and one enter record")
+    func anAcquireWithALoaderOpensOneLoadSpan() async throws {
+        let pool = ModelPool()
+        let loader = RecordingLoader(name: "A", log: Recorder<String>())
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            let hold = try await Self.acquire(from: pool, with: loader)
+            #expect(hold.key == Self.key)
+            return context
+        }
+
+        try Self.expectOneLoadSpanAndEnterRecord(in: context)
+    }
+
+    @Test("a load that succeeds records one load duration with the outcome succeeded, and none with failed")
+    func aLoadThatSucceedsRecordsOneDuration() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>()))
+
+        let hold = try await withMetricsFactory(metrics) { try await pool.acquire(Self.key) }
+
+        QueueMetricExpectations.expectDurations(
+            try ModelLoadTelemetryExpectations.loadDurations(in: metrics, key: Self.key, outcome: .succeeded),
+            count: Self.oneDuration)
+        #expect(throws: TestMetricsError.self) {
+            try ModelLoadTelemetryExpectations.loadDurations(in: metrics, key: Self.key, outcome: .failed)
+        }
+        withExtendedLifetime(hold) {}
+    }
+
+    @Test("a load that fails records one load duration with the outcome failed, and none with succeeded")
+    func aLoadThatFailsRecordsOneDuration() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>(), failingLoads: 1))
+
+        await #expect(throws: FakeLoadError.self) {
+            try await withMetricsFactory(metrics) { try await pool.acquire(Self.key) }
+        }
+
+        QueueMetricExpectations.expectDurations(
+            try ModelLoadTelemetryExpectations.loadDurations(in: metrics, key: Self.key, outcome: .failed),
+            count: Self.oneDuration)
+        #expect(throws: TestMetricsError.self) {
+            try ModelLoadTelemetryExpectations.loadDurations(in: metrics, key: Self.key, outcome: .succeeded)
+        }
+    }
+
+    @Test("a measured load records the measured bytes on the footprint recorder")
+    func aMeasuredLoadRecordsTheFootprint() async throws {
+        let metrics = TestMetrics()
+        let loader = RecordingLoader(name: "A", log: Recorder<String>(), measuredBytes: Self.measuredFootprintBytes)
+        let pool = ModelPool(loader: loader)
+
+        let hold = try await withMetricsFactory(metrics) { try await pool.acquire(Self.key) }
+
+        #expect(
+            try ModelLoadTelemetryExpectations.footprintBytes(in: metrics, key: Self.key)
+                == [Double(Self.measuredFootprintBytes)])
+        withExtendedLifetime(hold) {}
+    }
+
+    @Test("the load telemetry of a failed load and a measured load holds no cache path and no error description")
+    func theLoadTelemetryHoldsNoContent() async throws {
+        let loadError = MLXModelLoaderError.unknownFileSize(path: Self.cachePath)
+        let forbidden = [
+            Self.cachePath, Self.containerPath, loadError.localizedDescription, String(describing: loadError),
+        ]
+        let loader = RecordingLoader(
+            name: "A", log: Recorder<String>(), failingLoads: 1, loadError: loadError,
+            measuredBytes: Self.measuredFootprintBytes, makeModel: { _ in PathDescribedModel() })
+        let pool = ModelPool(loader: loader)
+
+        let context = try await TelemetryCapture.run(forbidding: forbidden) { context in
+            await #expect(throws: MLXModelLoaderError.self) { try await pool.acquire(Self.key) }
+            let hold = try await pool.acquire(Self.key)
+            #expect(hold.key == Self.key)
+            return context
+        }
+
+        let loads = ModelLoadTelemetryExpectations.spans(named: ExtrasTelemetry.SpanName.modelLoad, in: context.spans)
+        #expect(loads.count == Self.twoLoadSpans)
+        #expect(context.metricRecords.contains { $0.label == ExtrasTelemetry.MetricName.modelLoadDuration })
+        #expect(context.metricRecords.contains { $0.label == ExtrasTelemetry.MetricName.modelFootprintBytes })
     }
 }

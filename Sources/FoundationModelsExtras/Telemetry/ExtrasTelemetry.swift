@@ -18,11 +18,12 @@ import Metrics
 /// nothing, and each logger writes through the default handler of swift-log.
 ///
 /// A metric dimension carries names and bounded values only: the tool name,
-/// the queue name, the model ref of a queue or a pool metric that belongs to
-/// one model, the bounded telemetry value of an outcome, the cache result of
-/// a pool acquire, and the reason of a skipped eviction. It never carries tool
-/// arguments, tool output, the content of a queue task, a file path or the
-/// description of a container, because a dimension leaves the process through
+/// the queue name, the model ref of a queue, a pool metric or a model metric
+/// that belongs to one model, the role of a model, the bounded telemetry value
+/// of an outcome, the cache result of a pool acquire, and the reason of a
+/// skipped eviction. It never carries tool arguments, tool output, the content
+/// of a queue task, a file path, a cache folder, a URL or the description of a
+/// container or of an error, because a dimension leaves the process through
 /// the metrics backend of the host.
 enum ExtrasTelemetry {
     /// The label of each logger of the core target.
@@ -36,6 +37,27 @@ enum ExtrasTelemetry {
         /// The span of the body of one background run of the run plane. It
         /// starts when the body starts, and it ends when the body returns.
         static let run = "FoundationModelsExtras.run"
+
+        /// The span of one load of a model by a model pool: the call to the
+        /// loader, from its start to its return.
+        static let modelLoad = "FoundationModelsExtras.model.load"
+
+        /// The span of the install of the MLX metal library in one load.
+        static let modelLoadMetalInstall = "FoundationModelsExtras.model.load.metal_install"
+
+        /// The span of the download of the files of a model in one load. The
+        /// download returns at once when the cache holds the files.
+        static let modelLoadDownload = "FoundationModelsExtras.model.load.download"
+
+        /// The span of the load of the weights of a model in one load. The
+        /// MLX model factory downloads the files first, thus the download
+        /// span is inside this span.
+        static let modelLoadWeights = "FoundationModelsExtras.model.load.weights"
+
+        /// The span of the `preload()` of an LLM in one load. The preload
+        /// calls the load closure of the model, thus the weights span of an
+        /// LLM is inside this span.
+        static let modelLoadPreload = "FoundationModelsExtras.model.load.preload"
     }
 
     /// The attribute keys of the spans of the core target.
@@ -70,6 +92,23 @@ enum ExtrasTelemetry {
         /// the enum case name when reflection shows one. Never the description
         /// of the error, because a description can hold content.
         static let errorType = "error.type"
+
+        /// The `ModelRef.stringValue` of the model of a load span. It has the
+        /// same key as the metric dimension.
+        static let modelRef = DimensionKey.modelRef
+
+        /// The revision of the model of a load span. A model ref that names
+        /// no revision has the default revision of the Hugging Face hub.
+        static let modelRevision = "model.revision"
+
+        /// The role of the model of a load span, from
+        /// ``ExtrasTelemetry/telemetryRole(of:)``. It has the same key as the
+        /// metric dimension.
+        static let modelRole = DimensionKey.modelRole
+
+        /// The bytes that the download of a model completed, from the last
+        /// progress of the download. It is 0 when the cache held the files.
+        static let downloadBytes = "download.bytes"
     }
 
     /// The metric names of the core target.
@@ -124,17 +163,25 @@ enum ExtrasTelemetry {
         /// The counter that counts each caller that waits for a load of a
         /// pooled model that another caller started.
         static let poolLoadJoins = "FoundationModelsExtras.pool.load_joins"
+
+        /// The timer that records the duration of each load of a model by a
+        /// model pool, with the ``ModelOperationOutcome`` of the load.
+        static let modelLoadDuration = "FoundationModelsExtras.model.load.duration"
+
+        /// The recorder of the bytes that the footprint measure of a loaded
+        /// model gives.
+        static let modelFootprintBytes = "FoundationModelsExtras.model.footprint.bytes"
     }
 
-    /// The dimension keys of the queue metrics and the pool metrics of the
-    /// core target.
+    /// The dimension keys of the queue metrics, the pool metrics and the
+    /// model metrics of the core target.
     enum DimensionKey {
         /// The ``QueueName`` of the queue.
         static let queueName = "queue.name"
 
-        /// The `ModelRef.stringValue` of the model that the queue or the pool
-        /// metric belongs to. Only a queue of one model and a pool metric of
-        /// one model have this dimension.
+        /// The `ModelRef.stringValue` of the model that the queue, the pool
+        /// metric or the model metric belongs to. Only a queue of one model, a
+        /// pool metric of one model and a model metric have this dimension.
         static let modelRef = "model.ref"
 
         /// The ``QueueOutcome`` of a completed queue task.
@@ -146,6 +193,13 @@ enum ExtrasTelemetry {
         /// The ``PoolEvictionSkipReason`` of an eviction job that evicted
         /// nothing. An eviction that occurred has no reason.
         static let evictionReason = "reason"
+
+        /// The role of the model of a model metric, from
+        /// ``ExtrasTelemetry/telemetryRole(of:)``.
+        static let modelRole = "model.role"
+
+        /// The ``ModelOperationOutcome`` of a load of a model.
+        static let modelOutcome = "model.outcome"
     }
 
     /// The metadata keys of the log records of the core target.
@@ -180,6 +234,11 @@ enum ExtrasTelemetry {
         /// The `ModelRef.stringValue` of the model of a log record. It has the
         /// same key as the metric dimension.
         static let modelRef = DimensionKey.modelRef
+
+        /// The role of the model of a log record, from
+        /// ``ExtrasTelemetry/telemetryRole(of:)``. It has the same key as the
+        /// metric dimension.
+        static let modelRole = DimensionKey.modelRole
     }
 
     /// The messages of the log records of the model pool.
@@ -317,6 +376,19 @@ enum ExtrasTelemetry {
         ]
     }
 
+    /// Gives the bounded telemetry value of a model role: the value of the
+    /// ``AttributeKey/modelRole`` attribute and of the
+    /// ``DimensionKey/modelRole`` dimension.
+    ///
+    /// - Parameter role: The role of a model.
+    /// - Returns: `llm` or `embedding`.
+    static func telemetryRole(of role: ModelRole) -> String {
+        switch role {
+        case .llm: "llm"
+        case .embedding: "embedding"
+        }
+    }
+
     /// Gives the bounded telemetry value of a tool outcome.
     ///
     /// Each telemetry use of a tool outcome, a metric dimension or a span
@@ -418,6 +490,16 @@ enum PoolCacheResult: String, Sendable, CaseIterable {
 
     /// The acquire loaded the model.
     case load
+}
+
+/// How a load of a model ended. It is the value of the
+/// ``ExtrasTelemetry/DimensionKey/modelOutcome`` dimension.
+enum ModelOperationOutcome: String, Sendable, CaseIterable {
+    /// The loader returned a model.
+    case succeeded
+
+    /// The loader threw an error.
+    case failed
 }
 
 /// Why an eviction job of a model pool evicted nothing. It is the value of

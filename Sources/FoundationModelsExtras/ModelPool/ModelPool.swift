@@ -270,7 +270,8 @@ public final class ModelPool: Sendable {
     }
 
     /// Loads `key` in the running admission job, and gives its first hold.
-    /// The progress streams of the model see the load.
+    /// The progress streams of the model see the load. The call to the loader
+    /// runs in one load span, and the load timer records its duration.
     fileprivate func load(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
@@ -279,7 +280,9 @@ public final class ModelPool: Sendable {
             setLoadingBytes(footprintBytes)
             let container: any Sendable
             do {
-                container = try await loader.load(key: key, progressHandler: progressHandler)
+                container = try await ModelLoadTelemetry.traceLoad(of: key) {
+                    try await loader.load(key: key, progressHandler: progressHandler)
+                }
             } catch {
                 setLoadingBytes(0)
                 throw error
@@ -291,11 +294,15 @@ public final class ModelPool: Sendable {
 
     /// Loads `key` with ``loader`` in the running admission job, measures its
     /// footprint, and gives its first hold. When the measure fails, the loader
-    /// evicts the model. The progress streams of the model see the load.
+    /// evicts the model. The progress streams of the model see the load. The
+    /// call to the loader runs in one load span, the load timer records its
+    /// duration, and the footprint recorder records the measured bytes.
     fileprivate func loadMeasured(_ key: ModelPoolKey) async throws -> ModelHold {
         PoolTelemetry.recordAcquire(of: key.ref, result: .load)
         return try await reportingProgress(of: key.ref) { progressHandler in
-            let container = try await loader.load(key: key, progressHandler: progressHandler)
+            let container = try await ModelLoadTelemetry.traceLoad(of: key) {
+                try await loader.load(key: key, progressHandler: progressHandler)
+            }
             let bytes: Int64
             do {
                 bytes = try await loader.footprintBytes(of: key)
@@ -304,6 +311,7 @@ public final class ModelPool: Sendable {
                 PoolTelemetry.logMeasureFailure(error, of: key.ref)
                 throw error
             }
+            ModelLoadTelemetry.recordFootprint(bytes, of: key)
             return makeResident(
                 key, container: container, loader: loader, bytes: bytes, sessionBytes: Self.measuredSessionBytes)
         }
