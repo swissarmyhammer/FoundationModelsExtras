@@ -37,6 +37,37 @@ comments:
   id: 01m4rbydrb2rxat1fxxpv3r7mw
   text: 'Correction to the step record above: the count of changed files is 8, not 9. The list in that record is complete.'
   timestamp: 2026-10-12T15:33:20.267502+00:00
+- actor: claude-code
+  id: 01m4rc95pj3xbeeqv0p0wq80vs
+  text: |-
+    ### review — findings
+    - evidence: `review sha 89c9ad3~1..89c9ad3`, 2 findings (2 confirmed, 2 refuted) — Sources/Marketplace/MarketplaceStore.swift:969, Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:162
+    - next: /implement the 2 open items in the "Review Findings (2026-10-12 10:35)" section. The task stays in `review`.
+  timestamp: 2026-10-12T15:39:12.466352+00:00
+- actor: claude-code
+  id: 01m4rc97bgegsjx8zqvgv6nzqn
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 8 files
+    - test: green — swift test, 1033 passed
+    - commit: 89c9ad3
+    - review: findings — Sources/Marketplace/MarketplaceStore.swift:969, Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:162
+  timestamp: 2026-10-12T15:39:14.160927+00:00
+- actor: claude-code
+  id: 01m4rcnnkm0z4shtt1698vbdyw
+  text: |-
+    Review findings done.
+    - Finding 1 (duplication): new private actor helper `runTracedStep(named:atIndex:current:_:)` in MarketplaceStore.swift. It runs `MarketplaceTelemetry.traceStep` and maps a thrown error through `failureResult`. `checkHead` and `sync` call it; the two do/catch copies are gone. A check of MarketplaceStore.swift and MarketplaceTelemetry.swift found no other copied wrapper: `fetch` and `remoteHead` each forward one call to the shared `traceGitCall`, and `materialize` calls `traceStep` with no catch.
+    - Finding 2 (invariant-propagation): TelemetryDependencyTests now reads EVERY entry of the `dependencies` list of a target (comments removed first, split at top-level commas, bracket-balanced). An entry is `.byName`, `.product(name:package:)`, or `.unread(text)` for a form that the read does not know. Each entry must be in an explicit allowlist: `marketplaceAllowlist` (telemetry API products + "FoundationModelsExtras", Yams, libgit2) and `coreAllowlist` (telemetry API products + Stencil, Yams, ULID, the 5 mlx-swift-lm products, HuggingFace, Tokenizers). The core target had the same gap (only a URL check for swift-otel), thus it gets the same allowlist test. New cases on a constructed manifest prove that a product of an unlisted telemetry package (OTLPExporter of swift-otlp-exporter), a non-API product of a listed package (InMemoryLogging of swift-log) and an entry with a `condition:` (unread form) each fail the check. The old `ProductDependency`, `telemetryProducts` and `productDependencies` helpers are deleted.
+    - RED: with a stub read that gave no entries, 6 of the 11 suite tests failed. GREEN: 11 of 11 passed.
+  timestamp: 2026-10-12T15:46:01.972829+00:00
+- actor: claude-code
+  id: 01m4rcnqk9rp3mxrc52a38xw38
+  text: |-
+    ### implement — changed
+    - evidence: `swift test` exit 0: 1037 Swift Testing tests in 91 suites passed (11 known issues that were there before), 393 tests in 29 suites (MarketplaceTests) passed, 0 compiler warnings, 0 failures. 2 files: Sources/Marketplace/MarketplaceStore.swift, Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift. Both findings are `- [x]`.
+    - next: /review
+  timestamp: 2026-10-12T15:46:04.009787+00:00
 depends_on:
 - 01M4NYFFAQH23KD4E03AC35EK3
 position_column: doing
@@ -74,3 +105,13 @@ Approach:
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 
 #telemetry #feature
+
+## Review Findings (2026-10-12 10:35)
+
+> Scope: `review sha 89c9ad3~1..89c9ad3` — reviewed the diffs only — lines this change added or modified. 8 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/Marketplace/MarketplaceStore.swift:969` `duplication/duplication` — The sync wrapper in sync(remote:atIndex:force:) repeats the shape of checkHead(remote:current:atIndex:). Both run a do block that returns a traceStep call, and both have a catch block that returns failureResult. This change added the traceStep wrapper to both, so the two copies now carry the same span-and-catch logic and can drift apart. Extract one private helper that takes the span name, the body, the marketplace index and the current sha. It runs the traceStep call and maps a thrown error through failureResult. Call it from checkHead and sync, and delete the two copies. Keep the body closures at each call site.
+- [x] `Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:162` `completeness/invariant-propagation` — The guard that the Marketplace target links no telemetry backend only inspects products from the packages named in telemetryAPIProducts, or from a package whose name contains the otel marker. A backend product from any other telemetry package passes the check unseen, so the test does not prove what its title says. Check every product of the Marketplace target against the allowlist, not only the products that pass the package filter. Each linked product must equal the API product of its package, and a package outside telemetryAPIProducts should fail the test. Add a case for an unlisted telemetry package to lock this in.

@@ -877,12 +877,33 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   ``MarketplaceEvent/updateAvailable(id:from:to:)`` when the head
   ///   differs from the snapshot.
   private func checkHead(remote: GitRemote, current: String?, atIndex index: Int) async -> PassResult {
+    await runTracedStep(named: MarketplaceTelemetry.SpanName.checkHead, atIndex: index, current: current) {
+      try await self.reportHead(of: remote, current: current, atIndex: index)
+    }
+  }
+
+  /// Runs one step of a pass in one span, and records an error of the step
+  /// as the failure of the pass.
+  ///
+  /// The span has the display id of the marketplace. When `body` throws, the
+  /// span gets the `error.type` of the error, and the pass gives
+  /// ``MarketplaceEvent/failed(id:error:keptVersion:)``.
+  ///
+  /// - Parameters:
+  ///   - spanName: The name of the span, from
+  ///     ``MarketplaceTelemetry/SpanName``.
+  ///   - index: The marketplace.
+  ///   - current: The commit that `current` named before the pass.
+  ///   - body: The step. It runs on the actor of the store.
+  /// - Returns: The value of `body`, else the failure result of the pass.
+  private func runTracedStep(
+    named spanName: String,
+    atIndex index: Int,
+    current: String?,
+    _ body: nonisolated(nonsending) () async throws -> PassResult
+  ) async -> PassResult {
     do {
-      return try await MarketplaceTelemetry.traceStep(
-        MarketplaceTelemetry.SpanName.checkHead, id: displayID(atIndex: index)
-      ) {
-        try await self.reportHead(of: remote, current: current, atIndex: index)
-      }
+      return try await MarketplaceTelemetry.traceStep(spanName, id: displayID(atIndex: index), body)
     } catch {
       return failureResult(atIndex: index, error: error, current: current)
     }
@@ -964,15 +985,10 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// - Returns: The status, and the event of the sync when something
   ///   changed or the sync failed.
   private func sync(remote: GitRemote, atIndex index: Int, force: Bool) async -> PassResult {
-    let current = remote.cache.currentSha()
-    do {
-      return try await MarketplaceTelemetry.traceStep(
-        MarketplaceTelemetry.SpanName.sync, id: displayID(atIndex: index)
-      ) {
-        try await self.installHeadUnderWriterLock(remote: remote, ofIndex: index, force: force)
-      }
-    } catch {
-      return failureResult(atIndex: index, error: error, current: current)
+    await runTracedStep(
+      named: MarketplaceTelemetry.SpanName.sync, atIndex: index, current: remote.cache.currentSha()
+    ) {
+      try await self.installHeadUnderWriterLock(remote: remote, ofIndex: index, force: force)
     }
   }
 
