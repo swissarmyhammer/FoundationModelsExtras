@@ -41,6 +41,20 @@ struct ToolCallSpanTests {
     /// thus a timer that stops before the report is outside this limit.
     private static let sameIntervalTolerance = slowReportDelay / 2
 
+    /// The settle period of a background call whose run must settle inside
+    /// it. It is long, so a fast run always ends in it.
+    private static let inlineSettleGrace = Fixtures.generousInterval
+
+    /// The settle period of a background call whose run continues after it.
+    /// The call waits for this full period, thus the duration of the call is
+    /// longer than it.
+    private static let pendingSettleGrace = Fixtures.shortInterval
+
+    /// The argument of a background call in the content-safety test. The tool
+    /// output and the terminal detail of the call hold it. No place of the
+    /// telemetry may carry it.
+    private static let backgroundContent = "background-content-5e2c"
+
     /// The error that a failing body throws.
     private struct Boom: Error {}
 
@@ -246,7 +260,7 @@ struct ToolCallSpanTests {
             metricLabels: Fixtures.metricLabelsOfACallThatSendsItsTerminal)
     }
 
-    @Test("a background call gives one count and one duration of its start")
+    @Test("a background call that answers at once with the pending envelope gives one count and one duration of success")
     func aBackgroundStartGivesItsMetrics() async throws {
         let tool = Fixtures.FastTool()
         let harness = Fixtures.backgroundHarness(wrapping: tool)
@@ -267,6 +281,133 @@ struct ToolCallSpanTests {
             ExtrasTelemetry.EnterRecord.message(forSpanNamed: $0)
         })
         #expect(context.metricRecords.map(\.label) == Fixtures.metricLabelsOfASettledBackgroundCall)
+    }
+
+    @Test("a background run that succeeds inside the settle period records succeeded and tool.settled_inline=true")
+    func aBackgroundRunThatSucceedsInlineRecordsSucceeded() async throws {
+        let tool = Fixtures.FastTool()
+        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace)
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            await harness.runPlane.joinRunBodies()
+            return context
+        }
+
+        let span = try Self.expectBackgroundCall(
+            in: context, toolName: tool.name, outcomeValue: QueueOutcome.succeeded.rawValue, isSettledInline: true)
+        #expect(span.status == nil)
+    }
+
+    @Test("a background run that fails inside the settle period records one count and one duration of failed, and throws the error")
+    func aBackgroundRunThatFailsInlineRecordsFailed() async throws {
+        let tool = Fixtures.ThrowingTool()
+        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace)
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            await #expect(throws: Fixtures.FixtureError.self) {
+                _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            }
+            await harness.runPlane.joinRunBodies()
+            return context
+        }
+
+        let span = try Self.expectBackgroundCall(
+            in: context, toolName: tool.name, outcomeValue: QueueOutcome.failed.rawValue, isSettledInline: true)
+        #expect(span.status == SpanStatus(code: .error))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.errorType)
+                == .string(String(reflecting: Fixtures.FixtureError.self)))
+    }
+
+    @Test("a background run that times out inside the settle period records timed_out with no error status, and throws the timeout")
+    func aBackgroundRunThatTimesOutInlineIsNotAnError() async throws {
+        let tool = Fixtures.SleepingTool()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: tool, timeout: Fixtures.shortInterval, inlineSettleGrace: Self.inlineSettleGrace)
+        let timeout = ToolMountError.timedOut(tool: tool.name, timeoutSeconds: Fixtures.shortInterval)
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            await #expect(throws: timeout) {
+                _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            }
+            await harness.runPlane.joinRunBodies()
+            return context
+        }
+
+        let span = try Self.expectBackgroundCall(
+            in: context, toolName: tool.name, outcomeValue: QueueOutcome.timedOut.rawValue, isSettledInline: true)
+        #expect(span.status == nil)
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.errorType) == nil)
+    }
+
+    @Test("a background run that continues after the settle period records succeeded and tool.settled_inline=false over the start and the full settle wait")
+    func aBackgroundRunThatContinuesTimesTheStartAndTheSettleWait() async throws {
+        let gate = RunLatch()
+        let tool = Fixtures.GatedTool(gate: gate)
+        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.pendingSettleGrace)
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            #expect(try Fixtures.decodeEnvelope(rendered).isPending)
+            gate.open()
+            await harness.runPlane.joinRunBodies()
+            return context
+        }
+
+        let span = try Self.expectBackgroundCall(
+            in: context, toolName: tool.name, outcomeValue: QueueOutcome.succeeded.rawValue, isSettledInline: false)
+        let recorded = try Self.expectSameInterval(
+            in: context, span: span, toolName: tool.name, outcomeValue: QueueOutcome.succeeded.rawValue)
+        #expect(recorded >= .seconds(Self.pendingSettleGrace))
+    }
+
+    @Test("a background run that the sweep settles while its body still runs records the outcome of the run plane, not succeeded")
+    func aBackgroundRunThatTheSweepSettlesRecordsTheRunPlaneOutcome() async throws {
+        let gate = RunLatch()
+        let tool = Fixtures.GatedProcessTool(gate: gate, processCanceler: { .stopped })
+        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace)
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            async let answer = harness.mounted.call(arguments: MountArguments(value: "x"))
+            _ = try await Fixtures.poll { await harness.runPlane.backgroundRuns().first }
+            _ = await harness.runPlane.sweep()
+            _ = try await answer
+            // The body still waits on its gate. It ends here, thus the
+            // capture holds each record of the run when the test reads it.
+            gate.open()
+            await harness.runPlane.joinRunBodies()
+            return context
+        }
+
+        _ = try Self.expectBackgroundCall(
+            in: context, toolName: tool.name, outcomeValue: QueueOutcome.stopped.rawValue, isSettledInline: true)
+    }
+
+    @Test("a background call puts no tool output and no terminal detail on the telemetry")
+    func aBackgroundCallCarriesNoToolContent() async throws {
+        let succeeding = Fixtures.FastTool()
+        let failing = Fixtures.ThrowingTool()
+        let succeedingHarness = Fixtures.backgroundHarness(wrapping: succeeding, inlineSettleGrace: Self.inlineSettleGrace)
+        let failingHarness = Fixtures.backgroundHarness(wrapping: failing, inlineSettleGrace: Self.inlineSettleGrace)
+        let failureDetail = String(describing: Fixtures.FixtureError())
+
+        let context = try await TelemetryCapture.run(forbidding: [Self.backgroundContent, failureDetail]) { context in
+            let output = try await succeedingHarness.mounted.call(arguments: MountArguments(value: Self.backgroundContent))
+            #expect(output.contains(Self.backgroundContent))
+            await #expect(throws: Fixtures.FixtureError.self) {
+                _ = try await failingHarness.mounted.call(arguments: MountArguments(value: Self.backgroundContent))
+            }
+            await succeedingHarness.runPlane.joinRunBodies()
+            await failingHarness.runPlane.joinRunBodies()
+            return context
+        }
+
+        // A capture that recorded nothing would pass with no issue, thus the
+        // test states what the capture measured.
+        try Self.expectToolCallMetrics(
+            in: context, toolName: succeeding.name, outcomeValue: QueueOutcome.succeeded.rawValue)
+        try Self.expectToolCallMetrics(in: context, toolName: failing.name, outcomeValue: QueueOutcome.failed.rawValue)
     }
 
     @Test("the tool span carries no tool argument and no tool output")
@@ -318,15 +459,66 @@ struct ToolCallSpanTests {
         }
 
         try Self.expectOneCall(in: context, toolName: tool.name, outcome: .succeeded)
+        let recorded = try Self.expectSameInterval(
+            in: context, span: try #require(context.spans.first), toolName: tool.name,
+            outcomeValue: OperationOutcome.succeeded.rawValue)
+        #expect(recorded >= Self.slowReportDelay)
+    }
+
+    /// Expects that the duration on the timer of one call and the duration
+    /// of its span measure the same interval, inside
+    /// ``sameIntervalTolerance``.
+    ///
+    /// - Parameters:
+    ///   - context: The capture of the call.
+    ///   - span: The tool span of the call.
+    ///   - toolName: The model-facing name of the tool.
+    ///   - outcomeValue: The expected `tool.outcome` value.
+    /// - Returns: The duration on the timer.
+    /// - Throws: When the capture has no such timer, or the timer has no
+    ///   value.
+    private static func expectSameInterval(
+        in context: TelemetryCapture.Context,
+        span: FinishedInMemorySpan,
+        toolName: String,
+        outcomeValue: String
+    ) throws -> Duration {
         let timer = try context.metricsFactory.expectTimer(
-            ExtrasTelemetry.MetricName.toolDuration,
-            Self.dimensions(toolName: tool.name, outcomeValue: OperationOutcome.succeeded.rawValue))
+            ExtrasTelemetry.MetricName.toolDuration, dimensions(toolName: toolName, outcomeValue: outcomeValue))
         let recorded = Duration.nanoseconds(try #require(timer.values.first))
-        let span = try #require(context.spans.first)
         let spanned = Duration.nanoseconds(
             Int64(span.endInstant.nanosecondsSinceEpoch - span.startInstant.nanosecondsSinceEpoch))
-        #expect(recorded >= Self.slowReportDelay)
-        #expect(max(spanned, recorded) - min(spanned, recorded) < Self.sameIntervalTolerance)
+        #expect(max(spanned, recorded) - min(spanned, recorded) < sameIntervalTolerance)
+        return recorded
+    }
+
+    /// Expects that the capture holds the telemetry of one background call:
+    /// one tool span with the background run kind, the outcome and
+    /// `tool.settled_inline`, and one count and one duration with the tool
+    /// name and the outcome as their dimensions.
+    ///
+    /// - Parameters:
+    ///   - context: The capture of the call.
+    ///   - toolName: The model-facing name of the tool.
+    ///   - outcomeValue: The expected `tool.outcome` value.
+    ///   - isSettledInline: The expected `tool.settled_inline` value.
+    /// - Returns: The tool span of the call.
+    /// - Throws: When the capture has no tool span, or no such counter or
+    ///   timer.
+    private static func expectBackgroundCall(
+        in context: TelemetryCapture.Context,
+        toolName: String,
+        outcomeValue: String,
+        isSettledInline: Bool
+    ) throws -> FinishedInMemorySpan {
+        try expectToolCallMetrics(in: context, toolName: toolName, outcomeValue: outcomeValue)
+        let toolSpans = context.spans.filter { $0.operationName == ExtrasTelemetry.SpanName.tool }
+        #expect(toolSpans.count == 1)
+        let span = try #require(toolSpans.first)
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.runKind) == .string("background"))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.outcome) == .string(outcomeValue))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.settledInline) == .bool(isSettledInline))
+        return span
     }
 
     /// The dimensions of each tool-call metric of one call.

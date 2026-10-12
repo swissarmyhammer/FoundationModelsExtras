@@ -59,6 +59,11 @@ enum ExtrasTelemetry {
         /// call, from ``ExtrasTelemetry/telemetryOutcome(of:)``.
         static let outcome = "tool.outcome"
 
+        /// Whether the run of a background call settled inside its settle
+        /// period: `true` when the call answers from the run, `false` when
+        /// the call answers with the pending envelope.
+        static let settledInline = "tool.settled_inline"
+
         /// The type of the error that ended a traced call: the type name, then
         /// the enum case name when reflection shows one. Never the description
         /// of the error, because a description can hold content.

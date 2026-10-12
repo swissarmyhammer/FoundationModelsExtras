@@ -22,8 +22,24 @@ comments:
     - evidence: 2 files — IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ToolHostingFixtures.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ToolHostingIntegrationTests.swift; swift test --package-path IntegrationTests: 35 passed, 0 failed
     - next: review
   timestamp: 2026-10-12T11:12:02.885881+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4qx79t2rb5tg2t49ja9x88f
+  text: |-
+    ### review — clean
+    - evidence: review sha 45836fd~1..45836fd — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). 2 files reviewed; 4 .kanban/ files not reviewed (.reviewignore). No prior Review Findings sections.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-12T11:16:02.498046+00:00
+- actor: claude-code
+  id: 01m4qx7b13yvbmveskk6wbvrwj
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 979 passed; IntegrationTests ToolHosting, 8 passed
+    - commit: 45836fd
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T11:16:03.747862+00:00
+position_column: done
+position_ordinal: f280
 title: 'IntegrationTests: remove the model-facing wait tool and its "call wait again" text from the tool-hosting fixtures'
 ---
 ## Why

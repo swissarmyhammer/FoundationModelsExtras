@@ -39,20 +39,42 @@ struct BackgroundToolRunner<
     /// Starts one call in the background, and returns its result when the
     /// run ends inside the settle period, or else its envelope.
     ///
-    /// The span covers only the start and the wait. A run that continues
-    /// settles later on the run plane.
+    /// The span and the duration of the call cover the start of the run and
+    /// the wait up to the end of the settle period. A run that continues
+    /// settles later on the run plane, outside the span.
+    ///
+    /// Each call records exactly one count and one duration, also when it
+    /// throws. A run that settled inside the settle period records the
+    /// outcome of its terminal event, also when the run plane settled it
+    /// while its body still runs. A call that answers with the pending
+    /// envelope records ``ToolCallSpan/outcomeOfStartedRun``. The span gets
+    /// `tool.settled_inline`. A timeout is not an error: it gives the span no
+    /// error status, and the call throws it after the span ends.
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool, or the rendered envelope.
     /// - Throws: The error of a run that ended inside the settle period.
     func callInBackground(arguments: Arguments) async throws -> String {
-        try await ToolCallSpan.withSpan(
+        let result = try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .background
         ) { call in
-            let rendered = try await start(arguments: arguments)
-            ToolCallSpan.record(outcome: .succeeded, on: call)
-            return rendered
+            let answer = await start(arguments: arguments)
+            ToolCallSpan.record(settledTerminal: answer.settledTerminal, on: call)
+            return try ToolCallSpan.spanResult(of: answer.result)
         }
+        return try result.get()
+    }
+
+    /// The answer of one background call to the model, and how its run
+    /// stood at the end of the settle period.
+    private struct Answer {
+        /// The output of the tool or the rendered pending envelope, or the
+        /// error of a run that ended inside the settle period.
+        let result: Result<String, any Error>
+
+        /// The terminal event of a run that settled inside the settle
+        /// period, or `nil` when the call answers with the pending envelope.
+        let settledTerminal: OperationEvent?
     }
 
     /// The tool as a ``BackgroundTool``, or `nil`.
@@ -91,9 +113,10 @@ struct BackgroundToolRunner<
     /// ``StagedEventWithdrawing``.
     ///
     /// - Parameter arguments: The arguments of the call.
-    /// - Returns: The output of the tool, or the rendered pending envelope.
-    /// - Throws: The error of a run that ended inside the settle period.
-    private func start(arguments: Arguments) async throws -> String {
+    /// - Returns: The output of the tool, the error of a run that ended
+    ///   inside the settle period, or the rendered pending envelope, with the
+    ///   terminal event of a run that settled.
+    private func start(arguments: Arguments) async -> Answer {
         let grace = grace
         let deadline = ContinuousClock.now.advanced(by: .seconds(grace))
         let run = ToolRun(
@@ -121,7 +144,7 @@ struct BackgroundToolRunner<
         guard grace > 0,
             case .settled(let terminal) = await site.runPlane.wait(completionToken: token, seconds: grace)
         else {
-            return pending.rendered
+            return Answer(result: .success(pending.rendered), settledTerminal: nil)
         }
         await (site.sink as? any StagedEventWithdrawing)?.withdrawStagedEvents(correlationID: token)
         // The body gives its result before it returns the terminal event, so
@@ -129,10 +152,7 @@ struct BackgroundToolRunner<
         // plane settled while the body still runs (a sweep, or a stop of a
         // process) has none, and the call must not wait for a body that can
         // ignore the cancel. That call answers from the terminal event.
-        guard let ownResult = result.fulfilledValue else {
-            return terminal.detail
-        }
-        return try ownResult.get()
+        return Answer(result: result.fulfilledValue ?? .success(terminal.detail), settledTerminal: terminal)
     }
 
     /// `duration` in seconds.

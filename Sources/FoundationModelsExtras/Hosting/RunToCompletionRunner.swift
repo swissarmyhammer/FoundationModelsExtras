@@ -52,26 +52,8 @@ struct RunToCompletionRunner<
             await run.open()
             let settlement = await run.execute(arguments: arguments)
             ToolCallSpan.record(outcomeOf: settlement.terminal, on: call)
-            return try Self.spanResult(of: settlement.result)
+            return try ToolCallSpan.spanResult(of: settlement.result)
         }
         return try result.get()
-    }
-
-    /// Gives back the result of a call as the span body must see it.
-    ///
-    /// The span body gives a timeout back as a value, so the span does not
-    /// record the timeout as an error. The body throws each other error, so
-    /// the span gets the error status for it.
-    ///
-    /// - Parameter result: The result of the call.
-    /// - Returns: The output of the tool, or the timeout as a failure.
-    /// - Throws: Each error of the call that is not a timeout.
-    private static func spanResult(of result: Result<String, any Error>) throws -> Result<String, any Error> {
-        switch result {
-        case .failure(ToolMountError.timedOut):
-            return result
-        case .success, .failure:
-            return .success(try result.get())
-        }
     }
 }
