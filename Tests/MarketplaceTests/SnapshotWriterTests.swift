@@ -7,7 +7,8 @@ import Testing
 /// Proves the snapshot writer, which builds a snapshot after the fetch: one
 /// flat folder that holds `<entry>/` for each selected skill,
 /// `agents/<name>/` for each agent, and the partials folder that the layout
-/// names, the execute bit, the validation rules, and the diagnostics.
+/// names, the execute bit, the validation rules, the diagnostics, and the
+/// span of each write.
 ///
 /// Each test writes into its own temporary folder, so no test reads the files
 /// of another test. The happy path scans a fixture marketplace through
@@ -46,6 +47,10 @@ struct SnapshotWriterTests {
   /// A limit of one, to prove that the writer counts.
   private static let limitOfOne = 1
 
+  /// Limits that permit one file, so that the second file of a tree
+  /// reaches the file limit.
+  private static let oneFileLimits = SnapshotLimits(maxBytes: generousLimits.maxBytes, maxFiles: limitOfOne)
+
   /// The permissions that an executable file of a snapshot has.
   private static let executablePermissions = 0o755
 
@@ -58,6 +63,10 @@ struct SnapshotWriterTests {
 
   /// The name of the agent document.
   private static let agentDocumentName = MarketplaceLayer.agentDocumentName
+
+  /// The display id that each write of these tests gives the telemetry. No
+  /// path of a test tree holds it.
+  private static let marketplaceID = "writer-fixture"
 
   /// A temporary folder, and the snapshot folder that the writer makes
   /// inside it.
@@ -186,9 +195,10 @@ struct SnapshotWriterTests {
   /// - Throws: The error of the write.
   private static func write(
     _ tree: (source: MemoryCatalogFileSource, catalog: ResolvedCatalog), to destination: Destination
-  ) throws -> SnapshotReport {
-    try SnapshotWriter.write(
-      catalog: tree.catalog, from: tree.source, to: destination.folder, layout: layout, limits: generousLimits)
+  ) async throws -> SnapshotReport {
+    try await SnapshotWriter.write(
+      catalog: tree.catalog, from: tree.source, to: destination.folder, layout: layout, limits: generousLimits,
+      marketplaceID: marketplaceID)
   }
 
   /// Scans a folder on the disk and writes its snapshot.
@@ -204,11 +214,12 @@ struct SnapshotWriterTests {
   private static func writeSnapshot(
     ofFolder root: URL, selection: SkillSelection, layout: MarketplaceLayout, limits: SnapshotLimits,
     to destination: Destination
-  ) throws -> SnapshotReport {
+  ) async throws -> SnapshotReport {
     let source = LocalCatalogFileSource(root: root)
     let catalog = CatalogResolver.resolve(from: source, selection: selection, layout: layout)
-    return try SnapshotWriter.write(
-      catalog: catalog, from: source, to: destination.folder, layout: layout, limits: limits)
+    return try await SnapshotWriter.write(
+      catalog: catalog, from: source, to: destination.folder, layout: layout, limits: limits,
+      marketplaceID: marketplaceID)
   }
 
   /// Writes a snapshot of one fixture marketplace with the test layout.
@@ -223,8 +234,8 @@ struct SnapshotWriterTests {
   private static func writeFixture(
     named name: String, selection: SkillSelection, to destination: Destination,
     limits: SnapshotLimits = generousLimits
-  ) throws -> SnapshotReport {
-    try writeSnapshot(
+  ) async throws -> SnapshotReport {
+    try await writeSnapshot(
       ofFolder: MarketplaceTestSupport.marketplaceFixture(named: name), selection: selection, layout: layout,
       limits: limits, to: destination)
   }
@@ -240,19 +251,19 @@ struct SnapshotWriterTests {
   /// - Throws: The error of a file write, or of the snapshot write.
   private static func writeTree(
     _ files: [String: String], layout: MarketplaceLayout, to destination: Destination
-  ) throws -> SnapshotReport {
-    try writeSnapshot(
+  ) async throws -> SnapshotReport {
+    try await writeSnapshot(
       ofFolder: try MarketplaceTestSupport.makeTempDirectory(withFiles: files), selection: .all, layout: layout,
       limits: generousLimits, to: destination)
   }
 
   // MARK: - Happy path
 
-  @Test func aSnapshotOfAFixtureMarketplaceIsAFlatLayerRoot() throws {
+  @Test func aSnapshotOfAFixtureMarketplaceIsAFlatLayerRoot() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeFixture(named: Self.fixtureName, selection: .all, to: destination)
+    let report = try await Self.writeFixture(named: Self.fixtureName, selection: .all, to: destination)
 
     #expect(report.diagnostics.isEmpty)
     #expect(report.fileCount == Self.fixtureFileCount)
@@ -261,39 +272,39 @@ struct SnapshotWriterTests {
   }
 
   @Test(arguments: fixtureEntryNames)
-  func eachEntryFolderOfTheSnapshotHoldsItsDocument(entry: String) throws {
+  func eachEntryFolderOfTheSnapshotHoldsItsDocument(entry: String) async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    _ = try Self.writeFixture(named: Self.fixtureName, selection: .all, to: destination)
+    _ = try await Self.writeFixture(named: Self.fixtureName, selection: .all, to: destination)
 
     #expect(try destination.names(inFolder: entry).contains(Self.layout.documentName))
   }
 
-  @Test func aSkillSelectionKeepsOnlyTheChosenSkills() throws {
+  @Test func aSkillSelectionKeepsOnlyTheChosenSkills() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    _ = try Self.writeFixture(named: Self.fixtureName, selection: .skills(["tdd"]), to: destination)
+    _ = try await Self.writeFixture(named: Self.fixtureName, selection: .skills(["tdd"]), to: destination)
 
     #expect(try destination.names() == [Self.partialsName, "tdd"])
   }
 
-  @Test func thePartialsFolderOfASelectedSkillFolderIsCopied() throws {
+  @Test func thePartialsFolderOfASelectedSkillFolderIsCopied() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    _ = try Self.writeFixture(named: Self.fixtureName, selection: .all, to: destination)
+    _ = try await Self.writeFixture(named: Self.fixtureName, selection: .all, to: destination)
 
     #expect(try destination.names(inFolder: Self.partialsName) == ["sah-task-standards.md"])
   }
 
-  @Test func thePartialsFolderTakesTheNameOfTheLayout() throws {
+  @Test func thePartialsFolderTakesTheNameOfTheLayout() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let layout = MarketplaceLayout(documentName: Self.layout.documentName, partialsDirectoryName: "_shared")
 
-    _ = try Self.writeTree(
+    _ = try await Self.writeTree(
       [
         "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "skills/_shared/note.md": "shared note",
@@ -304,11 +315,11 @@ struct SnapshotWriterTests {
     #expect(try destination.names(inFolder: "_shared") == ["note.md"])
   }
 
-  @Test func aDuplicatePartialNameGivesADiagnosticAndTheLaterFolderInPathOrderWins() throws {
+  @Test func aDuplicatePartialNameGivesADiagnosticAndTheLaterFolderInPathOrderWins() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(Self.twoPartialFolderTree, layout: Self.layout, to: destination)
+    let report = try await Self.writeTree(Self.twoPartialFolderTree, layout: Self.layout, to: destination)
 
     #expect(report.diagnostics.map(\.severity) == [.warning])
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from second")
@@ -333,11 +344,11 @@ struct SnapshotWriterTests {
   ]
 
   @Test(arguments: entriesUnderAPluginFolder)
-  func thePartialsOfAFolderAboveAnEntryAreCopied(entry: [String: String], snapshotFolder: String) throws {
+  func thePartialsOfAFolderAboveAnEntryAreCopied(entry: [String: String], snapshotFolder: String) async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       entry.merging(["tools/_partials/note.md": "from the plugin folder"]) { $1 }, layout: Self.layout,
       to: destination)
 
@@ -346,11 +357,11 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the plugin folder")
   }
 
-  @Test func theSkillsPartialsReplaceTheRootPartialsWithNoDiagnostic() throws {
+  @Test func theSkillsPartialsReplaceTheRootPartialsWithNoDiagnostic() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       [
         "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "_partials/root-only.md": "root only",
@@ -365,11 +376,11 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from skills")
   }
 
-  @Test func anAgentGetsThePartialsOfTheRoot() throws {
+  @Test func anAgentGetsThePartialsOfTheRoot() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       [
         "agents/planner/AGENT.md": MarketplaceTestSupport.agentDocument(named: "planner"),
         "_partials/sah-x.md": "from the root",
@@ -380,11 +391,11 @@ struct SnapshotWriterTests {
     #expect(try destination.names(inFolder: Self.partialsName) == ["sah-x.md"])
   }
 
-  @Test func aTreeCopiesThePartialsOfTheRoot() throws {
+  @Test func aTreeCopiesThePartialsOfTheRoot() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       [
         "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "_partials/note.md": "from the root",
@@ -394,11 +405,11 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/note.md") == "from the root")
   }
 
-  @Test func aSkillFolderAtTheRootCopiesTheRootPartialsOneTime() throws {
+  @Test func aSkillFolderAtTheRootCopiesTheRootPartialsOneTime() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       [
         "alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "_partials/note.md": "from the root",
@@ -408,17 +419,18 @@ struct SnapshotWriterTests {
     #expect(try destination.names(inFolder: Self.partialsName) == ["note.md"])
   }
 
-  @Test func aTreeWithNoEntryCopiesNoPartials() throws {
+  @Test func aTreeWithNoEntryCopiesNoPartials() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(["_partials/note.md": "from the root"], layout: Self.layout, to: destination)
+    let report = try await Self.writeTree(
+      ["_partials/note.md": "from the root"], layout: Self.layout, to: destination)
 
     #expect(report.fileCount == 0)
     #expect(!FileManager.default.fileExists(atPath: destination.folder.appendingPathComponent(Self.partialsName).path))
   }
 
-  @Test func twoPluginFolderPartialsOfTheSameNameGiveOneDiagnosticAndTheLaterFolderWins() throws {
+  @Test func twoPluginFolderPartialsOfTheSameNameGiveOneDiagnosticAndTheLaterFolderWins() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     var tree = Self.twoPartialFolderTree
@@ -427,13 +439,13 @@ struct SnapshotWriterTests {
     tree["first/_partials/shared.md"] = "from first"
     tree["second/_partials/shared.md"] = "from second"
 
-    let report = try Self.writeTree(tree, layout: Self.layout, to: destination)
+    let report = try await Self.writeTree(tree, layout: Self.layout, to: destination)
 
     #expect(report.diagnostics.map(\.severity) == [.warning])
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from second")
   }
 
-  @Test func aMoreSpecificFileReplacesALessSpecificLinkAndNotItsTarget() throws {
+  @Test func aMoreSpecificFileReplacesALessSpecificLinkAndNotItsTarget() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let root = try MarketplaceTestSupport.makeTempDirectory(withFiles: [
@@ -444,7 +456,7 @@ struct SnapshotWriterTests {
     try FileManager.default.createSymbolicLink(
       atPath: root.appendingPathComponent("_partials/shared.md").path, withDestinationPath: "target.md")
 
-    let report = try Self.writeSnapshot(
+    let report = try await Self.writeSnapshot(
       ofFolder: root, selection: .all, layout: Self.layout, limits: Self.generousLimits, to: destination)
 
     #expect(report.diagnostics.isEmpty)
@@ -452,7 +464,7 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/target.md") == "the target")
   }
 
-  @Test func aMoreSpecificLinkReplacesALessSpecificFile() throws {
+  @Test func aMoreSpecificLinkReplacesALessSpecificFile() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let root = try MarketplaceTestSupport.makeTempDirectory(withFiles: [
@@ -463,18 +475,18 @@ struct SnapshotWriterTests {
     try FileManager.default.createSymbolicLink(
       atPath: root.appendingPathComponent("skills/_partials/shared.md").path, withDestinationPath: "target.md")
 
-    let report = try Self.writeSnapshot(
+    let report = try await Self.writeSnapshot(
       ofFolder: root, selection: .all, layout: Self.layout, limits: Self.generousLimits, to: destination)
 
     #expect(report.diagnostics.isEmpty)
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "the skills target")
   }
 
-  @Test func aPartialsFolderInsideASkillFolderGoesWithTheSkillFolder() throws {
+  @Test func aPartialsFolderInsideASkillFolderGoesWithTheSkillFolder() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    _ = try Self.writeTree(
+    _ = try await Self.writeTree(
       [
         "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "skills/alpha/_partials/own.md": "from alpha",
@@ -504,11 +516,11 @@ struct SnapshotWriterTests {
   /// partials for each of the three folders.
   private static let nestedSkillFileCount = 7
 
-  @Test func aNestedSkillGetsThePartialsOfEachFolderFromTheRootDown() throws {
+  @Test func aNestedSkillGetsThePartialsOfEachFolderFromTheRootDown() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(Self.nestedSkillTree, layout: Self.layout, to: destination)
+    let report = try await Self.writeTree(Self.nestedSkillTree, layout: Self.layout, to: destination)
 
     #expect(report.diagnostics.isEmpty)
     #expect(
@@ -517,20 +529,20 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from group")
   }
 
-  @Test func eachPartialsFolderOfANestedSkillIsCopiedOneTime() throws {
+  @Test func eachPartialsFolderOfANestedSkillIsCopiedOneTime() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(Self.nestedSkillTree, layout: Self.layout, to: destination)
+    let report = try await Self.writeTree(Self.nestedSkillTree, layout: Self.layout, to: destination)
 
     #expect(report.fileCount == Self.nestedSkillFileCount)
   }
 
-  @Test func theMostSpecificCopyWinsWhenAShallowerSkillIsBeside() throws {
+  @Test func theMostSpecificCopyWinsWhenAShallowerSkillIsBeside() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       [
         "skills/group/review/SKILL.md": Self.skillFile(named: "review"),
         "skills/top/SKILL.md": Self.skillFile(named: "top"),
@@ -542,11 +554,11 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.partialsName)/shared.md") == "from group")
   }
 
-  @Test func twoFoldersAtTheSameLevelGiveOneDiagnosticAndTheLaterFolderWins() throws {
+  @Test func twoFoldersAtTheSameLevelGiveOneDiagnosticAndTheLaterFolderWins() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       [
         "skills/group-a/alpha/SKILL.md": Self.skillFile(named: "alpha"),
         "skills/group-b/beta/SKILL.md": Self.skillFile(named: "beta"),
@@ -609,11 +621,12 @@ struct SnapshotWriterTests {
   /// The extension that an included partial path leaves out.
   private static let partialExtension = ".md"
 
-  @Test func theSnapshotHoldsAgentsSlashNameForEachAgentFolder() throws {
+  @Test func theSnapshotHoldsAgentsSlashNameForEachAgentFolder() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(MarketplaceTestSupport.twoPluginAgentTree, layout: Self.layout, to: destination)
+    let report = try await Self.writeTree(
+      MarketplaceTestSupport.twoPluginAgentTree, layout: Self.layout, to: destination)
 
     #expect(report.diagnostics.isEmpty)
     #expect(try destination.names() == [Self.agentsName, "alpha", "beta"])
@@ -623,22 +636,22 @@ struct SnapshotWriterTests {
         == MarketplaceTestSupport.agentDocument(named: "reviewer"))
   }
 
-  @Test func theAgentFolderThatWinsTheScanIsInTheSnapshot() throws {
+  @Test func theAgentFolderThatWinsTheScanIsInTheSnapshot() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     var tree = MarketplaceTestSupport.twoPluginAgentTree
     tree["first/agents/reviewer/AGENT.md"] = "from first"
 
-    _ = try Self.writeTree(tree, layout: Self.layout, to: destination)
+    _ = try await Self.writeTree(tree, layout: Self.layout, to: destination)
 
     #expect(try destination.text(ofFile: "\(Self.agentsName)/reviewer/\(Self.agentDocumentName)") == "from first")
   }
 
-  @Test func anAgentFolderIsCopiedAsATree() throws {
+  @Test func anAgentFolderIsCopiedAsATree() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    _ = try Self.writeTree(
+    _ = try await Self.writeTree(
       [
         "agents/lead/AGENT.md": MarketplaceTestSupport.agentDocument(named: "lead"),
         "agents/lead/checklist.md": "a resource",
@@ -649,43 +662,42 @@ struct SnapshotWriterTests {
     #expect(try destination.text(ofFile: "\(Self.agentsName)/lead/data/table.txt") == "a nested resource")
   }
 
-  @Test func anAgentDocumentIsCopiedByteForByte() throws {
+  @Test func anAgentDocumentIsCopiedByteForByte() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let text = "---\nname: [\n---\n\nNo frontmatter that parses.\n"
 
-    _ = try Self.writeTree(["agents/broken/AGENT.md": text], layout: Self.layout, to: destination)
+    _ = try await Self.writeTree(["agents/broken/AGENT.md": text], layout: Self.layout, to: destination)
 
     #expect(try destination.text(ofFile: "\(Self.agentsName)/broken/\(Self.agentDocumentName)") == text)
   }
 
-  @Test func theReportCountsEachAgentFile() throws {
+  @Test func theReportCountsEachAgentFile() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(Self.oneSkillAndOneAgentTree, layout: Self.layout, to: destination)
+    let report = try await Self.writeTree(Self.oneSkillAndOneAgentTree, layout: Self.layout, to: destination)
 
     #expect(report.fileCount == Self.oneSkillFileAndOneAgentFile)
   }
 
-  @Test func anAgentFileAboveTheFileLimitIsRejectedAndNoFolderStays() throws {
+  @Test func anAgentFileAboveTheFileLimitIsRejectedAndNoFolderStays() async throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let limits = SnapshotLimits(maxBytes: Self.generousLimits.maxBytes, maxFiles: Self.limitOfOne)
 
-    #expect(throws: SnapshotError.tooManyFiles(path: "agents/planner/AGENT.md", limit: Self.limitOfOne)) {
-      _ = try Self.writeSnapshot(
+    await #expect(throws: SnapshotError.tooManyFiles(path: "agents/planner/AGENT.md", limit: Self.limitOfOne)) {
+      _ = try await Self.writeSnapshot(
         ofFolder: try MarketplaceTestSupport.makeTempDirectory(withFiles: Self.oneSkillAndOneAgentTree),
-        selection: .all, layout: Self.layout, limits: limits, to: destination)
+        selection: .all, layout: Self.layout, limits: Self.oneFileLimits, to: destination)
     }
     #expect(!destination.folderExists)
   }
 
-  @Test func aSkillFolderNamedAgentsIsNotCopied() throws {
+  @Test func aSkillFolderNamedAgentsIsNotCopied() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeTree(
+    let report = try await Self.writeTree(
       [
         "skills/agents/SKILL.md": Self.skillFile(named: "agents"),
         "skills/alpha/SKILL.md": Self.skillFile(named: "alpha"),
@@ -695,11 +707,11 @@ struct SnapshotWriterTests {
     #expect(try destination.names() == ["alpha"])
   }
 
-  @Test func theSwissarmyhammerShapeGivesEachAgentAndThePartials() throws {
+  @Test func theSwissarmyhammerShapeGivesEachAgentAndThePartials() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeFixture(named: Self.agentsFixtureName, selection: .all, to: destination)
+    let report = try await Self.writeFixture(named: Self.agentsFixtureName, selection: .all, to: destination)
 
     #expect(report.diagnostics.isEmpty)
     #expect(try destination.names() == [Self.partialsName, Self.agentsName, "code-context", "review"])
@@ -710,10 +722,10 @@ struct SnapshotWriterTests {
   }
 
   @Test(arguments: agentsFixtureAgentNames)
-  func eachAgentOfTheSwissarmyhammerShapeFindsThePartialThatItIncludes(agent: String) throws {
+  func eachAgentOfTheSwissarmyhammerShapeFindsThePartialThatItIncludes(agent: String) async throws {
     let destination = try Destination()
     defer { destination.remove() }
-    _ = try Self.writeFixture(named: Self.agentsFixtureName, selection: .all, to: destination)
+    _ = try await Self.writeFixture(named: Self.agentsFixtureName, selection: .all, to: destination)
 
     let text = try destination.text(ofFile: "\(Self.agentsName)/\(agent)/\(Self.agentDocumentName)")
     let included = text.matches(of: Self.includePattern).map { String($0.output.1) + Self.partialExtension }
@@ -722,11 +734,11 @@ struct SnapshotWriterTests {
     #expect(included.allSatisfy { FileManager.default.fileExists(atPath: destination.folder.appendingPathComponent($0).path) })
   }
 
-  @Test func thePluginLayoutGivesEachAgentFolderItsResourcesAndThePluginPartials() throws {
+  @Test func thePluginLayoutGivesEachAgentFolderItsResourcesAndThePluginPartials() async throws {
     let destination = try Destination()
     defer { destination.remove() }
 
-    let report = try Self.writeFixture(named: "agent-library", selection: .all, to: destination)
+    let report = try await Self.writeFixture(named: "agent-library", selection: .all, to: destination)
 
     #expect(report.diagnostics.isEmpty)
     #expect(try destination.names() == [Self.partialsName, Self.agentsName, "review"])
@@ -738,7 +750,7 @@ struct SnapshotWriterTests {
 
   // MARK: - The execute bit
 
-  @Test func anExecutableFileKeepsModeSevenFiveFive() throws {
+  @Test func anExecutableFileKeepsModeSevenFiveFive() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let tree = Self.oneEntry(
@@ -748,7 +760,7 @@ struct SnapshotWriterTests {
       ],
       files: ["SKILL.md": Self.skillFile(named: "tool"), "run.sh": "#!/bin/sh\necho hello\n"])
 
-    _ = try Self.write(tree, to: destination)
+    _ = try await Self.write(tree, to: destination)
 
     let attributes = try FileManager.default.attributesOfItem(
       atPath: destination.folder.appendingPathComponent("tool/run.sh").path)
@@ -756,14 +768,14 @@ struct SnapshotWriterTests {
     #expect(permissions.intValue == Self.executablePermissions)
   }
 
-  @Test func aPlainFileDoesNotGetTheExecuteBit() throws {
+  @Test func aPlainFileDoesNotGetTheExecuteBit() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let tree = Self.oneEntry(
       holding: [CatalogTreeEntry(name: "SKILL.md", kind: .file(isExecutable: false))],
       files: ["SKILL.md": Self.skillFile(named: "tool")])
 
-    _ = try Self.write(tree, to: destination)
+    _ = try await Self.write(tree, to: destination)
 
     let document = destination.folder.appendingPathComponent("tool/SKILL.md").path
     #expect(!FileManager.default.isExecutableFile(atPath: document))
@@ -772,13 +784,13 @@ struct SnapshotWriterTests {
   // MARK: - Rejections
 
   @Test(arguments: ["..", "a..b", ".", "a/b", "a\\b", "", "tab\tname"])
-  func anUnsafeEntryNameIsRejectedAndNoFolderStays(name: String) throws {
+  func anUnsafeEntryNameIsRejectedAndNoFolderStays(name: String) async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: name, kind: .file(isExecutable: false))])
 
-    #expect(throws: SnapshotError.unsafeEntryName(directory: "tool", name: name)) {
-      _ = try Self.write(tree, to: destination)
+    await #expect(throws: SnapshotError.unsafeEntryName(directory: "tool", name: name)) {
+      _ = try await Self.write(tree, to: destination)
     }
     #expect(!destination.folderExists)
   }
@@ -786,18 +798,20 @@ struct SnapshotWriterTests {
   @Test(
     arguments: ["../../outside.md", "../outside.md", "/etc/passwd", "~/secret", "sub/../../outside.md"],
     [MemoryEntryKind.skill, .agent])
-  func aSymlinkThatLeavesItsEntryFolderIsRejectedAndNoFolderStays(target: String, kind: MemoryEntryKind) throws {
+  func aSymlinkThatLeavesItsEntryFolderIsRejectedAndNoFolderStays(
+    target: String, kind: MemoryEntryKind
+  ) async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: "link.md", kind: .symlink(target: target))], kind: kind)
 
-    #expect(throws: SnapshotError.escapingSymlink(path: "tool/link.md", target: target)) {
-      _ = try Self.write(tree, to: destination)
+    await #expect(throws: SnapshotError.escapingSymlink(path: "tool/link.md", target: target)) {
+      _ = try await Self.write(tree, to: destination)
     }
     #expect(!destination.folderExists)
   }
 
-  @Test func aSymlinkThatStaysInTheSkillFolderIsCopied() throws {
+  @Test func aSymlinkThatStaysInTheSkillFolderIsCopied() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let tree = Self.oneEntry(
@@ -807,54 +821,53 @@ struct SnapshotWriterTests {
       ],
       files: ["SKILL.md": Self.skillFile(named: "tool")])
 
-    _ = try Self.write(tree, to: destination)
+    _ = try await Self.write(tree, to: destination)
 
     let link = destination.folder.appendingPathComponent("tool/link.md").path
     #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link) == "SKILL.md")
   }
 
-  @Test func aSubmoduleEntryIsRejectedAndNoFolderStays() throws {
+  @Test func aSubmoduleEntryIsRejectedAndNoFolderStays() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let tree = Self.oneEntry(holding: [CatalogTreeEntry(name: "vendor", kind: .submodule)])
 
-    #expect(throws: SnapshotError.submodule(path: "tool/vendor")) {
-      _ = try Self.write(tree, to: destination)
+    await #expect(throws: SnapshotError.submodule(path: "tool/vendor")) {
+      _ = try await Self.write(tree, to: destination)
     }
     #expect(!destination.folderExists)
   }
 
   // MARK: - Limits
 
-  @Test func aFileCountAboveTheLimitIsRejectedAndNoFolderStays() throws {
+  @Test func aFileCountAboveTheLimitIsRejectedAndNoFolderStays() async throws {
     let destination = try Destination()
     defer { destination.remove() }
-    let limits = SnapshotLimits(maxBytes: Self.generousLimits.maxBytes, maxFiles: Self.limitOfOne)
 
-    #expect(
+    await #expect(
       throws: SnapshotError.tooManyFiles(path: Self.fixtureSecondFilePath, limit: Self.limitOfOne)
     ) {
-      _ = try Self.writeFixture(
-        named: Self.fixtureName, selection: .all, to: destination, limits: limits)
+      _ = try await Self.writeFixture(
+        named: Self.fixtureName, selection: .all, to: destination, limits: Self.oneFileLimits)
     }
     #expect(!destination.folderExists)
   }
 
-  @Test func aByteCountAboveTheLimitIsRejectedAndNoFolderStays() throws {
+  @Test func aByteCountAboveTheLimitIsRejectedAndNoFolderStays() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let limits = SnapshotLimits(maxBytes: Self.limitOfOne, maxFiles: Self.generousLimits.maxFiles)
 
-    #expect(
+    await #expect(
       throws: SnapshotError.tooManyBytes(path: Self.fixtureFirstFilePath, limit: Self.limitOfOne)
     ) {
-      _ = try Self.writeFixture(
+      _ = try await Self.writeFixture(
         named: Self.fixtureName, selection: .all, to: destination, limits: limits)
     }
     #expect(!destination.folderExists)
   }
 
-  @Test func theReportCountsTheFilesAndTheBytes() throws {
+  @Test func theReportCountsTheFilesAndTheBytes() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let document = Self.skillFile(named: "tool")
@@ -865,7 +878,7 @@ struct SnapshotWriterTests {
       ],
       files: ["SKILL.md": document])
 
-    let report = try Self.write(tree, to: destination)
+    let report = try await Self.write(tree, to: destination)
 
     #expect(report == SnapshotReport(fileCount: Self.oneFileAndOneLink, byteCount: document.utf8.count, diagnostics: []))
   }
@@ -876,7 +889,7 @@ struct SnapshotWriterTests {
 
   // MARK: - Large file storage
 
-  @Test func aLargeFileStoragePointerIsWrittenAndGivesADiagnostic() throws {
+  @Test func aLargeFileStoragePointerIsWrittenAndGivesADiagnostic() async throws {
     let destination = try Destination()
     defer { destination.remove() }
     let pointer = """
@@ -892,11 +905,80 @@ struct SnapshotWriterTests {
       ],
       files: ["SKILL.md": Self.skillFile(named: "tool"), "diagram.png": pointer])
 
-    let report = try Self.write(tree, to: destination)
+    let report = try await Self.write(tree, to: destination)
 
     #expect(report.diagnostics.map(\.severity) == [.warning])
     #expect(report.diagnostics.first?.message.contains("tool/diagram.png") == true)
     #expect(try destination.text(ofFile: "tool/diagram.png") == pointer)
+  }
+
+  // MARK: - Telemetry
+
+  /// The helpers that read the telemetry of a writer test.
+  private typealias Telemetry = MarketplaceTelemetryExpectations
+
+  /// The file count of a write under ``oneFileLimits`` when it stops: the
+  /// count holds the file that reached the limit.
+  private static let refusedWriteFileCount = limitOfOne + 1
+
+  /// The number of bytes of some files of ``fixtureName``.
+  ///
+  /// - Parameter paths: The tree paths of the files.
+  /// - Returns: The sum of the sizes of the files.
+  /// - Throws: The error of a file read.
+  private static func byteCount(ofFixtureFiles paths: [String]) throws -> Int {
+    let root = MarketplaceTestSupport.marketplaceFixture(named: fixtureName)
+    return try paths.map { try Data(contentsOf: root.appendingPathComponent($0)).count }.reduce(0, +)
+  }
+
+  @Test func aSnapshotWriteOpensOneSpanWithTheFileCountAndTheByteCount() async throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let (context, report) = try await Telemetry.capture {
+      try? await Self.writeFixture(named: Self.fixtureName, selection: .all, to: destination)
+    }
+
+    let written = try #require(report)
+    let span = try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.snapshotWrite, in: context.spans)
+    Telemetry.expectMarketplaceID(of: span, id: Self.marketplaceID)
+    Telemetry.expectSnapshotCounts(of: span, fileCount: Self.fixtureFileCount, byteCount: written.byteCount)
+    Telemetry.expectEachNameHasThePrefix(in: context)
+  }
+
+  @Test func aRefusedSnapshotWriteRecordsTheCountsUpToTheRefusedFileAndTheErrorType() async throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+
+    let (context, report) = try await Telemetry.capture {
+      try? await Self.writeFixture(
+        named: Self.fixtureName, selection: .all, to: destination, limits: Self.oneFileLimits)
+    }
+
+    #expect(report == nil)
+    let span = try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.snapshotWrite, in: context.spans)
+    Telemetry.expectFailure(of: span)
+    Telemetry.expectSnapshotCounts(
+      of: span, fileCount: Self.refusedWriteFileCount,
+      byteCount: try Self.byteCount(ofFixtureFiles: [Self.fixtureFirstFilePath, Self.fixtureSecondFilePath]))
+  }
+
+  @Test func noSpanLogRecordOrMetricOfASnapshotWriteHoldsAPathOrAFileName() async throws {
+    let destination = try Destination()
+    defer { destination.remove() }
+    let forbidden = [
+      destination.parent.path, MarketplaceTestSupport.marketplaceFixture(named: Self.fixtureName).path,
+      Self.fixtureFirstFilePath, Self.fixtureSecondFilePath, Self.layout.documentName,
+    ]
+
+    let (context, report) = try await Telemetry.capture(forbidding: forbidden) {
+      try? await Self.writeFixture(
+        named: Self.fixtureName, selection: .all, to: destination, limits: Self.oneFileLimits)
+    }
+
+    #expect(report == nil)
+    Telemetry.expectFailure(
+      of: try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.snapshotWrite, in: context.spans))
   }
 
   // MARK: - Error descriptions

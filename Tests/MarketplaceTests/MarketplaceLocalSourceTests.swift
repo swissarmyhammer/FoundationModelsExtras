@@ -151,59 +151,6 @@ struct MarketplaceLocalSourceTests {
 
   // MARK: - Support
 
-  /// One store over a git source that only the seed folder serves.
-  ///
-  /// The fixture installs one commit into a seed folder with a store of its
-  /// own, and then builds the store under test over an empty cache whose
-  /// environment names that seed folder.
-  private struct SeedFixture {
-    /// The repository that both stores read.
-    let repository: GitFixtureRepository
-
-    /// The read-only seed folder, in the cache layout.
-    let seedDirectory: URL
-
-    /// The commit that the seed folder holds.
-    let seededSha: String
-
-    /// The store under test, with its own empty cache.
-    let fixture: MarketplaceStoreFixture
-
-    /// The store under test.
-    var store: MarketplaceStore {
-      fixture.store
-    }
-
-    /// Seeds the folder and builds the store under test.
-    ///
-    /// - Throws: The error of a folder write, of the repository, or of the
-    ///   install.
-    init() async throws {
-      repository = try GitFixtureRepository()
-      seededSha = try repository.commit(files: MarketplaceTestSupport.skillTree(body: "seed body"))
-      seedDirectory = try TemporaryDirectory.make()
-      let source = MarketplaceSource(repository.url)
-      let seeding = try MarketplaceStoreFixture(sources: [source], cacheDirectory: seedDirectory)
-      await seeding.store.start()
-      fixture = try MarketplaceStoreFixture(
-        sources: [source], environment: [MarketplaceCache.seedVariable: seedDirectory.path])
-    }
-
-    /// The commits that the seed folder holds.
-    ///
-    /// - Returns: The commits, in order.
-    /// - Throws: The error of the folder read.
-    func installedSeedShas() throws -> [String] {
-      let marketplaces = try FileManager.default.contentsOfDirectory(
-        at: seedDirectory, includingPropertiesForKeys: nil)
-      return try marketplaces.flatMap { folder -> [String] in
-        let snapshots = folder.appendingPathComponent("snapshots", isDirectory: true)
-        return FileManager.default.fileExists(atPath: snapshots.path)
-          ? try FileManager.default.contentsOfDirectory(atPath: snapshots.path).sorted() : []
-      }
-    }
-  }
-
   /// Makes a folder in the layout of a local marketplace: one skill under
   /// `skills`.
   ///

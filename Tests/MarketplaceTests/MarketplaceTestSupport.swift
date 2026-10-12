@@ -33,6 +33,86 @@ actor CredentialRequestRecorder {
   }
 }
 
+/// One store over a git source that only the seed folder serves.
+///
+/// The fixture installs one commit into a seed folder with a store of its
+/// own, and then builds the store under test over an empty cache whose
+/// environment names that seed folder. `MarketplaceLocalSourceTests` proves
+/// what the seed folder serves, and `MarketplaceStoreTests` counts each
+/// served seed snapshot, thus the fixture is here, and not in one of the two
+/// suites.
+struct SeedFixture {
+  /// The repository that both stores read.
+  let repository: GitFixtureRepository
+
+  /// The read-only seed folder, in the cache layout.
+  let seedDirectory: URL
+
+  /// The commit that the seed folder holds.
+  let seededSha: String
+
+  /// The store under test, with its own empty cache.
+  let fixture: MarketplaceStoreFixture
+
+  /// The store under test.
+  var store: MarketplaceStore {
+    fixture.store
+  }
+
+  /// Seeds the folder and builds the store under test.
+  ///
+  /// - Throws: The error of a folder write, of the repository, or of the
+  ///   install.
+  init() async throws {
+    repository = try GitFixtureRepository()
+    seededSha = try repository.commit(files: MarketplaceTestSupport.skillTree(body: "seed body"))
+    seedDirectory = try TemporaryDirectory.make()
+    let seeding = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(repository.url)], cacheDirectory: seedDirectory)
+    await seeding.store.start()
+    fixture = try Self.makeStore(over: repository, seedDirectory: seedDirectory)
+  }
+
+  /// Builds one more store over an empty cache whose environment names the
+  /// seed folder, so that a test sees what the store does when it is made.
+  ///
+  /// - Returns: The new store.
+  /// - Throws: The error of a folder write.
+  func makeStore() throws -> MarketplaceStoreFixture {
+    try Self.makeStore(over: repository, seedDirectory: seedDirectory)
+  }
+
+  /// The commits that the seed folder holds.
+  ///
+  /// - Returns: The commits, in order.
+  /// - Throws: The error of the folder read.
+  func installedSeedShas() throws -> [String] {
+    let marketplaces = try FileManager.default.contentsOfDirectory(
+      at: seedDirectory, includingPropertiesForKeys: nil)
+    return try marketplaces.flatMap { folder -> [String] in
+      let snapshots = folder.appendingPathComponent("snapshots", isDirectory: true)
+      return FileManager.default.fileExists(atPath: snapshots.path)
+        ? try FileManager.default.contentsOfDirectory(atPath: snapshots.path).sorted() : []
+    }
+  }
+
+  /// Builds a store over an empty cache whose environment names a seed
+  /// folder.
+  ///
+  /// - Parameters:
+  ///   - repository: The repository of the one source of the store.
+  ///   - seedDirectory: The seed folder.
+  /// - Returns: The new store.
+  /// - Throws: The error of a folder write.
+  private static func makeStore(
+    over repository: GitFixtureRepository, seedDirectory: URL
+  ) throws -> MarketplaceStoreFixture {
+    try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(repository.url)],
+      environment: [MarketplaceCache.seedVariable: seedDirectory.path])
+  }
+}
+
 /// The shared helpers of the marketplace tests.
 ///
 /// `MarketplaceConfigTests` and `MarketplaceCacheTests` write text files into

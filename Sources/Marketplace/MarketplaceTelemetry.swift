@@ -51,6 +51,11 @@ enum MarketplaceTelemetry {
     /// The span of the materialize step: the scan of the fetched tree and the
     /// write of the staged snapshot.
     static let materialize = "Marketplace.materialize"
+
+    /// The span of one snapshot write: the copy of the selected skills, the
+    /// agents and the partials into the staged folder. It is a child of the
+    /// materialize span.
+    static let snapshotWrite = "Marketplace.snapshot_write"
   }
 
   /// The attribute keys of the spans of the target.
@@ -64,6 +69,15 @@ enum MarketplaceTelemetry {
 
     /// The ``MarketplacePassOutcome`` of a pass.
     static let passOutcome = "pass.outcome"
+
+    /// The number of files that a snapshot write copied. A symbolic link
+    /// counts as one file. A refused write gives the count up to the file
+    /// that it refused.
+    static let fileCount = "snapshot.file_count"
+
+    /// The number of bytes that a snapshot write copied. A refused write
+    /// gives the count up to the file that it refused.
+    static let byteCount = "snapshot.byte_count"
   }
 
   /// The metric names of the target.
@@ -93,6 +107,11 @@ enum MarketplaceTelemetry {
     /// The counter that counts each snapshot that the cleanup of the cache
     /// deleted.
     static let removedSnapshots = "Marketplace.snapshots.removed"
+
+    /// The counter that counts each snapshot that the store serves, with
+    /// the ``MarketplaceSnapshotSource`` of the snapshot. It tells a reuse of
+    /// a snapshot on the disk from a new install.
+    static let servedSnapshots = "Marketplace.snapshots.served"
   }
 
   /// The dimension keys of the metrics of the target.
@@ -116,6 +135,9 @@ enum MarketplaceTelemetry {
 
     /// The ``MarketplaceCallOutcome`` of an install of a snapshot.
     static let installOutcome = "install.outcome"
+
+    /// The ``MarketplaceSnapshotSource`` of a served snapshot.
+    static let snapshotSource = "snapshot.source"
   }
 
   /// The metadata keys of the log records of the target.
@@ -179,7 +201,9 @@ enum MarketplaceTelemetry {
       if passOutcome == .failed {
         span.setStatus(SpanStatus(code: .error))
       }
-      makePassCounter(id: id, kind: kind, outcome: passOutcome).increment()
+      count(
+        MetricName.passes, id: id,
+        dimensions: [(DimensionKey.passKind, kind.rawValue), (DimensionKey.passOutcome, passOutcome.rawValue)])
       return output
     }
   }
@@ -193,22 +217,38 @@ enum MarketplaceTelemetry {
   /// - Parameters:
   ///   - spanName: The name of the span, from ``SpanName``.
   ///   - id: The display id of the marketplace.
-  ///   - body: The step. It runs on the actor of the caller.
+  ///   - body: The step. It gets the open span, so that it can give the span
+  ///     the counts of the step, and it runs on the actor of the caller.
   /// - Returns: The value of `body`.
   /// - Throws: The error of `body`.
   nonisolated(nonsending) static func traceStep<Output>(
     _ spanName: String,
     id: String,
-    _ body: nonisolated(nonsending) () async throws -> Output
+    _ body: nonisolated(nonsending) (any Span) async throws -> Output
   ) async throws -> Output {
     try await TracedCall.run(
       spanName,
       logger: makeLogger(),
       attributes: { $0[AttributeKey.marketplaceID] = id },
       metadata: [LogMetadataKey.marketplaceID: .string(id)]
-    ) { _ in
-      try await body()
+    ) { span in
+      try await body(span)
     }
+  }
+
+  /// Gives a snapshot write span the file count and the byte count of the
+  /// write.
+  ///
+  /// The writer calls this when the write ends, on the success path and on
+  /// the error path. Thus a refused write also shows how far it came. The
+  /// counts are numbers only, and no path of the tree goes into the span.
+  ///
+  /// - Parameters:
+  ///   - report: The counts of the write so far.
+  ///   - span: The snapshot write span.
+  static func recordCounts(of report: SnapshotReport, on span: any Span) {
+    span.attributes[AttributeKey.fileCount] = report.fileCount
+    span.attributes[AttributeKey.byteCount] = report.byteCount
   }
 
   /// Runs one git call in one span through ``traceStep(_:id:_:)``, and
@@ -233,7 +273,7 @@ enum MarketplaceTelemetry {
     _ body: nonisolated(nonsending) () async throws -> Output
   ) async throws -> Output {
     let start = ContinuousClock.now
-    return try await traceStep(spanName, id: id) {
+    return try await traceStep(spanName, id: id) { _ in
       var outcome = MarketplaceCallOutcome.failed
       defer {
         recordDuration(on: timerLabel, outcomeKey: DimensionKey.gitOutcome, id: id, outcome: outcome, since: start)
@@ -272,41 +312,30 @@ enum MarketplaceTelemetry {
     return output
   }
 
-  /// Adds one count to a counter of the cache of one marketplace.
-  ///
-  /// The counter is made at call time, so that it uses the metrics factory
-  /// that is in effect when the event occurs. Its only dimension is the
-  /// display id, thus no path of the cache goes into it.
+  /// Counts one snapshot that the store serves, with the source of the
+  /// snapshot.
   ///
   /// - Parameters:
-  ///   - counterLabel: The label of the counter, from ``MetricName``: the
-  ///     writer-lock conflict counter or the removed-snapshot counter.
+  ///   - source: Where the snapshot comes from.
   ///   - id: The display id of the marketplace.
-  static func count(_ counterLabel: String, id: String) {
-    Counter(label: counterLabel, dimensions: [(DimensionKey.marketplaceID, id)]).increment()
+  static func countServedSnapshot(from source: MarketplaceSnapshotSource, id: String) {
+    count(MetricName.servedSnapshots, id: id, dimensions: [(DimensionKey.snapshotSource, source.rawValue)])
   }
 
-  /// Makes the counter of the passes that have one display id, one kind and
-  /// one outcome.
+  /// Adds one count to a counter of the target for one marketplace.
   ///
   /// The counter is made at call time, so that it uses the metrics factory
-  /// that is in effect when the pass ends.
+  /// that is in effect when the event occurs. Its dimensions are the display
+  /// id and bounded values only, thus no path of the cache goes into it.
   ///
   /// - Parameters:
+  ///   - counterLabel: The label of the counter, from ``MetricName``.
   ///   - id: The display id of the marketplace.
-  ///   - kind: What the passes did.
-  ///   - outcome: How the passes ended.
-  /// - Returns: The counter.
-  private static func makePassCounter(
-    id: String, kind: MarketplacePassKind, outcome: MarketplacePassOutcome
-  ) -> Counter {
-    Counter(
-      label: MetricName.passes,
-      dimensions: [
-        (DimensionKey.marketplaceID, id),
-        (DimensionKey.passKind, kind.rawValue),
-        (DimensionKey.passOutcome, outcome.rawValue),
-      ])
+  ///   - dimensions: The bounded dimensions of the counter after the display
+  ///     id, with their keys from ``DimensionKey``. The default is no
+  ///     dimension.
+  static func count(_ counterLabel: String, id: String, dimensions: [(String, String)] = []) {
+    Counter(label: counterLabel, dimensions: [(DimensionKey.marketplaceID, id)] + dimensions).increment()
   }
 
   /// Records one duration on a timer of the target: a git timer or the
@@ -381,4 +410,24 @@ enum MarketplaceCallOutcome: String, Sendable, CaseIterable {
   /// The call threw an error: the transport failed, the fetch timed out, the
   /// call was cancelled, or a file step of the install failed.
   case failed
+}
+
+/// Where a snapshot that the store serves comes from. It is the value of the
+/// ``MarketplaceTelemetry/DimensionKey/snapshotSource`` dimension.
+///
+/// No other value is possible, thus the dimension has a fixed cardinality.
+/// The two first cases are a reuse of a snapshot on the disk, and the last
+/// case is a new install.
+enum MarketplaceSnapshotSource: String, Sendable, CaseIterable {
+  /// The read-only seed folder holds the snapshot, because the cache holds
+  /// none.
+  case seed
+
+  /// The `current` link of the cache names the snapshot that an earlier
+  /// install put there.
+  case current
+
+  /// A pass of this store installed the snapshot, or made the snapshot that
+  /// an earlier pass staged the one that `current` names.
+  case installed
 }

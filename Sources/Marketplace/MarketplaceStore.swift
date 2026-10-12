@@ -747,8 +747,8 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///
   /// The span has the display id and the kind of the pass, and the outcome
   /// that the event of the pass gives. The head check, the sync, the fetch,
-  /// the read of the remote head and the materialize step each open a child
-  /// span when they run.
+  /// the read of the remote head, the materialize step and the snapshot
+  /// write each open a child span when they run.
   ///
   /// - Parameters:
   ///   - kind: What the pass does.
@@ -903,7 +903,9 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     _ body: nonisolated(nonsending) () async throws -> PassResult
   ) async -> PassResult {
     do {
-      return try await MarketplaceTelemetry.traceStep(spanName, id: displayID(atIndex: index), body)
+      return try await MarketplaceTelemetry.traceStep(spanName, id: displayID(atIndex: index)) { _ in
+        try await body()
+      }
     } catch {
       return failureResult(atIndex: index, error: error, current: current)
     }
@@ -1092,8 +1094,8 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     let id = displayID(atIndex: index)
     let fetched = try await fetch(
       remote: remote, revision: pin ?? remote.ref ?? Self.defaultRef, marketplaceID: id)
-    let snapshot = try await MarketplaceTelemetry.traceStep(MarketplaceTelemetry.SpanName.materialize, id: id) {
-      try self.materialize(remote: remote, source: source, commit: fetched)
+    let snapshot = try await MarketplaceTelemetry.traceStep(MarketplaceTelemetry.SpanName.materialize, id: id) { _ in
+      try await self.materialize(remote: remote, source: source, commit: fetched)
     }
     // A cold start has no session to keep stable, thus `.nextLaunch`
     // holds back only an update of a marketplace that the store serves.
@@ -1248,7 +1250,9 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// - Returns: The staged folder and the findings.
   /// - Throws: ``SnapshotError``, ``CatalogFileSourceError``, or the error
   ///   of a read or of a write.
-  private func materialize(remote: GitRemote, source: MarketplaceSource, commit: String) throws -> Materialized {
+  private func materialize(
+    remote: GitRemote, source: MarketplaceSource, commit: String
+  ) async throws -> Materialized {
     let files = try GitTreeFileSource(
       repositoryURL: remote.cache.repositoryDirectory, commit: commit, rootPath: source.path)
     let resolved = CatalogResolver.resolve(from: files, selection: source.select, layout: layout)
@@ -1256,8 +1260,9 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
       .appendingPathComponent(commit + Self.stagedSnapshotSuffix, isDirectory: true)
     // A staged folder that an interrupted sync left behind is not an error.
     try? FileManager.default.removeItem(at: staged)
-    let report = try SnapshotWriter.write(
-      catalog: resolved, from: files, to: staged, layout: layout, limits: policy.snapshotLimits)
+    let report = try await SnapshotWriter.write(
+      catalog: resolved, from: files, to: staged, layout: layout, limits: policy.snapshotLimits,
+      marketplaceID: remote.cache.marketplaceID)
     return Materialized(staged: staged, diagnostics: resolved.diagnostics + report.diagnostics)
   }
 
@@ -1321,13 +1326,18 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// The lease of the snapshot before this one is released here, outside the
   /// lock, thus the next cleanup can delete that folder.
   ///
+  /// The call runs after an install, and after the swap of a snapshot that
+  /// an earlier pass staged. Thus it counts one served snapshot with the
+  /// ``MarketplaceSnapshotSource/installed`` source.
+  ///
   /// - Parameters:
   ///   - index: The marketplace.
   ///   - cache: The cache folder of the marketplace.
   ///   - sha: The commit of the new snapshot.
   private func serve(atIndex index: Int, cache: MarketplaceCache, sha: String) {
-    let provenance = MarketplaceProvenance(
-      id: displayID(atIndex: index), url: prepared[index].source.url, sha: sha)
+    let id = displayID(atIndex: index)
+    MarketplaceTelemetry.countServedSnapshot(from: .installed, id: id)
+    let provenance = MarketplaceProvenance(id: id, url: prepared[index].source.url, sha: sha)
     let lease = try? cache.leaseCurrentSnapshot()
     let superseded = served.withLock { layers -> SnapshotLease? in
       layers[index].layer.provenance = provenance
@@ -1360,11 +1370,9 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     prepared.map { entry in
       switch entry.kind {
       case .git(let remote):
-        return servedFromCache(entry: entry, cache: remote.cache, leased: true)
+        return servedFromCache(entry: entry, cache: remote.cache, source: .current)
       case .seed(_, let seed):
-        // The seed folder is read only: the store never cleans it up,
-        // thus it needs no lease on a snapshot of it.
-        return servedFromCache(entry: entry, cache: seed, leased: false)
+        return servedFromCache(entry: entry, cache: seed, source: .seed)
       case .local(let root):
         return ServedMarketplace(
           layer: MarketplaceLayer(
@@ -1378,18 +1386,32 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
 
   /// Makes the layer of one marketplace from a folder in the cache layout.
   ///
+  /// When the folder holds a snapshot, the store serves it again with no
+  /// install, thus the call counts one served snapshot with `source`. A
+  /// folder that holds no snapshot yet serves nothing and counts nothing.
+  ///
+  /// The store takes a shared lock on a snapshot of the cache. The seed
+  /// folder is read only: the store never cleans it up, thus it needs no
+  /// lease on a snapshot of it.
+  ///
   /// - Parameters:
   ///   - entry: The source of the marketplace.
   ///   - cache: The folder of the marketplace, in the cache or in the seed
   ///     folder.
-  ///   - leased: Whether the store takes a shared lock on the snapshot.
+  ///   - source: Where the folder is: ``MarketplaceSnapshotSource/current``
+  ///     for the cache, or ``MarketplaceSnapshotSource/seed``.
   /// - Returns: The served marketplace.
   private static func servedFromCache(
-    entry: PreparedSource, cache: MarketplaceCache, leased: Bool
+    entry: PreparedSource, cache: MarketplaceCache, source: MarketplaceSnapshotSource
   ) -> ServedMarketplace {
+    let sha = cache.currentSha()
+    if sha != nil {
+      MarketplaceTelemetry.countServedSnapshot(from: source, id: entry.key)
+    }
     let layer = MarketplaceLayer(
       layer: DotfolderStack.Layer(source: .marketplace, root: cache.currentLink),
-      provenance: MarketplaceProvenance(id: entry.key, url: entry.source.url, sha: cache.currentSha()))
+      provenance: MarketplaceProvenance(id: entry.key, url: entry.source.url, sha: sha))
+    let leased = source != .seed
     return ServedMarketplace(layer: layer, lease: leased ? try? cache.leaseCurrentSnapshot() : nil)
   }
 

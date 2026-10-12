@@ -100,6 +100,12 @@ internal enum SnapshotWriter {
   /// gives a report. On any refusal it deletes `temporaryDirectory` and
   /// throws, so a refused tree leaves nothing on the disk.
   ///
+  /// The write runs in one snapshot write span that carries the display id
+  /// of the marketplace. The span gets the file count and the byte count
+  /// when the write ends, on the success path and on the error path. A
+  /// refused write also gets the `error.type` of the refusal. No path of the
+  /// tree goes into the span.
+  ///
   /// - Parameters:
   ///   - catalog: The skills and the agents that ``CatalogResolver`` found.
   ///   - source: The files of the marketplace tree.
@@ -109,27 +115,31 @@ internal enum SnapshotWriter {
   ///   - layout: The shape of the tree. The writer reads the name of the
   ///     partials folder from it.
   ///   - limits: The policy limits of the write.
+  ///   - id: The display id of the marketplace, for the telemetry.
   /// - Returns: The counts and the findings of the write.
   /// - Throws: ``SnapshotError`` when the tree breaks a rule of the write:
   ///   an unsafe name, a link that leaves its entry folder, a submodule, or
   ///   a policy limit. Else the error of a read or of a write.
-  static func write(
+  nonisolated(nonsending) static func write(
     catalog: ResolvedCatalog, from source: any CatalogFileSource, to temporaryDirectory: URL,
-    layout: MarketplaceLayout, limits: SnapshotLimits
-  ) throws -> SnapshotReport {
-    var run = SnapshotRun(
-      source: source, destination: temporaryDirectory, limits: limits,
-      partialsDirectoryName: layout.partialsDirectoryName)
-    do {
-      try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-      try run.copySkills(catalog.skills)
-      try run.copyAgents(catalog.agents)
-      try run.copyPartials(ofEntries: catalog.skills + catalog.agents)
-    } catch {
-      try? FileManager.default.removeItem(at: temporaryDirectory)
-      throw error
+    layout: MarketplaceLayout, limits: SnapshotLimits, marketplaceID id: String
+  ) async throws -> SnapshotReport {
+    try await MarketplaceTelemetry.traceStep(MarketplaceTelemetry.SpanName.snapshotWrite, id: id) { span in
+      var run = SnapshotRun(
+        source: source, destination: temporaryDirectory, limits: limits,
+        partialsDirectoryName: layout.partialsDirectoryName)
+      defer { MarketplaceTelemetry.recordCounts(of: run.report, on: span) }
+      do {
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        try run.copySkills(catalog.skills)
+        try run.copyAgents(catalog.agents)
+        try run.copyPartials(ofEntries: catalog.skills + catalog.agents)
+      } catch {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+        throw error
+      }
+      return run.report
     }
-    return run.report
   }
 }
 

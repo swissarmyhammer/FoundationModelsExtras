@@ -54,10 +54,26 @@ comments:
     - evidence: `swift test` — 1052 tests in 92 suites passed (11 known issues of the TelemetryCapture self-tests), 403 tests in 29 suites passed, the other runs passed; only warning is the mlx-swift bundle line of the build tool. Files: Sources/Marketplace/MarketplaceCache.swift, Tests/MarketplaceTests/MarketplaceCacheTests.swift, Tests/MarketplaceTests/MarketplaceTelemetryExpectations.swift
     - next: /review
   timestamp: 2026-10-12T16:47:43.505417+00:00
+- actor: claude-code
+  id: 01m4rgd6ztfanfzj77jfmmj4bh
+  text: |-
+    ### review — clean
+    - evidence: review sha 20eb203~1..20eb203 — 0 findings (0 confirmed, 1 refuted, 7 attempted, 0 failed). The prior item in "Review Findings (2026-10-12 11:39)" is checked.
+    - next: none. The task is in done.
+  timestamp: 2026-10-12T16:51:19.162463+00:00
+- actor: claude-code
+  id: 01m4rgd7rw162rt7t83czyk2fs
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 1052 passed
+    - commit: 20eb203
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T16:51:19.964769+00:00
 depends_on:
 - 01M4NY251FHKTW3HFKQ5J5A6HJ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fd80
 title: 'Marketplace cache telemetry: writer-lock conflicts, install time, and removed snapshots'
 ---
 ## What

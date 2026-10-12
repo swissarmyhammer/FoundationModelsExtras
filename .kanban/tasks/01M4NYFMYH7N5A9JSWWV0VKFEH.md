@@ -1,10 +1,34 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m4rgpjmj7xb5mkn01j24vqmk
+  text: |-
+    Research done.
+    - `SnapshotWriter.write` is synchronous. `TracedCall.run` is async only, and the core has no synchronous span helper. Plan: make `write` `nonisolated(nonsending) async`, run it through `MarketplaceTelemetry.traceStep`, and give `traceStep` the open span so that the writer sets the file count and the byte count in a `defer` (thus a refused write also records its counts and its `error.type`). `materialize` in the store becomes async. The writer gets a `marketplaceID` parameter for the `marketplace.id` attribute.
+    - Serve points: `servedFromDisk` at init (`.git` with a `current` snapshot gives `current`, `.seed` gives `seed`), and `serve(atIndex:cache:sha:)` after an install or after the adopt of a pending snapshot (gives `installed`). A git source with no snapshot yet and a local folder serve no snapshot, thus they count nothing.
+    - `MarketplaceTelemetry.count(_:id:)` gets extra dimensions, so the pass counter and the new served-snapshot counter use one counter recorder.
+  timestamp: 2026-10-12T16:56:26.002014+00:00
+- actor: claude-code
+  id: 01m4rhaxnzk4qtmjypb3zddvhy
+  text: |-
+    Implementation landed.
+    - Vocabulary: span `Marketplace.snapshot_write`, attributes `snapshot.file_count` and `snapshot.byte_count`, counter `Marketplace.snapshots.served` with dimension `snapshot.source`, enum `MarketplaceSnapshotSource` (`seed`, `current`, `installed`). `traceStep` now gives its body the open span. `count(_:id:dimensions:)` is the one counter recorder; the private `makePassCounter` is gone, and `tracePass` and `countServedSnapshot(from:id:)` use `count`.
+    - `SnapshotWriter.write` is now `nonisolated(nonsending) async` and takes `marketplaceID:`. It runs in `traceStep`, and a `defer` records the counts, thus a refused write also records them, with `error.type` from `TracedCall`.
+    - Store: `servedFromCache` counts `current` or `seed` when the folder holds a snapshot (it takes `source:` in place of `leased:`; the lease rule is now `source != .seed`). `serve(atIndex:cache:sha:)` counts `installed` (install and pending-snapshot adopt).
+    - Tests: `SeedFixture` moved from `MarketplaceLocalSourceTests` to `MarketplaceTestSupport.swift` with a new `makeStore()`, so the store suite reuses it. `MarketplaceTelemetryExpectations` got `expectSnapshotCounts`, `servedCounts`, and one private `counts(of:in:id:dimensions:)` that `passCounts` and `cacheCounts` now share. `SnapshotWriterTests` helpers and tests are async; `oneFileLimits` replaces two inline copies.
+    - What did not work: the `files` tool `replace_all` made one replacement only, thus `SnapshotWriterTests.swift` was rewritten whole.
+    - Verified: `swift build --build-tests` has no error and no warning (the mlx `missing creator` line only). Full `swift test`: 1052 tests in 92 suites passed (11 known issues are existing `withKnownIssue` tests); MarketplaceTests 410 tests in 29 suites passed. After the last test-only edit, the three changed suites: 81 tests passed.
+
+    ### implement — changed
+    - evidence: 8 files — Sources/Marketplace/MarketplaceTelemetry.swift, Sources/Marketplace/SnapshotWriter.swift, Sources/Marketplace/MarketplaceStore.swift, Tests/MarketplaceTests/SnapshotWriterTests.swift, Tests/MarketplaceTests/MarketplaceStoreTests.swift, Tests/MarketplaceTests/MarketplaceTelemetryExpectations.swift, Tests/MarketplaceTests/MarketplaceTestSupport.swift, Tests/MarketplaceTests/MarketplaceLocalSourceTests.swift; swift test 1052 passed, 0 failed
+    - next: /review
+  timestamp: 2026-10-12T17:07:32.671305+00:00
 depends_on:
 - 01M4NY2SM2DXF0492WHNG6YS99
-position_column: todo
-position_ordinal: '9380'
+position_column: doing
+position_ordinal: '80'
 title: 'Marketplace telemetry: a span for the snapshot write and a counter of snapshot reuse'
 ---
 ## What
@@ -21,16 +45,16 @@ Approach (each name in `MarketplaceTelemetry.swift`, metric objects made at call
 - Attribute `marketplace.id` (the display id) where it is known. Never record a path, a URL or a credential.
 
 ## Acceptance Criteria
-- [ ] Each snapshot write opens one span with the file count and the byte count.
-- [ ] Each served marketplace adds one count with `snapshot.source` = `seed`, `current` or `installed`.
-- [ ] No span, log record or metric carries a path.
-- [ ] Each new name starts with `Marketplace.`.
+- [x] Each snapshot write opens one span with the file count and the byte count.
+- [x] Each served marketplace adds one count with `snapshot.source` = `seed`, `current` or `installed`.
+- [x] No span, log record or metric carries a path.
+- [x] Each new name starts with `Marketplace.`.
 
 ## Tests
-- [ ] `Tests/MarketplaceTests/SnapshotWriterTests.swift`: with `W3CInMemoryTracer`, test the write span and its file count and byte count.
-- [ ] `Tests/MarketplaceTests/MarketplaceStoreTests.swift`: with `MetricsTestKit` `TestMetrics`, test the reuse counter for a seed, a current snapshot and a new install.
-- [ ] A content-safety test with `TelemetryCapture.run(forbidding:)` that forbids the cache path. The test also asserts that the capture saw at least one record.
-- [ ] `swift test` passes with no warnings.
+- [x] `Tests/MarketplaceTests/SnapshotWriterTests.swift`: with `W3CInMemoryTracer`, test the write span and its file count and byte count.
+- [x] `Tests/MarketplaceTests/MarketplaceStoreTests.swift`: with `MetricsTestKit` `TestMetrics`, test the reuse counter for a seed, a current snapshot and a new install.
+- [x] A content-safety test with `TelemetryCapture.run(forbidding:)` that forbids the cache path. The test also asserts that the capture saw at least one record.
+- [x] `swift test` passes with no warnings.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.

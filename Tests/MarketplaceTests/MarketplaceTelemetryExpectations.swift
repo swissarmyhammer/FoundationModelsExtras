@@ -6,12 +6,13 @@ import Testing
 @testable import Marketplace
 
 /// Reads and checks the telemetry that a store test or a cache test recorded:
-/// the pass span and its child spans, the pass counter, the timers of the
-/// fetch, of the remote head and of the install, and the counters of the
-/// cache.
+/// the pass span and its child spans, the snapshot write span, the pass
+/// counter, the served-snapshot counter, the timers of the fetch, of the
+/// remote head and of the install, and the counters of the cache.
 ///
-/// Each telemetry test of the store and of the cache uses these helpers, thus
-/// a change to the names or the dimensions occurs in one place.
+/// Each telemetry test of the store, of the cache and of the snapshot writer
+/// uses these helpers, thus a change to the names or the dimensions occurs
+/// in one place.
 enum MarketplaceTelemetryExpectations {
   /// The attribute key that `TracedCall` gives a span whose body threw. The
   /// core target owns the key, thus the test names it here.
@@ -117,6 +118,18 @@ enum MarketplaceTelemetryExpectations {
     #expect(span.attributes.get(errorTypeKey) != nil)
   }
 
+  /// Expects that `span` carries the file count and the byte count of one
+  /// snapshot write.
+  ///
+  /// - Parameters:
+  ///   - span: A snapshot write span.
+  ///   - fileCount: The number of files that the write counted.
+  ///   - byteCount: The number of bytes that the write counted.
+  static func expectSnapshotCounts(of span: FinishedInMemorySpan, fileCount: Int, byteCount: Int) {
+    #expect(span.attributes.get(MarketplaceTelemetry.AttributeKey.fileCount) == .int64(Int64(fileCount)))
+    #expect(span.attributes.get(MarketplaceTelemetry.AttributeKey.byteCount) == .int64(Int64(byteCount)))
+  }
+
   /// Gives the values of the pass counter of one marketplace, kind and
   /// outcome.
   ///
@@ -130,14 +143,31 @@ enum MarketplaceTelemetryExpectations {
   static func passCounts(
     in metrics: TestMetrics, id: String, kind: MarketplacePassKind, outcome: MarketplacePassOutcome
   ) throws -> [Int64] {
-    try metrics.expectCounter(
-      MarketplaceTelemetry.MetricName.passes,
-      [
-        (MarketplaceTelemetry.DimensionKey.marketplaceID, id),
+    try counts(
+      of: MarketplaceTelemetry.MetricName.passes, in: metrics, id: id,
+      dimensions: [
         (MarketplaceTelemetry.DimensionKey.passKind, kind.rawValue),
         (MarketplaceTelemetry.DimensionKey.passOutcome, outcome.rawValue),
-      ]
-    ).values
+      ])
+  }
+
+  /// Gives the values of the served-snapshot counter of one marketplace, by
+  /// the source of the snapshot.
+  ///
+  /// A source that served no snapshot has no entry.
+  ///
+  /// - Parameters:
+  ///   - metrics: The factory of the capture.
+  ///   - id: The display id of the marketplace.
+  /// - Returns: The count that each serve added, in order, for each source.
+  static func servedCounts(in metrics: TestMetrics, id: String) -> [MarketplaceSnapshotSource: [Int64]] {
+    Dictionary(
+      uniqueKeysWithValues: MarketplaceSnapshotSource.allCases.compactMap { source in
+        (try? counts(
+          of: MarketplaceTelemetry.MetricName.servedSnapshots, in: metrics, id: id,
+          dimensions: [(MarketplaceTelemetry.DimensionKey.snapshotSource, source.rawValue)]))
+          .map { (source, $0) }
+      })
   }
 
   /// Gives the values of one git timer of one marketplace and outcome.
@@ -198,7 +228,23 @@ enum MarketplaceTelemetryExpectations {
   /// - Returns: The count that each event added, in order.
   /// - Throws: When `metrics` has no such counter.
   static func cacheCounts(of label: String, in metrics: TestMetrics, id: String) throws -> [Int64] {
-    try metrics.expectCounter(label, [(MarketplaceTelemetry.DimensionKey.marketplaceID, id)]).values
+    try counts(of: label, in: metrics, id: id)
+  }
+
+  /// Gives the values of one counter of one marketplace.
+  ///
+  /// - Parameters:
+  ///   - label: The label of the counter.
+  ///   - metrics: The factory of the capture.
+  ///   - id: The display id of the marketplace.
+  ///   - dimensions: The dimensions of the counter after the display id.
+  ///     The default is no dimension.
+  /// - Returns: The count that each event added, in order.
+  /// - Throws: When `metrics` has no such counter.
+  private static func counts(
+    of label: String, in metrics: TestMetrics, id: String, dimensions: [(String, String)] = []
+  ) throws -> [Int64] {
+    try metrics.expectCounter(label, [(MarketplaceTelemetry.DimensionKey.marketplaceID, id)] + dimensions).values
   }
 
   /// Expects that `metrics` holds no counter with the label `label`.

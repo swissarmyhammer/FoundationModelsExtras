@@ -489,6 +489,65 @@ struct MarketplaceStoreTests {
         == [Int64(Telemetry.one)])
   }
 
+  @Test func aStoreOverACacheThatHoldsASnapshotCountsOneServeOfTheCurrentSnapshot() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let first = try MarketplaceStoreFixture(sources: [MarketplaceSource(fixture.url)])
+    await first.store.start()
+
+    let (context, restarted) = try await Telemetry.capture {
+      try? MarketplaceStoreFixture(sources: [MarketplaceSource(fixture.url)], cacheDirectory: first.cacheDirectory)
+    }
+
+    #expect(restarted != nil)
+    #expect(
+      Telemetry.servedCounts(in: context.metricsFactory, id: Self.fixtureID) == [.current: [Int64(Telemetry.one)]])
+  }
+
+  @Test func aStoreThatTheSeedFolderServesCountsOneServeOfTheSeedSnapshot() async throws {
+    let seed = try await SeedFixture()
+
+    let (context, store) = try await Telemetry.capture { try? seed.makeStore() }
+
+    #expect(store != nil)
+    #expect(
+      Telemetry.servedCounts(in: context.metricsFactory, id: Self.fixtureID) == [.seed: [Int64(Telemetry.one)]])
+  }
+
+  @Test func aPassThatInstallsANewSnapshotCountsOneServeOfTheInstalledSnapshot() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+
+    let (context, _) = try await Telemetry.capture { await cache.store.update() }
+
+    #expect(
+      Telemetry.servedCounts(in: context.metricsFactory, id: Self.fixtureID) == [.installed: [Int64(Telemetry.one)]])
+  }
+
+  @Test func noSpanLogRecordOrMetricOfAServedSnapshotHoldsTheCachePathOrTheSeedPath() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+    let seed = try await SeedFixture()
+    let forbidden = [
+      cache.cacheDirectory.path, seed.seedDirectory.path, fixture.directory.path, seed.repository.directory.path,
+    ]
+
+    let (context, _) = try await Telemetry.capture(forbidding: forbidden) {
+      await cache.store.update()
+      _ = try? MarketplaceStoreFixture(sources: [MarketplaceSource(fixture.url)], cacheDirectory: cache.cacheDirectory)
+      _ = try? seed.makeStore()
+    }
+
+    let one = [Int64(Telemetry.one)]
+    #expect(
+      Telemetry.servedCounts(in: context.metricsFactory, id: Self.fixtureID)
+        == [.installed: one, .current: one, .seed: one])
+  }
+
   // MARK: - Support
 
   /// The helpers that read the telemetry of a store test.
