@@ -426,3 +426,258 @@ struct PooledModelTests {
         #expect(await BoundedWait.conditionReached("the eviction of the model") { !pool.isResident(Self.key) })
     }
 }
+
+/// A tool that opens one span named ``ExtrasTelemetry/SpanName/tool``
+/// through ``TracedCall``, and answers with a fixed text. A parent test reads
+/// the parent of that span.
+private struct SpanProbeTool: Tool {
+    /// The tool takes no argument.
+    @Generable
+    struct Arguments {}
+
+    /// The model-facing name of the tool.
+    static let toolName = "qz_probe"
+
+    /// The text that each call gives.
+    static let output = "probed"
+
+    /// The model-facing name of the tool.
+    let name = Self.toolName
+
+    /// What the tool does.
+    let description = "Opens one tool span."
+
+    /// Opens one tool span, and gives ``output``.
+    ///
+    /// - Parameter arguments: No argument.
+    /// - Returns: ``output``.
+    /// - Throws: Never. `throws` comes from the `Tool` requirement.
+    func call(arguments: Arguments) async throws -> String {
+        try await TracedCall.run(ExtrasTelemetry.SpanName.tool, logger: ExtrasTelemetry.makeLogger()) { _ in
+            Self.output
+        }
+    }
+}
+
+/// The generate telemetry of a pooled model: one generate span for each
+/// generation call, with the model ref, the guided flag and the cold flag,
+/// the time-to-first-token and duration timers, and the token metrics when
+/// the model gives token counts.
+extension PooledModelTests {
+    /// The first prompt of a generate telemetry test. It holds `q` and `z`,
+    /// which no hex trace id or span id holds, thus the prompt matches no
+    /// place of the capture by chance. The stub answers with its prompts,
+    /// thus each answer holds a prompt too.
+    private static let telemetryPrompt = "qz-how-many-legs"
+
+    /// The second prompt of a generate telemetry test.
+    private static let secondTelemetryPrompt = "qz-and-a-spider"
+
+    /// The output token count that the stub of a token test gives.
+    private static let reportedOutputTokens = 12
+
+    /// The number of generation calls of a test with one call.
+    private static let oneCall = 1
+
+    /// The number of generation calls of a test with two calls.
+    private static let twoCalls = 2
+
+    /// Runs `body` in a new capture that forbids each prompt of the generate
+    /// telemetry tests, and thus each answer of the stub to them.
+    ///
+    /// - Parameter body: The calls of the test.
+    /// - Returns: The capture.
+    /// - Throws: The error of `body` or of the capture.
+    private static func captureGenerate(
+        _ body: nonisolated(nonsending) () async throws -> Void
+    ) async throws -> TelemetryCapture.Context {
+        try await TelemetryCapture.run(forbidding: [telemetryPrompt, secondTelemetryPrompt]) { context in
+            try await body()
+            return context
+        }
+    }
+
+    /// Makes a pooled model of a stub that plays `script`, in a new pool.
+    ///
+    /// - Parameter script: The script of the stub.
+    /// - Returns: The pooled model, which loads nothing yet.
+    private static func pooledModel(playing script: StubLanguageModelScript = StubLanguageModelScript()) -> PooledModel {
+        PooledModel(ref: key.ref, pool: ModelPool(loader: stubLoader(script: script, log: Recorder())))
+    }
+
+    /// Runs ``telemetryPrompt`` and then ``secondTelemetryPrompt`` through
+    /// one `LanguageModelSession` over a pooled model of a stub that plays
+    /// `script`, in a new capture.
+    ///
+    /// - Parameter script: The script of the stub.
+    /// - Returns: The capture.
+    /// - Throws: The error of a call or of the capture.
+    private static func captureTwoResponds(
+        playing script: StubLanguageModelScript = StubLanguageModelScript()
+    ) async throws -> TelemetryCapture.Context {
+        try await captureGenerate {
+            let session = LanguageModelSession(model: pooledModel(playing: script))
+            _ = try await session.respond(to: telemetryPrompt)
+            _ = try await session.respond(to: secondTelemetryPrompt)
+        }
+    }
+
+    @Test("each respond over a pooled model opens one generate span and writes one enter record")
+    func eachRespondOpensOneGenerateSpan() async throws {
+        let context = try await Self.captureTwoResponds()
+
+        #expect(GenerateTelemetryExpectations.generateSpans(in: context.spans).count == Self.twoCalls)
+        #expect(context.enterRecords(ofSpanNamed: ExtrasTelemetry.SpanName.generate).count == Self.twoCalls)
+    }
+
+    @Test("the first respond after a load records generate.cold true, and a later respond records false")
+    func theFirstRespondIsColdAndALaterRespondIsWarm() async throws {
+        let context = try await Self.captureTwoResponds()
+
+        let spans = GenerateTelemetryExpectations.generateSpans(in: context.spans)
+        try #require(spans.count == Self.twoCalls)
+        GenerateTelemetryExpectations.expectCallAttributes(of: spans[0], ref: Self.key.ref, guided: false, cold: true)
+        GenerateTelemetryExpectations.expectCallAttributes(of: spans[1], ref: Self.key.ref, guided: false, cold: false)
+    }
+
+    @Test("the first respond over a pooled model whose model the pool holds already records generate.cold false")
+    func aFirstRespondOverAResidentModelIsWarm() async throws {
+        let context = try await Self.captureGenerate {
+            let model = Self.pooledModel()
+            // The session keeps a hold, thus the respond acquires a resident model.
+            let session = try await model.session()
+            _ = try await LanguageModelSession(model: model).respond(to: Self.telemetryPrompt)
+            withExtendedLifetime(session) {}
+        }
+
+        let span = try #require(GenerateTelemetryExpectations.generateSpans(in: context.spans).first)
+        GenerateTelemetryExpectations.expectCallAttributes(of: span, ref: Self.key.ref, guided: false, cold: false)
+    }
+
+    @Test("a respond over a pooled model that asks for a Generable type records generate.guided true")
+    func aGuidedRespondIsGuided() async throws {
+        let script = StubLanguageModelScript(answer: { _ in Self.typedAnswerJSON })
+        let context = try await Self.captureGenerate {
+            let session = LanguageModelSession(model: Self.pooledModel(playing: script))
+            _ = try await session.respond(to: Self.telemetryPrompt, generating: Answer.self)
+        }
+
+        let span = try #require(GenerateTelemetryExpectations.generateSpans(in: context.spans).first)
+        GenerateTelemetryExpectations.expectCallAttributes(of: span, ref: Self.key.ref, guided: true, cold: true)
+    }
+
+    @Test("a PooledSession respond records guided false and cold false, and its typed respond records guided true")
+    func aPooledSessionRecordsGuidedAndWarm() async throws {
+        let script = StubLanguageModelScript(answer: { _ in Self.typedAnswerJSON })
+        let context = try await Self.captureGenerate {
+            let session = try await Self.pooledModel(playing: script).session()
+            _ = try await session.respond(to: Self.telemetryPrompt)
+            _ = try await session.respond(to: Self.secondTelemetryPrompt, generating: Answer.self)
+        }
+
+        let spans = GenerateTelemetryExpectations.generateSpans(in: context.spans)
+        try #require(spans.count == Self.twoCalls)
+        GenerateTelemetryExpectations.expectCallAttributes(of: spans[0], ref: Self.key.ref, guided: false, cold: false)
+        GenerateTelemetryExpectations.expectCallAttributes(of: spans[1], ref: Self.key.ref, guided: true, cold: false)
+    }
+
+    @Test("each respond records one time to first token and one duration with the outcome succeeded")
+    func eachRespondRecordsItsTimers() async throws {
+        let context = try await Self.captureTwoResponds()
+
+        let metrics = context.metricsFactory
+        let firstTokenTimes = try GenerateTelemetryExpectations.timesToFirstToken(
+            in: metrics, ref: Self.key.ref, outcome: .succeeded)
+        let durations = try GenerateTelemetryExpectations.durations(in: metrics, ref: Self.key.ref, outcome: .succeeded)
+        QueueMetricExpectations.expectDurations(firstTokenTimes, count: Self.twoCalls)
+        QueueMetricExpectations.expectDurations(durations, count: Self.twoCalls)
+        #expect(zip(firstTokenTimes, durations).allSatisfy { $0 <= $1 })
+    }
+
+    @Test("a respond whose model gives token counts records its output tokens and its tokens per second")
+    func aRespondWithTokenCountsRecordsTheTokenMetrics() async throws {
+        let script = StubLanguageModelScript(outputTokenCount: Self.reportedOutputTokens)
+        let context = try await Self.captureGenerate {
+            _ = try await LanguageModelSession(model: Self.pooledModel(playing: script)).respond(to: Self.telemetryPrompt)
+        }
+
+        let metrics = context.metricsFactory
+        let tokensPerSecond = try GenerateTelemetryExpectations.tokensPerSecond(in: metrics, ref: Self.key.ref)
+        #expect(
+            try GenerateTelemetryExpectations.outputTokenCounts(in: metrics, ref: Self.key.ref)
+                == [Int64(Self.reportedOutputTokens)])
+        #expect(tokensPerSecond.count == Self.oneCall)
+        #expect(tokensPerSecond.allSatisfy { $0 > 0 })
+    }
+
+    @Test("a respond whose model gives no token counts records no output tokens and no tokens per second")
+    func aRespondWithNoTokenCountsRecordsNoTokenMetrics() async throws {
+        let context = try await Self.captureTwoResponds()
+
+        let metrics = context.metricsFactory
+        #expect(throws: TestMetricsError.self) {
+            try GenerateTelemetryExpectations.outputTokenCounts(in: metrics, ref: Self.key.ref)
+        }
+        #expect(throws: TestMetricsError.self) {
+            try GenerateTelemetryExpectations.tokensPerSecond(in: metrics, ref: Self.key.ref)
+        }
+    }
+
+    @Test("a respond whose load fails records cold true, one duration with the outcome failed, and no time to first token")
+    func aRespondWhoseLoadFailsRecordsAFailedDuration() async throws {
+        let model = StubLanguageModel(script: StubLanguageModelScript())
+        let loader = RecordingLoader(
+            name: Self.loaderName, log: Recorder(), failingLoads: Self.oneCall, makeModel: { _ in model })
+        let context = try await Self.captureGenerate {
+            let session = LanguageModelSession(model: PooledModel(ref: Self.key.ref, pool: ModelPool(loader: loader)))
+            await #expect(throws: FakeLoadError.self) { try await session.respond(to: Self.telemetryPrompt) }
+        }
+
+        let metrics = context.metricsFactory
+        let span = try #require(GenerateTelemetryExpectations.generateSpans(in: context.spans).first)
+        GenerateTelemetryExpectations.expectCallAttributes(of: span, ref: Self.key.ref, guided: false, cold: true)
+        QueueMetricExpectations.expectDurations(
+            try GenerateTelemetryExpectations.durations(in: metrics, ref: Self.key.ref, outcome: .failed),
+            count: Self.oneCall)
+        #expect(throws: TestMetricsError.self) {
+            try GenerateTelemetryExpectations.timesToFirstToken(in: metrics, ref: Self.key.ref, outcome: .failed)
+        }
+    }
+
+    @Test("the load span of the first respond has the generate span as its parent")
+    func theLoadSpanIsAChildOfTheGenerateSpan() async throws {
+        let context = try await Self.captureGenerate {
+            _ = try await LanguageModelSession(model: Self.pooledModel()).respond(to: Self.telemetryPrompt)
+        }
+
+        let generateSpan = try #require(GenerateTelemetryExpectations.generateSpans(in: context.spans).first)
+        let loadSpans = ModelLoadTelemetryExpectations.spans(named: ExtrasTelemetry.SpanName.modelLoad, in: context.spans)
+        #expect(loadSpans.map(\.parentSpanID) == [generateSpan.spanID])
+    }
+
+    @Test("a tool span that opens inside a PooledSession respond has the generate span as its parent")
+    func aToolSpanIsAChildOfTheGenerateSpan() async throws {
+        let script = StubLanguageModelScript(toolName: SpanProbeTool.toolName)
+        let context = try await Self.captureGenerate {
+            let session = try await Self.pooledModel(playing: script).session(tools: [SpanProbeTool()])
+            _ = try await session.respond(to: Self.telemetryPrompt)
+        }
+
+        let generateSpan = try #require(GenerateTelemetryExpectations.generateSpans(in: context.spans).first)
+        let toolSpans = ModelLoadTelemetryExpectations.spans(named: ExtrasTelemetry.SpanName.tool, in: context.spans)
+        #expect(toolSpans.map(\.parentSpanID) == [generateSpan.spanID])
+    }
+
+    @Test("the generate telemetry of both pooled paths holds no prompt and no answer, and the capture saw records")
+    func theGenerateTelemetryHoldsNoContent() async throws {
+        let script = StubLanguageModelScript(outputTokenCount: Self.reportedOutputTokens)
+        let context = try await Self.captureGenerate {
+            _ = try await LanguageModelSession(model: Self.pooledModel(playing: script)).respond(to: Self.telemetryPrompt)
+            _ = try await Self.pooledModel(playing: script).session().respond(to: Self.secondTelemetryPrompt)
+        }
+
+        #expect(!GenerateTelemetryExpectations.generateSpans(in: context.spans).isEmpty)
+        #expect(!context.enterRecords(ofSpanNamed: ExtrasTelemetry.SpanName.generate).isEmpty)
+        #expect(!context.metricRecords.isEmpty)
+    }
+}

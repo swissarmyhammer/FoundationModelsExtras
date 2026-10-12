@@ -261,7 +261,8 @@ public final class ModelPool: Sendable {
             state.entries[key]?.holds += 1
             state.entries[key]?.bytes += sessionBytes
             state.entries[key]?.releasedAt = nil
-            return (ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes), state.liveStreams)
+            let hold = ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes, cacheResult: result)
+            return (hold, state.liveStreams)
         }
         if hold != nil {
             PoolTelemetry.recordAcquire(of: key.ref, result: result)
@@ -388,7 +389,7 @@ public final class ModelPool: Sendable {
             state.loadingBytes = 0
             state.entries[key] = entry
         }
-        return ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes)
+        return ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes, cacheResult: .load)
     }
 
     /// Sets the bytes of the load that runs now.
@@ -536,14 +537,20 @@ public final class ModelHold: Sendable {
     private let pool: ModelPool
     /// The bytes of the session of this hold.
     private let sessionBytes: Int64
+    /// How the pool gave this hold. It is ``PoolCacheResult/load`` when the
+    /// acquire of this hold loaded the model.
+    let cacheResult: PoolCacheResult
 
     /// Makes a hold of `entry` that `pool` counts already.
-    fileprivate init(pool: ModelPool, key: ModelPoolKey, entry: ModelPool.Entry, sessionBytes: Int64) {
+    fileprivate init(
+        pool: ModelPool, key: ModelPoolKey, entry: ModelPool.Entry, sessionBytes: Int64, cacheResult: PoolCacheResult
+    ) {
         self.pool = pool
         self.key = key
         self.container = entry.container
         self.queue = entry.queue
         self.sessionBytes = sessionBytes
+        self.cacheResult = cacheResult
     }
 
     /// Releases the hold.

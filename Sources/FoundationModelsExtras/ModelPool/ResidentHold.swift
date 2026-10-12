@@ -57,14 +57,27 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
     /// - Throws: The error of the load. After a failed load, the next call
     ///   loads again.
     func loaded() async throws -> Loaded {
+        try await loadedReportingWait().loaded
+    }
+
+    /// Gives the hold, and tells whether this call waited for a load. The
+    /// first call starts the load, and each call waits for that one load, as
+    /// in ``loaded()``.
+    ///
+    /// - Returns: The hold of the model, and `true` when this call started
+    ///   the load or joined the load that another call started. A call that
+    ///   found the hold gives `false`.
+    /// - Throws: The error of the load. After a failed load, the next call
+    ///   loads again.
+    func loadedReportingWait() async throws -> (loaded: Loaded, waitedForLoad: Bool) {
         switch state.withLock({ Self.access(state: &$0) }) {
         case .ready(let loaded):
-            return loaded
+            return (loaded, false)
         case .started(let task):
-            return try await finish(load: task)
+            return (try await finish(load: task), true)
         case .joined(let task):
             PoolTelemetry.recordLoadJoin()
-            return try await finish(load: task)
+            return (try await finish(load: task), true)
         }
     }
 

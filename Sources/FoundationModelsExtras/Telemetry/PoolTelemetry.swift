@@ -3,7 +3,8 @@ import Metrics
 
 /// The recorder of the cache telemetry of the model pool: the acquires, the
 /// evictions, the joins of a running load, the footprint meters, and the log
-/// records of a failed footprint measure and of a failed prewarm.
+/// records of a failed footprint measure, of a failed prewarm and of a failed
+/// relay of the events of a generation call.
 ///
 /// Each metric is made at call time, so that it uses the metrics factory of
 /// the current task. An admission job restores the factory of its submitter,
@@ -86,6 +87,18 @@ enum PoolTelemetry {
     ///   - ref: The model of the prewarm.
     static func logPrewarmFailure(_ error: any Error, of ref: ModelRef) {
         logFailure(ExtrasTelemetry.PoolLogMessage.prewarmFailed, error: error, of: ref)
+    }
+
+    /// Writes one error record for a failed read of the events of a pooled
+    /// model of `ref` in the relay of the generate telemetry. The record
+    /// holds the type of `error` and the model ref, never the description of
+    /// `error`.
+    ///
+    /// - Parameters:
+    ///   - error: The error of the read.
+    ///   - ref: The model of the generation call.
+    static func logGenerateRelayFailure(_ error: any Error, of ref: ModelRef) {
+        logFailure(ExtrasTelemetry.PoolLogMessage.generateRelayFailed, error: error, of: ref)
     }
 
     /// Writes one error record with `message`, the type of `error` and the

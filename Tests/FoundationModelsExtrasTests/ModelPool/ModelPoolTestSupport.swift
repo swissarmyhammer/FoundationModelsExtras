@@ -966,10 +966,117 @@ enum EmbedTelemetryExpectations {
     }
 }
 
+/// Reads the generate telemetry that a test recorded: the generate span, the
+/// time-to-first-token timer, the duration timer, the output token counter
+/// and the tokens-per-second recorder. Each test suite of the pooled models
+/// uses these helpers, so a change to the names or the dimensions occurs in
+/// one place.
+enum GenerateTelemetryExpectations {
+    /// Gives the generate spans of `spans`.
+    ///
+    /// - Parameter spans: The spans that a tracer recorded.
+    /// - Returns: The generate spans, in the order of `spans`.
+    static func generateSpans(in spans: [FinishedInMemorySpan]) -> [FinishedInMemorySpan] {
+        ModelLoadTelemetryExpectations.spans(named: ExtrasTelemetry.SpanName.generate, in: spans)
+    }
+
+    /// Expects that `span` carries the model ref, the guided flag and the
+    /// cold flag of one generation call.
+    ///
+    /// - Parameters:
+    ///   - span: A generate span.
+    ///   - ref: The model of the call.
+    ///   - guided: Whether the call asked for a guided answer.
+    ///   - cold: Whether the call included a load of the model.
+    static func expectCallAttributes(of span: FinishedInMemorySpan, ref: ModelRef, guided: Bool, cold: Bool) {
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.modelRef) == .string(ref.stringValue))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.generateGuided) == .bool(guided))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.generateCold) == .bool(cold))
+    }
+
+    /// Gives the values of the duration timer of `ref` with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    ///   - outcome: How the calls ended.
+    /// - Returns: The duration of each call in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func durations(in metrics: TestMetrics, ref: ModelRef, outcome: ModelOperationOutcome) throws -> [Int64] {
+        try timerValues(of: ExtrasTelemetry.MetricName.generateDuration, in: metrics, ref: ref, outcome: outcome)
+    }
+
+    /// Gives the values of the time-to-first-token timer of `ref` with
+    /// `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    ///   - outcome: How the calls ended.
+    /// - Returns: The time to the first event of each call in nanoseconds,
+    ///   in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func timesToFirstToken(
+        in metrics: TestMetrics, ref: ModelRef, outcome: ModelOperationOutcome
+    ) throws -> [Int64] {
+        try timerValues(of: ExtrasTelemetry.MetricName.generateTimeToFirstToken, in: metrics, ref: ref, outcome: outcome)
+    }
+
+    /// Gives the values of the output token counter of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The output token count that each call added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func outputTokenCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try metrics.expectCounter(ExtrasTelemetry.MetricName.generateOutputTokens, ModelMetricDimensions.model(ref))
+            .values
+    }
+
+    /// Gives the values of the tokens-per-second recorder of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The tokens per second of each call, in order.
+    /// - Throws: When `metrics` has no such recorder.
+    static func tokensPerSecond(in metrics: TestMetrics, ref: ModelRef) throws -> [Double] {
+        try metrics.expectRecorder(ExtrasTelemetry.MetricName.generateTokensPerSecond, ModelMetricDimensions.model(ref))
+            .values
+    }
+
+    /// Gives the values of the generate timer `label` of `ref` with
+    /// `outcome`.
+    ///
+    /// - Parameters:
+    ///   - label: The label of the timer.
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    ///   - outcome: How the calls ended.
+    /// - Returns: The values in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    private static func timerValues(
+        of label: String, in metrics: TestMetrics, ref: ModelRef, outcome: ModelOperationOutcome
+    ) throws -> [Int64] {
+        try metrics.expectTimer(label, ModelMetricDimensions.model(ref, outcome: outcome)).values
+    }
+}
+
 extension TelemetryCapture.Context {
     /// The log records of the capture at the error level, in order.
     var errorRecords: [TelemetryCapture.LogRecord] {
         logRecords.filter { $0.level == .error }
+    }
+
+    /// Gives the "enter" records that `TracedCall` wrote for the spans named
+    /// `spanName`.
+    ///
+    /// - Parameter spanName: The name of the spans.
+    /// - Returns: The "enter" records of those spans, in order.
+    func enterRecords(ofSpanNamed spanName: String) -> [TelemetryCapture.LogRecord] {
+        let message = ExtrasTelemetry.EnterRecord.message(forSpanNamed: spanName)
+        return logRecords.filter { "\($0.message)" == message }
     }
 
     /// Waits until the capture holds an error record. A task that the code

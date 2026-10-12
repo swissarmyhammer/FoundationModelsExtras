@@ -17,10 +17,26 @@ comments:
     - evidence: 4 files — IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/PooledEmbedderIntegrationTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/MLXModelLoaderIntegrationTests.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/Support/CapturedSpans.swift (new), IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/Support/RecordingTokenizerLoader.swift. PooledEmbedderIntegrationTests 8/8 pass, MLXModelLoaderIntegrationTests 2/2 pass, swift test 1018 pass.
     - next: /review
   timestamp: 2026-10-12T14:02:07.191641+00:00
+- actor: claude-code
+  id: 01m4r72gz19v224d75rrmf6bcv
+  text: |-
+    ### review — clean
+    - evidence: review sha 8fe9965~1..8fe9965 — 0 findings, 0 confirmed, 0 refuted. The engine reviewed 4 files. The .reviewignore rule excluded 4 .kanban files.
+    - next: none. The task is in done.
+  timestamp: 2026-10-12T14:08:11.745141+00:00
+- actor: claude-code
+  id: 01m4r72jqbegv9tjm3dpta5gve
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 files
+    - test: green — swift test, 1018 passed; IntegrationTests, 37 passed
+    - commit: 8fe9965
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T14:08:13.547587+00:00
 depends_on:
 - 01M4NY0Z31YN498MYBJPMDD5EZ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: f980
 title: 'Embed telemetry: integration test with the real embedding model'
 ---
 ## What

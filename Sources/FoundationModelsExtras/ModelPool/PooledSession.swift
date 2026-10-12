@@ -26,8 +26,13 @@ public final class PooledSession: Sendable {
     /// same tools.
     private let tools: [any Tool]
 
-    /// The FoundationModels session over the model of the hold.
+    /// The FoundationModels session over the model of the hold. Its model is
+    /// a ``GenerateRelayModel``, thus each model round of a respond call goes
+    /// through the generate call of that respond call.
     private let session: LanguageModelSession
+
+    /// The generate call of the respond call that runs.
+    private let generateCalls: GenerateCallSlot
 
     /// The Hugging Face name of the model.
     public var model: ModelRef { hold.key.ref }
@@ -42,7 +47,8 @@ public final class PooledSession: Sendable {
     ///     with.
     /// - Throws: ``PooledSessionError/notALanguageModel(key:containerType:)``
     ///   when the container of `hold` is not a FoundationModels
-    ///   `LanguageModel`.
+    ///   `LanguageModel`, or the error of the executor initializer of the
+    ///   container.
     init(hold: ModelHold, pool: ModelPool, tools: [any Tool], start: PooledSessionStart) throws {
         guard let languageModel = hold.container as? any LanguageModel else {
             throw PooledSessionError.notALanguageModel(
@@ -51,7 +57,10 @@ public final class PooledSession: Sendable {
         self.hold = hold
         self.pool = pool
         self.tools = tools
-        self.session = Self.makeSession(model: languageModel, tools: tools, start: start)
+        let generateCalls = GenerateCallSlot()
+        self.generateCalls = generateCalls
+        let relayModel = try GenerateRelayModel(languageModel, slot: generateCalls)
+        self.session = Self.makeSession(model: relayModel, tools: tools, start: start)
     }
 
     /// Answers `prompt`, and keeps the prompt and the answer in the
@@ -62,7 +71,7 @@ public final class PooledSession: Sendable {
     /// - Throws: The error of ``GenerationQueue/submit(isolation:_:)`` or of
     ///   the model.
     public func respond(to prompt: String) async throws -> String {
-        try await hold.queue.submit { [session] in
+        try await generate(guided: false) { session in
             try await session.respond(to: prompt).content
         }
     }
@@ -79,10 +88,36 @@ public final class PooledSession: Sendable {
     ///   model, or of the decode of the answer.
     public func respond<T: Generable>(to prompt: String, generating type: T.Type) async throws -> T {
         let schema = type.generationSchema
-        let content = try await hold.queue.submit { [session] in
+        let content = try await generate(guided: true) { session in
             try await session.respond(to: prompt, schema: schema).content
         }
         return try type.init(content)
+    }
+
+    /// Runs one respond call of the session as one job in the queue of the
+    /// model, in one generate span of ``GenerateTelemetry``.
+    ///
+    /// The span opens before the wait in the queue. The session has its hold
+    /// already, thus the call includes no load, and the span is not cold.
+    /// Each tool that the model calls runs inside the respond call, thus each
+    /// tool span is a child of the generate span.
+    ///
+    /// - Parameters:
+    ///   - guided: Whether the respond call gives a generation schema to the
+    ///     model.
+    ///   - respond: The respond call on the FoundationModels session.
+    /// - Returns: The value of `respond`.
+    /// - Throws: The error of ``GenerationQueue/submit(isolation:_:)`` or of
+    ///   `respond`.
+    private func generate<Output: Sendable>(
+        guided: Bool, _ respond: @escaping @Sendable (LanguageModelSession) async throws -> Output
+    ) async throws -> Output {
+        try await GenerateTelemetry.traceGenerate(of: model, guided: guided) { call in
+            call.markCold(false)
+            return try await hold.queue.submit { [session, generateCalls] in
+                try await generateCalls.run(call) { try await respond(session) }
+            }
+        }
     }
 
     /// Makes a new session that continues the transcript of this session. The

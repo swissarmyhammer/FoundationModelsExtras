@@ -1,10 +1,40 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m4r7t9m55vkpqr487vj7xvr3
+  text: |-
+    Research (implement):
+    - `LanguageModelExecutorGenerationChannel` is an `AsyncThrowingChannel` (rendezvous): `send` returns only when a reader takes the event. It has a public `init()` but no public `finish()`, and a cancelled reader ends its loop. Thus the wrap gives the model a new channel, a pump child reads it into an `AsyncStream`, and a forwarder sends each event to the outer channel. When the model returns, the pump is cancelled (each event was already taken), the stream finishes, and the forwarder drains it. No event is lost.
+    - `Event` has no public accessors. A `Mirror` walk finds the public `Usage` value of an `updateUsage` event (MLX sends `updateUsage`, last write wins; the mlx-swift-lm tests read events by `Mirror` too). The token counts come only from `Usage.output.totalTokenCount`.
+    - `PooledSession` runs a `LanguageModelSession` over the container model, not over `PooledModel`. To see its channel, the session must run over a wrapper model that relays the channel into the generate call of the running respond.
+    - In the `PooledModel` path, `LanguageModelSession` calls the executor one time for each model round. Tools run between the rounds, outside the executor call. In the `PooledSession` path, the tools run inside `session.respond`, inside the queue job, thus inside the generate span.
+    - `generate.cold` needs to know that the call waited for the load and that the pool acquire loaded the model (not a hit). Plan: `ModelHold` keeps its `PoolCacheResult`, and `ResidentHold` tells whether the call waited for the load.
+  timestamp: 2026-10-12T14:21:10.661494+00:00
+- actor: claude-code
+  id: 01m4r8e3qprswqvz0wqgj1xdxv
+  text: |-
+    Implementation landed (TDD: 11 new tests failed first, then passed).
+    - New `Telemetry/GenerateTelemetry.swift`: `GenerateTelemetry.traceGenerate(of:guided:_:)` opens the generate span through `TracedCall` and records the duration timer and the time-to-first-token timer with `model.ref` and `model.outcome` on the success path and on the error path (the EmbedTelemetry pattern). `GenerateCall` relays each model round (pump into an `AsyncStream`, forwarder to the session channel), records the first event, and adds the output tokens of the last `updateUsage` of each round. Tokens per second = output tokens / sum of the round times; it is recorded only when a round gave a usage and the model time is not zero.
+    - New `ModelPool/GenerateRelayModel.swift`: `PooledSession` now runs its `LanguageModelSession` over `GenerateRelayModel` (the container through `ExecutableLanguageModel`, now internal). `GenerateCallSlot` holds the generate call of the respond call that runs.
+    - `generate.cold`: `ModelHold.cacheResult` (internal) and `ResidentHold.loadedReportingWait()`. Cold = the call waited for the hold load AND that acquire loaded the model (a pool hit is warm). A call whose load throws is cold. A `PooledSession` respond is never cold, because the session acquired its hold before the call.
+    - Decision to note: on the `PooledModel` path, `generate.guided` is `request.schema != nil`, so `LanguageModelSession.respond(generating:)` over a pooled model is guided too. On the `PooledSession` path it is `true` for `respond(to:generating:)`, as the card says.
+    - Limit to note: on the `PooledModel` path, a `LanguageModelSession` calls the executor one time for each model round and runs the tools between the rounds, thus each round is its own generate span and a tool span there is not inside a generate span. On the `PooledSession` path the tools run inside the respond call, thus the tool span is a child of the generate span (tested).
+    - Vocabulary in `ExtrasTelemetry.swift`: `SpanName.generate`, `AttributeKey.generateGuided`/`generateCold`, four `MetricName.generate*` names, `PoolLogMessage.generateRelayFailed` (written by `PoolTelemetry.logGenerateRelayFailure` when the model channel throws, with `assertionFailure`).
+    - `swift test`: 1030 tests in 91 suites passed (11 known issues are the existing withKnownIssue cases of TelemetryCaptureTests); no warning from this repo (only the mlx-swift_Cmlx.bundle line).
+  timestamp: 2026-10-12T14:31:59.990748+00:00
+- actor: claude-code
+  id: 01m4r8eb3ncj8fmg3d3npqze6n
+  text: |-
+    ### implement — changed
+    - evidence: `swift test` = 1030 tests in 91 suites passed, 0 failures (11 known issues are the existing withKnownIssue cases of TelemetryCaptureTests). `swift test --filter PooledModelTests` = 30 tests passed. Correction to the comment above: 11 new tests ran first and 10 failed (the "no token counts" test passed at RED, because it checks for an absence); the cold-false test for a resident model came after the implementation. Files: Sources/FoundationModelsExtras/Telemetry/GenerateTelemetry.swift (new), Sources/FoundationModelsExtras/ModelPool/GenerateRelayModel.swift (new), Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift, Sources/FoundationModelsExtras/ModelPool/PooledModel.swift, Sources/FoundationModelsExtras/ModelPool/PooledSession.swift, Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, Sources/FoundationModelsExtras/ModelPool/ResidentHold.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/StubLanguageModel.swift
+    - next: /review
+  timestamp: 2026-10-12T14:32:07.541457+00:00
 depends_on:
 - 01M4NYFBJJHE656GQR76E1AESD
-position_column: todo
-position_ordinal: 8b80
+position_column: doing
+position_ordinal: '80'
 title: 'Generate telemetry: a span for each model call with time to first token, tokens per second and cold or warm'
 ---
 ## What
@@ -26,16 +56,16 @@ Approach (each name in `ExtrasTelemetry.swift`, metric objects made at call time
 - Never record the prompt, the instructions, the transcript or the output text.
 
 ## Acceptance Criteria
-- [ ] Each model call opens one `FoundationModelsExtras.generate` span with `model.ref`, `generate.guided` and `generate.cold`, and writes one "enter" log record.
-- [ ] The first call after a load records `generate.cold=true`. A later call records `generate.cold=false`.
-- [ ] Each call records `FoundationModelsExtras.generate.time_to_first_token` and `FoundationModelsExtras.generate.duration`. When the channel gives token counts, the call records `FoundationModelsExtras.generate.output_tokens` and `FoundationModelsExtras.generate.tokens_per_second`.
-- [ ] The load span and each tool span of the call have the generate span as their parent.
+- [x] Each model call opens one `FoundationModelsExtras.generate` span with `model.ref`, `generate.guided` and `generate.cold`, and writes one "enter" log record.
+- [x] The first call after a load records `generate.cold=true`. A later call records `generate.cold=false`.
+- [x] Each call records `FoundationModelsExtras.generate.time_to_first_token` and `FoundationModelsExtras.generate.duration`. When the channel gives token counts, the call records `FoundationModelsExtras.generate.output_tokens` and `FoundationModelsExtras.generate.tokens_per_second`.
+- [x] The load span and each tool span of the call have the generate span as their parent.
 
 ## Tests
-- [ ] `Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift`: with `StubLanguageModel.swift` and a fake loader, `W3CInMemoryTracer` and `MetricsTestKit` `TestMetrics`, test the span, the attributes, cold and warm, the timers, and a stub that gives token counts and one that gives none.
-- [ ] A parent test: a tool span that opens inside the call has the generate span as its parent.
-- [ ] A content-safety test with `TelemetryCapture.run(forbidding:)` that forbids the prompt and the output text. The test also asserts that the capture saw at least one record.
-- [ ] `swift test` passes with no warnings.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift`: with `StubLanguageModel.swift` and a fake loader, `W3CInMemoryTracer` and `MetricsTestKit` `TestMetrics`, test the span, the attributes, cold and warm, the timers, and a stub that gives token counts and one that gives none.
+- [x] A parent test: a tool span that opens inside the call has the generate span as its parent.
+- [x] A content-safety test with `TelemetryCapture.run(forbidding:)` that forbids the prompt and the output text. The test also asserts that the capture saw at least one record.
+- [x] `swift test` passes with no warnings.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.

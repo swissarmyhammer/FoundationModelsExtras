@@ -81,6 +81,12 @@ public struct PooledModel: LanguageModel {
     /// Runs one generation call as one job in the queue of the model. The
     /// first call loads the model first.
     ///
+    /// The call runs in one generate span of ``GenerateTelemetry``, which
+    /// opens before the load and the wait in the queue. Thus the load span is
+    /// a child of the generate span. The span is guided when the request has
+    /// a generation schema, and cold when the call waited for a load that
+    /// the pool ran.
+    ///
     /// - Parameters:
     ///   - request: The generation request.
     ///   - channel: The channel that the events of the answer go into.
@@ -92,9 +98,32 @@ public struct PooledModel: LanguageModel {
         to request: LanguageModelExecutorGenerationRequest,
         streamingInto channel: LanguageModelExecutorGenerationChannel
     ) async throws {
-        let loaded = try await resident.loaded()
-        try await loaded.hold.queue.submit { [model = loaded.model] in
-            try await model.respond(to: request, streamingInto: channel)
+        try await GenerateTelemetry.traceGenerate(of: key.ref, guided: request.schema != nil) { call in
+            let loaded = try await loaded(markingColdIn: call)
+            try await loaded.hold.queue.submit { [model = loaded.model] in
+                try await call.relay(into: channel) { modelChannel in
+                    try await model.respond(to: request, streamingInto: modelChannel)
+                }
+            }
+        }
+    }
+
+    /// Gives the loaded model, and gives `call` its cold flag: `true` when
+    /// the call waited for a load that the pool ran, else `false`. A call
+    /// whose load throws is cold, because it waited for that load.
+    ///
+    /// - Parameter call: The recorder of the generation call.
+    /// - Returns: The loaded model.
+    /// - Throws: The error of the load, or
+    ///   ``PooledSessionError/notALanguageModel(key:containerType:)``.
+    private func loaded(markingColdIn call: GenerateCall) async throws -> LoadedLanguageModel {
+        do {
+            let (loaded, waitedForLoad) = try await resident.loadedReportingWait()
+            call.markCold(waitedForLoad && loaded.hold.cacheResult == .load)
+            return loaded
+        } catch {
+            call.markCold(true)
+            throw error
         }
     }
 
@@ -180,8 +209,9 @@ private struct LoadedLanguageModel: Sendable {
 }
 
 /// A FoundationModels `LanguageModel` of any type, with one executor that
-/// the calls share.
-private struct ExecutableLanguageModel: Sendable {
+/// the calls share. A ``PooledModel`` runs its container through it, and so
+/// does the ``GenerateRelayModel`` of a ``PooledSession``.
+struct ExecutableLanguageModel: Sendable {
     /// Runs one generation call on the model.
     private let respond: @Sendable (LanguageModelExecutorGenerationRequest, LanguageModelExecutorGenerationChannel)
         async throws -> Void
