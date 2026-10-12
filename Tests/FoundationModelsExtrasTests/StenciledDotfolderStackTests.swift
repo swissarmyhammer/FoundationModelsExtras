@@ -6,7 +6,8 @@ import Testing
 /// Behavioral tests for `StenciledDotfolderStack`: the same lookups as the
 /// plain stack, with each text rendered through Stencil first. The tests
 /// cover the variables, the well-known values, the partial locations, the
-/// scope of the partials, the trust of each layer, and the diagnostic hook.
+/// include resolver, the scope of the partials, the trust of each layer, and
+/// the diagnostic hook.
 /// Every test builds its own throwaway three-layer tree through
 /// `DotfolderStackTests.Fixture`, so nothing touches the real home
 /// directory.
@@ -46,17 +47,39 @@ import Testing
   /// The POSIX permissions of a file that no one may run.
   private static let plainPermissions = 0o644
 
+  /// The include name of a file of the document, as an author writes it.
+  private static let referenceName = "references/x.md"
+
+  /// A body that includes the file `referenceName`.
+  private static let includeReferenceBody = "{% include \"\(referenceName)\" %}"
+
+  /// The text that `referenceResolver` gives for `referenceName`.
+  private static let referenceText = "reference text"
+
+  /// An include resolver that gives `text` for `referenceName`, and `nil`
+  /// for each other name.
+  ///
+  /// - Parameter text: The template text of the reference.
+  /// - Returns: The resolver.
+  private static func referenceResolver(
+    giving text: String = referenceText
+  ) -> StenciledDotfolderStack.IncludeResolver {
+    { name in name == referenceName ? text : nil }
+  }
+
   /// A stenciled stack over `base` that records its diagnostics in `log`.
   private static func makeStenciled(
     over base: DotfolderStack,
     partialLocations: [String] = ["_partials"],
     variables: [String: String] = variables,
+    includeResolver: StenciledDotfolderStack.IncludeResolver? = nil,
     log: DiagnosticLog = DiagnosticLog()
   ) -> StenciledDotfolderStack {
     StenciledDotfolderStack(
       base: base,
       partialLocations: partialLocations,
       variables: variables,
+      includeResolver: includeResolver,
       onDiagnostic: { log.record($0) }
     )
   }
@@ -218,6 +241,81 @@ import Testing
     #expect(stenciled.content("review/SKILL.md") == nil)
     #expect(log.diagnostics.count == 1)
     #expect(log.diagnostics.first?.message.contains("header") == true)
+  }
+
+  // MARK: - Include resolver
+
+  @Test func aResolverGivesTheTextOfAnInclude() {
+    let fixture = Fixture()
+    fixture.write(Self.includeReferenceBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(
+      over: fixture.makeStack(), includeResolver: Self.referenceResolver())
+
+    #expect(stenciled.content("review/SKILL.md") == Self.referenceText)
+  }
+
+  @Test func theResolverTextRendersWithTheVariablesOfTheStack() {
+    let fixture = Fixture()
+    fixture.write(Self.includeReferenceBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(
+      over: fixture.makeStack(), includeResolver: Self.referenceResolver(giving: Self.projectBody))
+
+    #expect(stenciled.content("review/SKILL.md") == "Project acme")
+  }
+
+  @Test func aResolverMissFallsBackToThePartialsSearch() {
+    let fixture = Fixture()
+    fixture.write("defaults header", to: "_partials/header.md", in: fixture.defaultsDirectory)
+    fixture.write(Self.includeHeaderBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(
+      over: fixture.makeStack(), includeResolver: Self.referenceResolver())
+
+    #expect(stenciled.content("review/SKILL.md") == "defaults header")
+  }
+
+  @Test func aStackWithNoResolverDoesNotIncludeAFileOfTheDocumentFolder() {
+    let fixture = Fixture()
+    fixture.write(Self.referenceText, to: "review/\(Self.referenceName)", in: fixture.projectDirectory)
+    fixture.write(Self.includeReferenceBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let log = DiagnosticLog()
+    let stenciled = Self.makeStenciled(over: fixture.makeStack(), log: log)
+
+    #expect(stenciled.content("review/SKILL.md") == nil)
+    #expect(log.diagnostics.count == 1)
+    #expect(log.diagnostics.first?.message.contains(Self.referenceName) == true)
+  }
+
+  @Test func anUntrustedResolverTextIsSubjectToTheIncludeDepthLimit() {
+    let fixture = Fixture()
+    fixture.write(Self.includeReferenceBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let log = DiagnosticLog()
+    let stenciled = Self.makeStenciled(
+      over: fixture.makeStack(),
+      includeResolver: Self.referenceResolver(giving: Self.includeReferenceBody), log: log)
+
+    #expect(stenciled.content("review/SKILL.md") == nil)
+    #expect(log.diagnostics.first?.message.contains("include depth") == true)
+  }
+
+  @Test func anUntrustedResolverTextWithADisallowedTagGivesNil() {
+    let fixture = Fixture()
+    fixture.write(Self.includeReferenceBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let log = DiagnosticLog()
+    let stenciled = Self.makeStenciled(
+      over: fixture.makeStack(),
+      includeResolver: Self.referenceResolver(giving: Self.disallowedTagBody), log: log)
+
+    #expect(stenciled.content("review/SKILL.md") == nil)
+    #expect(log.diagnostics.first?.message.contains("now") == true)
+  }
+
+  @Test func aResolverAnswersAnIncludeWhenNoLayerIsInScope() throws {
+    let fixture = Fixture()
+    let stenciled = Self.makeStenciled(
+      over: DotfolderStack(layers: []), includeResolver: Self.referenceResolver())
+    let layer = DotfolderStack.Layer(source: .project, root: fixture.projectDirectory)
+
+    #expect(try stenciled.render(Self.includeReferenceBody, in: layer) == Self.referenceText)
   }
 
   // MARK: - Scope of the partials

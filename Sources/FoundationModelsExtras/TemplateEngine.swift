@@ -102,7 +102,9 @@ public struct TemplateEngine: Sendable {
     ///   absolute path or a name containing a `..` traversal component
     ///   never resolves to a file (enforced by `DotfolderStack`'s own
     ///   path-safety check, which every lookup routes through regardless
-    ///   of trust).
+    ///   of trust). An `IncludeResolver` that the caller gives is asked
+    ///   first; the text it gives goes through each check below, the same
+    ///   as the text of a partial.
     /// - **Include-depth limit** —
     ///   `TemplateEngine.untrustedIncludeDepthLimit` (8): a self- or
     ///   mutually including partial cannot recurse without bound.
@@ -153,6 +155,20 @@ public struct TemplateEngine: Sendable {
   /// root; with `nil` it searches the layer root only.
   private let documentPath: String?
 
+  /// The hook that gives the template text of an `{% include %}` before
+  /// the search of the partial locations.
+  ///
+  /// The resolver gets the include name exactly as the template wrote it.
+  /// It gives the template text, or `nil` to let the search of the partial
+  /// locations run. The text that it gives renders the same as the text of
+  /// a partial: the same trust, the same variables, and, on the untrusted
+  /// path, the same checks, limits and include depth.
+  public typealias IncludeResolver = @Sendable (_ name: String) -> String?
+
+  /// The include resolver of this engine, or `nil` when the partial
+  /// locations are the only source of an include.
+  private let includeResolver: IncludeResolver?
+
   /// The environment dictionary consulted for the precedence ladder's
   /// middle rung.
   private let environment: [String: String]
@@ -187,18 +203,23 @@ public struct TemplateEngine: Sendable {
   ///   - documentPath: The path of the document, relative to its layer
   ///     root, where the walk of the loader starts. Defaults to `nil`, which
   ///     searches the layer root only.
+  ///   - includeResolver: The hook that gives the text of an include before
+  ///     the search of the partial locations. Defaults to `nil`, which
+  ///     searches the partial locations only.
   ///   - environment: The dictionary of the ladder's middle rung.
   ///   - wellKnownValues: The values of the ladder's lowest rung.
   init(
     partials: DotfolderStack?,
     partialLocations: [String] = DotfolderLoader.defaultPartialLocations,
     documentPath: String? = nil,
+    includeResolver: IncludeResolver? = nil,
     environment: [String: String],
     wellKnownValues: WellKnownValues
   ) {
     self.partials = partials
     self.partialLocations = partialLocations
     self.documentPath = documentPath
+    self.includeResolver = includeResolver
     self.environment = environment
     self.wellKnownValues = wellKnownValues
   }
@@ -260,13 +281,20 @@ public struct TemplateEngine: Sendable {
   }
 
   /// The loader that resolves `{% include %}` for one render, over the
-  /// `partials` stack, this engine's partial locations and the path of its
-  /// document, or `nil` when no stack was given. Both trust paths route
-  /// through this helper, so they resolve a partial the same way.
+  /// `partials` stack, this engine's partial locations, the path of its
+  /// document and its include resolver. Both trust paths route through this
+  /// helper, so they resolve a partial the same way.
+  ///
+  /// An engine with an include resolver and no stack gets a loader over a
+  /// stack with no layer, so the resolver still answers each include.
+  ///
+  /// - Returns: The loader, or `nil` when the engine has no stack and no
+  ///   include resolver.
   private func makeLoader() -> DotfolderLoader? {
-    partials.map {
-      DotfolderLoader(stack: $0, partialLocations: partialLocations, documentPath: documentPath)
-    }
+    guard partials != nil || includeResolver != nil else { return nil }
+    return DotfolderLoader(
+      stack: partials ?? DotfolderStack(layers: []), partialLocations: partialLocations,
+      documentPath: documentPath, includeResolver: includeResolver)
   }
 
   /// Builds the `[String: Any]` dictionary Stencil consumes: well-known

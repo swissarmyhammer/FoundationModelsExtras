@@ -64,6 +64,16 @@ import Foundation
 /// local layer sees the local layers only, so it never reads the partial of
 /// a remote source.
 ///
+/// ## The include resolver
+///
+/// A consumer can give an `IncludeResolver`. Each `{% include %}` asks it
+/// first, with the include name as the template wrote it. When it gives
+/// text, that text is the included template. When it gives `nil`, the
+/// search of the partial locations above runs. The text of the resolver
+/// renders the same as a partial: the trust of the layer of the document,
+/// the same variables, and the same limits and include depth. A stack with
+/// no resolver searches the partial locations only.
+///
 /// ## Trust
 ///
 /// The trust comes from the layer, not from the caller: a document of the
@@ -89,6 +99,10 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   /// The hook that receives each render failure.
   public typealias DiagnosticHandler = @Sendable (Diagnostic) -> Void
 
+  /// The hook that gives the template text of an `{% include %}` before the
+  /// search of the partial locations, or `nil` to let that search run.
+  public typealias IncludeResolver = TemplateEngine.IncludeResolver
+
   /// The partial locations a stack searches when the caller names none:
   /// `["_partials"]`, the convention of `DotfolderLoader`.
   public static let defaultPartialLocations = DotfolderLoader.defaultPartialLocations
@@ -106,6 +120,10 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   /// The well-known values of each render, or `nil` to read the current
   /// values at the time of each render.
   public let wellKnownValues: WellKnownValues?
+
+  /// The hook that gives the text of an include before the search of the
+  /// partial locations, or `nil` when that search is the only source.
+  public let includeResolver: IncludeResolver?
 
   /// The hook that receives each render failure.
   private let onDiagnostic: DiagnosticHandler
@@ -126,6 +144,9 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   ///     default, reads the current values at the time of each render, thus
   ///     `date` is the date of the render. A consumer that must pin these
   ///     values, for example a test, gives them here.
+  ///   - includeResolver: The hook that gives the text of an include before
+  ///     the search of the partial locations. `nil`, the default, searches
+  ///     the partial locations only.
   ///   - onDiagnostic: The hook that receives each render failure. Defaults
   ///     to a hook that ignores it.
   public init(
@@ -133,12 +154,14 @@ public struct StenciledDotfolderStack: DotfolderStacking {
     partialLocations: [String] = defaultPartialLocations,
     variables: [String: String] = [:],
     wellKnownValues: WellKnownValues? = nil,
+    includeResolver: IncludeResolver? = nil,
     onDiagnostic: @escaping DiagnosticHandler = { _ in }
   ) {
     self.base = base
     self.partialLocations = partialLocations
     self.variables = variables
     self.wellKnownValues = wellKnownValues
+    self.includeResolver = includeResolver
     self.onDiagnostic = onDiagnostic
     self.context = TemplateContext(values: variables.mapValues { .string($0) })
   }
@@ -403,6 +426,7 @@ public struct StenciledDotfolderStack: DotfolderStacking {
       partials: partialsStack(for: layer),
       partialLocations: partialLocations,
       documentPath: documentPath,
+      includeResolver: includeResolver,
       environment: [:],
       wellKnownValues: wellKnownValues ?? .current(partials: base)
     )

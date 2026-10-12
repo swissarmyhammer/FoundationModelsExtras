@@ -61,6 +61,16 @@ enum DotfolderLoaderError: Error, Sendable, CustomStringConvertible {
 /// A nested include walks from the same document: the path of a partial
 /// does not change the folders that the walk searches.
 ///
+/// ## The include resolver
+///
+/// A loader with an include resolver asks it first, with the literal include
+/// name. When the resolver gives text, that text is the template, and the
+/// walk does not run. When it gives `nil`, the walk runs as above. The
+/// loader gives the text of the resolver to Stencil the same way as the text
+/// of a partial, thus the render applies the same trust, variables, limits
+/// and include depth to it. A nested include in that text asks the resolver
+/// again.
+///
 /// ## Name resolution
 ///
 /// The swissarmyhammer corpus this package ports writes includes
@@ -103,6 +113,10 @@ final class DotfolderLoader: Loader, Sendable {
   /// path.
   private let searchFolders: [String]
 
+  /// The hook that gives the text of an include before the walk, or `nil`
+  /// when the walk is the only source.
+  private let includeResolver: TemplateEngine.IncludeResolver?
+
   /// Creates a loader over `stack`.
   ///
   /// - Parameters:
@@ -114,17 +128,21 @@ final class DotfolderLoader: Loader, Sendable {
   ///     root, for example `skills/commit/SKILL.md`. The walk starts at the
   ///     folder of the document. `nil`, the default, searches the layer root
   ///     only.
+  ///   - includeResolver: The hook that gives the text of an include before
+  ///     the walk. `nil`, the default, runs the walk only.
   init(
     stack: DotfolderStack, partialLocations: [String] = defaultPartialLocations,
-    documentPath: String? = nil
+    documentPath: String? = nil, includeResolver: TemplateEngine.IncludeResolver? = nil
   ) {
     self.stack = stack
     self.partialLocations = partialLocations
     self.searchFolders = Self.searchFolders(forDocumentAt: documentPath)
+    self.includeResolver = includeResolver
   }
 
-  /// Resolves `name` per the partial locations and the name-resolution
-  /// scheme documented on this type, returning the content of the winning
+  /// Resolves `name` through the include resolver first, then per the
+  /// partial locations and the name-resolution scheme documented on this
+  /// type, returning the text of the resolver or the content of the winning
   /// copy of the walk as a Stencil `Template`.
   ///
   /// - Parameters:
@@ -136,10 +154,11 @@ final class DotfolderLoader: Loader, Sendable {
   ///     this same loader.
   /// - Returns: The resolved template, named `name` (not the resolved
   ///   candidate) so diagnostics report what the template actually wrote.
-  /// - Throws: `DotfolderLoaderError.partialNotFound` when no partial
-  ///   location of any layer holds any name variant tried.
+  /// - Throws: `DotfolderLoaderError.partialNotFound` when the resolver
+  ///   gives no text and no partial location of any layer holds any name
+  ///   variant tried.
   func loadTemplate(name: String, environment: Environment) throws -> Template {
-    guard let content = partialContent(named: name) else {
+    guard let content = includeResolver?(name) ?? partialContent(named: name) else {
       throw DotfolderLoaderError.partialNotFound(
         name: name, directoriesSearched: searchedDirectories)
     }

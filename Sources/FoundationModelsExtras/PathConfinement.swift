@@ -28,9 +28,52 @@ public enum PathConfinement {
   /// - Returns: `true` if the resolved `candidate` is the resolved `root` or
   ///   is under it.
   public static func isConfined(_ candidate: URL, to root: URL) -> Bool {
-    let resolvedRoot = resolvingSymlinksOfExistingPrefix(root)
-    let resolvedCandidate = resolvingSymlinksOfExistingPrefix(candidate)
-    return isContained(resolvedCandidate, in: resolvedRoot)
+    componentsBelow(root, of: candidate) != nil
+  }
+
+  /// The path of `candidate` relative to `root`, after the symbolic links of
+  /// both are resolved.
+  ///
+  /// Both paths go through the same resolution as `isConfined(_:to:)`, thus
+  /// `/tmp/x` and `/private/tmp/x` give the same result, and so do
+  /// `/var/folders/...` and `/private/var/folders/...`. The compare is on
+  /// whole path components, thus `release-notes-extra/x` is not under
+  /// `release-notes`.
+  ///
+  /// - Parameters:
+  ///   - candidate: The path to make relative, for example the absolute path
+  ///     of a file of a skill.
+  ///   - root: The folder that must contain `candidate`.
+  /// - Returns: The relative path, with `/` between its components, for
+  ///   example `references/changelog.md`. `nil` when `candidate` is `root`
+  ///   itself, when it is outside `root`, when its `..` components go out of
+  ///   `root`, or when a symbolic link in `root` takes it outside `root`.
+  public static func relativePath(of candidate: URL, in root: URL) -> String? {
+    guard let components = componentsBelow(root, of: candidate), !components.isEmpty else {
+      return nil
+    }
+    return components.joined(separator: "/")
+  }
+
+  /// The path components of the resolved `candidate` that come after the
+  /// path components of the resolved `root`.
+  ///
+  /// This is the one compare that `isConfined(_:to:)` and
+  /// `relativePath(of:in:)` share. It compares whole components, never a
+  /// text prefix, so a sibling folder whose name starts with the name of
+  /// `root` is not under `root`.
+  ///
+  /// - Parameters:
+  ///   - root: The root directory.
+  ///   - candidate: The path to test.
+  /// - Returns: The components below `root`: empty when `candidate` is
+  ///   `root` itself, and `nil` when `candidate` is not `root` and not under
+  ///   it.
+  private static func componentsBelow(_ root: URL, of candidate: URL) -> ArraySlice<String>? {
+    let rootComponents = resolvingSymlinksOfExistingPrefix(root).pathComponents
+    let candidateComponents = resolvingSymlinksOfExistingPrefix(candidate).pathComponents
+    guard candidateComponents.starts(with: rootComponents) else { return nil }
+    return candidateComponents.dropFirst(rootComponents.count)
   }
 
   /// Resolves the symbolic links of the longest prefix of `url` that exists,
@@ -54,18 +97,5 @@ public enum PathConfinement {
     return trailingComponents
       .reduce(existing.resolvingSymlinksInPath()) { $0.appendingPathComponent($1) }
       .standardizedFileURL
-  }
-
-  /// Reports whether `candidate` is `root` itself or is somewhere under it,
-  /// comparing already resolved and standardized paths.
-  ///
-  /// - Parameters:
-  ///   - candidate: The resolved candidate path.
-  ///   - root: The resolved root directory.
-  /// - Returns: `true` if `candidate` is contained in `root`.
-  private static func isContained(_ candidate: URL, in root: URL) -> Bool {
-    let rootPath = root.path
-    let candidatePath = candidate.path
-    return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
   }
 }
