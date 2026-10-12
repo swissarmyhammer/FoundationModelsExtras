@@ -34,6 +34,34 @@ comments:
     - files: Sources/FoundationModelsExtras/Telemetry/ModelLoadTelemetry.swift (new), Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, Sources/FoundationModelsExtras/ModelPool/MLXModelLoader.swift, Sources/FoundationModelsExtras/ModelPool/ProgressReportingDownloader.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/MLXModelLoaderTests.swift, IntegrationTests/Package.swift, IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/MLXModelLoaderIntegrationTests.swift
     - next: /review
   timestamp: 2026-10-12T12:08:04.190611+00:00
+- actor: claude-code
+  id: 01m4r0hdr880gadc0d93mtdxn6
+  text: |-
+    ### review — findings
+    - evidence: review sha fb5a768~1..fb5a768 — 1 finding (1 confirmed, 2 refuted) — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:303
+    - next: /implement the open item in the `## Review Findings (2026-10-12 07:11)` section
+  timestamp: 2026-10-12T12:13:59.944106+00:00
+- actor: claude-code
+  id: 01m4r0hf3vze3ay4gatnbe7qk2
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 10 files
+    - test: green — swift test, 1003 passed; IntegrationTests, 36 passed
+    - commit: fb5a768
+    - review: findings — Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:303
+  timestamp: 2026-10-12T12:14:01.339480+00:00
+- actor: claude-code
+  id: 01m4r0p2xp7gnc6esvmb574rf5
+  text: 'Finding `ModelPool.swift:303` `duplication/duplication` is done. New private helper `ModelPool.loadTraced(_:loader:_:)` counts the load acquire (`PoolTelemetry.recordAcquire(.load)`), runs `reportingProgress(of:)`, and gives its body one `loadContainer` call that runs `ModelLoadTelemetry.traceLoad` around `loader.load(key:progressHandler:)`. `load` and `loadMeasured` now call it. The differences stay in each caller: `load` sets and clears the loading bytes; `loadMeasured` measures the footprint, evicts on a measure failure and records the footprint. The lock order did not change (no new lock use). I examined ModelLoadTelemetry.swift for other copied blocks: the model ref and role go into three different forms (span attributes, log metadata, metric dimensions) with no repeated logic, so no other merge is necessary. This is a refactor with no behavior change: the existing load-span, timer, footprint and progress tests cover it, so I added no new test.'
+  timestamp: 2026-10-12T12:16:32.694438+00:00
+- actor: claude-code
+  id: 01m4r0p5h9bkcrmmd1ck06d7dk
+  text: |-
+    ### implement — changed
+    - evidence: `swift test --filter 'ModelPool|MLXModelLoader|PooledModel'` → 69 tests in 3 suites passed. `swift test` → 1003 tests in 90 suites passed (11 known issues are the existing self-tests of TelemetryCapture), no warning from this repo (only the mlx-swift "missing creator" line).
+    - files: Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, .kanban/tasks/01M4NY08T0DMYJ1BVEG8R1175P.md (finding checked)
+    - next: /review
+  timestamp: 2026-10-12T12:16:35.369447+00:00
 depends_on:
 - 01M4NXZS41BMJKF4Z96556W4RS
 position_column: doing
@@ -72,3 +100,12 @@ Approach (each name in `ExtrasTelemetry.swift`, metric objects made at call time
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 
 #telemetry #feature
+
+## Review Findings (2026-10-12 07:11)
+
+> Scope: `review sha fb5a768~1..fb5a768` — reviewed the diffs only — lines this change added or modified. 10 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/ModelPool.swift:303` `duplication/duplication` — The load span call is copied in two functions. `load` (line 283) and `loadMeasured` (line 303) both run `ModelLoadTelemetry.traceLoad(of: key)` around `loader.load(key:progressHandler:)`. Both also open with `PoolTelemetry.recordAcquire(of: key.ref, result: .load)` and `reportingProgress(of: key.ref)`. A change to the load span, its arguments, or its error handling must be made in two places, and the copies can drift apart. Extract a private helper in ModelPool, for example `loadTraced(_ key:, loader:, progressHandler:)`, that runs `ModelLoadTelemetry.traceLoad` around `loader.load`. Call it from both `load` and `loadMeasured`. Keep the differences in each caller: `load` sets and clears the loading bytes, and `loadMeasured` measures the footprint.

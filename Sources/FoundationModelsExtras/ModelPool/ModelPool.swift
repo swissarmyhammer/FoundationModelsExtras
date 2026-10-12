@@ -275,14 +275,11 @@ public final class ModelPool: Sendable {
     fileprivate func load(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
-        PoolTelemetry.recordAcquire(of: key.ref, result: .load)
-        return try await reportingProgress(of: key.ref) { progressHandler in
+        try await loadTraced(key, loader: loader) { loadContainer in
             setLoadingBytes(footprintBytes)
             let container: any Sendable
             do {
-                container = try await ModelLoadTelemetry.traceLoad(of: key) {
-                    try await loader.load(key: key, progressHandler: progressHandler)
-                }
+                container = try await loadContainer()
             } catch {
                 setLoadingBytes(0)
                 throw error
@@ -298,11 +295,8 @@ public final class ModelPool: Sendable {
     /// call to the loader runs in one load span, the load timer records its
     /// duration, and the footprint recorder records the measured bytes.
     fileprivate func loadMeasured(_ key: ModelPoolKey) async throws -> ModelHold {
-        PoolTelemetry.recordAcquire(of: key.ref, result: .load)
-        return try await reportingProgress(of: key.ref) { progressHandler in
-            let container = try await ModelLoadTelemetry.traceLoad(of: key) {
-                try await loader.load(key: key, progressHandler: progressHandler)
-            }
+        try await loadTraced(key, loader: loader) { loadContainer in
+            let container = try await loadContainer()
             let bytes: Int64
             do {
                 bytes = try await loader.footprintBytes(of: key)
@@ -314,6 +308,33 @@ public final class ModelPool: Sendable {
             ModelLoadTelemetry.recordFootprint(bytes, of: key)
             return makeResident(
                 key, container: container, loader: loader, bytes: bytes, sessionBytes: Self.measuredSessionBytes)
+        }
+    }
+
+    /// Counts one load of `key`, and runs `makeHold` as one load that the
+    /// progress streams of the model see. `makeHold` gets a call that loads
+    /// the model with `loader`. That call runs in one load span, and the load
+    /// timer records its duration.
+    ///
+    /// - Parameters:
+    ///   - key: The model to load.
+    ///   - loader: The loader that loads the model.
+    ///   - makeHold: Runs the load call that it gets, makes the model
+    ///     resident, and gives the first hold.
+    /// - Returns: The hold that `makeHold` gives.
+    /// - Throws: The error of `makeHold`.
+    private func loadTraced(
+        _ key: ModelPoolKey,
+        loader: any PooledModelLoader,
+        _ makeHold: (_ loadContainer: () async throws -> any Sendable) async throws -> ModelHold
+    ) async throws -> ModelHold {
+        PoolTelemetry.recordAcquire(of: key.ref, result: .load)
+        return try await reportingProgress(of: key.ref) { progressHandler in
+            try await makeHold {
+                try await ModelLoadTelemetry.traceLoad(of: key) {
+                    try await loader.load(key: key, progressHandler: progressHandler)
+                }
+            }
         }
     }
 
