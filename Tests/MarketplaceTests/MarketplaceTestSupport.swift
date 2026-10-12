@@ -35,7 +35,7 @@ actor CredentialRequestRecorder {
 
 /// One store over a git source that only the seed folder serves.
 ///
-/// The fixture installs one commit into a seed folder with a store of its
+/// ``make()`` installs one commit into a seed folder with a store of its
 /// own, and then builds the store under test over an empty cache whose
 /// environment names that seed folder. `MarketplaceLocalSourceTests` proves
 /// what the seed folder serves, and `MarketplaceStoreTests` counts each
@@ -59,18 +59,41 @@ struct SeedFixture {
     fixture.store
   }
 
-  /// Seeds the folder and builds the store under test.
+  /// Keeps the values of a fixture that ``make()`` seeded.
   ///
+  /// - Parameters:
+  ///   - repository: The repository that both stores read.
+  ///   - seedDirectory: The seed folder, which holds the install.
+  ///   - seededSha: The commit that the seed folder holds.
+  ///   - fixture: The store under test.
+  private init(
+    repository: GitFixtureRepository, seedDirectory: URL, seededSha: String, fixture: MarketplaceStoreFixture
+  ) {
+    self.repository = repository
+    self.seedDirectory = seedDirectory
+    self.seededSha = seededSha
+    self.fixture = fixture
+  }
+
+  /// Makes one commit, installs it into a new seed folder, and builds the
+  /// store under test over that seed folder.
+  ///
+  /// The install runs a git fetch, thus this work is in a factory and not in
+  /// `init`.
+  ///
+  /// - Returns: The seeded fixture.
   /// - Throws: The error of a folder write, of the repository, or of the
   ///   install.
-  init() async throws {
-    repository = try GitFixtureRepository()
-    seededSha = try repository.commit(files: MarketplaceTestSupport.skillTree(body: "seed body"))
-    seedDirectory = try TemporaryDirectory.make()
+  static func make() async throws -> SeedFixture {
+    let repository = try GitFixtureRepository()
+    let seededSha = try repository.commit(files: MarketplaceTestSupport.skillTree(body: "seed body"))
+    let seedDirectory = try TemporaryDirectory.make()
     let seeding = try MarketplaceStoreFixture(
       sources: [MarketplaceSource(repository.url)], cacheDirectory: seedDirectory)
     await seeding.store.start()
-    fixture = try Self.makeStore(over: repository, seedDirectory: seedDirectory)
+    return SeedFixture(
+      repository: repository, seedDirectory: seedDirectory, seededSha: seededSha,
+      fixture: try makeStore(over: repository, seedDirectory: seedDirectory))
   }
 
   /// Builds one more store over an empty cache whose environment names the

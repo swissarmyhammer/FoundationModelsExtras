@@ -505,7 +505,7 @@ struct MarketplaceStoreTests {
   }
 
   @Test func aStoreThatTheSeedFolderServesCountsOneServeOfTheSeedSnapshot() async throws {
-    let seed = try await SeedFixture()
+    let seed = try await SeedFixture.make()
 
     let (context, store) = try await Telemetry.capture { try? seed.makeStore() }
 
@@ -531,7 +531,7 @@ struct MarketplaceStoreTests {
     try fixture.commit(files: Self.skillTree(body: "alpha body"))
     let cache = try MarketplaceStoreFixture(
       sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
-    let seed = try await SeedFixture()
+    let seed = try await SeedFixture.make()
     let forbidden = [
       cache.cacheDirectory.path, seed.seedDirectory.path, fixture.directory.path, seed.repository.directory.path,
     ]

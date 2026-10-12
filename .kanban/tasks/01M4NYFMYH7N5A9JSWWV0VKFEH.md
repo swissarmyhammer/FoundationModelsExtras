@@ -25,6 +25,35 @@ comments:
     - evidence: 8 files — Sources/Marketplace/MarketplaceTelemetry.swift, Sources/Marketplace/SnapshotWriter.swift, Sources/Marketplace/MarketplaceStore.swift, Tests/MarketplaceTests/SnapshotWriterTests.swift, Tests/MarketplaceTests/MarketplaceStoreTests.swift, Tests/MarketplaceTests/MarketplaceTelemetryExpectations.swift, Tests/MarketplaceTests/MarketplaceTestSupport.swift, Tests/MarketplaceTests/MarketplaceLocalSourceTests.swift; swift test 1052 passed, 0 failed
     - next: /review
   timestamp: 2026-10-12T17:07:32.671305+00:00
+- actor: claude-code
+  id: 01m4rhpn6yyxz0rbpy6eth3w8m
+  text: |-
+    ### review — findings
+    - evidence: review sha 92bef4f~1..92bef4f; 1 finding (1 confirmed, 0 refuted) — Tests/MarketplaceTests/MarketplaceTestSupport.swift:66
+    - next: /implement the open item in the Review Findings (2026-10-12 12:10) section
+  timestamp: 2026-10-12T17:13:57.214070+00:00
+- actor: claude-code
+  id: 01m4rhprz43gfyn52dmw2wkxfy
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 8 files
+    - test: green — swift test, 1052 passed
+    - commit: 92bef4f
+    - review: findings — Tests/MarketplaceTests/MarketplaceTestSupport.swift:66
+  timestamp: 2026-10-12T17:14:01.060540+00:00
+- actor: claude-code
+  id: 01m4rhwn15akkn06eywwx2axsd
+  text: |-
+    Finding `swift/initialization` (MarketplaceTestSupport.swift, SeedFixture init) is fixed.
+    - `SeedFixture` now has a `private init(repository:seedDirectory:seededSha:fixture:)` that only assigns, and a `static func make() async throws -> SeedFixture` factory that makes the commit, writes the seed folder, awaits `seeding.store.start()`, and builds the store under test. A factory and not `func seed()`: the stored properties come from the seed result, and the rule "No stored property waits for a later method to fill it in" forbids a `seed()` method that sets them later.
+    - The 4 callers (2 in MarketplaceLocalSourceTests, 2 in MarketplaceStoreTests) call `SeedFixture.make()`. No helper was copied.
+    - The other declarations in MarketplaceTestSupport.swift (CredentialRequestRecorder, MarketplaceTestSupport, SnapshotLockProbe, OpenDescriptorProbe) have no `init` with work, thus they need no change.
+    - Again: the `files` tool `replace_all` made one replacement only; each second call was edited one at a time.
+
+    ### implement — changed
+    - evidence: 3 files — Tests/MarketplaceTests/MarketplaceTestSupport.swift, Tests/MarketplaceTests/MarketplaceLocalSourceTests.swift, Tests/MarketplaceTests/MarketplaceStoreTests.swift; `swift test --filter 'Marketplace|SnapshotWriter'` 410 tests in 29 suites passed; `swift test` 1052 tests in 92 suites passed (11 known issues are existing `withKnownIssue` tests); no compiler warning (the mlx `missing creator` build line only)
+    - next: /review
+  timestamp: 2026-10-12T17:17:13.637350+00:00
 depends_on:
 - 01M4NY2SM2DXF0492WHNG6YS99
 position_column: doing
@@ -60,3 +89,12 @@ Approach (each name in `MarketplaceTelemetry.swift`, metric objects made at call
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 
 #telemetry #feature
+
+## Review Findings (2026-10-12 12:10)
+
+> Scope: `review sha 92bef4f~1..92bef4f` — reviewed the diffs only — lines this change added or modified. 8 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Tests/MarketplaceTests/MarketplaceTestSupport.swift:66` `swift/initialization` — The init of SeedFixture does slow work. It makes a git commit, writes the seed folder, and awaits seeding.store.start(), which runs a git fetch. A caller of init must wait for all of this before the fixture exists, and a failed fetch is hidden in the init path. Move the seed work (lines 67-73) into an explicit async throws method, for example func seed() async throws, that the test calls before it uses store. Keep init to plain assignments, or build only the fixture values in init.

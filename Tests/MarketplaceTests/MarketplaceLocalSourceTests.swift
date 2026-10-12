@@ -128,7 +128,7 @@ struct MarketplaceLocalSourceTests {
   // MARK: - The read-only seed folder
 
   @Test func aSeedEntryServesTheLayerWhenTheCacheHasNone() async throws {
-    let seed = try await SeedFixture()
+    let seed = try await SeedFixture.make()
 
     let layer = try #require(seed.store.marketplaceLayers().first)
     #expect(layer.provenance.sha == seed.seededSha)
@@ -137,7 +137,7 @@ struct MarketplaceLocalSourceTests {
   }
 
   @Test func anUpdateOfASeedEntryWritesNothingAndGivesADiagnostic() async throws {
-    let seed = try await SeedFixture()
+    let seed = try await SeedFixture.make()
     try seed.repository.commit(files: MarketplaceTestSupport.skillTree(body: "seed body v2"))
 
     let events = await seed.store.update()
