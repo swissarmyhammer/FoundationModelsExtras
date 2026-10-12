@@ -7,9 +7,6 @@ import Testing
 /// executables of the family bootstrap the backend.
 @Suite("Telemetry dependencies: the APIs only, with no backend")
 struct TelemetryDependencyTests {
-    /// The path of the manifest, relative to the package root.
-    private static let manifestPath = "Package.swift"
-
     /// The folder of the library sources, relative to the package root.
     private static let sourcesPath = "Sources"
 
@@ -42,39 +39,33 @@ struct TelemetryDependencyTests {
     /// The import line of the `os` framework.
     private static let osImportLine = "import os"
 
-    /// The name of the marketplace target in the manifest.
-    private static let marketplaceTarget = "Marketplace"
+    /// The logging API product.
+    private static let loggingProduct = ManifestProduct(name: "Logging", package: "swift-log")
 
-    /// The folder of the sources of the marketplace target, relative to the
-    /// package root.
-    private static let marketplaceSourcesPath = "Sources/Marketplace"
+    /// The Yams product, which the core target and the marketplace target
+    /// link.
+    private static let yamsProduct = ManifestProduct(name: "Yams", package: "Yams")
 
-    /// The name of the core target in the manifest.
-    private static let coreTarget = "FoundationModelsExtras"
-
-    /// The package of each telemetry product, and the API product of that
-    /// package. A library target links the API product only. Any other
-    /// product of these packages, for example a test kit or an in-memory
-    /// backend, is not an API product.
-    private static let telemetryAPIProducts: [String: String] = [
-        "swift-log": "Logging",
-        "swift-metrics": "Metrics",
-        "swift-distributed-tracing": "Tracing",
+    /// The API product of each telemetry package. A library target links the
+    /// API product only. Any other product of these packages, for example a
+    /// test kit or an in-memory backend, is not an API product.
+    private static let telemetryAPIProducts = [
+        loggingProduct,
+        ManifestProduct(name: "Metrics", package: "swift-metrics"),
+        PackageManifest.tracingProduct,
     ]
 
     /// The telemetry API products, as dependencies of a target.
-    private static let telemetryAPIDependencies = Set(
-        telemetryAPIProducts.map { TargetDependency.product(name: $0.value, package: $0.key) }
-    )
+    private static let telemetryAPIDependencies = Set(telemetryAPIProducts.map(TargetDependency.linking))
 
     /// Each dependency that the marketplace target can link: the telemetry
     /// API products, and the dependencies of the target that are not
     /// telemetry. A new dependency of the target is not in this list, thus it
     /// fails the allowlist test until a person adds it here on purpose.
     private static let marketplaceAllowlist = telemetryAPIDependencies.union([
-        .byName(coreTarget),
-        .product(name: "Yams", package: "Yams"),
-        .product(name: "libgit2", package: "swift-libgit2"),
+        .byName(PackageManifest.coreTargetName),
+        .linking(yamsProduct),
+        .linking(PackageManifest.libgit2Product),
     ])
 
     /// Each dependency that the core target can link: the telemetry API
@@ -83,7 +74,7 @@ struct TelemetryDependencyTests {
     /// allowlist test until a person adds it here on purpose.
     private static let coreAllowlist = telemetryAPIDependencies.union([
         .byName("Stencil"),
-        .product(name: "Yams", package: "Yams"),
+        .linking(yamsProduct),
         .product(name: "ULID", package: "ULID.swift"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
@@ -106,6 +97,14 @@ struct TelemetryDependencyTests {
         /// An entry of a form that the read does not know, as the manifest
         /// writes it. No allowlist holds it, thus it always fails the check.
         case unread(String)
+
+        /// The dependency on one product of a package.
+        ///
+        /// - Parameter product: The product that the target links.
+        /// - Returns: The `.product(name:package:)` dependency on `product`.
+        static func linking(_ product: ManifestProduct) -> TargetDependency {
+            .product(name: product.name, package: product.package)
+        }
 
         /// The dependency as a failed check shows it.
         var description: String {
@@ -154,14 +153,14 @@ struct TelemetryDependencyTests {
 
     @Test("the marketplace target links the logging, metrics and tracing API products")
     func theMarketplaceTargetLinksTheTelemetryAPIs() throws {
-        let linked = try Self.dependencies(ofTarget: Self.marketplaceTarget, in: Self.manifestText())
+        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: Self.manifestText())
 
         #expect(Self.telemetryAPIDependencies.isSubset(of: Set(linked)))
     }
 
     @Test("each dependency of the marketplace target is in its allowlist: no backend, no test kit, no swift-otel")
     func theMarketplaceTargetLinksOnlyItsAllowlist() throws {
-        let linked = try Self.dependencies(ofTarget: Self.marketplaceTarget, in: Self.manifestText())
+        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: Self.manifestText())
 
         #expect(!linked.isEmpty)
         #expect(Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist) == [])
@@ -169,7 +168,7 @@ struct TelemetryDependencyTests {
 
     @Test("each dependency of the core target is in its allowlist: no backend, no test kit, no swift-otel")
     func theCoreTargetLinksOnlyItsAllowlist() throws {
-        let linked = try Self.dependencies(ofTarget: Self.coreTarget, in: Self.manifestText())
+        let linked = try Self.dependencies(ofTarget: PackageManifest.coreTargetName, in: Self.manifestText())
 
         #expect(!linked.isEmpty)
         #expect(Self.unlistedDependencies(linked, allowed: Self.coreAllowlist) == [])
@@ -179,7 +178,7 @@ struct TelemetryDependencyTests {
     func theCheckFailsForAnUnlistedTelemetryPackage() throws {
         let manifest = Self.marketplaceManifest(adding: #".product(name: "OTLPExporter", package: "swift-otlp-exporter")"#)
 
-        let linked = try Self.dependencies(ofTarget: Self.marketplaceTarget, in: manifest)
+        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
 
         #expect(
             Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist)
@@ -190,7 +189,7 @@ struct TelemetryDependencyTests {
     func theCheckFailsForANonAPIProductOfAListedPackage() throws {
         let manifest = Self.marketplaceManifest(adding: #".product(name: "InMemoryLogging", package: "swift-log")"#)
 
-        let linked = try Self.dependencies(ofTarget: Self.marketplaceTarget, in: manifest)
+        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
 
         #expect(
             Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist)
@@ -202,14 +201,14 @@ struct TelemetryDependencyTests {
         let entry = #".product(name: "Metrics", package: "swift-metrics", condition: .when(platforms: [.macOS]))"#
         let manifest = Self.marketplaceManifest(adding: entry)
 
-        let linked = try Self.dependencies(ofTarget: Self.marketplaceTarget, in: manifest)
+        let linked = try Self.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
 
         #expect(Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist) == [.unread(entry)])
     }
 
     @Test("no source of the marketplace target bootstraps a logging, metrics or OTel backend")
     func noMarketplaceSourceBootstrapsABackend() throws {
-        let offenders = try Self.librarySourcePaths(under: Self.marketplaceSourcesPath) { text in
+        let offenders = try Self.librarySourcePaths(under: PackageManifest.marketplaceSourcesPath) { text in
             Self.backendBootstrapCalls.contains { text.contains($0) }
         }
 
@@ -344,12 +343,12 @@ struct TelemetryDependencyTests {
     private static func marketplaceManifest(adding entry: String) -> String {
         """
         .target(
-            name: "\(marketplaceTarget)",
+            name: "\(PackageManifest.marketplaceTargetName)",
             dependencies: [
-                "\(coreTarget)",
+                "\(PackageManifest.coreTargetName)",
                 // A comment with a [bracket], and a comma.
-                .product(name: "Yams", package: "Yams"),
-                .product(name: "Logging", package: "swift-log"),
+                \(yamsProduct.dependencyText),
+                \(loggingProduct.dependencyText),
                 \(entry),
             ]
         ),
@@ -361,7 +360,7 @@ struct TelemetryDependencyTests {
     /// - Returns: The text of `Package.swift`.
     /// - Throws: A `FixtureError` when the manifest cannot be read.
     private static func manifestText() throws -> String {
-        try FixtureFile.text(manifestPath).get()
+        try FixtureFile.text(PackageManifest.path).get()
     }
 
     /// Reads each package dependency URL of the manifest.

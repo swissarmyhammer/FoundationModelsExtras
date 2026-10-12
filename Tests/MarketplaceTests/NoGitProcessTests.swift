@@ -22,7 +22,7 @@ struct NoGitProcessTests {
   private static let gitExecutableName = "git"
 
   /// The source directory, relative to the package root.
-  private static let sourcesPath = "Sources/Marketplace"
+  private static let sourcesPath = PackageManifest.marketplaceSourcesPath
 
   /// The suffix of a Swift source file.
   private static let swiftFileSuffix = ".swift"

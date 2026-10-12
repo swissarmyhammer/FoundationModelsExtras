@@ -9,7 +9,7 @@ import Testing
 @Suite("Marketplace telemetry: one vocabulary file holds each name of the target")
 struct MarketplaceTelemetryTests {
   /// The folder of the sources of the target, relative to the package root.
-  private static let sourcesPath = "Sources/Marketplace"
+  private static let sourcesPath = PackageManifest.marketplaceSourcesPath
 
   /// The file name of the vocabulary file.
   private static let vocabularyFileName = "MarketplaceTelemetry.swift"

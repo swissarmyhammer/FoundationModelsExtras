@@ -12,7 +12,7 @@ import Testing
 @Suite("Module boundary")
 struct ModuleBoundaryTests {
   /// The folder of the marketplace sources, relative to the package root.
-  private static let sourcesPath = "Sources/Marketplace"
+  private static let sourcesPath = PackageManifest.marketplaceSourcesPath
 
   /// The extension of a Swift source file.
   private static let swiftExtension = "swift"

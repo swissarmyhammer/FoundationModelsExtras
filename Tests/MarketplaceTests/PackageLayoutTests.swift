@@ -17,21 +17,12 @@ import Testing
 /// toolchain; the text has the same facts.
 @Suite("Package layout")
 struct PackageLayoutTests {
-  /// The manifest, relative to the package root.
-  private static let manifestPath = "Package.swift"
-
   /// The pin of the libgit2 package, as the manifest writes it.
   private static let libgit2Pin =
     #".package(url: "https://github.com/danielctull-forks/swift-libgit2.git", exact: "1.9.7")"#
 
   /// The product of the libgit2 package, as a target dependency names it.
-  private static let libgit2Product = #".product(name: "libgit2", package: "swift-libgit2")"#
-
-  /// The core target, which must not depend on libgit2.
-  private static let coreTargetName = "FoundationModelsExtras"
-
-  /// The target that carries libgit2.
-  private static let marketplaceTargetName = "Marketplace"
+  private static let libgit2Product = PackageManifest.libgit2Product.dependencyText
 
   /// The fixture product, as the manifest writes it.
   private static let fixturesProduct = #".library(name: "MarketplaceFixtures", targets: ["MarketplaceFixtures"])"#
@@ -40,14 +31,14 @@ struct PackageLayoutTests {
   private static let fixturesTargetName = "MarketplaceFixtures"
 
   /// The marketplace library, as a target dependency names it.
-  private static let marketplaceDependency = #""Marketplace","#
+  private static let marketplaceDependency = #""\#(PackageManifest.marketplaceTargetName)","#
 
   /// The pin of the tracing package, as the manifest writes it.
   private static let tracingPin =
     #".package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.5.0")"#
 
   /// The tracing product, as a target dependency names it.
-  private static let tracingProduct = #".product(name: "Tracing", package: "swift-distributed-tracing")"#
+  private static let tracingProduct = PackageManifest.tracingProduct.dependencyText
 
   /// The library targets other than the core target and the marketplace
   /// target. None links tracing.
@@ -65,7 +56,7 @@ struct PackageLayoutTests {
   @Test func theCoreTargetDoesNotDependOnLibgit2() throws {
     let manifest = try Self.manifest()
 
-    let core = try #require(Self.targetDeclaration(named: Self.coreTargetName, in: manifest))
+    let core = try #require(Self.targetDeclaration(named: PackageManifest.coreTargetName, in: manifest))
 
     #expect(!core.contains(Self.libgit2Product))
   }
@@ -73,7 +64,7 @@ struct PackageLayoutTests {
   @Test func theMarketplaceTargetDependsOnLibgit2() throws {
     let manifest = try Self.manifest()
 
-    let marketplace = try #require(Self.targetDeclaration(named: Self.marketplaceTargetName, in: manifest))
+    let marketplace = try #require(Self.targetDeclaration(named: PackageManifest.marketplaceTargetName, in: manifest))
 
     #expect(marketplace.contains(Self.libgit2Product))
   }
@@ -102,7 +93,7 @@ struct PackageLayoutTests {
   @Test func theCoreTargetDependsOnTracing() throws {
     let manifest = try Self.manifest()
 
-    let core = try #require(Self.targetDeclaration(named: Self.coreTargetName, in: manifest))
+    let core = try #require(Self.targetDeclaration(named: PackageManifest.coreTargetName, in: manifest))
 
     #expect(core.contains(Self.tracingProduct))
   }
@@ -120,7 +111,7 @@ struct PackageLayoutTests {
 
   /// Reads the manifest text.
   private static func manifest() throws -> String {
-    try FixtureFile.text(manifestPath).get()
+    try FixtureFile.text(PackageManifest.path).get()
   }
 
   /// Finds the declaration of one target in the manifest.

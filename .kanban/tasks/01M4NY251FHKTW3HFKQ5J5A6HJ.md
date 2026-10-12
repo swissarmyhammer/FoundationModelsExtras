@@ -68,6 +68,38 @@ comments:
     - evidence: `swift test` exit 0: 1037 Swift Testing tests in 91 suites passed (11 known issues that were there before), 393 tests in 29 suites (MarketplaceTests) passed, 0 compiler warnings, 0 failures. 2 files: Sources/Marketplace/MarketplaceStore.swift, Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift. Both findings are `- [x]`.
     - next: /review
   timestamp: 2026-10-12T15:46:04.009787+00:00
+- actor: claude-code
+  id: 01m4rcxs0fazawm9vsmgv0pgc5
+  text: |-
+    ### review — findings
+    - evidence: `review sha 607883f~1..607883f`, 1 finding (1 confirmed, 2 refuted) — Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:53
+    - next: /implement the 1 open item in the "Review Findings (2026-10-12 10:48)" section. The task stays in `review`.
+  timestamp: 2026-10-12T15:50:27.599460+00:00
+- actor: claude-code
+  id: 01m4rcxwd7a95gs53eb0h7eq8v
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 2 files
+    - test: green — swift test, 1037 passed
+    - commit: 607883f
+    - review: findings — Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:53
+  timestamp: 2026-10-12T15:50:31.079589+00:00
+- actor: claude-code
+  id: 01m4rd79mdmsp4m99f00vcwasw
+  text: |-
+    Review finding (reuse) done.
+    - The copy of the core target name was in `PackageLayoutTests` (target `MarketplaceTests`). That target and `FoundationModelsExtrasTests` both link `FixtureSupport`, thus the shared names now live in the new file `Tests/FixtureSupport/PackageManifest.swift`: `PackageManifest.path`, `coreTargetName`, `marketplaceTargetName`, `marketplaceSourcesPath`, `libgit2Product` and `tracingProduct`. `ManifestProduct` (name, package, `dependencyText`) gives the `.product(name:package:)` text that `PackageLayoutTests` reads.
+    - Each other constant that this task added was checked: the manifest path, the marketplace target name, the libgit2 product, the tracing product and the "Marketplace" text in `marketplaceDependency` had copies in `PackageLayoutTests`; the "Sources/Marketplace" path had copies in `NoGitProcessTests`, `ModuleBoundaryTests` and `MarketplaceTelemetryTests`. All now read `PackageManifest`. In `TelemetryDependencyTests`, the Yams product was written two times (both allowlists) and once more in the fixture manifest; it is now one `yamsProduct`, and the fixture manifest writes the Yams and Logging entries from `dependencyText`. `TargetDependency.linking(_:)` makes a dependency from a `ManifestProduct`.
+    - No copy of the swift-log/swift-metrics URLs, the otel marker, the bootstrap calls, the os markers or the other core allowlist products exists elsewhere in the test targets.
+    - No new test: this is a refactor of test constants; the existing manifest tests in both suites cover the values.
+  timestamp: 2026-10-12T15:55:39.533069+00:00
+- actor: claude-code
+  id: 01m4rd7cjcp39pcjs87wd42014
+  text: |-
+    ### implement — changed
+    - evidence: `swift test` exit 0: 1037 Swift Testing tests in 91 suites passed (11 known issues that were there before), 393 tests in 29 suites (MarketplaceTests) passed, 0 failures, 0 compiler warnings (only the mlx-swift "missing creator for mutated node" line of the dependency build). 6 files: Tests/FixtureSupport/PackageManifest.swift (new), Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift, Tests/MarketplaceTests/PackageLayoutTests.swift, Tests/MarketplaceTests/NoGitProcessTests.swift, Tests/MarketplaceTests/ModuleBoundaryTests.swift, Tests/MarketplaceTests/MarketplaceTelemetryTests.swift. The finding is `- [x]`.
+    - next: /review
+  timestamp: 2026-10-12T15:55:42.540277+00:00
 depends_on:
 - 01M4NYFFAQH23KD4E03AC35EK3
 position_column: doing
@@ -115,3 +147,12 @@ Approach:
 
 - [x] `Sources/Marketplace/MarketplaceStore.swift:969` `duplication/duplication` — The sync wrapper in sync(remote:atIndex:force:) repeats the shape of checkHead(remote:current:atIndex:). Both run a do block that returns a traceStep call, and both have a catch block that returns failureResult. This change added the traceStep wrapper to both, so the two copies now carry the same span-and-catch logic and can drift apart. Extract one private helper that takes the span name, the body, the marketplace index and the current sha. It runs the traceStep call and maps a thrown error through failureResult. Call it from checkHead and sync, and delete the two copies. Keep the body closures at each call site.
 - [x] `Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:162` `completeness/invariant-propagation` — The guard that the Marketplace target links no telemetry backend only inspects products from the packages named in telemetryAPIProducts, or from a package whose name contains the otel marker. A backend product from any other telemetry package passes the check unseen, so the test does not prove what its title says. Check every product of the Marketplace target against the allowlist, not only the products that pass the package filter. Each linked product must equal the API product of its package, and a package outside telemetryAPIProducts should fail the test. Add a case for an unlisted telemetry package to lock this in.
+
+## Review Findings (2026-10-12 10:48)
+
+> Scope: `review sha 607883f~1..607883f` — reviewed the diffs only — lines this change added or modified. 2 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/Telemetry/TelemetryDependencyTests.swift:53` `reuse/reuse` — The new coreTarget constant repeats the name of the core target, which another suite already defines. Two copies of one name can drift apart when the target is renamed. Share the target-name constant in one place, for example on FixtureFile or a shared fixture type, and use it from both suites. If the suites must stay separate, state why the copy is kept.
