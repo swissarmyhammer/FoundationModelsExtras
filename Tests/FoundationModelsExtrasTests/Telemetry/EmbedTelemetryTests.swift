@@ -41,28 +41,35 @@ struct EmbedTelemetryTests {
     /// model run throws ``FakeModelRunError``, thus the first sub-batch fails.
     private static let failingEmbedding = TracedFakeEmbedding(ref: ref, tokenBudget: smallBudget, modelRunFails: true)
 
-    /// Runs one embed call of ``texts`` in a new capture.
+    /// Runs one embed call of ``texts`` through `embedding` in a new capture.
+    /// The capture keeps the error of the call, thus a test of a failed call
+    /// uses the same capture as a test of a call that succeeds.
     ///
-    /// - Returns: The capture, and the vectors of the call.
-    /// - Throws: The error of the call.
-    private static func captureOneCall() async throws -> (context: TelemetryCapture.Context, vectors: [[Float]]) {
+    /// - Parameter embedding: The fake embedding of the call.
+    /// - Returns: The capture, and the vectors or the error of the call.
+    /// - Throws: The error of the capture.
+    private static func captureOneCall(
+        of embedding: TracedFakeEmbedding = Self.embedding
+    ) async throws -> (context: TelemetryCapture.Context, outcome: Result<[[Float]], any Error>) {
         try await TelemetryCapture.run(forbidding: texts) { context in
-            (context, try await embedding.embed(texts: texts))
+            do {
+                return (context, .success(try await embedding.embed(texts: texts)))
+            } catch {
+                return (context, .failure(error))
+            }
         }
     }
 
-    /// Runs one embed call of ``texts`` whose first model run fails, in a new
-    /// capture, and expects that the call throws ``FakeModelRunError``.
+    /// Runs one embed call of ``texts`` through ``failingEmbedding`` with
+    /// ``captureOneCall(of:)``, and expects that the call throws
+    /// ``FakeModelRunError``.
     ///
     /// - Returns: The capture.
     /// - Throws: The error of the capture.
     private static func captureOneFailedCall() async throws -> TelemetryCapture.Context {
-        try await TelemetryCapture.run(forbidding: texts) { context in
-            await #expect(throws: FakeModelRunError.self) {
-                try await failingEmbedding.embed(texts: texts)
-            }
-            return context
-        }
+        let (context, outcome) = try await captureOneCall(of: failingEmbedding)
+        #expect(throws: FakeModelRunError.self) { try outcome.get() }
+        return context
     }
 
     @Test("an embed call opens one embed span with the six counts, and one tokenize child span")
@@ -140,8 +147,8 @@ struct EmbedTelemetryTests {
 
     @Test("an embed call gives the vector of each text in the order of the texts")
     func anEmbedCallGivesTheVectorsInInputOrder() async throws {
-        let (_, vectors) = try await Self.captureOneCall()
+        let (_, outcome) = try await Self.captureOneCall()
 
-        #expect(vectors == Self.texts.map(TracedFakeEmbedding.vector(of:)))
+        #expect(try outcome.get() == Self.texts.map(TracedFakeEmbedding.vector(of:)))
     }
 }

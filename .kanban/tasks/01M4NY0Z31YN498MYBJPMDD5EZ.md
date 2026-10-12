@@ -76,6 +76,31 @@ comments:
     - evidence: `swift test --filter 'Embed|PooledEmbedder'` 36 tests passed; `swift test` all suites pass (1018 + 381 + 131 + 44 + 40 + 26; the 11 known issues are the existing withKnownIssue of TelemetryCaptureTests); no compiler warning except the mlx-swift "missing creator" line. Files: Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/Telemetry/EmbedTelemetryTests.swift. Both 08:33 findings are `- [x]`.
     - next: /review
   timestamp: 2026-10-12T13:44:16.945736+00:00
+- actor: claude-code
+  id: 01m4r5zh7h99bw6gv0f1meztyr
+  text: |-
+    ### review — findings
+    - evidence: review sha 04f61b3~1..04f61b3 — 1 finding (1 confirmed, 2 refuted). Tests/FoundationModelsExtrasTests/Telemetry/EmbedTelemetryTests.swift:59
+    - next: /implement to correct the open finding in the 2026-10-12 08:46 Review Findings section
+  timestamp: 2026-10-12T13:49:05.137156+00:00
+- actor: claude-code
+  id: 01m4r5znwmq7f7c0225s5sfsgk
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 4 files
+    - test: green — swift test, 1018 passed; IntegrationTests PooledEmbedder, 7 passed
+    - commit: 04f61b3
+    - review: findings — Tests/FoundationModelsExtrasTests/Telemetry/EmbedTelemetryTests.swift:59
+  timestamp: 2026-10-12T13:49:09.908651+00:00
+- actor: claude-code
+  id: 01m4r65c71z50chr7qe8mpkhpc
+  text: |-
+    Finding `EmbedTelemetryTests.swift:59` `reuse/reuse` is done. `captureOneCall(of:)` is now the only capture wrapper in EmbedTelemetryTests.swift. It takes the embedding (default `embedding`) and gives `(context, outcome: Result<[[Float]], any Error>)`. `captureOneFailedCall()` now calls `captureOneCall(of: failingEmbedding)` and expects `FakeModelRunError` from `outcome.get()`. It has no second `TelemetryCapture.run`. The vector-order test reads the vectors with `try outcome.get()`. PooledEmbedderTests.swift has only one `TelemetryCapture.run` and no near-copy helper, so it did not change. Note: the rules dump for .swift is 754K characters, so it was not read whole.
+
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/Telemetry/EmbedTelemetryTests.swift. `swift test --filter 'Embed|PooledEmbedder'`: 36 tests in 5 suites passed. `swift test`: 1018 tests in 91 suites passed, with 11 known issues (the withKnownIssue tests in TelemetryCaptureTests). The only warning is the SwiftPM build-system note "missing creator for mutated node" for the mlx-swift_Cmlx.bundle. It does not come from source code.
+    - next: /review
+  timestamp: 2026-10-12T13:52:16.609096+00:00
 depends_on:
 - 01M4NYF7Z3AVWM359N4KAGHNVN
 position_column: doing
@@ -126,3 +151,12 @@ Approach (each name in `ExtrasTelemetry.swift`, metric objects made at call time
 
 - [x] `Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift:72` `completeness/public-output-contract` — The embed duration timer is recorded only after `vectorsOfEachSubBatch` returns. When the model run or a traced sub-batch throws, no duration is recorded, so failed embed calls drop their duration side-effect without any outcome dimension. The sibling duration timers (`modelLoadDuration`, `toolDuration`) record the outcome on failure too, so this path is silently incomplete. Record the embed duration on both the success and the error path, for example with `defer` around the start time, or with a `do/catch` that records the timer before it rethrows. Add an outcome dimension if the sibling timers carry one, and add a test that a throwing embed call still records one duration.
 - [x] `Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift:918` `reuse/reuse` — The new `EmbedTelemetryExpectations.modelDimensions(of ref:)` is a verbatim copy of `modelDimensions(of ref:)` in the same file, which is already used by the pool expectations. The two copies sit in different enums, so each one is private to its own enum and they can drift apart. Make the existing helper at line 659 internal, or move it to a shared test-support location. Have `EmbedTelemetryExpectations` call it instead of keeping a second copy. Delete the copy at line 918.
+
+## Review Findings (2026-10-12 08:46)
+
+> Scope: `review sha 04f61b3~1..04f61b3` — reviewed the diffs only — lines this change added or modified. 4 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/Telemetry/EmbedTelemetryTests.swift:59` `reuse/reuse` — The new `captureOneFailedCall()` is a near-copy of the existing `captureOneCall()`. It repeats the `TelemetryCapture.run(forbidding: texts)` wrapper and differs only in which embedding runs and whether the error is expected. The existing helper was not parameterized to cover the failing case. Give `captureOneCall` a parameter for the embedding, or make one helper that takes a body closure. Then `captureOneFailedCall` becomes a call that passes `failingEmbedding` and the expected error, with no second capture wrapper.
