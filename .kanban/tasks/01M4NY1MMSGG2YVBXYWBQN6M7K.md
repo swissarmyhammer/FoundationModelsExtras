@@ -31,6 +31,37 @@ comments:
     - evidence: `swift test` = 1030 tests in 91 suites passed, 0 failures (11 known issues are the existing withKnownIssue cases of TelemetryCaptureTests). `swift test --filter PooledModelTests` = 30 tests passed. Correction to the comment above: 11 new tests ran first and 10 failed (the "no token counts" test passed at RED, because it checks for an absence); the cold-false test for a resident model came after the implementation. Files: Sources/FoundationModelsExtras/Telemetry/GenerateTelemetry.swift (new), Sources/FoundationModelsExtras/ModelPool/GenerateRelayModel.swift (new), Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift, Sources/FoundationModelsExtras/ModelPool/PooledModel.swift, Sources/FoundationModelsExtras/ModelPool/PooledSession.swift, Sources/FoundationModelsExtras/ModelPool/ModelPool.swift, Sources/FoundationModelsExtras/ModelPool/ResidentHold.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/StubLanguageModel.swift
     - next: /review
   timestamp: 2026-10-12T14:32:07.541457+00:00
+- actor: claude-code
+  id: 01m4r91kk7bgvr9bcp8jx96hwb
+  text: |-
+    ### review — findings
+    - evidence: review sha b5bada1~1..b5bada1 — 1 finding (1 confirmed, 1 refuted). Sources/FoundationModelsExtras/ModelPool/GenerateRelayModel.swift:74
+    - next: /implement the open item in the Review Findings (2026-10-12 09:38) section
+  timestamp: 2026-10-12T14:42:38.823634+00:00
+- actor: claude-code
+  id: 01m4r91mrrmk24rqq8t3sb8p33
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 11 files
+    - test: green — swift test, 1030 passed; IntegrationTests, 37 passed
+    - commit: b5bada1
+    - review: findings — Sources/FoundationModelsExtras/ModelPool/GenerateRelayModel.swift:74
+  timestamp: 2026-10-12T14:42:40.024271+00:00
+- actor: claude-code
+  id: 01m4r9fagzdcsqkh2h648x6m6x
+  text: |-
+    Finding fixed: `GenerateRelayExecutor.Configuration.slot` was written and never read. Only the synthesized `Hashable` read it, and only the executor cache of FoundationModels uses that key. The executor holds no state (the model and its slot arrive with each call), thus a key per session gave nothing. The field is removed: `Configuration` is now an empty `Hashable` struct, and `executorConfiguration` gives `Configuration()`. The doc comments say why the key has no field. `GenerateRelayModel.slot` stays, because `respond` reads `model.slot.current`.
+    Whole-file check of GenerateRelayModel.swift and GenerateTelemetry.swift: no other property, parameter or local is written and never read. Only `init(configuration:)` does not read its parameter, and the `LanguageModelExecutor` protocol requires that signature (the dead-code-swift rule drops `var.parameter`).
+    Note: a local periphery scan did not run. The default build system writes no index store, and `--build-system native` cannot build this package (the build stops with "error: cancelled"). The review step runs periphery.
+    Not in scope, for the next agent: `PooledModelExecutor.Configuration.key` in PooledModel.swift has the same shape (only the synthesized Hashable reads it). The review did not flag it.
+  timestamp: 2026-10-12T14:50:08.287446+00:00
+- actor: claude-code
+  id: 01m4r9fczp2ewsrww62xwe1y8p
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Sources/FoundationModelsExtras/ModelPool/GenerateRelayModel.swift. `swift test --filter 'PooledModel|PooledSession'` = 30 tests passed. `swift test` = 1030 tests in 91 suites passed (11 known issues are the existing withKnownIssue cases). `swift test --package-path IntegrationTests --filter 'ToolHosting|PooledSession|ModelPool'` = 17 tests in 4 suites passed. Only warning is the known mlx-swift_Cmlx.bundle line.
+    - next: /review
+  timestamp: 2026-10-12T14:50:10.806695+00:00
 depends_on:
 - 01M4NYFBJJHE656GQR76E1AESD
 position_column: doing
@@ -71,3 +102,12 @@ Approach (each name in `ExtrasTelemetry.swift`, metric objects made at call time
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 
 #telemetry #feature
+
+## Review Findings (2026-10-12 09:38)
+
+> Scope: `review sha b5bada1~1..b5bada1` — reviewed the diffs only — lines this change added or modified. 11 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/GenerateRelayModel.swift:74` `code-hygiene/dead-code-swift` — var.instance `slot` is assignOnlyProperty.

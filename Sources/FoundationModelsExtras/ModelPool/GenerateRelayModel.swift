@@ -47,10 +47,10 @@ struct GenerateRelayModel: LanguageModel {
     /// What the container model can do.
     let capabilities: LanguageModelCapabilities
 
-    /// The cache key of the executor: the identity of the slot of the
-    /// session.
+    /// The cache key of the executor. The key is the same for each session,
+    /// because the executor holds no state.
     var executorConfiguration: GenerateRelayExecutor.Configuration {
-        GenerateRelayExecutor.Configuration(slot: ObjectIdentifier(slot))
+        GenerateRelayExecutor.Configuration()
     }
 
     /// Makes the model of a session over `model`.
@@ -69,10 +69,11 @@ struct GenerateRelayModel: LanguageModel {
 /// The executor of ``GenerateRelayModel``.
 struct GenerateRelayExecutor: LanguageModelExecutor {
     /// The cache key that FoundationModels makes and reuses the executor by.
-    struct Configuration: Hashable, Sendable {
-        /// The identity of the slot of the session.
-        let slot: ObjectIdentifier
-    }
+    ///
+    /// The key has no field. The executor holds no state, because the model
+    /// and its slot arrive with each call. Thus one executor can serve each
+    /// session.
+    struct Configuration: Hashable, Sendable {}
 
     /// Makes an executor. The executor reads nothing from the configuration:
     /// the model arrives with each call.
