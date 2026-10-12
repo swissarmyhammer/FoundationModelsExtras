@@ -132,7 +132,8 @@ struct BackgroundToolRunner<
             op: run.context.op,
             kind: declared?.runKind ?? .swiftTask,
             completionToken: token,
-            canceler: canceler(of: run)
+            canceler: canceler(of: run),
+            tracer: site.tracer
         ) {
             // The run goes on beside the model call that started it, not in it.
             await ModelCallMark.withBackgroundRunMark {

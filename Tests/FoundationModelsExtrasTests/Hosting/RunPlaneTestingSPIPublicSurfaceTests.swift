@@ -2,7 +2,7 @@ import Foundation
 @_spi(Testing) import FoundationModelsExtras
 import Testing
 
-/// Holds ``RunPlane/start(tool:op:kind:completionToken:canceler:body:)``,
+/// Holds ``RunPlane/start(tool:op:kind:completionToken:canceler:tracer:body:)``,
 /// ``RunPlane/StartResult``, ``RunPlane/updateProgress(completionToken:detail:)``
 /// and ``RunPlane/wait(completionToken:seconds:)`` to the `Testing` SPI. A test
 /// outside this package starts a run, updates its progress and waits for it

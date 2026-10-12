@@ -299,6 +299,20 @@ struct ToolCallSpanTests {
         #expect(span.status == nil)
     }
 
+    @Test("a background call on a site with a session tracer records the tool span and the run span on that tracer")
+    func aBackgroundCallRecordsBothSpansOnTheSessionTracer() async throws {
+        // The test binds no task-local tracer, thus only the tracer of the
+        // site can receive the two spans.
+        let tracer = W3CInMemoryTracer()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: Fixtures.FastTool(), inlineSettleGrace: Self.inlineSettleGrace, tracer: tracer)
+
+        _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+        await harness.runPlane.joinRunBodies()
+
+        #expect(tracer.finishedSpans.map(\.operationName).sorted() == Fixtures.spanNamesOfASettledBackgroundCall)
+    }
+
     @Test("a background run that fails inside the settle period records one count and one duration of failed, and throws the error")
     func aBackgroundRunThatFailsInlineRecordsFailed() async throws {
         let tool = Fixtures.ThrowingTool()

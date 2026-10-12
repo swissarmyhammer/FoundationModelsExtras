@@ -20,7 +20,7 @@ import ULID
 /// carries a completion token or an op, and no telemetry record carries a
 /// progress detail, a terminal event or the content of an elicitation.
 public actor RunPlane {
-    /// What ``start(tool:op:kind:completionToken:canceler:body:)`` did.
+    /// What ``start(tool:op:kind:completionToken:canceler:tracer:body:)`` did.
     ///
     /// A test outside this package reads it through
     /// `@_spi(Testing) import FoundationModelsExtras`.
@@ -168,6 +168,9 @@ public actor RunPlane {
     ///   - canceler: Asks the run to stop and reports the outcome, or `nil`
     ///     for the cooperative canceler: it cancels the task of the body and
     ///     reports ``OperationOutcome/cancelled``.
+    ///   - tracer: The tracer of the session for the span of the run body,
+    ///     or `nil` for `InstrumentationSystem.tracer` at call time. The
+    ///     default is `nil`.
     ///   - body: The work. It returns the terminal event of the run.
     /// - Returns: ``StartResult/duplicateToken`` when the token names a run.
     @discardableResult
@@ -178,6 +181,7 @@ public actor RunPlane {
         kind: RunKind,
         completionToken: String,
         canceler: (@Sendable () async -> OperationOutcome)?,
+        tracer: (any Tracer)? = nil,
         body: @escaping @Sendable () async -> OperationEvent
     ) -> StartResult {
         guard index(of: completionToken) == nil, settled[completionToken] == nil else {
@@ -186,7 +190,8 @@ public actor RunPlane {
         var ticket = runTelemetry.enqueued()
         runTelemetry.started(&ticket)
         let work = Task { [weak self] in
-            let terminal = await Self.runTraced(body, tool: tool, op: op, kind: kind, completionToken: completionToken)
+            let terminal = await Self.runTraced(
+                body, tool: tool, op: op, kind: kind, completionToken: completionToken, tracer: tracer)
             await self?.settleByItself(completionToken, with: terminal)
             await self?.endBody(completionToken)
         }
@@ -581,10 +586,11 @@ public actor RunPlane {
     /// The span and the record carry the tool name, the run kind and the
     /// completion token only. They never carry the op, a progress detail or
     /// the terminal event. A body that does not return keeps its span open,
-    /// and its "enter" record shows the hung run. The span uses
+    /// and its "enter" record shows the hung run. The span uses `tracer`, the
+    /// tracer of the session. When `tracer` is `nil`, the span uses
     /// `InstrumentationSystem.tracer` at call time, thus the task-local
-    /// tracer and the span of the caller, which the task of the body
-    /// inherits.
+    /// tracer. In both cases the span has the span of the caller as its
+    /// parent, because the task of the body inherits it.
     ///
     /// - Parameters:
     ///   - body: The work of the run.
@@ -592,18 +598,22 @@ public actor RunPlane {
     ///   - op: The op of the run, for the terminal event of the fallback only.
     ///   - kind: The kind of work of the run.
     ///   - completionToken: The completion token of the run.
+    ///   - tracer: The tracer of the session, or `nil` for
+    ///     `InstrumentationSystem.tracer` at call time.
     /// - Returns: The terminal event of `body`.
     private static func runTraced(
         _ body: @Sendable () async -> OperationEvent,
         tool: String,
         op: String,
         kind: RunKind,
-        completionToken: String
+        completionToken: String,
+        tracer: (any Tracer)?
     ) async -> OperationEvent {
         let logger = ExtrasTelemetry.makeLogger()
         do {
             return try await TracedCall.run(
                 ExtrasTelemetry.SpanName.run,
+                tracer: tracer,
                 logger: logger,
                 attributes: { attributes in
                     attributes[ExtrasTelemetry.AttributeKey.toolName] = tool

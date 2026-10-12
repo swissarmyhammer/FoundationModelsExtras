@@ -2,6 +2,7 @@
 import Foundation
 import FoundationModels
 import Testing
+import Tracing
 import ULID
 
 /// The arguments of each mount fixture tool.
@@ -168,13 +169,16 @@ enum MountFixtures {
     ///   - sink: The sink of the session.
     ///   - inlineSettleGrace: The settle period of the site. The default is
     ///     ``pendingAtOnceGrace``.
+    ///   - tracer: The tracer of the session, or `nil` for
+    ///     `InstrumentationSystem.tracer` at call time. The default is `nil`.
     /// - Returns: The mount site.
     static func site(
         runPlane: RunPlane,
         sink: any OperationEventSink,
-        inlineSettleGrace: TimeInterval = pendingAtOnceGrace
+        inlineSettleGrace: TimeInterval = pendingAtOnceGrace,
+        tracer: (any Tracer)? = nil
     ) -> MountSite {
-        MountSite(sessionID: ULID(), runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace)
+        MountSite(sessionID: ULID(), runPlane: runPlane, sink: sink, tracer: tracer, inlineSettleGrace: inlineSettleGrace)
     }
 
     /// Mounts `tool` in a ``BackgroundToolRunner`` over a new run plane and
@@ -185,14 +189,17 @@ enum MountFixtures {
     ///   - timeout: The timeout of the mount, or `nil` for none.
     ///   - inlineSettleGrace: The settle period of the site. The default is
     ///     ``pendingAtOnceGrace``.
+    ///   - tracer: The tracer of the session, or `nil` for
+    ///     `InstrumentationSystem.tracer` at call time. The default is `nil`.
     static func backgroundHarness<Arguments: ConvertibleFromGeneratedContent & Sendable>(
         wrapping tool: any Tool<Arguments, String>,
         timeout: TimeInterval? = nil,
-        inlineSettleGrace: TimeInterval = pendingAtOnceGrace
+        inlineSettleGrace: TimeInterval = pendingAtOnceGrace,
+        tracer: (any Tracer)? = nil
     ) -> Harness<BackgroundToolRunner<Arguments>> {
         let runPlane = RunPlane()
         let sink = RecordingSink()
-        let site = site(runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace)
+        let site = site(runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace, tracer: tracer)
         let mounted = BackgroundToolRunner(wrapping: tool, site: site, timeout: timeout)
         return Harness(runPlane: runPlane, sink: sink, mounted: mounted)
     }
