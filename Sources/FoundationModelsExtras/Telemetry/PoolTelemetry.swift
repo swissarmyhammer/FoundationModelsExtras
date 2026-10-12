@@ -3,7 +3,7 @@ import Metrics
 
 /// The recorder of the cache telemetry of the model pool: the acquires, the
 /// evictions, the joins of a running load, the footprint meters, and the log
-/// record of a failed footprint measure.
+/// records of a failed footprint measure and of a failed prewarm.
 ///
 /// Each metric is made at call time, so that it uses the metrics factory of
 /// the current task. An admission job restores the factory of its submitter,
@@ -74,8 +74,31 @@ enum PoolTelemetry {
     ///   - error: The error of the measure.
     ///   - ref: The measured model.
     static func logMeasureFailure(_ error: any Error, of ref: ModelRef) {
+        logFailure(ExtrasTelemetry.PoolLogMessage.measureFailed, error: error, of: ref)
+    }
+
+    /// Writes one error record for a failed prewarm of `ref`. The record
+    /// holds the type of `error` and the model ref, never the description of
+    /// `error`.
+    ///
+    /// - Parameters:
+    ///   - error: The error of the load that the prewarm started.
+    ///   - ref: The model of the prewarm.
+    static func logPrewarmFailure(_ error: any Error, of ref: ModelRef) {
+        logFailure(ExtrasTelemetry.PoolLogMessage.prewarmFailed, error: error, of: ref)
+    }
+
+    /// Writes one error record with `message`, the type of `error` and the
+    /// model ref. The record never holds the description of `error`.
+    ///
+    /// - Parameters:
+    ///   - message: The message of the record, from
+    ///     ``ExtrasTelemetry/PoolLogMessage``.
+    ///   - error: The error of the operation that failed.
+    ///   - ref: The model of the operation.
+    private static func logFailure(_ message: String, error: any Error, of ref: ModelRef) {
         ExtrasTelemetry.makeLogger().error(
-            "\(ExtrasTelemetry.PoolLogMessage.measureFailed)",
+            "\(message)",
             metadata: [
                 ExtrasTelemetry.LogMetadataKey.errorType: .string(ExtrasTelemetry.errorType(of: error)),
                 ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue),

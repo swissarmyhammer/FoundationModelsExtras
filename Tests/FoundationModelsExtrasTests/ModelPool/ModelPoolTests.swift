@@ -1,3 +1,4 @@
+import FoundationModels
 @testable import FoundationModelsExtras
 import Logging
 import Metrics
@@ -1111,5 +1112,55 @@ extension ModelPoolTests {
         #expect(loads.count == Self.twoLoadSpans)
         #expect(context.metricRecords.contains { $0.label == ExtrasTelemetry.MetricName.modelLoadDuration })
         #expect(context.metricRecords.contains { $0.label == ExtrasTelemetry.MetricName.modelFootprintBytes })
+    }
+
+    @Test("an eviction records one evict duration with the model ref, the role and the outcome succeeded")
+    func anEvictionRecordsOneEvictDuration() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>()))
+
+        try await withMetricsFactory(metrics) {
+            do {
+                let hold = try await pool.acquire(Self.key)
+                #expect(hold.key == Self.key)
+            }
+            // The last release puts the eviction job in the admission queue
+            // first, thus this admit job ends after the eviction.
+            try await pool.admit { _ in }
+        }
+
+        QueueMetricExpectations.expectDurations(
+            try ModelLoadTelemetryExpectations.evictDurations(in: metrics, key: Self.key, outcome: .succeeded),
+            count: Self.oneDuration)
+        #expect(throws: TestMetricsError.self) {
+            try ModelLoadTelemetryExpectations.evictDurations(in: metrics, key: Self.key, outcome: .failed)
+        }
+    }
+
+    @Test("the telemetry of a failed prewarm and an eviction holds no cache path and no error description")
+    func thePrewarmAndEvictTelemetryHoldsNoContent() async throws {
+        let loadError = MLXModelLoaderError.unknownFileSize(path: Self.cachePath)
+        let forbidden = [
+            Self.cachePath, Self.containerPath, loadError.localizedDescription, String(describing: loadError),
+        ]
+        let loader = RecordingLoader(
+            name: "A", log: Recorder<String>(), failingLoads: 1, loadError: loadError,
+            makeModel: { _ in PathDescribedModel() })
+        let pool = ModelPool(loader: loader)
+        let model = PooledModel(ref: Self.key.ref, pool: pool)
+
+        let context = try await TelemetryCapture.run(forbidding: forbidden) { context in
+            model.prewarm(transcript: Transcript())
+            _ = try await context.waitForErrorRecords()
+            do {
+                let hold = try await pool.acquire(Self.key)
+                #expect(hold.key == Self.key)
+            }
+            try await pool.admit { _ in }
+            return context
+        }
+
+        #expect(!context.errorRecords.isEmpty)
+        #expect(context.metricRecords.contains { $0.label == ExtrasTelemetry.MetricName.modelEvictDuration })
     }
 }

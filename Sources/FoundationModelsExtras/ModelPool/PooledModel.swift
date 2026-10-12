@@ -99,13 +99,18 @@ public struct PooledModel: LanguageModel {
     }
 
     /// Starts the load of the model, and then prewarms the loaded model. The
-    /// call returns at once. A failed load is not reported here: the next
-    /// generation call loads again and throws the error.
+    /// call returns at once. A failed load writes one error record with the
+    /// type of the error and the model ref, and the call throws nothing: the
+    /// next generation call loads again and throws the error.
     ///
     /// - Parameter transcript: The transcript of the session.
     func prewarm(transcript: Transcript) {
-        Task { [resident] in
-            try? await resident.loaded().model.prewarm(transcript: transcript)
+        Task { [resident, key] in
+            do {
+                try await resident.loaded().model.prewarm(transcript: transcript)
+            } catch {
+                PoolTelemetry.logPrewarmFailure(error, of: key.ref)
+            }
         }
     }
 }

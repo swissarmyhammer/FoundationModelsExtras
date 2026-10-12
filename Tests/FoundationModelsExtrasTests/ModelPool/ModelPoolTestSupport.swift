@@ -3,6 +3,7 @@ import Dispatch
 import InMemoryTracing
 import MetricsTestKit
 import Synchronization
+import TelemetryTestSupport
 import Testing
 
 extension GenerationQueue {
@@ -661,9 +662,9 @@ enum PoolMetricExpectations {
 }
 
 /// Reads the model load telemetry that a test recorded: the load span and
-/// its phase spans, the load timer and the footprint recorder. Each test
-/// suite of the pool and of the MLX loader uses these helpers, so a change to
-/// the names or the dimensions occurs in one place.
+/// its phase spans, the load timer, the evict timer and the footprint
+/// recorder. Each test suite of the pool and of the MLX loader uses these
+/// helpers, so a change to the names or the dimensions occurs in one place.
 enum ModelLoadTelemetryExpectations {
     /// Gives the spans of `spans` that have the name `spanName`.
     ///
@@ -702,9 +703,37 @@ enum ModelLoadTelemetryExpectations {
     static func loadDurations(
         in metrics: TestMetrics, key: ModelPoolKey, outcome: ModelOperationOutcome
     ) throws -> [Int64] {
+        try durations(on: ExtrasTelemetry.MetricName.modelLoadDuration, in: metrics, key: key, outcome: outcome)
+    }
+
+    /// Gives the values of the evict timer of `key` with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - key: The evicted model.
+    ///   - outcome: How the evictions ended.
+    /// - Returns: The duration of each eviction in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func evictDurations(
+        in metrics: TestMetrics, key: ModelPoolKey, outcome: ModelOperationOutcome
+    ) throws -> [Int64] {
+        try durations(on: ExtrasTelemetry.MetricName.modelEvictDuration, in: metrics, key: key, outcome: outcome)
+    }
+
+    /// Gives the values of the model timer `label` of `key` with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - label: The label of the timer.
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - key: The model.
+    ///   - outcome: How the operations ended.
+    /// - Returns: The duration of each operation in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    private static func durations(
+        on label: String, in metrics: TestMetrics, key: ModelPoolKey, outcome: ModelOperationOutcome
+    ) throws -> [Int64] {
         try metrics.expectTimer(
-            ExtrasTelemetry.MetricName.modelLoadDuration,
-            modelDimensions(of: key) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
+            label, modelDimensions(of: key) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
         ).values
     }
 
@@ -728,5 +757,23 @@ enum ModelLoadTelemetryExpectations {
             (ExtrasTelemetry.DimensionKey.modelRef, key.ref.stringValue),
             (ExtrasTelemetry.DimensionKey.modelRole, ExtrasTelemetry.telemetryRole(of: key.role)),
         ]
+    }
+}
+
+extension TelemetryCapture.Context {
+    /// The log records of the capture at the error level, in order.
+    var errorRecords: [TelemetryCapture.LogRecord] {
+        logRecords.filter { $0.level == .error }
+    }
+
+    /// Waits until the capture holds an error record. A task that the code
+    /// under test starts, for example the task of a prewarm, writes its
+    /// record later than the call that started it returns.
+    ///
+    /// - Returns: The error records of the capture, in order.
+    /// - Throws: An `ExpectationFailedError` when no error record came.
+    func waitForErrorRecords() async throws -> [TelemetryCapture.LogRecord] {
+        try #require(await BoundedWait.conditionReached("an error record comes") { !self.errorRecords.isEmpty })
+        return errorRecords
     }
 }

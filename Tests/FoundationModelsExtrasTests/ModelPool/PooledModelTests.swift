@@ -2,6 +2,7 @@ import FoundationModels
 @testable import FoundationModelsExtras
 import Metrics
 import MetricsTestKit
+import TelemetryTestSupport
 import Testing
 
 /// The typed answer of the typed respond test and of the README example.
@@ -120,6 +121,28 @@ struct PooledModelTests {
             #expect(pool.footprint == ModelPoolFootprint(resident: [:], loadingBytes: 0))
             #expect(log.values.isEmpty)
         }
+    }
+
+    @Test("a prewarm whose load fails writes one error record with the error type and the model ref")
+    func aFailedPrewarmWritesOneErrorRecord() async throws {
+        let loader = RecordingLoader(name: Self.loaderName, log: Recorder<String>(), failingLoads: 1)
+        let model = PooledModel(ref: Self.key.ref, pool: ModelPool(loader: loader))
+
+        let records = try await TelemetryCapture.run(forbidding: []) { context in
+            model.prewarm(transcript: Transcript())
+            return try await context.waitForErrorRecords()
+        }
+
+        let expected = TelemetryCapture.LogRecord(
+            level: .error,
+            message: "\(ExtrasTelemetry.PoolLogMessage.prewarmFailed)",
+            metadata: [
+                ExtrasTelemetry.LogMetadataKey.errorType: .string(ExtrasTelemetry.errorType(of: FakeLoadError())),
+                ExtrasTelemetry.LogMetadataKey.modelRef: .string(Self.key.ref.stringValue),
+            ],
+            label: ExtrasTelemetry.logLabel
+        )
+        #expect(records == [expected])
     }
 
     @Test("the first session loads the model of the name with the loader of the pool, and answers")

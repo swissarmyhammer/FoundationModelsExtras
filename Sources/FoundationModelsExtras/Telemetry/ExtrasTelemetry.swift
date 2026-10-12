@@ -168,6 +168,11 @@ enum ExtrasTelemetry {
         /// model pool, with the ``ModelOperationOutcome`` of the load.
         static let modelLoadDuration = "FoundationModelsExtras.model.load.duration"
 
+        /// The timer that records the duration of the evict call of the loader
+        /// in each eviction of a model by a model pool, with the
+        /// ``ModelOperationOutcome`` of the eviction.
+        static let modelEvictDuration = "FoundationModelsExtras.model.evict.duration"
+
         /// The recorder of the bytes that the footprint measure of a loaded
         /// model gives.
         static let modelFootprintBytes = "FoundationModelsExtras.model.footprint.bytes"
@@ -198,7 +203,7 @@ enum ExtrasTelemetry {
         /// ``ExtrasTelemetry/telemetryRole(of:)``.
         static let modelRole = "model.role"
 
-        /// The ``ModelOperationOutcome`` of a load of a model.
+        /// The ``ModelOperationOutcome`` of a load or an eviction of a model.
         static let modelOutcome = "model.outcome"
     }
 
@@ -246,6 +251,11 @@ enum ExtrasTelemetry {
         /// The message of the record that a failed footprint measure writes.
         /// The loader evicted the model, and the acquire throws the error.
         static let measureFailed = "the footprint measure of a loaded model failed; the loader evicted the model"
+
+        /// The message of the record that a failed prewarm of a pooled model
+        /// writes. The load of the model failed, and the next generation call
+        /// loads the model again.
+        static let prewarmFailed = "the prewarm of a pooled model failed; the next generation call loads the model again"
     }
 
     /// The carrier keys of the W3C trace context: the fields that carry the
@@ -492,13 +502,14 @@ enum PoolCacheResult: String, Sendable, CaseIterable {
     case load
 }
 
-/// How a load of a model ended. It is the value of the
+/// How a load or an eviction of a model ended. It is the value of the
 /// ``ExtrasTelemetry/DimensionKey/modelOutcome`` dimension.
 enum ModelOperationOutcome: String, Sendable, CaseIterable {
-    /// The loader returned a model.
+    /// The load call or the evict call of the loader returned.
     case succeeded
 
-    /// The loader threw an error.
+    /// The load call of the loader threw an error. The evict call does not
+    /// throw, so an eviction never records this outcome.
     case failed
 }
 

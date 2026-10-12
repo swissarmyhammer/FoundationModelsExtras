@@ -17,10 +17,26 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/Hosting/RunPlaneActor.swift, Sources/FoundationModelsExtras/Hosting/BackgroundToolRunner.swift, Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolCallSpanTests.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneTestingSPIPublicSurfaceTests.swift; `swift test` 1007 tests passed, 0 failed
     - next: /review
   timestamp: 2026-10-12T12:32:24.537663+00:00
+- actor: claude-code
+  id: 01m4r1stj5brhg2kycwgx1nqtx
+  text: |-
+    ### review — clean
+    - evidence: review sha 5b2b146~1..5b2b146 — 0 findings (0 confirmed, 0 refuted); 5 source and test files reviewed; 4 .kanban files not reviewed (.reviewignore)
+    - next: none. The task is in done.
+  timestamp: 2026-10-12T12:36:03.781044+00:00
+- actor: claude-code
+  id: 01m4r1svmexpre7kvwxbehxcb5
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 1007 passed; IntegrationTests ToolHosting, 8 passed
+    - commit: 5b2b146
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T12:36:04.878185+00:00
 depends_on:
 - 01M4NXXX8C2BZAAK141DW9063W
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: f680
 title: 'Run plane span: record the run body span with the session tracer of the mount site'
 ---
 ## What

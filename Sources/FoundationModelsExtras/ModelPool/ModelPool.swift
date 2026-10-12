@@ -418,13 +418,16 @@ public final class ModelPool: Sendable {
     /// its memory until the evict call returns, and the streams get no new
     /// value. The meters see the evicting bytes. After that call, the pool
     /// removes the model, publishes the new footprint, and counts the
-    /// eviction with its idle time. A job that a new hold stopped counts a
-    /// skipped eviction. The job records each count after the locks.
+    /// eviction with its idle time. The evict timer records the duration of
+    /// the evict call, with no lock held. A job that a new hold stopped counts
+    /// a skipped eviction. The job records each count after the locks.
     private func evictIfIdle(_ key: ModelPoolKey) async {
         let evictionStart = publish { state in (state.startEviction(of: key, at: .now), [FootprintContinuation]()) }
         switch evictionStart {
         case .evict(let entry, let idleTime):
-            await entry.loader.evict(entry.container)
+            await ModelLoadTelemetry.timeEviction(of: key) {
+                await entry.loader.evict(entry.container)
+            }
             publishToEachStream { $0.evicting[key] = nil }
             PoolTelemetry.recordEviction(of: key.ref, idleTime: idleTime)
         case .rehold:

@@ -2,7 +2,8 @@ import Metrics
 import Tracing
 
 /// The recorder of the load telemetry of a model: the load span, the span of
-/// each load phase, the load timer and the footprint recorder.
+/// each load phase, the load timer, the evict timer and the footprint
+/// recorder.
 ///
 /// The load span and each phase span go through ``TracedCall``. Thus each
 /// span writes one "enter" log record when it starts, and a load that hangs
@@ -92,6 +93,23 @@ enum ModelLoadTelemetry {
             .record(bytes)
     }
 
+    /// Runs `evict` and records its duration on the evict timer of `key`.
+    ///
+    /// The evict call of a ``PooledModelLoader`` does not throw, thus each
+    /// eviction records the outcome ``ModelOperationOutcome/succeeded``.
+    ///
+    /// - Parameters:
+    ///   - key: The model that `evict` evicts.
+    ///   - evict: The evict call of the loader.
+    nonisolated(nonsending) static func timeEviction(
+        of key: ModelPoolKey,
+        _ evict: nonisolated(nonsending) () async -> Void
+    ) async {
+        let start = ContinuousClock.now
+        await evict()
+        recordDuration(on: ExtrasTelemetry.MetricName.modelEvictDuration, of: key, outcome: .succeeded, since: start)
+    }
+
     /// Records the duration of one load of `key` on the load timer.
     ///
     /// - Parameters:
@@ -101,8 +119,22 @@ enum ModelLoadTelemetry {
     private static func recordLoadDuration(
         of key: ModelPoolKey, outcome: ModelOperationOutcome, since start: ContinuousClock.Instant
     ) {
+        recordDuration(on: ExtrasTelemetry.MetricName.modelLoadDuration, of: key, outcome: outcome, since: start)
+    }
+
+    /// Records the time from `start` to now on the model timer `label` of
+    /// `key`, with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - label: The name of the timer, from ``ExtrasTelemetry/MetricName``.
+    ///   - key: The model of the operation.
+    ///   - outcome: How the operation ended.
+    ///   - start: The instant that the operation started.
+    private static func recordDuration(
+        on label: String, of key: ModelPoolKey, outcome: ModelOperationOutcome, since start: ContinuousClock.Instant
+    ) {
         Metrics.Timer(
-            label: ExtrasTelemetry.MetricName.modelLoadDuration,
+            label: label,
             dimensions: modelDimensions(of: key) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
         ).record(duration: ContinuousClock.now - start)
     }
