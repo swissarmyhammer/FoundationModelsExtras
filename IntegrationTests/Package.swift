@@ -23,6 +23,7 @@ let huggingFacePackage = "swift-huggingface"
 let transformersPackage = "swift-transformers"
 let ulidPackage = "ULID.swift"
 let tracingPackage = "swift-distributed-tracing"
+let metricsPackage = "swift-metrics"
 
 let package = Package(
     name: "IntegrationTests",
@@ -43,6 +44,9 @@ let package = Package(
         // The load telemetry test reads the spans of a capture. The same floor
         // as the root package.
         .package(url: "https://github.com/apple/\(tracingPackage).git", from: "1.5.0"),
+        // The generate telemetry test reads the timers of a capture. The same
+        // floor as the root package.
+        .package(url: "https://github.com/apple/\(metricsPackage).git", from: "2.11.0"),
     ],
     targets: [
         .testTarget(
@@ -73,6 +77,9 @@ let package = Package(
                 .product(name: "TelemetryTestSupport", package: extrasPackage),
                 .product(name: "InMemoryTracing", package: tracingPackage),
                 .product(name: "Tracing", package: tracingPackage),
+                // The generate telemetry test reads the values of each timer
+                // from the `TestMetrics` factory of a capture.
+                .product(name: "MetricsTestKit", package: metricsPackage),
             ],
             path: "Tests/\(extrasPackage)IntegrationTests"
         )

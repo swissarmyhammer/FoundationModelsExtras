@@ -3,12 +3,24 @@ import Testing
 
 /// The queries that a test makes on the spans of one `TelemetryCapture`.
 ///
-/// The load telemetry test and the embed telemetry test both find spans by
-/// name and by parent, thus the queries are in this one place.
+/// The load telemetry test, the embed telemetry test and the generate
+/// telemetry test all find spans by name and by parent, thus the queries are
+/// in this one place.
 enum CapturedSpans {
     /// The number of spans with one name that one call of the code under test
     /// opens, when that code opens the span one time.
     static let oneSpanOfEachName = 1
+
+    /// Gives the spans of `spans` that have the name `name`.
+    ///
+    /// - Parameters:
+    ///   - name: The name of the spans.
+    ///   - spans: The spans of one capture.
+    /// - Returns: The spans with that name, in the order of `spans`: the
+    ///   order of their end.
+    static func spans(named name: String, in spans: [FinishedInMemorySpan]) -> [FinishedInMemorySpan] {
+        spans.filter { $0.operationName == name }
+    }
 
     /// Gives the one span of `spans` that has the name `name`.
     ///
@@ -18,7 +30,7 @@ enum CapturedSpans {
     /// - Returns: The span with that name.
     /// - Throws: When `spans` holds no span with that name.
     static func onlySpan(named name: String, in spans: [FinishedInMemorySpan]) throws -> FinishedInMemorySpan {
-        let named = spans.filter { $0.operationName == name }
+        let named = Self.spans(named: name, in: spans)
         #expect(named.count == oneSpanOfEachName, "spans named \(name)")
         return try #require(named.first)
     }
@@ -35,6 +47,6 @@ enum CapturedSpans {
     static func children(
         named name: String, of parent: FinishedInMemorySpan, in spans: [FinishedInMemorySpan]
     ) -> [FinishedInMemorySpan] {
-        spans.filter { $0.operationName == name && $0.parentSpanID == parent.spanID }
+        Self.spans(named: name, in: spans).filter { $0.parentSpanID == parent.spanID }
     }
 }

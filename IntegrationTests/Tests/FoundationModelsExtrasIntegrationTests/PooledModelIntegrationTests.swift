@@ -1,6 +1,10 @@
 import FoundationModels
-import FoundationModelsExtras
+@testable import FoundationModelsExtras
+import InMemoryTracing
+import MetricsTestKit
+import TelemetryTestSupport
 import Testing
+import Tracing
 
 /// The instructions of each session of this suite. Short answers keep each
 /// test fast.
@@ -104,6 +108,57 @@ extension RealModelSuites {
             #expect(answer.legs == LegCountQuestion.legCount)
         }
 
+        @Test(
+            """
+            two calls of a LanguageModelSession over a pooled real model open a cold and then a warm generate \
+            span, record a first token before the end of each call, and carry no prompt and no answer
+            """)
+        func twoCallsOpenAColdAndThenAWarmGenerateSpan() async throws {
+            try ModelAvailability.requireMetalDevice()
+            let pool = ModelPool()
+
+            let outcome = try await Self.captureColdAndWarmCalls(in: pool)
+            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+
+            let context = outcome.context
+            let generateSpans = CapturedSpans.spans(named: ExtrasTelemetry.SpanName.generate, in: context.spans)
+            let load = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.modelLoad, in: context.spans)
+            try #require(generateSpans.count == outcome.answers.count, "one generate span for each call")
+            GenerateTelemetryExpectations.expectColdThenWarm(generateSpans, ref: Self.key.ref)
+            #expect(load.parentSpanID == generateSpans.first?.spanID, "the load span is a child of the cold span")
+            try GenerateTelemetryExpectations.expectFirstTokenBeforeEnd(
+                in: context.metricsFactory, ref: Self.key.ref, callCount: outcome.answers.count)
+            // A short answer, for example one digit, can occur in a span id.
+            // An answer with the word of the question is a text that no
+            // telemetry place holds by chance.
+            try #require(
+                outcome.answers.allSatisfy { $0.lowercased().contains(CapitalQuestion.answer) },
+                "answers: \(outcome.answers)")
+            let leaks = context.leaks(forbidding: outcome.answers)
+            #expect(leaks.isEmpty, "the telemetry holds an answer: \(leaks)")
+            #expect(!context.logRecords.isEmpty, "the capture holds the log records of the calls")
+            #expect(!context.metricRecords.isEmpty, "the capture holds the metrics of the calls")
+        }
+
+        /// Asks the capital question two times in one new `LanguageModelSession`
+        /// over a new `PooledModel` of the model of this suite, in a telemetry
+        /// capture. The first call loads the model, and the second call finds
+        /// it resident. The capture forbids the prompt and the instructions in
+        /// each span, log record and metric. The session and the model go when
+        /// the call returns.
+        ///
+        /// - Parameter pool: The pool of the test.
+        /// - Returns: The capture of the two calls, and the text of each answer.
+        /// - Throws: The error of the load or of a generation.
+        private static func captureColdAndWarmCalls(in pool: ModelPool) async throws -> GenerateTelemetryOutcome {
+            try await TelemetryCapture.run(forbidding: [CapitalQuestion.prompt, shortAnswers]) { context in
+                let session = LanguageModelSession(model: PooledModel(ref: key.ref, pool: pool), instructions: shortAnswers)
+                let coldAnswer = try await session.respond(to: CapitalQuestion.prompt).content
+                let warmAnswer = try await session.respond(to: CapitalQuestion.prompt).content
+                return GenerateTelemetryOutcome(context: context, answers: [coldAnswer, warmAnswer])
+            }
+        }
+
         /// Asks `prompt` in a new `LanguageModelSession` over a new
         /// `PooledModel` of the model of this suite. The session and the model
         /// go when the call returns.
@@ -166,5 +221,73 @@ extension RealModelSuites {
             let fork = try await parent.fork()
             return try await fork.respond(to: RememberedFact.question)
         }
+    }
+}
+
+/// What the generate telemetry test observed.
+private struct GenerateTelemetryOutcome {
+    /// The capture of the calls.
+    let context: TelemetryCapture.Context
+    /// The text of the answer of each call, in the order of the calls.
+    let answers: [String]
+}
+
+/// The checks of the generate telemetry of real calls.
+///
+/// The unit target has the same checks for a stub model, but a test of this
+/// package cannot see the unit target. Thus these checks read the span
+/// attributes and the timers here.
+private enum GenerateTelemetryExpectations {
+    /// Expects that each generate span carries the model ref and no guided
+    /// flag, that the first span is cold, and that the second span is warm.
+    ///
+    /// - Parameters:
+    ///   - spans: The generate spans of a cold call and then a warm call.
+    ///   - ref: The model of the calls.
+    static func expectColdThenWarm(_ spans: [FinishedInMemorySpan], ref: ModelRef) {
+        let coldFlags = spans.map { $0.attributes.get(ExtrasTelemetry.AttributeKey.generateCold) }
+        #expect(coldFlags == [.bool(true), .bool(false)], "the cold flag of each call")
+        for span in spans {
+            #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.modelRef) == .string(ref.stringValue))
+            #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.generateGuided) == .bool(false))
+        }
+    }
+
+    /// Expects one time-to-first-token value and one duration value for each
+    /// call, each time to first token more than zero and not more than the
+    /// duration of its call.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    ///   - callCount: The count of calls, each of which succeeded.
+    /// - Throws: When `metrics` has no such timer.
+    static func expectFirstTokenBeforeEnd(in metrics: TestMetrics, ref: ModelRef, callCount: Int) throws {
+        let firstTokens = try succeededTimerValues(
+            of: ExtrasTelemetry.MetricName.generateTimeToFirstToken, in: metrics, ref: ref)
+        let durations = try succeededTimerValues(of: ExtrasTelemetry.MetricName.generateDuration, in: metrics, ref: ref)
+        #expect(firstTokens.count == callCount)
+        #expect(durations.count == callCount)
+        #expect(firstTokens.allSatisfy { $0 > 0 }, "times to first token: \(firstTokens)")
+        #expect(
+            zip(firstTokens, durations).allSatisfy { $0 <= $1 },
+            "times to first token: \(firstTokens); durations: \(durations)")
+    }
+
+    /// Gives the values of the generate timer `label` of `ref` for the calls
+    /// that succeeded.
+    ///
+    /// - Parameters:
+    ///   - label: The label of the timer.
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The values in nanoseconds, in the order of the calls.
+    /// - Throws: When `metrics` has no such timer.
+    private static func succeededTimerValues(of label: String, in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        let dimensions = [
+            (ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue),
+            (ExtrasTelemetry.DimensionKey.modelOutcome, ModelOperationOutcome.succeeded.rawValue),
+        ]
+        return try metrics.expectTimer(label, dimensions).values
     }
 }

@@ -62,10 +62,26 @@ comments:
     - evidence: 1 file — Sources/FoundationModelsExtras/ModelPool/GenerateRelayModel.swift. `swift test --filter 'PooledModel|PooledSession'` = 30 tests passed. `swift test` = 1030 tests in 91 suites passed (11 known issues are the existing withKnownIssue cases). `swift test --package-path IntegrationTests --filter 'ToolHosting|PooledSession|ModelPool'` = 17 tests in 4 suites passed. Only warning is the known mlx-swift_Cmlx.bundle line.
     - next: /review
   timestamp: 2026-10-12T14:50:10.806695+00:00
+- actor: claude-code
+  id: 01m4r9t3273z91j0cn5gtjcra9
+  text: |-
+    ### review — clean
+    - evidence: review sha 91780bf~1..91780bf — 0 findings (0 confirmed, 0 refuted). 1 file reviewed. The prior finding in Review Findings (2026-10-12 09:38) is checked.
+    - next: none. The task is in done.
+  timestamp: 2026-10-12T14:56:01.095836+00:00
+- actor: claude-code
+  id: 01m4r9t4jesw0rqqykh7jrzftg
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file
+    - test: green — swift test, 1030 passed; IntegrationTests, 37 passed
+    - commit: 91780bf
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T14:56:02.638375+00:00
 depends_on:
 - 01M4NYFBJJHE656GQR76E1AESD
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fa80
 title: 'Generate telemetry: a span for each model call with time to first token, tokens per second and cold or warm'
 ---
 ## What
