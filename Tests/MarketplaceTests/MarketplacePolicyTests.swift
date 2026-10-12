@@ -25,20 +25,6 @@ struct MarketplacePolicyTests {
     try MarketplaceLocation(source: source).normalizedURL
   }
 
-  /// The cache folder that one source would get.
-  ///
-  /// - Parameters:
-  ///   - source: The source.
-  ///   - root: The cache directory of the store.
-  /// - Returns: `<root>/<key>-<hash>`, which a refused source never makes.
-  /// - Throws: ``MarketplaceSourceError`` when the URL is not in an accepted
-  ///   form.
-  private static func cacheFolder(of source: MarketplaceSource, inDirectory root: URL) throws -> URL {
-    let name = MarketplaceIdentity.cacheFolderName(
-      key: try MarketplaceIdentity.preFetchKey(for: source), normalizedURL: try normalizedURL(of: source))
-    return root.appendingPathComponent(name, isDirectory: true)
-  }
-
   /// Whether one diagnostic list holds an error that names a source and a
   /// pattern.
   ///
@@ -73,7 +59,8 @@ struct MarketplacePolicyTests {
     #expect(await transport.remoteHeadCount == 0)
     #expect(await transport.fetchCount == 0)
     #expect(cache.store.marketplaceLayers().isEmpty)
-    let folder = try Self.cacheFolder(of: source, inDirectory: cache.cacheDirectory)
+    // A refused source never makes the cache folder that it would get.
+    let folder = try MarketplaceTestSupport.cache(of: source, inCacheDirectory: cache.cacheDirectory).folder
     #expect(!FileManager.default.fileExists(atPath: folder.path))
     #expect(Self.holdsRefusal(in: cache.store.diagnostics, ofURL: fixture.url, pattern: blocked))
   }

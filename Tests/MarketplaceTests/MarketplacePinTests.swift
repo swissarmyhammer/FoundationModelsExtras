@@ -375,7 +375,7 @@ struct MarketplacePinTests {
     let directory = fixture.cache.cacheDirectory
     let state = try MarketplaceState.load(from: MarketplaceCache.stateFile(inCacheDirectory: directory))
     let folderName = try #require(state.marketplaces.keys.first)
-    return MarketplaceCache(root: directory, folderName: folderName)
+    return MarketplaceCache(root: directory, folderName: folderName, marketplaceID: fixtureID)
   }
 
   /// Writes a pending snapshot into the state file of a fixture, as a

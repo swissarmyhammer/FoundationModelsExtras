@@ -5,12 +5,13 @@ import Testing
 
 @testable import Marketplace
 
-/// Reads and checks the telemetry that a store test recorded: the pass span
-/// and its child spans, the pass counter, and the timers of the fetch and of
-/// the remote head.
+/// Reads and checks the telemetry that a store test or a cache test recorded:
+/// the pass span and its child spans, the pass counter, the timers of the
+/// fetch, of the remote head and of the install, and the counters of the
+/// cache.
 ///
-/// Each telemetry test of the store uses these helpers, thus a change to the
-/// names or the dimensions occurs in one place.
+/// Each telemetry test of the store and of the cache uses these helpers, thus
+/// a change to the names or the dimensions occurs in one place.
 enum MarketplaceTelemetryExpectations {
   /// The attribute key that `TracedCall` gives a span whose body threw. The
   /// core target owns the key, thus the test names it here.
@@ -30,7 +31,7 @@ enum MarketplaceTelemetryExpectations {
   /// - Parameters:
   ///   - forbidden: The strings that no span, log record or metric may hold.
   ///     The default is no string.
-  ///   - body: The store work under test.
+  ///   - body: The store work or the cache work under test.
   /// - Returns: The capture and the value of `body`.
   /// - Throws: The error of the capture.
   static func capture<Output>(
@@ -150,13 +151,68 @@ enum MarketplaceTelemetryExpectations {
   /// - Returns: The duration of each call in nanoseconds, in order.
   /// - Throws: When `metrics` has no such timer.
   static func durations(
-    of label: String, in metrics: TestMetrics, id: String, outcome: MarketplaceGitOutcome
+    of label: String, in metrics: TestMetrics, id: String, outcome: MarketplaceCallOutcome
+  ) throws -> [Int64] {
+    try durations(
+      of: label, in: metrics, id: id, outcomeKey: MarketplaceTelemetry.DimensionKey.gitOutcome, outcome: outcome)
+  }
+
+  /// Gives the values of the install timer of one marketplace and outcome.
+  ///
+  /// - Parameters:
+  ///   - metrics: The factory of the capture.
+  ///   - id: The display id of the marketplace.
+  ///   - outcome: How the installs ended.
+  /// - Returns: The duration of each install in nanoseconds, in order.
+  /// - Throws: When `metrics` has no such timer.
+  static func installDurations(
+    in metrics: TestMetrics, id: String, outcome: MarketplaceCallOutcome
+  ) throws -> [Int64] {
+    try durations(
+      of: MarketplaceTelemetry.MetricName.installDuration, in: metrics, id: id,
+      outcomeKey: MarketplaceTelemetry.DimensionKey.installOutcome, outcome: outcome)
+  }
+
+  /// Gives the values of one counter of the cache of one marketplace: the
+  /// writer-lock conflict counter or the removed-snapshot counter.
+  ///
+  /// - Parameters:
+  ///   - label: The label of the counter.
+  ///   - metrics: The factory of the capture.
+  ///   - id: The display id of the marketplace.
+  /// - Returns: The count that each event added, in order.
+  /// - Throws: When `metrics` has no such counter.
+  static func cacheCounts(of label: String, in metrics: TestMetrics, id: String) throws -> [Int64] {
+    try metrics.expectCounter(label, [(MarketplaceTelemetry.DimensionKey.marketplaceID, id)]).values
+  }
+
+  /// Expects that `metrics` holds no counter with the label `label`.
+  ///
+  /// - Parameters:
+  ///   - label: The label of the counter that must not count.
+  ///   - metrics: The factory of the capture.
+  static func expectNoCounter(_ label: String, in metrics: TestMetrics) {
+    #expect(metrics.counters.filter { $0.label == label }.isEmpty)
+  }
+
+  /// Gives the values of one timer of one marketplace and outcome.
+  ///
+  /// - Parameters:
+  ///   - label: The label of the timer.
+  ///   - metrics: The factory of the capture.
+  ///   - id: The display id of the marketplace.
+  ///   - outcomeKey: The dimension key of the outcome of the timer.
+  ///   - outcome: How the timed calls ended.
+  /// - Returns: The duration of each call in nanoseconds, in order.
+  /// - Throws: When `metrics` has no such timer.
+  private static func durations(
+    of label: String, in metrics: TestMetrics, id: String, outcomeKey: String, outcome: MarketplaceCallOutcome
   ) throws -> [Int64] {
     try metrics.expectTimer(
       label,
       [
         (MarketplaceTelemetry.DimensionKey.marketplaceID, id),
-        (MarketplaceTelemetry.DimensionKey.gitOutcome, outcome.rawValue),
+        (outcomeKey, outcome.rawValue),
       ]
     ).values
   }

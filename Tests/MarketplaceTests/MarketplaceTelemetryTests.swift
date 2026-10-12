@@ -23,6 +23,7 @@ struct MarketplaceTelemetryTests {
     "\"pass.kind\"",
     "\"pass.outcome\"",
     "\"git.outcome\"",
+    "\"install.outcome\"",
   ]
 
   /// The display id of the events of the outcome test.
@@ -44,6 +45,9 @@ struct MarketplaceTelemetryTests {
       MarketplaceTelemetry.MetricName.passes,
       MarketplaceTelemetry.MetricName.fetchDuration,
       MarketplaceTelemetry.MetricName.remoteHeadDuration,
+      MarketplaceTelemetry.MetricName.installDuration,
+      MarketplaceTelemetry.MetricName.writerLockConflicts,
+      MarketplaceTelemetry.MetricName.removedSnapshots,
     ]
 
     #expect(names.filter { !$0.hasPrefix(MarketplaceTelemetryExpectations.namePrefix) } == [])
@@ -62,6 +66,7 @@ struct MarketplaceTelemetryTests {
     #expect(MarketplaceTelemetry.AttributeKey.passKind == "pass.kind")
     #expect(MarketplaceTelemetry.AttributeKey.passOutcome == "pass.outcome")
     #expect(MarketplaceTelemetry.DimensionKey.gitOutcome == "git.outcome")
+    #expect(MarketplaceTelemetry.DimensionKey.installOutcome == "install.outcome")
     #expect(MarketplaceTelemetry.DimensionKey.marketplaceID == MarketplaceTelemetry.AttributeKey.marketplaceID)
     #expect(MarketplaceTelemetry.DimensionKey.passKind == MarketplaceTelemetry.AttributeKey.passKind)
     #expect(MarketplaceTelemetry.DimensionKey.passOutcome == MarketplaceTelemetry.AttributeKey.passOutcome)

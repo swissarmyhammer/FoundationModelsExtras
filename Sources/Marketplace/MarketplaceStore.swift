@@ -1577,7 +1577,7 @@ fileprivate struct Preparation {
     let folderName = MarketplaceIdentity.cacheFolderName(key: key, normalizedURL: url)
     let remote = MarketplaceStore.GitRemote(
       url: url, ref: source.isPinned ? source.ref : ref,
-      cache: MarketplaceCache(root: cacheDirectory, folderName: folderName))
+      cache: MarketplaceCache(root: cacheDirectory, folderName: folderName, marketplaceID: key))
     sources.append(
       MarketplaceStore.PreparedSource(
         source: source, key: key, kind: kind(ofRemote: remote, folderName: folderName)))
@@ -1598,7 +1598,8 @@ fileprivate struct Preparation {
     guard remote.cache.currentSha() == nil, let seedDirectory else {
       return .git(remote)
     }
-    let seed = MarketplaceCache(root: seedDirectory, folderName: folderName)
+    let seed = MarketplaceCache(
+      root: seedDirectory, folderName: folderName, marketplaceID: remote.cache.marketplaceID)
     return seed.currentSha() == nil ? .git(remote) : .seed(remote, seed: seed)
   }
 

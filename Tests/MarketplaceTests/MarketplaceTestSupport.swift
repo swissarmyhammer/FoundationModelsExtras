@@ -51,6 +51,8 @@ actor CredentialRequestRecorder {
 /// listing suite and the store suite prove that the two catalog keys of an
 /// earlier state file change nothing, and the listing suite and the store
 /// suite write those keys with ``addEarlierCatalogKeys(displayID:catalogVersion:toStateFile:)``.
+/// The policy suite, the listing suite and the store suite find the cache
+/// folder of a git source with ``cache(of:inCacheDirectory:)``.
 ///
 /// The file helper does not call `MarketplaceConfig.save(to:)`, because that
 /// is the code under test: a test that writes its fixture with the code it
@@ -200,6 +202,23 @@ enum MarketplaceTestSupport {
     try FileManager.default.createDirectory(
       at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     try text.write(to: file, atomically: true, encoding: .utf8)
+  }
+
+  /// The cache that a store makes for one git source under one cache
+  /// directory: the folder that the pre-fetch key and the normalized URL of
+  /// the source name, with the pre-fetch key as its display id.
+  ///
+  /// - Parameters:
+  ///   - source: The git source.
+  ///   - root: The cache directory of the store.
+  /// - Returns: The cache of the source.
+  /// - Throws: ``MarketplaceSourceError`` when the source gives no pre-fetch
+  ///   key or its URL is not in an accepted form.
+  static func cache(of source: MarketplaceSource, inCacheDirectory root: URL) throws -> MarketplaceCache {
+    let key = try MarketplaceIdentity.preFetchKey(for: source)
+    let folderName = MarketplaceIdentity.cacheFolderName(
+      key: key, normalizedURL: try MarketplaceLocation(source: source).normalizedURL)
+    return MarketplaceCache(root: root, folderName: folderName, marketplaceID: key)
   }
 
   /// The key of the catalog `name` that an earlier version of this package

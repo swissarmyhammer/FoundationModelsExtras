@@ -168,10 +168,26 @@ comments:
     - evidence: `swift test` exit 0: 1052 Swift Testing tests in 92 suites passed (11 known issues that were there before), 393 tests in 29 suites (MarketplaceTests) passed, 0 failures, 0 compiler warnings (only the mlx-swift "missing creator for mutated node" line of the dependency build). 2 files: Tests/FixtureSupport/PackageManifest.swift, Tests/FoundationModelsExtrasTests/PackageManifestTests.swift. Both findings are `- [x]`.
     - next: /review
   timestamp: 2026-10-12T16:21:14.930385+00:00
+- actor: claude-code
+  id: 01m4rex9rxg74zmey42qrwm6tm
+  text: |-
+    ### review — clean
+    - evidence: `review sha b0b21c0~1..b0b21c0`, 0 findings (0 confirmed, 0 refuted), 2 files reviewed. All 6 prior findings are `- [x]`.
+    - next: none. The task is in `done`.
+  timestamp: 2026-10-12T16:25:09.149474+00:00
+- actor: claude-code
+  id: 01m4rexdat4rvznfz5mpxdvnss
+  text: |-
+    ### finish iteration 5 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 1052 passed
+    - commit: b0b21c0
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T16:25:12.794710+00:00
 depends_on:
 - 01M4NYFFAQH23KD4E03AC35EK3
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fc80
 title: 'Marketplace telemetry: add the API dependencies, a vocabulary file, and spans and timers for passes, head checks and fetches'
 ---
 ## What

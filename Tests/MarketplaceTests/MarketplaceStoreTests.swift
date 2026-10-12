@@ -455,6 +455,40 @@ struct MarketplaceStoreTests {
     #expect(context.leaks(forbidding: errorTexts).isEmpty)
   }
 
+  @Test func aPassThatInstallsANewSnapshotRecordsOneInstallDuration() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+
+    let (context, _) = try await Telemetry.capture { await cache.store.update() }
+
+    Telemetry.expectOneDuration(
+      try Telemetry.installDurations(in: context.metricsFactory, id: Self.fixtureID, outcome: .succeeded))
+  }
+
+  @Test func noSpanLogRecordOrMetricOfTheCacheHoldsTheCachePathOrTheLockFilePath() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let source = MarketplaceSource(fixture.url)
+    let cache = try MarketplaceStoreFixture(sources: [source], transport: RecordingGitTransport())
+    let marketplaceCache = try MarketplaceTestSupport.cache(of: source, inCacheDirectory: cache.cacheDirectory)
+    let forbidden = [cache.cacheDirectory.path, marketplaceCache.lockFile.path]
+
+    let (context, refused) = try await Telemetry.capture(forbidding: forbidden) {
+      await cache.store.update()
+      // A second writer holds the lock, thus the forced pass meets the
+      // writer lock and fails with the path of the lock file in its text.
+      return try? await marketplaceCache.withWriterLock { await cache.store.update(force: true) }
+    }
+
+    #expect(refused?.count == Telemetry.one)
+    #expect(
+      try Telemetry.cacheCounts(
+        of: MarketplaceTelemetry.MetricName.writerLockConflicts, in: context.metricsFactory, id: Self.fixtureID)
+        == [Int64(Telemetry.one)])
+  }
+
   // MARK: - Support
 
   /// The helpers that read the telemetry of a store test.

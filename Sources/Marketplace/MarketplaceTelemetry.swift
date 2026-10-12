@@ -73,12 +73,26 @@ enum MarketplaceTelemetry {
     static let passes = "Marketplace.passes"
 
     /// The timer that records the duration of each fetch, with the
-    /// ``MarketplaceGitOutcome`` of the fetch.
+    /// ``MarketplaceCallOutcome`` of the fetch.
     static let fetchDuration = "Marketplace.fetch.duration"
 
     /// The timer that records the duration of each read of the remote head,
-    /// with the ``MarketplaceGitOutcome`` of the read.
+    /// with the ``MarketplaceCallOutcome`` of the read.
     static let remoteHeadDuration = "Marketplace.remote_head.duration"
+
+    /// The timer that records the duration of each install of a snapshot
+    /// into the cache, with the ``MarketplaceCallOutcome`` of the install.
+    static let installDuration = "Marketplace.install.duration"
+
+    /// The counter that counts each writer lock that the cache could not
+    /// take, because another writer held the folder of the marketplace. The
+    /// lock never waits, thus the counter counts conflicts and no timer
+    /// records a wait.
+    static let writerLockConflicts = "Marketplace.writer_lock.conflicts"
+
+    /// The counter that counts each snapshot that the cleanup of the cache
+    /// deleted.
+    static let removedSnapshots = "Marketplace.snapshots.removed"
   }
 
   /// The dimension keys of the metrics of the target.
@@ -96,9 +110,12 @@ enum MarketplaceTelemetry {
     /// span attribute.
     static let passOutcome = AttributeKey.passOutcome
 
-    /// The ``MarketplaceGitOutcome`` of a fetch or of a read of the remote
+    /// The ``MarketplaceCallOutcome`` of a fetch or of a read of the remote
     /// head.
     static let gitOutcome = "git.outcome"
+
+    /// The ``MarketplaceCallOutcome`` of an install of a snapshot.
+    static let installOutcome = "install.outcome"
   }
 
   /// The metadata keys of the log records of the target.
@@ -198,7 +215,7 @@ enum MarketplaceTelemetry {
   /// records its duration on the timer `timerLabel`.
   ///
   /// The timer records as the last step of the span, on the success path
-  /// and on the error path, with the ``MarketplaceGitOutcome`` of the call.
+  /// and on the error path, with the ``MarketplaceCallOutcome`` of the call.
   /// Thus the duration and the span measure the same interval, and a failed
   /// or a hung call that ends also records its duration.
   ///
@@ -217,15 +234,56 @@ enum MarketplaceTelemetry {
   ) async throws -> Output {
     let start = ContinuousClock.now
     return try await traceStep(spanName, id: id) {
-      do {
-        let output = try await body()
-        recordDuration(on: timerLabel, id: id, outcome: .succeeded, since: start)
-        return output
-      } catch {
-        recordDuration(on: timerLabel, id: id, outcome: .failed, since: start)
-        throw error
+      var outcome = MarketplaceCallOutcome.failed
+      defer {
+        recordDuration(on: timerLabel, outcomeKey: DimensionKey.gitOutcome, id: id, outcome: outcome, since: start)
       }
+      let output = try await body()
+      outcome = .succeeded
+      return output
     }
+  }
+
+  /// Runs one install of a snapshot into the cache, and records its
+  /// duration on the install timer.
+  ///
+  /// The timer records on the success path and on the error path, with the
+  /// ``MarketplaceCallOutcome`` of the install. The install is synchronous
+  /// file work, thus it cannot go through the asynchronous
+  /// ``traceGitCall(_:timer:id:_:)``. Swift has no `reasync`, thus this
+  /// helper is the synchronous form of the same timer step, and both record
+  /// through one private recorder.
+  ///
+  /// - Parameters:
+  ///   - id: The display id of the marketplace.
+  ///   - body: The install.
+  /// - Returns: The value of `body`.
+  /// - Throws: The error of `body`.
+  static func timeInstall<Output>(id: String, _ body: () throws -> Output) rethrows -> Output {
+    let start = ContinuousClock.now
+    var outcome = MarketplaceCallOutcome.failed
+    defer {
+      recordDuration(
+        on: MetricName.installDuration, outcomeKey: DimensionKey.installOutcome, id: id, outcome: outcome,
+        since: start)
+    }
+    let output = try body()
+    outcome = .succeeded
+    return output
+  }
+
+  /// Adds one count to a counter of the cache of one marketplace.
+  ///
+  /// The counter is made at call time, so that it uses the metrics factory
+  /// that is in effect when the event occurs. Its only dimension is the
+  /// display id, thus no path of the cache goes into it.
+  ///
+  /// - Parameters:
+  ///   - counterLabel: The label of the counter, from ``MetricName``: the
+  ///     writer-lock conflict counter or the removed-snapshot counter.
+  ///   - id: The display id of the marketplace.
+  static func count(_ counterLabel: String, id: String) {
+    Counter(label: counterLabel, dimensions: [(DimensionKey.marketplaceID, id)]).increment()
   }
 
   /// Makes the counter of the passes that have one display id, one kind and
@@ -251,22 +309,26 @@ enum MarketplaceTelemetry {
       ])
   }
 
-  /// Records one duration on a git timer.
+  /// Records one duration on a timer of the target: a git timer or the
+  /// install timer.
   ///
   /// The timer is made at call time, so that it uses the metrics factory that
   /// is in effect when the call ends.
   ///
   /// - Parameters:
   ///   - timerLabel: The label of the timer.
+  ///   - outcomeKey: The dimension key of the outcome of the timer, from
+  ///     ``DimensionKey``.
   ///   - id: The display id of the marketplace.
   ///   - outcome: How the call ended.
   ///   - start: The instant that the call started.
   private static func recordDuration(
-    on timerLabel: String, id: String, outcome: MarketplaceGitOutcome, since start: ContinuousClock.Instant
+    on timerLabel: String, outcomeKey: String, id: String, outcome: MarketplaceCallOutcome,
+    since start: ContinuousClock.Instant
   ) {
     Metrics.Timer(
       label: timerLabel,
-      dimensions: [(DimensionKey.marketplaceID, id), (DimensionKey.gitOutcome, outcome.rawValue)]
+      dimensions: [(DimensionKey.marketplaceID, id), (outcomeKey, outcome.rawValue)]
     )
     .record(duration: ContinuousClock.now - start)
   }
@@ -307,14 +369,16 @@ enum MarketplacePassOutcome: String, Sendable, CaseIterable {
   case failed
 }
 
-/// How one git call of a pass ended: a fetch or a read of the remote head.
-/// It is the value of the ``MarketplaceTelemetry/DimensionKey/gitOutcome``
-/// dimension.
-enum MarketplaceGitOutcome: String, Sendable, CaseIterable {
-  /// The call returned a commit.
+/// How one timed call ended: a fetch, a read of the remote head, or an
+/// install of a snapshot. It is the value of the
+/// ``MarketplaceTelemetry/DimensionKey/gitOutcome`` dimension and of the
+/// ``MarketplaceTelemetry/DimensionKey/installOutcome`` dimension.
+enum MarketplaceCallOutcome: String, Sendable, CaseIterable {
+  /// The call returned: the git call gave a commit, or the install put the
+  /// snapshot in place.
   case succeeded
 
-  /// The call threw an error: the transport failed, the fetch timed out, or
-  /// the call was cancelled.
+  /// The call threw an error: the transport failed, the fetch timed out, the
+  /// call was cancelled, or a file step of the install failed.
   case failed
 }

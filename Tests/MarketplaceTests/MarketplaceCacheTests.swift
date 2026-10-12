@@ -39,6 +39,10 @@ struct MarketplaceCacheTests {
   /// The ref that the install tests write.
   private static let exampleRef = "main"
 
+  /// The display id of the marketplace of the fixture, which is also its
+  /// pre-fetch key.
+  private static let exampleID = "skills"
+
   /// The file that each staged snapshot holds. Its text is the sha of the
   /// snapshot, so a reader can tell which snapshot it read.
   private static let markerPath = "example-skill/SKILL.md"
@@ -63,7 +67,8 @@ struct MarketplaceCacheTests {
       cache = MarketplaceCache(
         root: root,
         folderName: MarketplaceIdentity.cacheFolderName(
-          key: "skills", normalizedURL: "https://example.test/acme/skills.git"))
+          key: exampleID, normalizedURL: "https://example.test/acme/skills.git"),
+        marketplaceID: exampleID)
     }
 
     /// Deletes the temporary cache directory.
@@ -456,6 +461,93 @@ struct MarketplaceCacheTests {
     }
 
     #expect(flags == [OpenDescriptorProbe.noInheritanceFlags])
+  }
+
+  // MARK: - Telemetry
+
+  @Test func aWriterLockThatAnotherWriterHoldsAddsOneConflictCount() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    try fixture.cache.makeFolders()
+
+    let (context, refused) = try await fixture.cache.withWriterLock {
+      try await MarketplaceTelemetryExpectations.capture {
+        Result { try fixture.cache.withWriterLock {} }
+      }
+    }
+
+    #expect(throws: MarketplaceCacheError.writerLockHeld(path: fixture.cache.lockFile.path)) {
+      try refused.get()
+    }
+    #expect(
+      try MarketplaceTelemetryExpectations.cacheCounts(
+        of: MarketplaceTelemetry.MetricName.writerLockConflicts, in: context.metricsFactory, id: Self.exampleID)
+        == [Int64(MarketplaceTelemetryExpectations.one)])
+  }
+
+  @Test func eachSnapshotThatCleanupDeletesAddsOneRemovedCount() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+
+    let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
+      Result { try Self.exampleShas.forEach(fixture.install(sha:)) }
+    }
+
+    try installed.get()
+    #expect(
+      try MarketplaceTelemetryExpectations.cacheCounts(
+        of: MarketplaceTelemetry.MetricName.removedSnapshots, in: context.metricsFactory, id: Self.exampleID)
+        == Array(
+          repeating: Int64(MarketplaceTelemetryExpectations.one), count: Self.exampleShaCount - Self.keptShaCount))
+  }
+
+  @Test func aSnapshotThatAReaderHoldsAddsNoRemovedCount() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let shas = Array(Self.exampleShas.prefix(Self.cleanupInstallCount))
+    let held = try #require(shas.first)
+    let last = try #require(shas.last)
+    try shas.dropLast().forEach(fixture.install(sha:))
+
+    let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
+      Result { try fixture.cache.withSnapshotInUse(sha: held) { _ in try fixture.install(sha: last) } }
+    }
+
+    try installed.get()
+    MarketplaceTelemetryExpectations.expectNoCounter(
+      MarketplaceTelemetry.MetricName.removedSnapshots, in: context.metricsFactory)
+  }
+
+  @Test func anInstallRecordsOneSucceededInstallDuration() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let sha = try #require(Self.exampleShas.first)
+
+    let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
+      Result { try fixture.install(sha: sha) }
+    }
+
+    try installed.get()
+    MarketplaceTelemetryExpectations.expectOneDuration(
+      try MarketplaceTelemetryExpectations.installDurations(
+        in: context.metricsFactory, id: Self.exampleID, outcome: .succeeded))
+  }
+
+  @Test func anInstallWhoseStagedFolderIsGoneRecordsOneFailedInstallDuration() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let sha = try #require(Self.exampleShas.first)
+    let missing = fixture.root.appendingPathComponent(Self.stagingDirectoryName, isDirectory: true)
+      .appendingPathComponent(sha, isDirectory: true)
+
+    let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
+      Result { try fixture.cache.install(snapshotAt: missing, sha: sha, ref: Self.exampleRef) }
+    }
+
+    #expect(throws: CocoaError.self) { try installed.get() }
+    MarketplaceTelemetryExpectations.expectOneDuration(
+      try MarketplaceTelemetryExpectations.installDurations(
+        in: context.metricsFactory, id: Self.exampleID, outcome: .failed))
   }
 
   // MARK: - Path safety

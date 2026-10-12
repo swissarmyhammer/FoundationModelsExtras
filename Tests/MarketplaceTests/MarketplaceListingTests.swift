@@ -328,9 +328,7 @@ struct MarketplaceListingTests {
     record: MarketplaceStateRecord, ofSource source: MarketplaceSource,
     inCacheDirectory cacheDirectory: URL
   ) throws {
-    let folderName = MarketplaceIdentity.cacheFolderName(
-      key: try MarketplaceIdentity.preFetchKey(for: source),
-      normalizedURL: try MarketplaceLocation(source: source).normalizedURL)
+    let folderName = try MarketplaceTestSupport.cache(of: source, inCacheDirectory: cacheDirectory).folderName
     try MarketplaceState(marketplaces: [folderName: record])
       .save(to: MarketplaceCache.stateFile(inCacheDirectory: cacheDirectory))
   }

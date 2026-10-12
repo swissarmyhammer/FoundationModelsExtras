@@ -301,6 +301,11 @@ internal struct MarketplaceCache: Sendable {
   /// ``MarketplaceIdentity/cacheFolderName(key:normalizedURL:)``.
   let folderName: String
 
+  /// The display id of this marketplace: the alias of the source, else the
+  /// repository name. The telemetry of the cache carries it, and it is never
+  /// a path or a URL.
+  let marketplaceID: String
+
   /// The folder of this marketplace: `<root>/<folderName>`.
   var folder: URL {
     root.appendingPathComponent(folderName, isDirectory: true)
@@ -491,14 +496,20 @@ internal struct MarketplaceCache: Sendable {
   /// Runs the steps of one install over values that are already checked,
   /// under a writer lock that the caller holds.
   ///
+  /// Both ``install(snapshotAt:sha:ref:)`` and
+  /// ``installUnderWriterLock(snapshotAt:sha:ref:)`` come here, thus each
+  /// install records one duration on the install timer, with its outcome.
+  ///
   /// - Parameters:
   ///   - temporary: The folder that holds the materialized snapshot.
   ///   - checked: The checked commit and ref.
   /// - Throws: ``MarketplaceCacheError`` when the swap fails, else the
   ///   error of the file work.
   private func installValidated(snapshotAt temporary: URL, checked: (sha: String, ref: [String]?)) throws {
-    try publish(snapshotAt: temporary, validatedSha: checked.sha)
-    try activate(checked: checked)
+    try MarketplaceTelemetry.timeInstall(id: marketplaceID) {
+      try publish(snapshotAt: temporary, validatedSha: checked.sha)
+      try activate(checked: checked)
+    }
   }
 
   /// Writes the ref file, makes `current` name one snapshot that is already
@@ -661,6 +672,10 @@ internal struct MarketplaceCache: Sendable {
 
   /// Deletes one snapshot, unless a reader holds a shared lock on it.
   ///
+  /// Each snapshot that the call deletes adds one count to the
+  /// removed-snapshot counter. A snapshot that a reader holds, or that is
+  /// already gone, adds no count.
+  ///
   /// - Parameter sha: The checked commit of the snapshot, which
   ///   ``installedShas()`` gave.
   /// - Throws: The error of the delete.
@@ -678,6 +693,7 @@ internal struct MarketplaceCache: Sendable {
       return
     }
     try FileManager.default.removeItem(at: directory)
+    MarketplaceTelemetry.count(MarketplaceTelemetry.MetricName.removedSnapshots, id: marketplaceID)
   }
 
   // MARK: - Locks
@@ -745,6 +761,11 @@ internal struct MarketplaceCache: Sendable {
   /// The call reads `errno` before it closes the descriptor, because
   /// `close(2)` can replace the value.
   ///
+  /// Each ``MarketplaceCacheError/writerLockHeld(path:)`` adds one count to
+  /// the writer-lock conflict counter. The lock never waits, thus the call
+  /// counts the conflict and records no wait time. The count carries the
+  /// display id only, never the path of the lock file.
+  ///
   /// - Returns: The open descriptor. The caller closes it, which releases
   ///   the lock.
   /// - Throws: ``MarketplaceCacheError/writerLockHeld(path:)`` when another
@@ -759,9 +780,11 @@ internal struct MarketplaceCache: Sendable {
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
       let code = errno
       close(descriptor)
-      throw code == EWOULDBLOCK
-        ? MarketplaceCacheError.writerLockHeld(path: lockFile.path)
-        : MarketplaceCacheError.cannotLock(path: lockFile.path, code: code)
+      guard code == EWOULDBLOCK else {
+        throw MarketplaceCacheError.cannotLock(path: lockFile.path, code: code)
+      }
+      MarketplaceTelemetry.count(MarketplaceTelemetry.MetricName.writerLockConflicts, id: marketplaceID)
+      throw MarketplaceCacheError.writerLockHeld(path: lockFile.path)
     }
     return descriptor
   }
