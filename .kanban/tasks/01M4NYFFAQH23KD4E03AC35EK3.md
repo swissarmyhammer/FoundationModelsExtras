@@ -23,10 +23,26 @@ comments:
     - The test checks: two generate spans with cold flags [true, false], the model ref, guided=false; the load span is a child of the cold generate span; one time-to-first-token and one duration for each succeeded call, each time to first token > 0 and <= its duration; no leak of the prompt, the instructions (forbidden in the capture) or the answers (`context.leaks(forbidding:)` after the run); log records and metrics present.
     - next: /review
   timestamp: 2026-10-12T15:02:36.450380+00:00
+- actor: claude-code
+  id: 01m4ramkaq73v2nys1eqtbt5jm
+  text: |-
+    ### review — clean
+    - evidence: review sha 1e781ff~1..1e781ff — 0 findings, 0 confirmed, 0 refuted. 3 files reviewed. 4 .kanban/ files not reviewed (ignore rule in .reviewignore).
+    - next: none. The task is in done.
+  timestamp: 2026-10-12T15:10:29.719228+00:00
+- actor: claude-code
+  id: 01m4ramm5hzrzk7mtd3wcek7wx
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 1030 passed; IntegrationTests, 38 passed
+    - commit: 1e781ff
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T15:10:30.577048+00:00
 depends_on:
 - 01M4NY1MMSGG2YVBXYWBQN6M7K
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fb80
 title: 'Generate telemetry: integration test with the real LLM'
 ---
 ## What

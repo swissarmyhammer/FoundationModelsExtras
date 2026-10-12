@@ -8,7 +8,9 @@ import Testing
 /// consumer of the core target would then compile the C library from source.
 /// The git fixture builder is a product that the `FoundationModelsSkills`
 /// tests can import. The suite also guards that swift-distributed-tracing
-/// links to the core target only.
+/// links to the core target and to the `Marketplace` target only. The
+/// `Marketplace` target links it for its telemetry, and
+/// `TelemetryDependencyTests` guards that it links the API product only.
 ///
 /// The suite reads `Package.swift` as text from the package root. A manifest
 /// evaluation through `swift package` starts a process and needs the
@@ -47,8 +49,9 @@ struct PackageLayoutTests {
   /// The tracing product, as a target dependency names it.
   private static let tracingProduct = #".product(name: "Tracing", package: "swift-distributed-tracing")"#
 
-  /// The library targets other than the core target. None links tracing.
-  private static let otherLibraryTargetNames = ["Operations", "OperationsCLI", "Marketplace", "MarketplaceFixtures"]
+  /// The library targets other than the core target and the marketplace
+  /// target. None links tracing.
+  private static let otherLibraryTargetNames = ["Operations", "OperationsCLI", "MarketplaceFixtures"]
 
   /// The text that starts each target declaration in the manifest.
   private static let targetMarkers = [".target(", ".testTarget(", ".executableTarget(", ".macro("]

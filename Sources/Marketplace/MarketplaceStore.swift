@@ -576,6 +576,15 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
         return self == other
       }
     }
+
+    /// The bounded telemetry value of this pass. A forced update is an
+    /// update.
+    var telemetryKind: MarketplacePassKind {
+      switch self {
+      case .check: .check
+      case .update: .update
+      }
+    }
   }
 
   /// What one pass over a marketplace gave.
@@ -733,13 +742,34 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     policy.checkOnly ? .check : kind
   }
 
-  /// Does the work of one pass, as the kind of the source needs it.
+  /// Does the work of one pass in one pass span, and counts the pass with its
+  /// outcome.
+  ///
+  /// The span has the display id and the kind of the pass, and the outcome
+  /// that the event of the pass gives. The head check, the sync, the fetch,
+  /// the read of the remote head and the materialize step each open a child
+  /// span when they run.
   ///
   /// - Parameters:
   ///   - kind: What the pass does.
   ///   - index: The marketplace.
   /// - Returns: What the pass gave.
   private func runPass(_ kind: PassKind, atIndex index: Int) async -> PassResult {
+    await MarketplaceTelemetry.tracePass(
+      id: displayID(atIndex: index), kind: kind.telemetryKind,
+      outcome: { MarketplaceTelemetry.passOutcome(of: $0.event) }
+    ) {
+      await self.work(of: kind, atIndex: index)
+    }
+  }
+
+  /// Does the work of one pass, as the kind of the source needs it.
+  ///
+  /// - Parameters:
+  ///   - kind: What the pass does.
+  ///   - index: The marketplace.
+  /// - Returns: What the pass gave.
+  private func work(of kind: PassKind, atIndex index: Int) async -> PassResult {
     switch prepared[index].kind {
     case .git(let remote):
       return await gitPass(kind, remote: remote, atIndex: index)
@@ -848,19 +878,37 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   ///   differs from the snapshot.
   private func checkHead(remote: GitRemote, current: String?, atIndex index: Int) async -> PassResult {
     do {
-      let latest = try await remoteHead(of: remote)
-      let identifier = displayID(atIndex: index)
-      eventSubscribers.publish(.checked(id: identifier, current: current, latest: latest))
-      let status = MarketplaceStatus(id: identifier, current: current, latest: latest)
-      guard status.updateAvailable else {
-        return PassResult(status: status, event: nil)
+      return try await MarketplaceTelemetry.traceStep(
+        MarketplaceTelemetry.SpanName.checkHead, id: displayID(atIndex: index)
+      ) {
+        try await self.reportHead(of: remote, current: current, atIndex: index)
       }
-      let event = MarketplaceEvent.updateAvailable(id: identifier, from: current, to: latest)
-      eventSubscribers.publish(event)
-      return PassResult(status: status, event: event)
     } catch {
       return failureResult(atIndex: index, error: error, current: current)
     }
+  }
+
+  /// Reads the remote head of one marketplace and publishes what it found.
+  ///
+  /// - Parameters:
+  ///   - remote: The remote of the marketplace.
+  ///   - current: The commit that the store serves now.
+  ///   - index: The marketplace to check.
+  /// - Returns: The status, and
+  ///   ``MarketplaceEvent/updateAvailable(id:from:to:)`` when the head
+  ///   differs from the snapshot.
+  /// - Throws: ``GitTransportError``.
+  private func reportHead(of remote: GitRemote, current: String?, atIndex index: Int) async throws -> PassResult {
+    let identifier = displayID(atIndex: index)
+    let latest = try await remoteHead(of: remote, marketplaceID: identifier)
+    eventSubscribers.publish(.checked(id: identifier, current: current, latest: latest))
+    let status = MarketplaceStatus(id: identifier, current: current, latest: latest)
+    guard status.updateAvailable else {
+      return PassResult(status: status, event: nil)
+    }
+    let event = MarketplaceEvent.updateAvailable(id: identifier, from: current, to: latest)
+    eventSubscribers.publish(event)
+    return PassResult(status: status, event: event)
   }
 
   /// Starts the periodic check, when the host gave an interval.
@@ -918,12 +966,32 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   private func sync(remote: GitRemote, atIndex index: Int, force: Bool) async -> PassResult {
     let current = remote.cache.currentSha()
     do {
-      try remote.cache.makeFolders()
-      return try await remote.cache.withWriterLock {
-        try await installHead(remote: remote, ofIndex: index, force: force)
+      return try await MarketplaceTelemetry.traceStep(
+        MarketplaceTelemetry.SpanName.sync, id: displayID(atIndex: index)
+      ) {
+        try await self.installHeadUnderWriterLock(remote: remote, ofIndex: index, force: force)
       }
     } catch {
       return failureResult(atIndex: index, error: error, current: current)
+    }
+  }
+
+  /// Makes the folders of one marketplace, takes its exclusive writer lock,
+  /// and installs its head under that lock.
+  ///
+  /// - Parameters:
+  ///   - remote: The remote of the marketplace.
+  ///   - index: The marketplace to sync.
+  ///   - force: Whether to materialize again even with no remote change.
+  /// - Returns: The status, and ``MarketplaceEvent/updated(id:from:to:)``,
+  ///   as ``installHead(remote:ofIndex:force:)`` gives them.
+  /// - Throws: The error of the folder write, of the lock, or of the install.
+  private func installHeadUnderWriterLock(
+    remote: GitRemote, ofIndex index: Int, force: Bool
+  ) async throws -> PassResult {
+    try remote.cache.makeFolders()
+    return try await remote.cache.withWriterLock {
+      try await installHead(remote: remote, ofIndex: index, force: force)
     }
   }
 
@@ -950,7 +1018,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
       // remote work at all, thus it also works with no network.
       return upToDateResult(atIndex: index, current: previous, latest: pinnedSha)
     }
-    let head = try await target(ofRemote: remote, pin: pinnedSha)
+    let head = try await target(ofRemote: remote, pin: pinnedSha, marketplaceID: displayID(atIndex: index))
     eventSubscribers.publish(
       .checked(id: displayID(atIndex: index), current: previous, latest: head))
     guard force || head != previous else {
@@ -965,13 +1033,14 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// - Parameters:
   ///   - remote: The remote of the marketplace.
   ///   - pin: The commit that the marketplace is pinned to, or `nil`.
+  ///   - id: The display id of the marketplace, for the telemetry.
   /// - Returns: The pin, else the commit that the remote head names.
   /// - Throws: ``GitTransportError``.
-  private func target(ofRemote remote: GitRemote, pin: String?) async throws -> String {
+  private func target(ofRemote remote: GitRemote, pin: String?, marketplaceID id: String) async throws -> String {
     if let pin {
       return pin
     }
-    return try await remoteHead(of: remote)
+    return try await remoteHead(of: remote, marketplaceID: id)
   }
 
   /// The result of a pass that found nothing to install.
@@ -1004,8 +1073,12 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
     remote: GitRemote, ofIndex index: Int, pin: String?, previous: String?, head: String
   ) async throws -> PassResult {
     let source = prepared[index].source
-    let fetched = try await fetch(remote: remote, revision: pin ?? remote.ref ?? Self.defaultRef)
-    let snapshot = try materialize(remote: remote, source: source, commit: fetched)
+    let id = displayID(atIndex: index)
+    let fetched = try await fetch(
+      remote: remote, revision: pin ?? remote.ref ?? Self.defaultRef, marketplaceID: id)
+    let snapshot = try await MarketplaceTelemetry.traceStep(MarketplaceTelemetry.SpanName.materialize, id: id) {
+      try self.materialize(remote: remote, source: source, commit: fetched)
+    }
     // A cold start has no session to keep stable, thus `.nextLaunch`
     // holds back only an update of a marketplace that the store serves.
     let deferred = policy.applyUpdates == .nextLaunch && previous != nil
@@ -1053,6 +1126,27 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
       event: event)
   }
 
+  /// Fetches the commit of one marketplace in one fetch span, and records
+  /// the duration of the fetch.
+  ///
+  /// The span writes one "enter" log record when the fetch starts, thus a
+  /// fetch that hangs shows as a record with no span that ends.
+  ///
+  /// - Parameters:
+  ///   - remote: The remote of the marketplace to fetch.
+  ///   - revision: The pin, the branch, the tag, or `HEAD`.
+  ///   - id: The display id of the marketplace, for the telemetry.
+  /// - Returns: The 40-hex SHA of the fetched commit.
+  /// - Throws: ``GitTransportError``, or ``MarketplaceTimeoutError`` when
+  ///   the fetch took longer than the timeout.
+  private func fetch(remote: GitRemote, revision: String, marketplaceID id: String) async throws -> String {
+    try await MarketplaceTelemetry.traceGitCall(
+      MarketplaceTelemetry.SpanName.fetch, timer: MarketplaceTelemetry.MetricName.fetchDuration, id: id
+    ) {
+      try await self.fetchWithTimeout(remote: remote, revision: revision)
+    }
+  }
+
   /// Fetches the commit of one marketplace, and stops the fetch when it
   /// takes longer than the fetch timeout of the policy.
   ///
@@ -1066,7 +1160,7 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// - Returns: The 40-hex SHA of the fetched commit.
   /// - Throws: ``GitTransportError``, or ``MarketplaceTimeoutError`` when
   ///   the fetch took longer than the timeout.
-  private func fetch(remote: GitRemote, revision: String) async throws -> String {
+  private func fetchWithTimeout(remote: GitRemote, revision: String) async throws -> String {
     let transport = self.transport
     let credentials = policy.credentials
     let repository = remote.cache.repositoryDirectory
@@ -1101,12 +1195,22 @@ public actor MarketplaceStore: MarketplaceLayerProviding {
   /// A pinned marketplace reads it too: ``check()`` reports a newer commit
   /// even when the pin stops the update.
   ///
-  /// - Parameter remote: The remote of the marketplace.
+  /// The read runs in one remote head span and records its duration. The
+  /// span writes one "enter" log record when the read starts, thus a read
+  /// that hangs shows as a record with no span that ends.
+  ///
+  /// - Parameters:
+  ///   - remote: The remote of the marketplace.
+  ///   - id: The display id of the marketplace, for the telemetry.
   /// - Returns: The commit that the remote head names.
   /// - Throws: ``GitTransportError``.
-  private func remoteHead(of remote: GitRemote) async throws -> String {
-    try await transport.remoteHead(
-      url: remote.url, ref: remote.ref ?? Self.defaultRef, credentials: policy.credentials)
+  private func remoteHead(of remote: GitRemote, marketplaceID id: String) async throws -> String {
+    try await MarketplaceTelemetry.traceGitCall(
+      MarketplaceTelemetry.SpanName.remoteHead, timer: MarketplaceTelemetry.MetricName.remoteHeadDuration, id: id
+    ) {
+      try await self.transport.remoteHead(
+        url: remote.url, ref: remote.ref ?? Self.defaultRef, credentials: self.policy.credentials)
+    }
   }
 
   /// What one materialize step made.

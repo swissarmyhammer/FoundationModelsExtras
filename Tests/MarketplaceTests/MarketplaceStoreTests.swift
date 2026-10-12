@@ -283,7 +283,182 @@ struct MarketplaceStoreTests {
     #expect(layer.provenance.displayText == Self.displayText(ofCommit: head))
   }
 
+  // MARK: - Telemetry
+
+  /// A branch that no fixture repository has. A source that follows it fails
+  /// at the remote head. The `qz` letters hold no hex digit, thus the text
+  /// matches no trace id or span id of a capture by chance.
+  private static let missingBranch = "qz-no-such-branch"
+
+  @Test func aPassThatInstallsOpensAPassSpanWithSyncRemoteHeadFetchAndMaterializeChildren() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+
+    let (context, _) = try await Telemetry.capture { await cache.store.update() }
+
+    let spans = context.spans
+    let pass = try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.pass, in: spans)
+    Telemetry.expectPass(pass, id: Self.fixtureID, kind: .update, outcome: .updated)
+    let sync = try Telemetry.onlyChild(named: MarketplaceTelemetry.SpanName.sync, of: pass, in: spans)
+    for name in [
+      MarketplaceTelemetry.SpanName.remoteHead, MarketplaceTelemetry.SpanName.fetch,
+      MarketplaceTelemetry.SpanName.materialize,
+    ] {
+      let child = try Telemetry.onlyChild(named: name, of: sync, in: spans)
+      Telemetry.expectMarketplaceID(of: child, id: Self.fixtureID)
+    }
+    Telemetry.expectMarketplaceID(of: sync, id: Self.fixtureID)
+    Telemetry.expectNoSpan(named: MarketplaceTelemetry.SpanName.checkHead, in: spans)
+    Telemetry.expectEachNameHasThePrefix(in: context)
+  }
+
+  @Test func aPassThatInstallsRecordsOneFetchDurationOneHeadDurationAndOneUpdatedCount() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+
+    let (context, _) = try await Telemetry.capture { await cache.store.update() }
+
+    let metrics = context.metricsFactory
+    Telemetry.expectOneDuration(
+      try Telemetry.durations(
+        of: MarketplaceTelemetry.MetricName.fetchDuration, in: metrics, id: Self.fixtureID, outcome: .succeeded))
+    Telemetry.expectOneDuration(
+      try Telemetry.durations(
+        of: MarketplaceTelemetry.MetricName.remoteHeadDuration, in: metrics, id: Self.fixtureID,
+        outcome: .succeeded))
+    #expect(
+      try Telemetry.passCounts(in: metrics, id: Self.fixtureID, kind: .update, outcome: .updated)
+        == [Int64(Telemetry.one)])
+  }
+
+  @Test func aPassThatIsUpToDateReadsTheHeadFetchesNothingAndCountsUpToDate() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+    await cache.store.start()
+
+    let (context, _) = try await Telemetry.capture { await cache.store.update() }
+
+    let spans = context.spans
+    let pass = try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.pass, in: spans)
+    Telemetry.expectPass(pass, id: Self.fixtureID, kind: .update, outcome: .upToDate)
+    let sync = try Telemetry.onlyChild(named: MarketplaceTelemetry.SpanName.sync, of: pass, in: spans)
+    _ = try Telemetry.onlyChild(named: MarketplaceTelemetry.SpanName.remoteHead, of: sync, in: spans)
+    Telemetry.expectNoSpan(named: MarketplaceTelemetry.SpanName.fetch, in: spans)
+    Telemetry.expectNoSpan(named: MarketplaceTelemetry.SpanName.materialize, in: spans)
+    let metrics = context.metricsFactory
+    Telemetry.expectOneDuration(
+      try Telemetry.durations(
+        of: MarketplaceTelemetry.MetricName.remoteHeadDuration, in: metrics, id: Self.fixtureID,
+        outcome: .succeeded))
+    #expect(metrics.timers.filter { $0.label == MarketplaceTelemetry.MetricName.fetchDuration }.isEmpty)
+    #expect(
+      try Telemetry.passCounts(in: metrics, id: Self.fixtureID, kind: .update, outcome: .upToDate)
+        == [Int64(Telemetry.one)])
+  }
+
+  @Test func aCheckPassOpensACheckHeadSpanWithARemoteHeadChildAndCountsUpToDate() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+    await cache.store.start()
+
+    let (context, _) = try await Telemetry.capture { await cache.store.check() }
+
+    let spans = context.spans
+    let pass = try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.pass, in: spans)
+    Telemetry.expectPass(pass, id: Self.fixtureID, kind: .check, outcome: .upToDate)
+    let checkHead = try Telemetry.onlyChild(named: MarketplaceTelemetry.SpanName.checkHead, of: pass, in: spans)
+    Telemetry.expectMarketplaceID(of: checkHead, id: Self.fixtureID)
+    _ = try Telemetry.onlyChild(named: MarketplaceTelemetry.SpanName.remoteHead, of: checkHead, in: spans)
+    Telemetry.expectNoSpan(named: MarketplaceTelemetry.SpanName.sync, in: spans)
+    #expect(
+      try Telemetry.passCounts(in: context.metricsFactory, id: Self.fixtureID, kind: .check, outcome: .upToDate)
+        == [Int64(Telemetry.one)])
+    Telemetry.expectEachNameHasThePrefix(in: context)
+  }
+
+  @Test func aCheckThatFindsANewCommitCountsUpdateAvailable() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url)], transport: RecordingGitTransport())
+    await cache.store.start()
+    try fixture.commit(files: Self.skillTree(body: "alpha body v2"))
+
+    let (context, _) = try await Telemetry.capture { await cache.store.check() }
+
+    let pass = try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.pass, in: context.spans)
+    Telemetry.expectPass(pass, id: Self.fixtureID, kind: .check, outcome: .updateAvailable)
+    #expect(
+      try Telemetry.passCounts(
+        in: context.metricsFactory, id: Self.fixtureID, kind: .check, outcome: .updateAvailable)
+        == [Int64(Telemetry.one)])
+  }
+
+  @Test func aFailedPassMarksThePassTheSyncAndTheRemoteHeadFailedAndCountsFailed() async throws {
+    let fixture = try GitFixtureRepository()
+    try fixture.commit(files: Self.skillTree(body: "alpha body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [MarketplaceSource(fixture.url, ref: Self.missingBranch)], transport: RecordingGitTransport())
+
+    let (context, events) = try await Telemetry.capture { await cache.store.update() }
+
+    #expect(MarketplaceTestSupport.keptVersion(ofFirst: events) == nil)
+    #expect(events.count == Telemetry.one)
+    let spans = context.spans
+    let pass = try Telemetry.onlySpan(named: MarketplaceTelemetry.SpanName.pass, in: spans)
+    Telemetry.expectPass(pass, id: Self.fixtureID, kind: .update, outcome: .failed)
+    let sync = try Telemetry.onlyChild(named: MarketplaceTelemetry.SpanName.sync, of: pass, in: spans)
+    Telemetry.expectFailure(of: sync)
+    Telemetry.expectFailure(
+      of: try Telemetry.onlyChild(named: MarketplaceTelemetry.SpanName.remoteHead, of: sync, in: spans))
+    let metrics = context.metricsFactory
+    Telemetry.expectOneDuration(
+      try Telemetry.durations(
+        of: MarketplaceTelemetry.MetricName.remoteHeadDuration, in: metrics, id: Self.fixtureID, outcome: .failed))
+    #expect(
+      try Telemetry.passCounts(in: metrics, id: Self.fixtureID, kind: .update, outcome: .failed)
+        == [Int64(Telemetry.one)])
+  }
+
+  @Test func noSpanLogRecordOrMetricOfAPassHoldsAURLACredentialAPathARefOrTheErrorText() async throws {
+    let good = try GitFixtureRepository()
+    try good.commit(files: Self.skillTree(body: "alpha body"))
+    let bad = try GitFixtureRepository()
+    try bad.commit(files: Self.skillTree(body: "beta body"))
+    let cache = try MarketplaceStoreFixture(
+      sources: [
+        MarketplaceSource(good.url, alias: "good"),
+        MarketplaceSource(bad.url, ref: Self.missingBranch, alias: "bad"),
+      ],
+      policy: MarketplacePolicy(credentials: { _ in Self.credential }), transport: RecordingGitTransport())
+    let forbidden = [
+      good.url, bad.url, good.directory.path, bad.directory.path, cache.cacheDirectory.path,
+      Self.credential.username, Self.credential.token, Self.missingBranch,
+    ]
+
+    let (context, events) = try await Telemetry.capture(forbidding: forbidden) { await cache.store.update() }
+
+    let errorTexts = events.compactMap { event -> String? in
+      guard case .failed(_, let error, _) = event else { return nil }
+      return error
+    }
+    #expect(errorTexts.count == Telemetry.one)
+    #expect(errorTexts.allSatisfy { !$0.isEmpty })
+    #expect(context.leaks(forbidding: errorTexts).isEmpty)
+  }
+
   // MARK: - Support
+
+  /// The helpers that read the telemetry of a store test.
+  private typealias Telemetry = MarketplaceTelemetryExpectations
 
   /// The display text of the fixture marketplace at one commit: the
   /// pre-fetch key and the short commit.

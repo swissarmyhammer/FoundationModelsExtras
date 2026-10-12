@@ -74,7 +74,8 @@ let package = Package(
         // calls `withTracer`, which starts in 1.5.0. The core target links
         // `Tracing`; the core tests link `InMemoryTracing`.
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.5.0"),
-        // The logging API and the metrics API of the core target. API only:
+        // The logging API and the metrics API of the core target and of the
+        // `Marketplace` target. API only:
         // no library target links a backend or calls `LoggingSystem.bootstrap` or
         // `MetricsSystem.bootstrap`. The executables of the family depend on
         // swift-otel and bootstrap the backend. Until an executable does,
@@ -308,6 +309,13 @@ let package = Package(
                 // The C API behind `LibGit2Transport`: the remote head, the
                 // shallow fetch, and the tree read of a marketplace.
                 .product(name: "libgit2", package: "swift-libgit2"),
+                // The spans, the "enter" log records, the pass counter and the
+                // git timers of `MarketplaceTelemetry`. API only, as for the
+                // core target: this target links no backend and calls no
+                // bootstrap.
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Metrics", package: "swift-metrics"),
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
             ]
         ),
 
@@ -375,6 +383,13 @@ let package = Package(
                 // The transport tests fetch from repositories that
                 // `GitFixtureRepository` builds.
                 "MarketplaceFixtures",
+                // The telemetry tests of the store run each pass in a
+                // `TelemetryCapture`, read the finished spans of its
+                // in-memory tracer, and read the pass counter and the git
+                // timers from its test metrics factory.
+                "TelemetryTestSupport",
+                .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
+                .product(name: "MetricsTestKit", package: "swift-metrics"),
             ],
             resources: [
                 // `MarketplaceScanTests` and `GitTreeFileSourceTests` read
