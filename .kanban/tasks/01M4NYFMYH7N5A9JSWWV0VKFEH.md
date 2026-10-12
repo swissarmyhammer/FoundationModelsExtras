@@ -54,10 +54,26 @@ comments:
     - evidence: 3 files — Tests/MarketplaceTests/MarketplaceTestSupport.swift, Tests/MarketplaceTests/MarketplaceLocalSourceTests.swift, Tests/MarketplaceTests/MarketplaceStoreTests.swift; `swift test --filter 'Marketplace|SnapshotWriter'` 410 tests in 29 suites passed; `swift test` 1052 tests in 92 suites passed (11 known issues are existing `withKnownIssue` tests); no compiler warning (the mlx `missing creator` build line only)
     - next: /review
   timestamp: 2026-10-12T17:17:13.637350+00:00
+- actor: claude-code
+  id: 01m4rj25208byyjft0w89ja1j3
+  text: |-
+    ### review — clean
+    - evidence: review sha 2bfc6d5~1..2bfc6d5; 0 findings (0 confirmed, 0 refuted); 3 files reviewed; all prior items checked
+    - next: none — task moved to done
+  timestamp: 2026-10-12T17:20:13.888065+00:00
+- actor: claude-code
+  id: 01m4rj27zhxbkk99mhss8bsf0y
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 1052 passed
+    - commit: 2bfc6d5
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T17:20:16.881817+00:00
 depends_on:
 - 01M4NY2SM2DXF0492WHNG6YS99
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fe80
 title: 'Marketplace telemetry: a span for the snapshot write and a counter of snapshot reuse'
 ---
 ## What
