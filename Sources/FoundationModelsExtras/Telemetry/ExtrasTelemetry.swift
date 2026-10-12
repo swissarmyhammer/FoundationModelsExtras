@@ -224,7 +224,7 @@ enum ExtrasTelemetry {
         static let modelFootprintBytes = "FoundationModelsExtras.model.footprint.bytes"
 
         /// The timer that records the duration of each embed call of an
-        /// embedding model.
+        /// embedding model, with the ``ModelOperationOutcome`` of the call.
         static let embedDuration = "FoundationModelsExtras.embed.duration"
 
         /// The counter that adds the token count of each embed call of an
@@ -262,7 +262,8 @@ enum ExtrasTelemetry {
         /// ``ExtrasTelemetry/telemetryRole(of:)``.
         static let modelRole = "model.role"
 
-        /// The ``ModelOperationOutcome`` of a load or an eviction of a model.
+        /// The ``ModelOperationOutcome`` of a load, an eviction or an embed
+        /// call of a model.
         static let modelOutcome = "model.outcome"
     }
 
@@ -561,14 +562,16 @@ enum PoolCacheResult: String, Sendable, CaseIterable {
     case load
 }
 
-/// How a load or an eviction of a model ended. It is the value of the
-/// ``ExtrasTelemetry/DimensionKey/modelOutcome`` dimension.
+/// How a load, an eviction or an embed call of a model ended. It is the value
+/// of the ``ExtrasTelemetry/DimensionKey/modelOutcome`` dimension.
 enum ModelOperationOutcome: String, Sendable, CaseIterable {
-    /// The load call or the evict call of the loader returned.
+    /// The load call or the evict call of the loader returned, or the embed
+    /// call returned its vectors.
     case succeeded
 
-    /// The load call of the loader threw an error. The evict call does not
-    /// throw, so an eviction never records this outcome.
+    /// The load call of the loader threw an error, or the embed call threw an
+    /// error. The evict call does not throw, so an eviction never records
+    /// this outcome.
     case failed
 }
 

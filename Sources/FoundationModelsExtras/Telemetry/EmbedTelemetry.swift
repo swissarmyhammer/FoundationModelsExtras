@@ -32,8 +32,10 @@ enum EmbedTelemetry {
     /// The embed span has the model ref and the counts of
     /// ``EmbeddingBatchStatistics``. The token counter gets the token count
     /// of the call when the tokenize step ends. The timer records the
-    /// duration as the last step of the span, so the duration and the span
-    /// measure the same interval.
+    /// duration as the last step of the span, on the success path and on the
+    /// error path, with the ``ModelOperationOutcome`` of the call. Thus the
+    /// duration and the span measure the same interval, and a failed call
+    /// also records its duration.
     ///
     /// - Parameters:
     ///   - ref: The model of the call.
@@ -51,7 +53,7 @@ enum EmbedTelemetry {
         texts: [String],
         tokenBudget: Int = EmbeddingBatchDivision.defaultTokenBudget,
         tokenize: (String) -> [Int],
-        vectors: ([[Int]]) -> [Vector]
+        vectors: ([[Int]]) throws -> [Vector]
     ) async throws -> [Vector] {
         let start = ContinuousClock.now
         let logger = ExtrasTelemetry.makeLogger()
@@ -61,18 +63,50 @@ enum EmbedTelemetry {
             attributes: { $0[ExtrasTelemetry.AttributeKey.modelRef] = ref.stringValue },
             metadata: [ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue)]
         ) { span in
-            let division = try await TracedCall.run(ExtrasTelemetry.SpanName.embedTokenize, logger: logger) { _ in
-                EmbeddingBatchDivision(rows: texts.map(tokenize), tokenBudget: tokenBudget)
+            do {
+                let output = try await embedInSpan(
+                    span, of: ref, texts: texts, tokenBudget: tokenBudget, logger: logger, tokenize: tokenize,
+                    vectors: vectors)
+                recordDuration(of: ref, outcome: .succeeded, since: start)
+                return output
+            } catch {
+                recordDuration(of: ref, outcome: .failed, since: start)
+                throw error
             }
-            let statistics = EmbeddingBatchStatistics(of: division)
-            recordCall(statistics, of: ref, on: span)
-            let output = division.inInputOrder(
-                try await vectorsOfEachSubBatch(
-                    of: division, statistics: statistics, ref: ref, logger: logger, vectors: vectors))
-            Metrics.Timer(label: ExtrasTelemetry.MetricName.embedDuration, dimensions: dimensions(of: ref))
-                .record(duration: ContinuousClock.now - start)
-            return output
         }
+    }
+
+    /// Runs the steps of one embed call in its open embed span: the tokenize
+    /// span, then one sub-batch span for each sub-batch.
+    ///
+    /// - Parameters:
+    ///   - span: The open embed span of the call.
+    ///   - ref: The model of the call.
+    ///   - texts: The texts of the call.
+    ///   - tokenBudget: The most tokens, (rows) x (longest row), of one
+    ///     sub-batch.
+    ///   - logger: The logger of the "enter" records.
+    ///   - tokenize: Gives the token row of one text.
+    ///   - vectors: Runs the model on the token rows of one sub-batch.
+    /// - Returns: One vector for each text, in the order of `texts`.
+    /// - Throws: The error of a traced call.
+    private nonisolated(nonsending) static func embedInSpan<Vector>(
+        _ span: any Span,
+        of ref: ModelRef,
+        texts: [String],
+        tokenBudget: Int,
+        logger: Logger,
+        tokenize: (String) -> [Int],
+        vectors: ([[Int]]) throws -> [Vector]
+    ) async throws -> [Vector] {
+        let division = try await TracedCall.run(ExtrasTelemetry.SpanName.embedTokenize, logger: logger) { _ in
+            EmbeddingBatchDivision(rows: texts.map(tokenize), tokenBudget: tokenBudget)
+        }
+        let statistics = EmbeddingBatchStatistics(of: division)
+        recordCall(statistics, of: ref, on: span)
+        return division.inInputOrder(
+            try await vectorsOfEachSubBatch(
+                of: division, statistics: statistics, ref: ref, logger: logger, vectors: vectors))
     }
 
     /// Runs the model on each sub-batch of `division`, each in one sub-batch
@@ -92,7 +126,7 @@ enum EmbedTelemetry {
         statistics: EmbeddingBatchStatistics,
         ref: ModelRef,
         logger: Logger,
-        vectors: ([[Int]]) -> [Vector]
+        vectors: ([[Int]]) throws -> [Vector]
     ) async throws -> [[Vector]] {
         // Each sub-batch span is an async traced call, and a `map` closure
         // cannot `await`. Thus a loop collects the vectors, one sub-batch at
@@ -100,13 +134,18 @@ enum EmbedTelemetry {
         var vectorsOfEachSubBatch: [[Vector]] = []
         for (subBatch, counts) in zip(division.subBatches, statistics.subBatches) {
             vectorsOfEachSubBatch.append(
-                try await traceSubBatch(counts, of: ref, logger: logger) { vectors(subBatch.rows) })
+                try await traceSubBatch(counts, of: ref, logger: logger) { try vectors(subBatch.rows) })
         }
         return vectorsOfEachSubBatch
     }
 
     /// Runs the model on one sub-batch in one sub-batch span, and records
     /// the padded tokens of the sub-batch.
+    ///
+    /// The padded tokens are known before the model runs, thus the recorder
+    /// records them before the run. A sub-batch whose model run throws also
+    /// records its padded tokens. A sub-batch after the failed one does not
+    /// start, thus it records nothing.
     ///
     /// - Parameters:
     ///   - counts: The counts of the sub-batch.
@@ -119,7 +158,7 @@ enum EmbedTelemetry {
         _ counts: EmbeddingBatchStatistics.SubBatch,
         of ref: ModelRef,
         logger: Logger,
-        _ run: () -> [Vector]
+        _ run: () throws -> [Vector]
     ) async throws -> [Vector] {
         try await TracedCall.run(
             ExtrasTelemetry.SpanName.embedSubBatch,
@@ -131,15 +170,19 @@ enum EmbedTelemetry {
                 attributes[ExtrasTelemetry.AttributeKey.subBatchPadRatio] = counts.padRatio
             }
         ) { _ in
-            let output = run()
             Metrics.Recorder(label: ExtrasTelemetry.MetricName.embedSubBatchPaddedTokens, dimensions: dimensions(of: ref))
                 .record(counts.paddedTokens)
-            return output
+            return try run()
         }
     }
 
     /// Gives `span` the counts of the call, and adds the token count of the
     /// call to the token counter of `ref`.
+    ///
+    /// The tokenize step ends before the model runs, thus a call whose model
+    /// run throws also adds its token count. The counter has no outcome
+    /// dimension: it counts the tokens that the call tokenized, and that
+    /// count does not change with the outcome of the model run.
     ///
     /// - Parameters:
     ///   - statistics: The counts of the call.
@@ -155,6 +198,22 @@ enum EmbedTelemetry {
         }
         Metrics.Counter(label: ExtrasTelemetry.MetricName.embedTokens, dimensions: dimensions(of: ref))
             .increment(by: statistics.tokenCount)
+    }
+
+    /// Records the time from `start` to now on the duration timer of `ref`,
+    /// with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - ref: The model of the call.
+    ///   - outcome: How the call ended.
+    ///   - start: The instant that the call started.
+    private static func recordDuration(
+        of ref: ModelRef, outcome: ModelOperationOutcome, since start: ContinuousClock.Instant
+    ) {
+        Metrics.Timer(
+            label: ExtrasTelemetry.MetricName.embedDuration,
+            dimensions: dimensions(of: ref) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
+        ).record(duration: ContinuousClock.now - start)
     }
 
     /// Gives the dimensions of an embed metric.

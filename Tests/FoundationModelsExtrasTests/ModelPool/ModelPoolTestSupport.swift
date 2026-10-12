@@ -38,6 +38,9 @@ struct FakeLoadError: Error {}
 /// The error of a footprint measure that a ``RecordingLoader`` makes fail.
 struct FakeMeasureError: Error {}
 
+/// The error of a model run that a ``TracedFakeEmbedding`` makes fail.
+struct FakeModelRunError: Error {}
+
 /// Keeps the values that tasks append, in the order of the appends.
 final class Recorder<Value: Sendable>: Sendable {
     /// The values, in order.
@@ -331,6 +334,57 @@ enum QueueMetricDimensions {
     }
 }
 
+/// Builds the dimensions that the metrics of one model carry: the pool
+/// metrics, the model load metrics and the embed metrics. Each expectation
+/// enum of these metrics uses these helpers, so a change to the dimensions
+/// occurs in one place.
+enum ModelMetricDimensions {
+    /// Gives the dimensions of a metric of one model.
+    ///
+    /// - Parameter ref: The model.
+    /// - Returns: The model ref as its only dimension.
+    static func model(_ ref: ModelRef) -> [(String, String)] {
+        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
+    }
+
+    /// Gives the dimensions of a metric of one model and its role.
+    ///
+    /// - Parameter key: The model and its role.
+    /// - Returns: The model ref, then the role.
+    static func model(_ key: ModelPoolKey) -> [(String, String)] {
+        model(key.ref) + [(ExtrasTelemetry.DimensionKey.modelRole, ExtrasTelemetry.telemetryRole(of: key.role))]
+    }
+
+    /// Gives the dimensions of a timer of one operation of a model.
+    ///
+    /// - Parameters:
+    ///   - ref: The model.
+    ///   - outcome: How the operation ended.
+    /// - Returns: The model ref, then the outcome.
+    static func model(_ ref: ModelRef, outcome: ModelOperationOutcome) -> [(String, String)] {
+        model(ref) + outcomeDimension(outcome)
+    }
+
+    /// Gives the dimensions of a timer of one operation of a model and its
+    /// role.
+    ///
+    /// - Parameters:
+    ///   - key: The model and its role.
+    ///   - outcome: How the operation ended.
+    /// - Returns: The model ref, then the role, then the outcome.
+    static func model(_ key: ModelPoolKey, outcome: ModelOperationOutcome) -> [(String, String)] {
+        model(key) + outcomeDimension(outcome)
+    }
+
+    /// Gives the outcome dimension of a timer of one operation of a model.
+    ///
+    /// - Parameter outcome: How the operation ended.
+    /// - Returns: The outcome as the only dimension.
+    private static func outcomeDimension(_ outcome: ModelOperationOutcome) -> [(String, String)] {
+        [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
+    }
+}
+
 /// Reads and checks the queue metrics that a test recorded. Each test suite of
 /// a queue uses these helpers, so a change to the checks occurs in one place.
 enum QueueMetricExpectations {
@@ -595,10 +649,7 @@ enum PoolMetricExpectations {
     static func acquireCounts(in metrics: TestMetrics, ref: ModelRef, result: PoolCacheResult) throws -> [Int64] {
         try metrics.expectCounter(
             ExtrasTelemetry.MetricName.poolAcquires,
-            [
-                (ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue),
-                (ExtrasTelemetry.DimensionKey.cacheResult, result.rawValue),
-            ]
+            ModelMetricDimensions.model(ref) + [(ExtrasTelemetry.DimensionKey.cacheResult, result.rawValue)]
         ).values
     }
 
@@ -611,7 +662,7 @@ enum PoolMetricExpectations {
     /// - Returns: The count that each eviction added, in order.
     /// - Throws: When `metrics` has no such counter.
     static func evictionCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
-        try metrics.expectCounter(ExtrasTelemetry.MetricName.poolEvictions, modelDimensions(of: ref)).values
+        try metrics.expectCounter(ExtrasTelemetry.MetricName.poolEvictions, ModelMetricDimensions.model(ref)).values
     }
 
     /// Gives the values of the eviction counter of the eviction jobs of `ref`
@@ -628,7 +679,7 @@ enum PoolMetricExpectations {
     ) throws -> [Int64] {
         try metrics.expectCounter(
             ExtrasTelemetry.MetricName.poolEvictions,
-            modelDimensions(of: ref) + [(ExtrasTelemetry.DimensionKey.evictionReason, reason.rawValue)]
+            ModelMetricDimensions.model(ref) + [(ExtrasTelemetry.DimensionKey.evictionReason, reason.rawValue)]
         ).values
     }
 
@@ -640,7 +691,7 @@ enum PoolMetricExpectations {
     /// - Returns: The idle time of each eviction in nanoseconds, in order.
     /// - Throws: When `metrics` has no such timer.
     static func idleToEvictTimes(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
-        try metrics.expectTimer(ExtrasTelemetry.MetricName.poolIdleToEvict, modelDimensions(of: ref)).values
+        try metrics.expectTimer(ExtrasTelemetry.MetricName.poolIdleToEvict, ModelMetricDimensions.model(ref)).values
     }
 
     /// Gives the values of the load-join counter.
@@ -650,14 +701,6 @@ enum PoolMetricExpectations {
     /// - Throws: When `metrics` has no such counter.
     static func loadJoins(in metrics: TestMetrics) throws -> [Int64] {
         try metrics.expectCounter(ExtrasTelemetry.MetricName.poolLoadJoins).values
-    }
-
-    /// Gives the dimensions of a pool metric of one model.
-    ///
-    /// - Parameter ref: The model.
-    /// - Returns: The model ref as its only dimension.
-    private static func modelDimensions(of ref: ModelRef) -> [(String, String)] {
-        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
     }
 }
 
@@ -732,9 +775,7 @@ enum ModelLoadTelemetryExpectations {
     private static func durations(
         on label: String, in metrics: TestMetrics, key: ModelPoolKey, outcome: ModelOperationOutcome
     ) throws -> [Int64] {
-        try metrics.expectTimer(
-            label, modelDimensions(of: key) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
-        ).values
+        try metrics.expectTimer(label, ModelMetricDimensions.model(key, outcome: outcome)).values
     }
 
     /// Gives the values of the footprint recorder of `key`.
@@ -745,18 +786,8 @@ enum ModelLoadTelemetryExpectations {
     /// - Returns: The bytes of each measure, in order.
     /// - Throws: When `metrics` has no such recorder.
     static func footprintBytes(in metrics: TestMetrics, key: ModelPoolKey) throws -> [Double] {
-        try metrics.expectRecorder(ExtrasTelemetry.MetricName.modelFootprintBytes, modelDimensions(of: key)).values
-    }
-
-    /// Gives the dimensions of a model metric of one key.
-    ///
-    /// - Parameter key: The model and its role.
-    /// - Returns: The model ref, then the role.
-    private static func modelDimensions(of key: ModelPoolKey) -> [(String, String)] {
-        [
-            (ExtrasTelemetry.DimensionKey.modelRef, key.ref.stringValue),
-            (ExtrasTelemetry.DimensionKey.modelRole, ExtrasTelemetry.telemetryRole(of: key.role)),
-        ]
+        try metrics.expectRecorder(ExtrasTelemetry.MetricName.modelFootprintBytes, ModelMetricDimensions.model(key))
+            .values
     }
 }
 
@@ -767,13 +798,17 @@ enum ModelLoadTelemetryExpectations {
 ///
 /// The tokenizer gives one token for each Unicode scalar of a text, thus the
 /// token count of a text is the count of its scalars. The model gives one
-/// vector for each row: the token count of the row.
+/// vector for each row: the token count of the row. When `modelRunFails` is
+/// true, each model run throws ``FakeModelRunError``.
 struct TracedFakeEmbedding: PooledEmbedding {
     /// The model of the telemetry of each call.
     let ref: ModelRef
 
     /// The token budget of the division of each call.
     var tokenBudget = EmbeddingBatchDivision.defaultTokenBudget
+
+    /// When true, each model run throws ``FakeModelRunError``.
+    var modelRunFails = false
 
     /// Gives one token for each Unicode scalar of `text`: the value of the
     /// scalar.
@@ -812,11 +847,24 @@ struct TracedFakeEmbedding: PooledEmbedding {
     ///
     /// - Parameter texts: The texts.
     /// - Returns: The vector of each text, from ``vector(of:)``.
-    /// - Throws: The error of the telemetry helper.
+    /// - Throws: ``FakeModelRunError`` when ``modelRunFails`` is true, or the
+    ///   error of the telemetry helper.
     func embed(texts: [String]) async throws -> [[Float]] {
         try await EmbedTelemetry.traceEmbed(
             of: ref, texts: texts, tokenBudget: tokenBudget, tokenize: Self.tokens(of:),
-            vectors: { rows in rows.map(Self.vector(ofRow:)) })
+            vectors: runModel(on:))
+    }
+
+    /// Runs the fake model on the token rows of one sub-batch.
+    ///
+    /// - Parameter rows: The token rows of the sub-batch.
+    /// - Returns: The vector of each row, from ``vector(ofRow:)``.
+    /// - Throws: ``FakeModelRunError`` when ``modelRunFails`` is true.
+    private func runModel(on rows: [[Int]]) throws -> [[Float]] {
+        guard !modelRunFails else {
+            throw FakeModelRunError()
+        }
+        return rows.map(Self.vector(ofRow:))
     }
 }
 
@@ -877,15 +925,20 @@ enum EmbedTelemetryExpectations {
         ModelLoadTelemetryExpectations.spans(named: spanName, in: spans).filter { $0.parentSpanID == parent.spanID }
     }
 
-    /// Gives the values of the duration timer of `ref`.
+    /// Gives the values of the duration timer of `ref` with `outcome`.
     ///
     /// - Parameters:
     ///   - metrics: The factory that the call recorded into.
     ///   - ref: The model of the calls.
+    ///   - outcome: How the calls ended.
     /// - Returns: The duration of each call in nanoseconds, in order.
     /// - Throws: When `metrics` has no such timer.
-    static func durations(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
-        try metrics.expectTimer(ExtrasTelemetry.MetricName.embedDuration, modelDimensions(of: ref)).values
+    static func durations(
+        in metrics: TestMetrics, ref: ModelRef, outcome: ModelOperationOutcome
+    ) throws -> [Int64] {
+        try metrics.expectTimer(
+            ExtrasTelemetry.MetricName.embedDuration, ModelMetricDimensions.model(ref, outcome: outcome)
+        ).values
     }
 
     /// Gives the values of the token counter of `ref`.
@@ -896,7 +949,7 @@ enum EmbedTelemetryExpectations {
     /// - Returns: The token count that each call added, in order.
     /// - Throws: When `metrics` has no such counter.
     static func tokenCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
-        try metrics.expectCounter(ExtrasTelemetry.MetricName.embedTokens, modelDimensions(of: ref)).values
+        try metrics.expectCounter(ExtrasTelemetry.MetricName.embedTokens, ModelMetricDimensions.model(ref)).values
     }
 
     /// Gives the values of the padded-tokens recorder of `ref`.
@@ -907,16 +960,9 @@ enum EmbedTelemetryExpectations {
     /// - Returns: The padded tokens of each sub-batch, in order.
     /// - Throws: When `metrics` has no such recorder.
     static func paddedTokens(in metrics: TestMetrics, ref: ModelRef) throws -> [Double] {
-        try metrics.expectRecorder(ExtrasTelemetry.MetricName.embedSubBatchPaddedTokens, modelDimensions(of: ref))
-            .values
-    }
-
-    /// Gives the dimensions of an embed metric.
-    ///
-    /// - Parameter ref: The model of the call.
-    /// - Returns: The model ref as its only dimension.
-    private static func modelDimensions(of ref: ModelRef) -> [(String, String)] {
-        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
+        try metrics.expectRecorder(
+            ExtrasTelemetry.MetricName.embedSubBatchPaddedTokens, ModelMetricDimensions.model(ref)
+        ).values
     }
 }
 

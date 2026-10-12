@@ -1,4 +1,5 @@
 @testable import FoundationModelsExtras
+import MetricsTestKit
 import TelemetryTestSupport
 import Testing
 
@@ -36,6 +37,10 @@ struct EmbedTelemetryTests {
     /// The fake embedding of each call, with ``smallBudget``.
     private static let embedding = TracedFakeEmbedding(ref: ref, tokenBudget: smallBudget)
 
+    /// The fake embedding of each failed call, with ``smallBudget``. Each
+    /// model run throws ``FakeModelRunError``, thus the first sub-batch fails.
+    private static let failingEmbedding = TracedFakeEmbedding(ref: ref, tokenBudget: smallBudget, modelRunFails: true)
+
     /// Runs one embed call of ``texts`` in a new capture.
     ///
     /// - Returns: The capture, and the vectors of the call.
@@ -43,6 +48,20 @@ struct EmbedTelemetryTests {
     private static func captureOneCall() async throws -> (context: TelemetryCapture.Context, vectors: [[Float]]) {
         try await TelemetryCapture.run(forbidding: texts) { context in
             (context, try await embedding.embed(texts: texts))
+        }
+    }
+
+    /// Runs one embed call of ``texts`` whose first model run fails, in a new
+    /// capture, and expects that the call throws ``FakeModelRunError``.
+    ///
+    /// - Returns: The capture.
+    /// - Throws: The error of the capture.
+    private static func captureOneFailedCall() async throws -> TelemetryCapture.Context {
+        try await TelemetryCapture.run(forbidding: texts) { context in
+            await #expect(throws: FakeModelRunError.self) {
+                try await failingEmbedding.embed(texts: texts)
+            }
+            return context
         }
     }
 
@@ -86,11 +105,37 @@ struct EmbedTelemetryTests {
         let metrics = context.metricsFactory
 
         QueueMetricExpectations.expectDurations(
-            try EmbedTelemetryExpectations.durations(in: metrics, ref: Self.ref), count: Self.oneSpan)
+            try EmbedTelemetryExpectations.durations(in: metrics, ref: Self.ref, outcome: .succeeded),
+            count: Self.oneSpan)
         #expect(try EmbedTelemetryExpectations.tokenCounts(in: metrics, ref: Self.ref) == [Int64(statistics.tokenCount)])
         #expect(
             try EmbedTelemetryExpectations.paddedTokens(in: metrics, ref: Self.ref)
                 == statistics.subBatches.map { Double($0.paddedTokens) })
+    }
+
+    @Test("a failed embed call records one duration with the outcome failed, and no duration with the outcome succeeded")
+    func aFailedEmbedCallRecordsOneFailedDuration() async throws {
+        let context = try await Self.captureOneFailedCall()
+
+        let metrics = context.metricsFactory
+        QueueMetricExpectations.expectDurations(
+            try EmbedTelemetryExpectations.durations(in: metrics, ref: Self.ref, outcome: .failed),
+            count: Self.oneSpan)
+        #expect(throws: TestMetricsError.self) {
+            try EmbedTelemetryExpectations.durations(in: metrics, ref: Self.ref, outcome: .succeeded)
+        }
+    }
+
+    @Test("a failed embed call adds its token count, and records the padded tokens of the sub-batch that failed")
+    func aFailedEmbedCallRecordsItsTokensAndPadding() async throws {
+        let context = try await Self.captureOneFailedCall()
+
+        let statistics = EmbeddingBatchStatistics(of: Self.embedding.division(of: Self.texts))
+        let failedSubBatch = try #require(statistics.subBatches.first)
+        let metrics = context.metricsFactory
+        #expect(try EmbedTelemetryExpectations.tokenCounts(in: metrics, ref: Self.ref) == [Int64(statistics.tokenCount)])
+        #expect(
+            try EmbedTelemetryExpectations.paddedTokens(in: metrics, ref: Self.ref) == [Double(failedSubBatch.paddedTokens)])
     }
 
     @Test("an embed call gives the vector of each text in the order of the texts")
