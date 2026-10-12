@@ -88,11 +88,38 @@ public enum TelemetryCapture {
         sourceLocation: SourceLocation = #_sourceLocation,
         _ body: nonisolated(nonsending) (Context) async throws -> Result
     ) async throws -> Result {
+        try await run(forbidding: forbidden, reportingLeaksTo: { leak in
+            Issue.record("\(leak)", sourceLocation: sourceLocation)
+        }, body)
+    }
+
+    /// Runs `body` in a new capture, then gives each place that contains a
+    /// forbidden string to `report`.
+    ///
+    /// ``run(forbidding:sourceLocation:_:)`` calls this function with a
+    /// `report` that records an issue. A test of the capture itself gives its
+    /// own `report`, so that it can examine the leaks and record no issue.
+    /// The capture reports the leaks also when `body` throws.
+    ///
+    /// - Parameters:
+    ///   - forbidden: The strings that no place may contain. An empty string
+    ///     matches each place.
+    ///   - report: Gets each leak, in the order of ``Context/leaks(forbidding:)``.
+    ///   - body: The code under test. It gets the context of the capture, and
+    ///     it runs on the actor of the caller.
+    /// - Returns: The value of `body`.
+    /// - Throws: The error of `body`.
+    @discardableResult
+    public nonisolated(nonsending) static func run<Result>(
+        forbidding forbidden: [String],
+        reportingLeaksTo report: (TelemetryLeak) -> Void,
+        _ body: nonisolated(nonsending) (Context) async throws -> Result
+    ) async throws -> Result {
         TelemetryLogRouting.bootstrapOnce
         let context = Context()
         defer {
             for leak in context.leaks(forbidding: forbidden) {
-                Issue.record("\(leak)", sourceLocation: sourceLocation)
+                report(leak)
             }
         }
         let serviceContext = TelemetryLogRouting.serviceContext(carrying: context)

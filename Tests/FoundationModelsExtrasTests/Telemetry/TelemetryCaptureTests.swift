@@ -10,6 +10,9 @@ import Tracing
 /// that error, the status message of a span, a log message, the error of a log
 /// record, a log metadata value and a metric dimension. It records no issue
 /// for clean telemetry, and each capture sees only the records of its own task.
+///
+/// The tests of a forbidden string give the capture their own report function,
+/// so that they examine the leak and the test run has no known issue.
 @Suite("TelemetryCapture: a forbidden string in a span, a log record or a metric is an issue")
 struct TelemetryCaptureTests {
     /// The content that no place may carry.
@@ -43,7 +46,7 @@ struct TelemetryCaptureTests {
     func aForbiddenSpanAttributeIsAnIssue() async throws {
         let place = TelemetryPlace.spanAttribute(span: Self.spanName, key: Self.key, value: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
                 span.attributes[Self.key] = Self.forbidden
             }
@@ -57,7 +60,7 @@ struct TelemetryCaptureTests {
     func aForbiddenSpanLinkAttributeIsAnIssue() async throws {
         let place = TelemetryPlace.spanLinkAttribute(span: Self.spanName, key: Self.key, value: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
                 span.addLink(SpanLink(context: .topLevel, attributes: [Self.key: .string(Self.forbidden)]))
             }
@@ -71,7 +74,7 @@ struct TelemetryCaptureTests {
     func aForbiddenSpanEventNameIsAnIssue() async throws {
         let place = TelemetryPlace.spanEventName(span: Self.spanName, event: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
                 span.addEvent(SpanEvent(name: Self.forbidden))
             }
@@ -85,7 +88,7 @@ struct TelemetryCaptureTests {
     func aForbiddenSpanEventAttributeIsAnIssue() async throws {
         let place = TelemetryPlace.spanEventAttribute(span: Self.spanName, event: Self.eventName, key: Self.key, value: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
                 span.addEvent(SpanEvent(name: Self.eventName, attributes: [Self.key: .string(Self.forbidden)]))
             }
@@ -100,7 +103,7 @@ struct TelemetryCaptureTests {
         let place = TelemetryPlace.spanError(span: Self.spanName, description: Self.forbidden)
         let error = ProbeError(description: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             #expect(throws: error) {
                 try InstrumentationSystem.tracer.withSpan(Self.spanName) { _ in
                     throw error
@@ -116,7 +119,7 @@ struct TelemetryCaptureTests {
     func aForbiddenRecordedErrorAttributeIsAnIssue() async throws {
         let place = TelemetryPlace.spanErrorAttribute(span: Self.spanName, key: Self.key, value: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
                 span.recordError(ProbeError(description: Self.safeValue), attributes: [Self.key: .string(Self.forbidden)])
             }
@@ -130,7 +133,7 @@ struct TelemetryCaptureTests {
     func aForbiddenSpanStatusMessageIsAnIssue() async throws {
         let place = TelemetryPlace.spanStatusMessage(span: Self.spanName, message: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             InstrumentationSystem.tracer.withSpan(Self.spanName) { span in
                 span.setStatus(SpanStatus(code: .error, message: Self.forbidden))
             }
@@ -144,7 +147,7 @@ struct TelemetryCaptureTests {
     func aForbiddenLogMessageIsAnIssue() async throws {
         let place = TelemetryPlace.logMessage(level: .info, message: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             Logger(label: Self.loggerLabel).info("\(Self.forbidden)")
         }
 
@@ -156,7 +159,7 @@ struct TelemetryCaptureTests {
     func aForbiddenLogErrorIsAnIssue() async throws {
         let place = TelemetryPlace.logError(level: .error, description: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             Logger(label: Self.loggerLabel).error("\(Self.safeMessage)", error: ProbeError(description: Self.forbidden))
         }
 
@@ -168,7 +171,7 @@ struct TelemetryCaptureTests {
     func aForbiddenLogMetadataValueIsAnIssue() async throws {
         let place = TelemetryPlace.logMetadata(key: Self.key, value: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { context in
+        let context = try await Self.captureReportingLeak(at: place) { context in
             context.logger.info("\(Self.safeMessage)", metadata: [Self.key: "\(Self.forbidden)"])
         }
 
@@ -180,7 +183,7 @@ struct TelemetryCaptureTests {
     func aForbiddenMetricDimensionIsAnIssue() async throws {
         let place = TelemetryPlace.metricDimension(metric: Self.metricLabel, key: Self.key, value: Self.forbidden)
 
-        let context = try await Self.captureWithKnownIssue(at: place) { _ in
+        let context = try await Self.captureReportingLeak(at: place) { _ in
             Metrics.Counter(label: Self.metricLabel, dimensions: [(Self.key, Self.forbidden)]).increment()
         }
 
@@ -259,28 +262,29 @@ struct TelemetryCaptureTests {
         #expect(secondContext.places == Self.places(for: secondValue))
     }
 
-    /// Runs `body` in a capture that forbids ``forbidden``, and expects the
-    /// issue that names `place`.
+    /// Runs `body` in a capture that forbids ``forbidden``, and expects that
+    /// the capture reports exactly one leak, at `place`.
+    ///
+    /// The capture gives each leak to a report function of the test, and not
+    /// to `Issue.record`. Thus the expected leak is not a known issue of the
+    /// test run, and a run with no leak fails this expectation.
     ///
     /// - Parameters:
-    ///   - place: The place that the issue must name.
+    ///   - place: The place that the reported leak must name.
     ///   - body: The code that writes the forbidden string.
     /// - Returns: The context of the capture, to inspect after the run.
-    /// - Throws: An error when the capture gives no context.
-    private static func captureWithKnownIssue(
+    /// - Throws: The error of `body`.
+    private static func captureReportingLeak(
         at place: TelemetryPlace,
         _ body: (TelemetryCapture.Context) async throws -> Void
     ) async throws -> TelemetryCapture.Context {
-        var captured: TelemetryCapture.Context?
-        try await withKnownIssue {
-            captured = try await TelemetryCapture.run(forbidding: [forbidden]) { context in
-                try await body(context)
-                return context
-            }
-        } matching: { issue in
-            issue.comments.contains { $0.rawValue.contains(place.description) }
+        var reported: [TelemetryLeak] = []
+        let context = try await TelemetryCapture.run(forbidding: [forbidden], reportingLeaksTo: { reported.append($0) }) { context in
+            try await body(context)
+            return context
         }
-        return try #require(captured)
+        #expect(reported == [TelemetryLeak(place: place, forbidden: forbidden)])
+        return context
     }
 
     /// Runs one capture that writes `value` in each place, while a second
