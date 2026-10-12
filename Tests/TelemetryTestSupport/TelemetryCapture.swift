@@ -53,7 +53,10 @@ import Tracing
 /// - Each capture has its own records. Tests that run in parallel do not see
 ///   the records of each other, because each record goes to the capture of
 ///   its task. A child task gets the capture of its parent task. A detached
-///   task gets no capture.
+///   task gets no capture, but a detached task that restores the service
+///   context of a task in a capture gets the log records of that capture.
+///   The capture puts itself in the service context for that reason: a
+///   queue job of the package restores the trace context of its submitter.
 ///
 /// ```swift
 /// try await TelemetryCapture.run(forbidding: [argument, output]) { context in
@@ -92,10 +95,13 @@ public enum TelemetryCapture {
                 Issue.record("\(leak)", sourceLocation: sourceLocation)
             }
         }
+        let serviceContext = TelemetryLogRouting.serviceContext(carrying: context)
         return try await withTracer(context.tracer) {
             try await withMetricsFactory(context.metricsFactory) {
-                try await TelemetryLogRouting.currentContext.withValue(context) {
-                    try await body(context)
+                try await ServiceContext.withValue(serviceContext) {
+                    try await TelemetryLogRouting.currentContext.withValue(context) {
+                        try await body(context)
+                    }
                 }
             }
         }

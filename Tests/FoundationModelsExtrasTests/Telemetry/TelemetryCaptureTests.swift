@@ -229,6 +229,21 @@ struct TelemetryCaptureTests {
         ])
     }
 
+    @Test("a detached task that restores the service context of the capture writes its log records to the capture")
+    func aDetachedTaskWithTheServiceContextWritesToTheCapture() async throws {
+        let context = try await TelemetryCapture.run(forbidding: [Self.forbidden]) { context in
+            let serviceContext = ServiceContext.current
+            await Task.detached {
+                ServiceContext.withValue(serviceContext) {
+                    Logger(label: Self.loggerLabel).info("\(Self.safeMessage)")
+                }
+            }.value
+            return context
+        }
+
+        #expect(context.logRecords.map(\.label) == [Self.loggerLabel])
+    }
+
     @Test("two captures that run at the same time each see only their own records")
     func parallelCapturesSeeOnlyTheirOwnRecords() async throws {
         let firstValue = "first-3b7c"

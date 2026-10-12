@@ -23,8 +23,10 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
     private enum Access {
         /// Use the hold.
         case ready(Loaded)
-        /// Wait for the load that runs.
-        case waiting(Task<Loaded, any Error>)
+        /// Wait for the load that this call started.
+        case started(Task<Loaded, any Error>)
+        /// Wait for the load that another call started.
+        case joined(Task<Loaded, any Error>)
     }
 
     /// The state, under one lock.
@@ -48,6 +50,9 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
     /// for that one load. The wait is not cancellable, the same as
     /// `Task.value`.
     ///
+    /// Each call that waits for a load that another call started adds one
+    /// count to ``ExtrasTelemetry/MetricName/poolLoadJoins``, after the lock.
+    ///
     /// - Returns: The hold of the model.
     /// - Throws: The error of the load. After a failed load, the next call
     ///   loads again.
@@ -55,7 +60,10 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
         switch state.withLock({ Self.access(state: &$0) }) {
         case .ready(let loaded):
             return loaded
-        case .waiting(let load):
+        case .started(let load):
+            return try await finish(load: load)
+        case .joined(let load):
+            PoolTelemetry.recordLoadJoin()
             return try await finish(load: load)
         }
     }
@@ -63,17 +71,18 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
     /// Reads `state`, and starts the load when there is no hold and no load.
     ///
     /// - Parameter state: The state of the hold.
-    /// - Returns: The hold, or the load to wait for.
+    /// - Returns: The hold, the load that this call started, or the load
+    ///   that another call started.
     private static func access(state: inout State) -> Access {
         switch state {
         case .loaded(let loaded):
             return .ready(loaded)
         case .loading(_, let task):
-            return .waiting(task)
+            return .joined(task)
         case .unloaded(let load):
             let task = Task { try await load() }
             state = .loading(load, task)
-            return .waiting(task)
+            return .started(task)
         }
     }
 

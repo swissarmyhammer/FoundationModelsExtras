@@ -499,8 +499,155 @@ enum QueueMetricExpectations {
     /// - Parameters:
     ///   - durations: The values of one timer, in nanoseconds.
     ///   - count: The number of values.
-    private static func expectDurations(_ durations: [Int64], count: Int) {
+    static func expectDurations(_ durations: [Int64], count: Int) {
         #expect(durations.count == count)
         #expect(durations.allSatisfy { $0 >= noTime })
+    }
+}
+
+/// Reads the cache metrics of a model pool that a test recorded. Each test
+/// suite of the pool and of its pooled models uses these helpers, so a change
+/// to the names or the dimensions occurs in one place.
+enum PoolMetricExpectations {
+    /// The meter values that agree with one state of a pool.
+    struct Gauges: Equatable {
+        /// The bytes of the resident models, also the models whose evict
+        /// call runs.
+        let residentBytes: Double
+
+        /// The bytes of the load that runs.
+        let loadingBytes: Double
+
+        /// The bytes of the models whose evict call runs.
+        let evictingBytes: Double
+
+        /// The number of resident models.
+        let residentModels: Double
+
+        /// Gives the meter values that agree with the footprint and the
+        /// resident model count of `pool`.
+        ///
+        /// - Parameters:
+        ///   - pool: The pool.
+        ///   - evictingBytes: The bytes of the models whose evict call runs
+        ///     now. The public API of the pool does not show them.
+        init(of pool: ModelPool, evictingBytes: Int64) {
+            let footprint = pool.footprint
+            residentBytes = Double(footprint.totalBytes - footprint.loadingBytes)
+            loadingBytes = Double(footprint.loadingBytes)
+            self.evictingBytes = Double(evictingBytes)
+            residentModels = Double(pool.residentModelCount)
+        }
+
+        /// Reads the last value of each meter of a pool.
+        ///
+        /// - Parameter metrics: The factory that the pool recorded into.
+        /// - Throws: When `metrics` has no such meter, or a meter has no value.
+        init(in metrics: TestMetrics) throws {
+            residentBytes = try Self.lastValue(of: ExtrasTelemetry.MetricName.poolResidentBytes, in: metrics)
+            loadingBytes = try Self.lastValue(of: ExtrasTelemetry.MetricName.poolLoadingBytes, in: metrics)
+            evictingBytes = try Self.lastValue(of: ExtrasTelemetry.MetricName.poolEvictingBytes, in: metrics)
+            residentModels = try Self.lastValue(of: ExtrasTelemetry.MetricName.poolResidentModels, in: metrics)
+        }
+
+        /// Gives the last value of the meter `label`, which has no dimension.
+        ///
+        /// - Parameters:
+        ///   - label: The label of the meter.
+        ///   - metrics: The factory that the pool recorded into.
+        /// - Returns: The last value.
+        /// - Throws: When `metrics` has no such meter, or the meter has no
+        ///   value.
+        private static func lastValue(of label: String, in metrics: TestMetrics) throws -> Double {
+            try #require(try metrics.expectMeter(label).lastValue)
+        }
+    }
+
+    /// Expects that the last value of each pool meter in `metrics` agrees
+    /// with the footprint and the resident model count of `pool` now.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - pool: The pool.
+    ///   - evictingBytes: The bytes of the models whose evict call runs now.
+    /// - Throws: When `metrics` has no such meter, or a meter has no value.
+    static func expectGauges(in metrics: TestMetrics, agreeWith pool: ModelPool, evictingBytes: Int64) throws {
+        #expect(try Gauges(in: metrics) == Gauges(of: pool, evictingBytes: evictingBytes))
+    }
+
+    /// Gives the values of the acquire counter of `ref` with `result`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - ref: The model of the acquires.
+    ///   - result: How the pool gave the holds.
+    /// - Returns: The count that each acquire added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func acquireCounts(in metrics: TestMetrics, ref: ModelRef, result: PoolCacheResult) throws -> [Int64] {
+        try metrics.expectCounter(
+            ExtrasTelemetry.MetricName.poolAcquires,
+            [
+                (ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue),
+                (ExtrasTelemetry.DimensionKey.cacheResult, result.rawValue),
+            ]
+        ).values
+    }
+
+    /// Gives the values of the eviction counter of the evictions of `ref`
+    /// that occurred.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - ref: The evicted model.
+    /// - Returns: The count that each eviction added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func evictionCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try metrics.expectCounter(ExtrasTelemetry.MetricName.poolEvictions, modelDimensions(of: ref)).values
+    }
+
+    /// Gives the values of the eviction counter of the eviction jobs of `ref`
+    /// that evicted nothing for `reason`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - ref: The model of the eviction jobs.
+    ///   - reason: Why the jobs evicted nothing.
+    /// - Returns: The count that each job added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func skippedEvictionCounts(
+        in metrics: TestMetrics, ref: ModelRef, reason: PoolEvictionSkipReason
+    ) throws -> [Int64] {
+        try metrics.expectCounter(
+            ExtrasTelemetry.MetricName.poolEvictions,
+            modelDimensions(of: ref) + [(ExtrasTelemetry.DimensionKey.evictionReason, reason.rawValue)]
+        ).values
+    }
+
+    /// Gives the values of the idle-to-evict timer of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the pool recorded into.
+    ///   - ref: The evicted model.
+    /// - Returns: The idle time of each eviction in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func idleToEvictTimes(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try metrics.expectTimer(ExtrasTelemetry.MetricName.poolIdleToEvict, modelDimensions(of: ref)).values
+    }
+
+    /// Gives the values of the load-join counter.
+    ///
+    /// - Parameter metrics: The factory that the pooled model recorded into.
+    /// - Returns: The count that each joining caller added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func loadJoins(in metrics: TestMetrics) throws -> [Int64] {
+        try metrics.expectCounter(ExtrasTelemetry.MetricName.poolLoadJoins).values
+    }
+
+    /// Gives the dimensions of a pool metric of one model.
+    ///
+    /// - Parameter ref: The model.
+    /// - Returns: The model ref as its only dimension.
+    private static func modelDimensions(of ref: ModelRef) -> [(String, String)] {
+        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
     }
 }

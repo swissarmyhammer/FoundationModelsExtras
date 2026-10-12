@@ -31,10 +31,26 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/Hosting/BackgroundToolRunner.swift, Sources/FoundationModelsExtras/Hosting/ToolCallSpan.swift, Sources/FoundationModelsExtras/Hosting/RunToCompletionRunner.swift, Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolCallSpanTests.swift. `swift test --filter ToolCallSpanTests`: 20/20 pass. `swift test`: 985 tests in 90 suites pass (11 known issues that existed before); the only warning is the mlx-swift "missing creator for mutated node" line.
     - next: /review
   timestamp: 2026-10-12T11:22:45.425568+00:00
+- actor: claude-code
+  id: 01m4qxvjp3hfyf0q984vemcfyw
+  text: |-
+    ### review — clean
+    - evidence: review sha 6dec244~1..6dec244 — 0 findings (0 confirmed, 0 refuted). 5 source files reviewed. 4 .kanban files not reviewed (excluded by .reviewignore). No earlier Review Findings section.
+    - next: none. Task moved to done.
+  timestamp: 2026-10-12T11:27:06.947446+00:00
+- actor: claude-code
+  id: 01m4qxvm22hadesjfcc9519xmg
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 985 passed; IntegrationTests ToolHosting, 8 passed
+    - commit: 6dec244
+    - review: clean — 0 findings
+  timestamp: 2026-10-12T11:27:08.354354+00:00
 depends_on:
 - 01M4NXY9EN48CC4EPJDYXF12XZ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: f380
 title: 'Background tool telemetry: count every call, record the true outcome, and separate the start time from the settle wait'
 ---
 ## What

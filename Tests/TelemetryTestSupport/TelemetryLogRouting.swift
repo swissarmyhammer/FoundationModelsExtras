@@ -1,15 +1,46 @@
 import Logging
 import Synchronization
+import Tracing
 
 /// Sends each log record of the process to the capture of its task.
 ///
 /// swift-log has no task-local logger, thus the capture bootstraps the logging
 /// system one time for each process with ``RoutingLogHandler``. The handler
-/// reads the capture of the current task from ``currentContext`` at each
+/// reads the capture of the current task from ``activeContext`` at each
 /// record.
 enum TelemetryLogRouting {
     /// The capture of the current task, or `nil` outside a capture.
     static let currentContext = TaskLocal<TelemetryCapture.Context?>(wrappedValue: nil)
+
+    /// The service context key that carries the capture of a task.
+    ///
+    /// A queue job runs on a detached task, which inherits no task-local
+    /// value. The job restores the trace context of its submitter, thus it
+    /// restores this key too. Then a record that the job writes goes to the
+    /// capture of the submitter.
+    enum CaptureKey: ServiceContextKey {
+        /// The capture.
+        typealias Value = TelemetryCapture.Context
+    }
+
+    /// The capture of the current task: the task-local capture, or else the
+    /// capture in the service context of the task, or `nil` outside a
+    /// capture.
+    static var activeContext: TelemetryCapture.Context? {
+        currentContext.get() ?? ServiceContext.current?[CaptureKey.self]
+    }
+
+    /// Gives the service context of the current task with `context` as its
+    /// capture.
+    ///
+    /// - Parameter context: The capture.
+    /// - Returns: The service context of the current task, or the top-level
+    ///   context, with `context` under ``CaptureKey``.
+    static func serviceContext(carrying context: TelemetryCapture.Context) -> ServiceContext {
+        var serviceContext = ServiceContext.current ?? .topLevel
+        serviceContext[CaptureKey.self] = context
+        return serviceContext
+    }
 
     /// Bootstraps the logging system with ``RoutingLogHandler``.
     ///
@@ -83,7 +114,7 @@ struct RoutingLogHandler: LogHandler {
     private var destinationStore: LogRecordStore? {
         switch destination {
         case .currentCapture:
-            TelemetryLogRouting.currentContext.get()?.logRecordStore
+            TelemetryLogRouting.activeContext?.logRecordStore
         case .store(let store):
             store
         }

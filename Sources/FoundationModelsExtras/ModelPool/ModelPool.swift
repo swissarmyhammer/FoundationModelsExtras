@@ -24,6 +24,22 @@ public final class ModelPool: Sendable {
         /// The weights, and the session of each hold.
         var bytes: Int64
         var holds = 1
+        /// The instant of the release of the last hold, or `nil` while the
+        /// model has a hold. The eviction records the idle time from it.
+        var releasedAt: ContinuousClock.Instant?
+    }
+
+    /// What the eviction job finds when it starts.
+    private enum EvictionStart: Sendable {
+        /// The model has no hold. It moved to the evicting models, and the
+        /// job evicts it. The idle time is the time from the last release,
+        /// or `nil` when the pool has no release instant.
+        case evict(Entry, idleTime: Duration?)
+        /// A new hold came after the last release, so the job evicts nothing.
+        case rehold
+        /// The model is not in the entries, because an earlier job evicted
+        /// it, so the job evicts nothing.
+        case gone
     }
 
     /// The input end of one footprint stream.
@@ -49,6 +65,35 @@ public final class ModelPool: Sendable {
 
         /// The number of models that use memory now.
         var residentCount: Int { entries.count + evicting.count }
+
+        /// The values of the four meters of the pool now. They agree with
+        /// ``footprint`` and ``residentCount``.
+        var gauges: PoolGauges {
+            let evictingBytes = evicting.values.reduce(0, +)
+            let residentBytes = entries.values.reduce(evictingBytes) { $0 + $1.bytes }
+            return PoolGauges(
+                residentBytes: residentBytes,
+                loadingBytes: loadingBytes,
+                evictingBytes: evictingBytes,
+                residentModels: residentCount
+            )
+        }
+
+        /// Starts the eviction of `key` when the model has no hold: the model
+        /// moves from the entries to the evicting models, so it gives no more
+        /// holds.
+        ///
+        /// - Parameters:
+        ///   - key: The model to evict.
+        ///   - now: The instant that the eviction starts.
+        /// - Returns: What the eviction job must do.
+        mutating func startEviction(of key: ModelPoolKey, at now: ContinuousClock.Instant) -> EvictionStart {
+            guard let entry = entries[key] else { return .gone }
+            guard entry.holds == 0 else { return .rehold }
+            entries[key] = nil
+            evicting[key] = entry.bytes
+            return .evict(entry, idleTime: entry.releasedAt.map { now - $0 })
+        }
 
         /// Whether the model of `key` uses memory now.
         func isResident(_ key: ModelPoolKey) -> Bool { entries[key] != nil || evicting[key] != nil }
@@ -105,7 +150,7 @@ public final class ModelPool: Sendable {
     /// - Throws: The error of the load or of the measure. When the measure
     ///   fails, the loader evicts the model, and the key is not resident.
     public func acquire(_ key: ModelPoolKey) async throws -> ModelHold {
-        if let hold = holdIfResident(key, sessionBytes: Self.measuredSessionBytes) { return hold }
+        if let hold = holdIfResident(key, sessionBytes: Self.measuredSessionBytes, counting: .hit) { return hold }
         return try await admit { admission in try await admission.acquire(key) }
     }
 
@@ -119,7 +164,7 @@ public final class ModelPool: Sendable {
     public func acquire(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
-        if let hold = holdIfResident(key, sessionBytes: sessionBytes) { return hold }
+        if let hold = holdIfResident(key, sessionBytes: sessionBytes, counting: .hit) { return hold }
         return try await admit { admission in
             try await admission.acquire(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
         }
@@ -198,14 +243,30 @@ public final class ModelPool: Sendable {
     /// no hold: an acquire of `key` loads the model again after the eviction.
     public func isResident(_ key: ModelPoolKey) -> Bool { state.withLock { $0.isResident(key) } }
 
-    /// Adds a hold when `key` is resident and not in its evict call.
-    fileprivate func holdIfResident(_ key: ModelPoolKey, sessionBytes: Int64) -> ModelHold? {
-        publish { state in
+    /// Adds a hold when `key` is resident and not in its evict call, and
+    /// counts that acquire with `result` after the locks.
+    ///
+    /// - Parameters:
+    ///   - key: The model.
+    ///   - sessionBytes: The bytes of the session of the new hold.
+    ///   - result: The cache result of the acquire when the model is
+    ///     resident: ``PoolCacheResult/hit`` before the admission queue, or
+    ///     ``PoolCacheResult/lateHit`` inside an admission job.
+    /// - Returns: The new hold, or `nil` when the model gives no hold now.
+    fileprivate func holdIfResident(
+        _ key: ModelPoolKey, sessionBytes: Int64, counting result: PoolCacheResult
+    ) -> ModelHold? {
+        let hold = publish { state -> (ModelHold?, [FootprintContinuation]) in
             guard let entry = state.entries[key] else { return (nil, []) }
             state.entries[key]?.holds += 1
             state.entries[key]?.bytes += sessionBytes
+            state.entries[key]?.releasedAt = nil
             return (ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes), state.liveStreams)
         }
+        if hold != nil {
+            PoolTelemetry.recordAcquire(of: key.ref, result: result)
+        }
+        return hold
     }
 
     /// Loads `key` in the running admission job, and gives its first hold.
@@ -213,7 +274,8 @@ public final class ModelPool: Sendable {
     fileprivate func load(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
-        try await reportingProgress(of: key.ref) { progressHandler in
+        PoolTelemetry.recordAcquire(of: key.ref, result: .load)
+        return try await reportingProgress(of: key.ref) { progressHandler in
             setLoadingBytes(footprintBytes)
             let container: any Sendable
             do {
@@ -231,13 +293,15 @@ public final class ModelPool: Sendable {
     /// footprint, and gives its first hold. When the measure fails, the loader
     /// evicts the model. The progress streams of the model see the load.
     fileprivate func loadMeasured(_ key: ModelPoolKey) async throws -> ModelHold {
-        try await reportingProgress(of: key.ref) { progressHandler in
+        PoolTelemetry.recordAcquire(of: key.ref, result: .load)
+        return try await reportingProgress(of: key.ref) { progressHandler in
             let container = try await loader.load(key: key, progressHandler: progressHandler)
             let bytes: Int64
             do {
                 bytes = try await loader.footprintBytes(of: key)
             } catch {
                 await loader.evict(container)
+                PoolTelemetry.logMeasureFailure(error, of: key.ref)
                 throw error
             }
             return makeResident(
@@ -313,6 +377,7 @@ public final class ModelPool: Sendable {
             state.entries[key]?.holds -= 1
             state.entries[key]?.bytes -= sessionBytes
             guard state.entries[key]?.holds == 0 else { return }
+            state.entries[key]?.releasedAt = .now
             admissions.enqueue { await self.evictIfIdle(key) }
         }
     }
@@ -321,22 +386,32 @@ public final class ModelPool: Sendable {
     ///
     /// The model moves from the entries to the evicting models, so it gives
     /// no more holds. The footprint does not change, because the model uses
-    /// its memory until the evict call returns. After that call, the pool
-    /// removes the model and publishes the new footprint.
+    /// its memory until the evict call returns, and the streams get no new
+    /// value. The meters see the evicting bytes. After that call, the pool
+    /// removes the model, publishes the new footprint, and counts the
+    /// eviction with its idle time. A job that a new hold stopped counts a
+    /// skipped eviction. The job records each count after the locks.
     private func evictIfIdle(_ key: ModelPoolKey) async {
-        let idle = state.withLock { state -> Entry? in
-            guard state.entries[key]?.holds == 0, let idle = state.entries.removeValue(forKey: key) else { return nil }
-            state.evicting[key] = idle.bytes
-            return idle
+        let start = publish { state in (state.startEviction(of: key, at: .now), [FootprintContinuation]()) }
+        switch start {
+        case .evict(let idle, let idleTime):
+            await idle.loader.evict(idle.container)
+            publishToEachStream { $0.evicting[key] = nil }
+            PoolTelemetry.recordEviction(of: key.ref, idleTime: idleTime)
+        case .rehold:
+            PoolTelemetry.recordSkippedEviction(of: key.ref, reason: .rehold)
+        case .gone:
+            break
         }
-        guard let idle else { return }
-        await idle.loader.evict(idle.container)
-        publishToEachStream { $0.evicting[key] = nil }
     }
 
     /// Runs `step` under the publish lock and the state lock. Then, under the
-    /// publish lock only, yields the new footprint to the streams that `step`
-    /// gives.
+    /// publish lock only, sets the pool meters to the new state, and yields
+    /// the new footprint to the streams that `step` gives.
+    ///
+    /// The meters are set in the order of the changes, as the streams see
+    /// them. A metrics backend takes no pool lock, so the lock order stays
+    /// the same.
     ///
     /// - Parameter step: Changes the state. It returns the result for the
     ///   caller, and the streams that must get the new footprint.
@@ -345,10 +420,11 @@ public final class ModelPool: Sendable {
         _ step: (inout State) -> (result: Result, streams: [FootprintContinuation])
     ) -> Result {
         publishing.withLock { _ in
-            let (result, streams, footprint) = state.withLock { state in
+            let (result, streams, footprint, gauges) = state.withLock { state in
                 let (result, streams) = step(&state)
-                return (result, streams, state.footprint)
+                return (result, streams, state.footprint, state.gauges)
             }
+            PoolTelemetry.recordGauges(gauges)
             for stream in streams {
                 stream.yield(footprint)
             }
@@ -398,7 +474,7 @@ public struct ModelPoolAdmission: Sendable {
     public func acquire(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
-        if let hold = pool.holdIfResident(key, sessionBytes: sessionBytes) { return hold }
+        if let hold = pool.holdIfResident(key, sessionBytes: sessionBytes, counting: .lateHit) { return hold }
         return try await pool.load(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
     }
 
@@ -409,7 +485,9 @@ public struct ModelPoolAdmission: Sendable {
     /// - Returns: A hold of the model.
     /// - Throws: The error of the load or of the measure.
     public func acquire(_ key: ModelPoolKey) async throws -> ModelHold {
-        if let hold = pool.holdIfResident(key, sessionBytes: ModelPool.measuredSessionBytes) { return hold }
+        if let hold = pool.holdIfResident(key, sessionBytes: ModelPool.measuredSessionBytes, counting: .lateHit) {
+            return hold
+        }
         return try await pool.loadMeasured(key)
     }
 }

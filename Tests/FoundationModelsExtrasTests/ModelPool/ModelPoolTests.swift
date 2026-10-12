@@ -1,7 +1,9 @@
 @testable import FoundationModelsExtras
+import Logging
 import Metrics
 import MetricsTestKit
 import Synchronization
+import TelemetryTestSupport
 import Testing
 
 /// The model pool loads each model one time, shares it through holds, and
@@ -735,5 +737,245 @@ struct ModelPoolTests {
         try QueueMetricExpectations.expectCompletedJobs(
             in: metrics, queue: QueueMetricDimensions.queue(of: QueueTelemetry(name: .model, model: key.ref)),
             outcome: .succeeded, ran: true)
+    }
+}
+
+/// The cache telemetry of the model pool: one acquire count with its cache
+/// result for each hold, one eviction count and one idle time for each
+/// eviction, the meters of the footprint, and one log record for a failed
+/// footprint measure.
+extension ModelPoolTests {
+    /// The bytes of the models whose evict call runs, when no evict call runs.
+    private static let noEvictingBytes: Int64 = 0
+
+    /// The count that one acquire or one eviction adds to its counter.
+    private static let oneCount: Int64 = 1
+
+    /// The number of durations that one eviction records.
+    private static let oneDuration = 1
+
+    /// A file path that a container description can hold. No telemetry
+    /// record may hold it.
+    private static let containerPath = "/Users/someone/models/org-a/weights.safetensors"
+
+    /// A container whose description holds ``containerPath``.
+    private struct PathDescribedModel: CustomStringConvertible, Sendable {
+        /// The file path of the model.
+        var description: String { ModelPoolTests.containerPath }
+    }
+
+    /// Acquires ``key`` three times with `acquire`: a first acquire that
+    /// loads, a second acquire that waits in the admission queue behind that
+    /// load, and a third acquire after both.
+    ///
+    /// - Parameters:
+    ///   - pool: The pool.
+    ///   - log: The log of the loader that `acquire` uses.
+    ///   - endLoads: Finish this to end the load.
+    ///   - acquire: Acquires ``key`` from `pool`.
+    /// - Returns: The three holds.
+    /// - Throws: What an acquire throws, or an `ExpectationFailedError` when
+    ///   the load or the wait never occurred.
+    private static func acquireThreeTimes(
+        from pool: ModelPool,
+        log: Recorder<String>,
+        endLoads: AsyncStream<Void>.Continuation,
+        acquire: @escaping @Sendable () async throws -> ModelHold
+    ) async throws -> [ModelHold] {
+        let first = Task { try await acquire() }
+        try #require(await BoundedWait.conditionReached("the first load runs") { log.values == [loadByA] })
+        let second = Task { try await acquire() }
+        try await waitForOneQueuedJob(on: pool)
+        endLoads.finish()
+        let loaded = try await [first.value, second.value]
+        return loaded + [try await acquire()]
+    }
+
+    /// Expects one acquire count of ``key`` with each cache result.
+    ///
+    /// - Parameter metrics: The factory that the pool recorded into.
+    /// - Throws: When `metrics` has no such counter.
+    private static func expectOneAcquireOfEachResult(in metrics: TestMetrics) throws {
+        for result in PoolCacheResult.allCases {
+            #expect(try PoolMetricExpectations.acquireCounts(in: metrics, ref: key.ref, result: result) == [oneCount])
+        }
+    }
+
+    @Test("an acquire with a loader records one load, one late hit and one hit")
+    func anAcquireWithALoaderRecordsEachCacheResult() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool()
+        let log = Recorder<String>()
+        let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
+        defer { endLoads.finish() }
+        let loader = RecordingLoader(name: "A", log: log, loadsMayEnd: loadsMayEnd)
+
+        let holds = try await withMetricsFactory(metrics) {
+            try await Self.acquireThreeTimes(from: pool, log: log, endLoads: endLoads) {
+                try await Self.acquire(from: pool, with: loader)
+            }
+        }
+
+        try Self.expectOneAcquireOfEachResult(in: metrics)
+        withExtendedLifetime(holds) {}
+    }
+
+    @Test("an acquire by key records one load, one late hit and one hit")
+    func anAcquireByKeyRecordsEachCacheResult() async throws {
+        let metrics = TestMetrics()
+        let log = Recorder<String>()
+        let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
+        defer { endLoads.finish() }
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: log, loadsMayEnd: loadsMayEnd))
+
+        let holds = try await withMetricsFactory(metrics) {
+            try await Self.acquireThreeTimes(from: pool, log: log, endLoads: endLoads) {
+                try await pool.acquire(Self.key)
+            }
+        }
+
+        try Self.expectOneAcquireOfEachResult(in: metrics)
+        withExtendedLifetime(holds) {}
+    }
+
+    @Test("an eviction records one eviction count and one idle time, and no rehold")
+    func anEvictionRecordsACountAndAnIdleTime() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool()
+        let log = Recorder<String>()
+        let loader = RecordingLoader(name: "A", log: log)
+
+        try await withMetricsFactory(metrics) {
+            do {
+                let hold = try await Self.acquire(from: pool, with: loader)
+                #expect(hold.key == Self.key)
+            }
+            // The last release puts the eviction job in the admission queue
+            // first, thus this admit job ends after the eviction.
+            try await pool.admit { _ in }
+        }
+
+        #expect(log.values == [Self.loadByA, Self.evictionOfA])
+        #expect(try PoolMetricExpectations.evictionCounts(in: metrics, ref: Self.key.ref) == [Self.oneCount])
+        QueueMetricExpectations.expectDurations(
+            try PoolMetricExpectations.idleToEvictTimes(in: metrics, ref: Self.key.ref), count: Self.oneDuration)
+        #expect(throws: TestMetricsError.self) {
+            try PoolMetricExpectations.skippedEvictionCounts(in: metrics, ref: Self.key.ref, reason: .rehold)
+        }
+    }
+
+    @Test("an eviction job that a new hold stops records one rehold, and no eviction and no idle time")
+    func aReholdRecordsASkippedEviction() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool()
+        let log = Recorder<String>()
+        let loader = RecordingLoader(name: "A", log: log)
+
+        let secondHold = try await withMetricsFactory(metrics) {
+            var firstHold: ModelHold? = try await Self.acquire(from: pool, with: loader)
+            let job = try await Self.startBlockingJob(on: pool, log: log)
+            #expect(firstHold?.key == Self.key)
+            firstHold = nil
+            try await Self.waitForOneQueuedJob(on: pool)
+            let second = await Self.acquireWhileAJobRuns(from: pool, with: loader, log: log)
+            job.end.finish()
+            try await job.task.value
+            try await pool.admit { _ in }
+            return try await second.task.value
+        }
+
+        #expect(!log.values.contains(Self.evictionOfA))
+        #expect(
+            try PoolMetricExpectations.skippedEvictionCounts(in: metrics, ref: Self.key.ref, reason: .rehold)
+                == [Self.oneCount])
+        #expect(throws: TestMetricsError.self) {
+            try PoolMetricExpectations.evictionCounts(in: metrics, ref: Self.key.ref)
+        }
+        #expect(throws: TestMetricsError.self) {
+            try PoolMetricExpectations.idleToEvictTimes(in: metrics, ref: Self.key.ref)
+        }
+        withExtendedLifetime(secondHold) {}
+    }
+
+    @Test("the four pool meters agree with the footprint and the resident count after each change")
+    func thePoolMetersFollowEachChange() async throws {
+        let metrics = TestMetrics()
+        let pool = ModelPool()
+        let log = Recorder<String>()
+        let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
+        let (evictionsMayEnd, endEvictions) = AsyncStream.makeStream(of: Void.self)
+        defer {
+            endLoads.finish()
+            endEvictions.finish()
+        }
+        let loader = RecordingLoader(name: "A", log: log, loadsMayEnd: loadsMayEnd, evictionsMayEnd: evictionsMayEnd)
+
+        try await withMetricsFactory(metrics) {
+            // The task gives a slot, not the hold: a task keeps its value, so a
+            // hold that it gave would never go.
+            let loading = Task { HoldSlot(try await Self.acquire(from: pool, with: loader)) }
+            try #require(await BoundedWait.conditionReached("the load runs") { log.values == [Self.loadByA] })
+            try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.noEvictingBytes)
+            endLoads.finish()
+            let firstHold = try await loading.value
+            try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.noEvictingBytes)
+            var secondHold: ModelHold? = try await Self.acquire(
+                from: pool, with: loader, sessionBytes: Self.secondSessionBytes)
+            try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.noEvictingBytes)
+            #expect(secondHold?.key == Self.key)
+            secondHold = nil
+            try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.noEvictingBytes)
+            firstHold.release()
+            try #require(await BoundedWait.conditionReached("the evict call runs") {
+                log.values.contains(Self.evictionOfA)
+            })
+            try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.weightsBytes)
+            endEvictions.finish()
+            try await pool.admit { _ in }
+            try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.noEvictingBytes)
+        }
+    }
+
+    @Test("a failed footprint measure writes one error record with the error type and the model ref")
+    func aFailedMeasureWritesOneLogRecord() async throws {
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: Recorder<String>(), failingMeasures: 1))
+
+        let context = try await TelemetryCapture.run(forbidding: []) { context in
+            await #expect(throws: FakeMeasureError.self) { try await pool.acquire(Self.key) }
+            return context
+        }
+
+        let expected = TelemetryCapture.LogRecord(
+            level: .error,
+            message: "\(ExtrasTelemetry.PoolLogMessage.measureFailed)",
+            metadata: [
+                ExtrasTelemetry.LogMetadataKey.errorType: .string(ExtrasTelemetry.errorType(of: FakeMeasureError())),
+                ExtrasTelemetry.LogMetadataKey.modelRef: .string(Self.key.ref.stringValue),
+            ],
+            label: ExtrasTelemetry.logLabel
+        )
+        #expect(context.logRecords == [expected])
+    }
+
+    @Test("the telemetry of a failed measure, a load, a hit and an eviction holds no path and no error description")
+    func thePoolTelemetryHoldsNoContent() async throws {
+        let measureError = FakeMeasureError()
+        let forbidden = [Self.containerPath, measureError.localizedDescription, String(describing: measureError)]
+        let loader = RecordingLoader(
+            name: "A", log: Recorder<String>(), failingMeasures: 1, makeModel: { _ in PathDescribedModel() })
+        let pool = ModelPool(loader: loader)
+
+        let context = try await TelemetryCapture.run(forbidding: forbidden) { context in
+            await #expect(throws: FakeMeasureError.self) { try await pool.acquire(Self.key) }
+            do {
+                let holds = [try await pool.acquire(Self.key), try await pool.acquire(Self.key)]
+                #expect(holds.map(\.key) == [Self.key, Self.key])
+            }
+            try await pool.admit { _ in }
+            return context
+        }
+
+        #expect(!context.logRecords.isEmpty)
+        #expect(!context.metricRecords.isEmpty)
     }
 }

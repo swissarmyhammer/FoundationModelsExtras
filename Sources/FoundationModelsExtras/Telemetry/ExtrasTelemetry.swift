@@ -18,10 +18,12 @@ import Metrics
 /// nothing, and each logger writes through the default handler of swift-log.
 ///
 /// A metric dimension carries names and bounded values only: the tool name,
-/// the queue name, the model ref of a queue that belongs to one model, and the
-/// bounded telemetry value of an outcome. It never carries tool arguments,
-/// tool output or the content of a queue task, because a dimension leaves the
-/// process through the metrics backend of the host.
+/// the queue name, the model ref of a queue or a pool metric that belongs to
+/// one model, the bounded telemetry value of an outcome, the cache result of
+/// a pool acquire, and the reason of a skipped eviction. It never carries tool
+/// arguments, tool output, the content of a queue task, a file path or the
+/// description of a container, because a dimension leaves the process through
+/// the metrics backend of the host.
 enum ExtrasTelemetry {
     /// The label of each logger of the core target.
     static let logLabel = "FoundationModelsExtras"
@@ -92,19 +94,58 @@ enum ExtrasTelemetry {
 
         /// The counter that counts each queue task that completes.
         static let queueTasks = "FoundationModelsExtras.queue.tasks"
+
+        /// The counter that counts each acquire of a model pool, with the
+        /// ``PoolCacheResult`` of the acquire.
+        static let poolAcquires = "FoundationModelsExtras.pool.acquires"
+
+        /// The counter that counts each eviction of a model pool when the
+        /// evict call of the loader returns, and each eviction job that a
+        /// new hold stopped, with a ``PoolEvictionSkipReason``.
+        static let poolEvictions = "FoundationModelsExtras.pool.evictions"
+
+        /// The timer that records the time of each evicted model from its
+        /// last release to the start of its eviction.
+        static let poolIdleToEvict = "FoundationModelsExtras.pool.idle_to_evict"
+
+        /// The meter of the bytes of the resident models of a model pool. A
+        /// model whose evict call runs is resident, as in the footprint.
+        static let poolResidentBytes = "FoundationModelsExtras.pool.resident_bytes"
+
+        /// The meter of the bytes of the load that a model pool runs now.
+        static let poolLoadingBytes = "FoundationModelsExtras.pool.loading_bytes"
+
+        /// The meter of the bytes of the models whose evict call runs now.
+        static let poolEvictingBytes = "FoundationModelsExtras.pool.evicting_bytes"
+
+        /// The meter of the number of resident models of a model pool.
+        static let poolResidentModels = "FoundationModelsExtras.pool.resident_models"
+
+        /// The counter that counts each caller that waits for a load of a
+        /// pooled model that another caller started.
+        static let poolLoadJoins = "FoundationModelsExtras.pool.load_joins"
     }
 
-    /// The dimension keys of the queue metrics of the core target.
+    /// The dimension keys of the queue metrics and the pool metrics of the
+    /// core target.
     enum DimensionKey {
         /// The ``QueueName`` of the queue.
         static let queueName = "queue.name"
 
-        /// The `ModelRef.stringValue` of the model that the queue belongs to.
-        /// Only a queue of one model has this dimension.
+        /// The `ModelRef.stringValue` of the model that the queue or the pool
+        /// metric belongs to. Only a queue of one model and a pool metric of
+        /// one model have this dimension.
         static let modelRef = "model.ref"
 
         /// The ``QueueOutcome`` of a completed queue task.
         static let queueOutcome = "queue.outcome"
+
+        /// The ``PoolCacheResult`` of an acquire of a model pool.
+        static let cacheResult = "cache.result"
+
+        /// The ``PoolEvictionSkipReason`` of an eviction job that evicted
+        /// nothing. An eviction that occurred has no reason.
+        static let evictionReason = "reason"
     }
 
     /// The metadata keys of the log records of the core target.
@@ -130,6 +171,22 @@ enum ExtrasTelemetry {
         /// The completion token of a background run. It has the same key as
         /// the span attribute.
         static let completionToken = AttributeKey.completionToken
+
+        /// The type of the error of a log record, from
+        /// ``ExtrasTelemetry/errorType(of:)``. It has the same key as the
+        /// span attribute.
+        static let errorType = AttributeKey.errorType
+
+        /// The `ModelRef.stringValue` of the model of a log record. It has the
+        /// same key as the metric dimension.
+        static let modelRef = DimensionKey.modelRef
+    }
+
+    /// The messages of the log records of the model pool.
+    enum PoolLogMessage {
+        /// The message of the record that a failed footprint measure writes.
+        /// The loader evicted the model, and the acquire throws the error.
+        static let measureFailed = "the footprint measure of a loaded model failed; the loader evicted the model"
     }
 
     /// The carrier keys of the W3C trace context: the fields that carry the
@@ -346,4 +403,26 @@ enum QueueOutcome: String, Sendable, CaseIterable {
     /// An outcome that this package does not know. The value never holds the
     /// text of that outcome.
     case other
+}
+
+/// How a model pool gave one hold. It is the value of the
+/// ``ExtrasTelemetry/DimensionKey/cacheResult`` dimension.
+enum PoolCacheResult: String, Sendable, CaseIterable {
+    /// The model was resident when the acquire started, so the acquire did
+    /// not wait for the admission queue.
+    case hit
+
+    /// The model was not resident when the acquire started, but it was
+    /// resident when the acquire ran in the admission queue.
+    case lateHit = "late_hit"
+
+    /// The acquire loaded the model.
+    case load
+}
+
+/// Why an eviction job of a model pool evicted nothing. It is the value of
+/// the ``ExtrasTelemetry/DimensionKey/evictionReason`` dimension.
+enum PoolEvictionSkipReason: String, Sendable, CaseIterable {
+    /// A new hold of the model came before the eviction job ran.
+    case rehold
 }

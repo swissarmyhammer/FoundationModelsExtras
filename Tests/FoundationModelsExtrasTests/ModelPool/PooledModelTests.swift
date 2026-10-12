@@ -1,5 +1,7 @@
 import FoundationModels
 @testable import FoundationModelsExtras
+import Metrics
+import MetricsTestKit
 import Testing
 
 /// The typed answer of the typed respond test and of the README example.
@@ -152,6 +154,44 @@ struct PooledModelTests {
         #expect(sessions.map(\.model) == [Self.key.ref, Self.key.ref])
         #expect(pool.residentModelCount == 1)
         #expect(Self.loads(in: log) == [Self.loadEntry])
+    }
+
+    /// The load joins that one caller adds when it waits for the load of an
+    /// other caller.
+    private static let oneLoadJoin: [Int64] = [1]
+
+    /// The value that the load of the resident hold test gives.
+    private static let residentValue = "resident"
+
+    @Test("a second caller of one resident hold that waits for the running load adds one load join, the first adds none")
+    func aCallerThatJoinsTheRunningLoadAddsOneLoadJoin() async throws {
+        let metrics = TestMetrics()
+        let log = Recorder<String>()
+        let (loadMayEnd, endLoad) = AsyncStream.makeStream(of: Void.self)
+        defer { endLoad.finish() }
+        let hold = ResidentHold<String> {
+            log.append(Self.loadEntry)
+            for await _ in loadMayEnd {}
+            return Self.residentValue
+        }
+
+        // Each caller starts in a task of its own, not in an `async let`. A
+        // failed wait then leaves the scope at once, and the deferred finish
+        // ends the load.
+        let values = try await withMetricsFactory(metrics) {
+            let first = Task { try await hold.loaded() }
+            try #require(await BoundedWait.conditionReached("the load runs") { log.values == [Self.loadEntry] })
+            let second = Task { try await hold.loaded() }
+            try #require(await BoundedWait.conditionReached("the second caller joins the load") {
+                (try? PoolMetricExpectations.loadJoins(in: metrics)) == Self.oneLoadJoin
+            })
+            endLoad.finish()
+            return try await [first.value, second.value]
+        }
+
+        #expect(values == [Self.residentValue, Self.residentValue])
+        #expect(try PoolMetricExpectations.loadJoins(in: metrics) == Self.oneLoadJoin)
+        #expect(log.values == [Self.loadEntry])
     }
 
     @Test("two sessions of one model never run respond at the same time, and the calls run in FIFO order")
