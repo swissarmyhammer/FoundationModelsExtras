@@ -128,6 +128,7 @@ struct QueueTelemetryTests {
     func theQueueVocabularyHasItsRawValues() {
         #expect(QueueName.allCases.map(\.rawValue) == [
             "model", "admission", "generation", "run_plane", "elicitation", "tool_events", "mailbox",
+            "mail_queue",
         ])
         #expect(QueueOutcome.allCases.map(\.rawValue) == [
             "succeeded", "failed", "timed_out", "stopped", "cancelled", "lost", "other",

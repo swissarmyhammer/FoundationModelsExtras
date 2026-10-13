@@ -556,6 +556,9 @@ enum QueueName: String, Sendable, CaseIterable {
 
     /// The mailbox that posts messages to a session.
     case mailbox
+
+    /// The mail queue of a session.
+    case mailQueue = "mail_queue"
 }
 
 /// The bounded telemetry value of how a queue task or a tool call ended. It is

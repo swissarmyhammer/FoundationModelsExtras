@@ -1,0 +1,37 @@
+import Foundation
+@testable import FoundationModelsExtras
+import Testing
+import ULID
+
+/// ``Mail`` carries its id, its sender and its body.
+@Suite("Mail: an id, a sender and a body")
+struct MailTests {
+    /// A body for the tests.
+    private static let body = MailBody.userMessage(prompt: "Hello", options: UserMessageOptions())
+
+    @Test("a mail with no id gets a new id each time")
+    func theDefaultIDIsNewEachTime() {
+        let first = Mail(sender: .user, body: Self.body)
+        let second = Mail(sender: .user, body: Self.body)
+
+        #expect(first.id != second.id)
+    }
+
+    @Test("a mail keeps the id that the caller gives")
+    func aGivenIDIsKept() {
+        let id = MailID()
+
+        #expect(Mail(id: id, sender: .user, body: Self.body).id == id)
+    }
+
+    @Test("a mail survives a JSON round trip")
+    func aMailSurvivesARoundTrip() throws {
+        let mail = Mail(
+            sender: .session(ULID()),
+            body: .agentMessage(from: ULID(), content: "Please continue."))
+
+        let decoded = try JSONDecoder().decode(Mail.self, from: JSONEncoder().encode(mail))
+
+        #expect(decoded == mail)
+    }
+}
