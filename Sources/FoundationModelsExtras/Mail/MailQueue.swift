@@ -147,14 +147,24 @@ public final class MailQueue: Sendable {
     /// for mail that it took but did not use. Each mail starts a new task of
     /// the queue metrics.
     ///
+    /// After ``close()``, the queue refuses all the mail and records no
+    /// metric. A closed queue is never drained again, thus refused mail
+    /// would get no terminal event in the queue. The session sends the
+    /// terminal event of each refused mail.
+    ///
     /// - Parameter mails: The mail, in the order that it gets at the front.
-    public func putBack(_ mails: [Mail]) {
-        guard !mails.isEmpty else { return }
-        let doorbells = state.withLock { state in
+    /// - Returns: The refused mail, in the given order. It is empty when the
+    ///   queue is open.
+    @discardableResult
+    public func putBack(_ mails: [Mail]) -> [Mail] {
+        guard !mails.isEmpty else { return [] }
+        let (refused, doorbells) = state.withLock { state -> ([Mail], [AsyncStream<Void>.Continuation]) in
+            guard !state.isClosed else { return (mails, []) }
             state.queued.insert(contentsOf: mails.map { Entry(mail: $0, ticket: telemetry.enqueued()) }, at: 0)
-            return state.doorbellsToRing()
+            return ([], state.doorbellsToRing())
         }
         ring(doorbells)
+        return refused
     }
 
     /// Removes one queued mail. Does not touch mail that a take removed.
@@ -216,10 +226,8 @@ public final class MailQueue: Sendable {
     }
 
     /// Removes all queued mail, and closes the queue: after this, ``put(_:)``
-    /// throws ``MailRefusal/closed``, and ``waitForMail()`` returns at once.
-    ///
-    /// ``putBack(_:)`` still works after a close, because it is for mail that
-    /// the session already took. The session drains that mail again.
+    /// throws ``MailRefusal/closed``, ``putBack(_:)`` refuses all the mail,
+    /// and ``waitForMail()`` returns `false` at once.
     ///
     /// - Returns: The removed mail, in queue order.
     @discardableResult
@@ -259,22 +267,32 @@ public final class MailQueue: Sendable {
     /// the return can still give no mail: an other caller can take the mail
     /// first, the queue can pause again, or the rule can refuse all the mail.
     /// That is correct. The pump then waits again.
-    public func waitForMail() async {
+    ///
+    /// - Returns: `false` when the queue is closed, thus the pump must stop.
+    ///   `true` in all other cases: the queue is ready, or the task was
+    ///   cancelled. The caller checks `Task.isCancelled`.
+    @discardableResult
+    public func waitForMail() async -> Bool {
         let (rung, doorbell) = AsyncStream.makeStream(of: Void.self)
-        let key = state.withLock { state -> Int? in
-            guard !state.isReady else { return nil }
-            let key = state.nextDoorbellKey
-            state.nextDoorbellKey += 1
-            state.doorbells[key] = doorbell
-            return key
+        let key = state.withLock { state in
+            defer { state.nextDoorbellKey += 1 }
+            return state.nextDoorbellKey
         }
-        guard let key else { return }
-        // A cancelled waiter removes its own doorbell, so that the state does
-        // not keep doorbells that nobody waits on.
+        // The handler is set before the doorbell goes into the state. Thus a
+        // waiter that is cancelled at any time removes its own doorbell, and
+        // the state does not keep doorbells that nobody waits on.
         doorbell.onTermination = { [weak self] _ in
             self?.state.withLock { _ = $0.doorbells.removeValue(forKey: key) }
         }
-        for await _ in rung {}
+        let isWaiting = state.withLock { state in
+            guard !state.isReady else { return false }
+            state.doorbells[key] = doorbell
+            return true
+        }
+        if isWaiting {
+            for await _ in rung {}
+        }
+        return !state.withLock { $0.isClosed }
     }
 
     /// Removes all queued mail, and records each mail as cancelled.

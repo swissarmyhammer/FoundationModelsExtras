@@ -234,41 +234,41 @@ struct MailQueueWaitTests {
     /// Starts a task that waits for mail, and waits until the queue sees it.
     ///
     /// - Parameter queue: The queue.
-    /// - Returns: The task of the waiter, and a flag that is set when the
-    ///   wait returns.
-    private static func startWaiter(on queue: MailQueue) async -> (task: Task<Void, Never>, returned: ReturnFlag) {
+    /// - Returns: The task of the waiter, which gives the result of the
+    ///   wait, and a flag that is set when the wait returns.
+    private static func startWaiter(on queue: MailQueue) async -> (task: Task<Bool, Never>, returned: ReturnFlag) {
         let returned = ReturnFlag()
         let task = Task {
-            await queue.waitForMail()
+            let open = await queue.waitForMail()
             returned.set()
+            return open
         }
         #expect(await BoundedWait.conditionReached("the waiter waits") { queue.waiterCount == 1 })
         return (task, returned)
     }
 
-    @Test("the wait returns at once when the queue holds mail")
+    @Test("the wait returns true at once when the queue holds mail")
     func theWaitReturnsAtOnce() async throws {
         let queue = MailQueue()
         try queue.put(userMail("a"))
 
-        await queue.waitForMail()
-
+        #expect(await queue.waitForMail())
         #expect(queue.waiterCount == 0)
     }
 
-    @Test("the wait returns at a put")
+    @Test("the wait returns true at a put")
     func theWaitReturnsAtAPut() async throws {
         let queue = MailQueue()
         let waiter = await Self.startWaiter(on: queue)
 
         try queue.put(userMail("a"))
 
-        await waiter.task.value
+        #expect(await waiter.task.value)
         #expect(waiter.returned.isSet)
         #expect(queue.waiterCount == 0)
     }
 
-    @Test("the wait does not return at a put while the queue is paused, and returns at the resume")
+    @Test("the wait does not return at a put while the queue is paused, and returns true at the resume")
     func theWaitReturnsAtTheResume() async throws {
         let queue = MailQueue()
         queue.pause()
@@ -280,29 +280,38 @@ struct MailQueueWaitTests {
 
         queue.resume()
 
-        await waiter.task.value
+        #expect(await waiter.task.value)
         #expect(waiter.returned.isSet)
     }
 
-    @Test("the wait returns at a close")
+    @Test("the wait returns false at a close")
     func theWaitReturnsAtAClose() async {
         let queue = MailQueue()
         let waiter = await Self.startWaiter(on: queue)
 
         queue.close()
 
-        await waiter.task.value
+        #expect(await !waiter.task.value)
         #expect(waiter.returned.isSet)
     }
 
-    @Test("the wait returns when its task is cancelled, and the queue forgets the waiter")
+    @Test("the wait returns false at once after a close")
+    func theWaitReturnsFalseAfterAClose() async {
+        let queue = MailQueue()
+        queue.close()
+
+        #expect(await !queue.waitForMail())
+        #expect(queue.waiterCount == 0)
+    }
+
+    @Test("the wait returns true when its task is cancelled, and the queue forgets the waiter")
     func theWaitReturnsAtACancel() async {
         let queue = MailQueue()
         let waiter = await Self.startWaiter(on: queue)
 
         waiter.task.cancel()
 
-        await waiter.task.value
+        #expect(await waiter.task.value)
         #expect(await BoundedWait.conditionReached("the queue forgets the waiter") { queue.waiterCount == 0 })
     }
 }
@@ -392,6 +401,32 @@ struct MailQueueTelemetryTests {
         }
 
         #expect(try QueueMetricExpectations.depth(in: metrics, queue: Self.queueDimensions()) == [1])
+    }
+
+    @Test("a put back after close gives back the mail in order, the queue stays empty, and no metric is recorded")
+    func aPutBackAfterCloseIsRefused() {
+        let metrics = TestMetrics()
+        let queue = MailQueue()
+        queue.close()
+        let mails = [userMail("a"), userMail("b")]
+
+        let refused = withMetricsFactory(metrics) {
+            queue.putBack(mails)
+        }
+
+        #expect(refused == mails)
+        #expect(queue.pending.isEmpty)
+        #expect(throws: TestMetricsError.self) {
+            try QueueMetricExpectations.depth(in: metrics, queue: Self.queueDimensions())
+        }
+    }
+
+    @Test("a put back to an open queue refuses no mail")
+    func aPutBackToAnOpenQueueRefusesNothing() {
+        let queue = MailQueue()
+
+        #expect(queue.putBack([userMail("a")]).isEmpty)
+        #expect(prompts(queue.pending) == ["a"])
     }
 
     @Test("a mail queue made with a model records the model ref dimension")
