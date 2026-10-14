@@ -902,6 +902,12 @@ questions that those runs ask the user.
 - The host gives the answers of the user with `respond(elicitationId:_:)` and
   `complete(elicitationId:)`. At the end of the session, `sweep()` stops each
   run that is still open.
+- An answer (`ElicitationResponse`) has the shape `{ action, content, reason }`,
+  with `action` = `accept`, `decline` or `cancel`. `content` is `nil` for a
+  decline and a cancel. A decline or a cancel can tell why the question ended
+  with no answer: `.decline(reason:)` and `.cancel(reason:)` set `reason`, and
+  the run gets the reason unchanged. An accept has no reason. `elicit(_:)`
+  never throws for an answer: a cancel is not an error.
 
 ```swift
 /// Runs the tests in the background. A call waits for the settle period of

@@ -464,6 +464,43 @@ struct RunPlaneActorTests {
         #expect(await runPlane.pendingElicitationIds().isEmpty)
     }
 
+    @Test("respond() gives the reason of a decline and of a cancel to the run, unchanged")
+    func respondKeepsTheReason() async throws {
+        let runPlane = RunPlane()
+        for answer in [
+            ElicitationResponse.decline(reason: "the user declined"),
+            ElicitationResponse.cancel(reason: "the user closed the card"),
+        ] {
+            let elicitationId = ULID()
+            let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
+                await runPlane.awaitAnswer(
+                    to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
+            }
+            #expect(await Self.isPending(elicitationId, on: runPlane))
+
+            #expect(await runPlane.respond(elicitationId: elicitationId, answer) == .delivered)
+            #expect(try await answering.deliveredAnswer() == answer)
+        }
+    }
+
+    @Test("a second question with the id of an open question gets cancel with a reason, and the first stays open")
+    func duplicateElicitationIdCancelsWithAReason() async throws {
+        let runPlane = RunPlane()
+        let elicitationId = ULID()
+        let request = MountFixtures.nameRequest(elicitationId: elicitationId)
+        let first = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
+            await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
+        }
+        #expect(await Self.isPending(elicitationId, on: runPlane))
+
+        let duplicate = await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
+
+        #expect(duplicate == .cancel(reason: RunPlane.duplicateElicitationIdReason))
+        #expect(await runPlane.pendingElicitationIds() == [elicitationId])
+        #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .delivered)
+        #expect(try await first.deliveredAnswer() == .decline)
+    }
+
     // MARK: - The sweep
 
     @Test("sweep() runs each canceler, gives one terminal event for each run, and rejects each pending elicitation")

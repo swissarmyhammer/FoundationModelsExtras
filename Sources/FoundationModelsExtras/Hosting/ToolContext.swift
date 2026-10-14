@@ -278,6 +278,11 @@ public struct ToolContext: Sendable {
     /// Only an answer, a completion, or the sweep of the run plane resumes the
     /// run. A cancel of the task does not. This function never throws now.
     ///
+    /// The answer has the shape `{ action, content, reason }`. A decline and
+    /// a cancel have no content, and they can carry a
+    /// ``ElicitationResponse/reason`` that tells why the question ended with
+    /// no answer. A cancel is not an error.
+    ///
     /// While the question is open, it links to the run that holds this call,
     /// and ``RunPlane/runsWaitingOnlyForUser()`` lists that run.
     ///

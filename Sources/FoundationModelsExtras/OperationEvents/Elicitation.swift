@@ -585,8 +585,11 @@ public enum ElicitationValue: Codable, Sendable, Equatable {
 }
 
 /// The user's answer to an ``ElicitationRequest``: `accept`, `decline`, or
-/// `cancel`, with ``content`` present only on a form-mode accept. Decoding
-/// content with a decline or cancel throws.
+/// `cancel`, with ``content`` present only on a form-mode accept, and an
+/// optional ``reason`` only on a decline or a cancel.
+///
+/// The wire shape is `{ action, content, reason }`. Decoding content with a
+/// decline or a cancel throws. Decoding a reason with an accept throws.
 public struct ElicitationResponse: Codable, Sendable, Equatable {
     /// The three actions the MCP spec defines for an elicitation answer.
     public enum Action: String, Codable, Sendable, Equatable {
@@ -606,37 +609,67 @@ public struct ElicitationResponse: Codable, Sendable, Equatable {
     /// The filled form values, by property name. Non-nil only on a form-mode accept.
     public let content: [String: ElicitationValue]?
 
-    /// The one memberwise entry point. Private, so content-on-decline is unrepresentable.
-    private init(action: Action, content: [String: ElicitationValue]?) {
+    /// Why the elicitation ended with no answer, in words for a person or a
+    /// model. Non-nil only on a decline or a cancel that gives a reason.
+    public let reason: String?
+
+    /// The one memberwise entry point. Private, so content on a decline and a
+    /// reason on an accept are unrepresentable.
+    private init(action: Action, content: [String: ElicitationValue]?, reason: String?) {
         self.action = action
         self.content = content
+        self.reason = reason
     }
 
     /// An accepting response, with the filled form values or `nil` content for URL mode.
     public static func accept(content: [String: ElicitationValue]?) -> ElicitationResponse {
-        ElicitationResponse(action: .accept, content: content)
+        ElicitationResponse(action: .accept, content: content, reason: nil)
     }
 
-    /// A declining response. Never carries content.
-    public static let decline = ElicitationResponse(action: .decline, content: nil)
+    /// A declining response with no reason. Never carries content.
+    public static let decline = ElicitationResponse(action: .decline, content: nil, reason: nil)
 
-    /// A cancelling response. Never carries content.
-    public static let cancel = ElicitationResponse(action: .cancel, content: nil)
+    /// A cancelling response with no reason. Never carries content.
+    public static let cancel = ElicitationResponse(action: .cancel, content: nil, reason: nil)
+
+    /// A declining response that tells why. Never carries content.
+    ///
+    /// - Parameter reason: Why the user declined.
+    /// - Returns: The response.
+    public static func decline(reason: String) -> ElicitationResponse {
+        ElicitationResponse(action: .decline, content: nil, reason: reason)
+    }
+
+    /// A cancelling response that tells why. Never carries content.
+    ///
+    /// - Parameter reason: Why the elicitation ended with no answer.
+    /// - Returns: The response.
+    public static func cancel(reason: String) -> ElicitationResponse {
+        ElicitationResponse(action: .cancel, content: nil, reason: reason)
+    }
 
     private enum CodingKeys: String, CodingKey {
         case action
         case content
+        case reason
     }
 
-    /// Decodes a response. Content with a decline or cancel throws.
+    /// Decodes a response. Content with a decline or a cancel throws. A
+    /// reason with an accept throws.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.action = try container.decode(Action.self, forKey: .action)
         self.content = try container.decodeIfPresent([String: ElicitationValue].self, forKey: .content)
+        self.reason = try container.decodeIfPresent(String.self, forKey: .reason)
         guard content == nil || action == .accept else {
             throw DecodingError.dataCorruptedError(
                 forKey: .content, in: container,
                 debugDescription: "elicitation content is only valid on an accept, not \(action.rawValue)")
+        }
+        guard reason == nil || action != .accept else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .reason, in: container,
+                debugDescription: "an elicitation reason is only valid on a decline or a cancel, not an accept")
         }
     }
 
@@ -644,5 +677,6 @@ public struct ElicitationResponse: Codable, Sendable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(action, forKey: .action)
         try container.encodeIfPresent(content, forKey: .content)
+        try container.encodeIfPresent(reason, forKey: .reason)
     }
 }

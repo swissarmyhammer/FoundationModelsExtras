@@ -104,6 +104,10 @@ public actor RunPlane {
     /// Nanoseconds in one second.
     private static let nanosecondsPerSecond: Double = 1_000_000_000
 
+    /// The reason of the cancel that a second question gets when an open
+    /// question has the same `elicitationId`.
+    static let duplicateElicitationIdReason = "an open elicitation already has this elicitationId"
+
     /// The open runs, in start order.
     private var runs: [Run] = []
 
@@ -360,8 +364,12 @@ public actor RunPlane {
     /// accepted URL elicitation also waits for ``complete(elicitationId:)``.
     ///
     /// The elicitation is pending before `posting` runs. A duplicate
-    /// `elicitationId` gets ``ElicitationResponse/cancel`` at once, and
-    /// `posting` does not run.
+    /// `elicitationId` gets a cancel with ``duplicateElicitationIdReason``
+    /// at once, and `posting` does not run. The open question with that id
+    /// does not change.
+    ///
+    /// The answer of the host comes back unchanged: a decline or a cancel
+    /// keeps its ``ElicitationResponse/reason``.
     ///
     /// - Parameters:
     ///   - request: The request. Its `elicitationId` names the elicitation.
@@ -375,7 +383,7 @@ public actor RunPlane {
         posting: @escaping @Sendable () async -> Void = {}
     ) async -> ElicitationResponse {
         guard elicitationIndex(of: request.elicitationId) == nil else {
-            return .cancel
+            return .cancel(reason: Self.duplicateElicitationIdReason)
         }
         let elicitation = Elicitation(
             id: request.elicitationId, runToken: runToken, mode: request.mode,
@@ -404,8 +412,10 @@ public actor RunPlane {
     /// Gives the answer of the user to a pending elicitation.
     ///
     /// A URL accept keeps the elicitation open until
-    /// ``complete(elicitationId:)``. Each other answer resumes the run. An
-    /// unknown or answered id does nothing.
+    /// ``complete(elicitationId:)``. Each other answer resumes the run. The
+    /// run gets the answer unchanged, thus a decline or a cancel keeps its
+    /// ``ElicitationResponse/reason``. An unknown or answered id does
+    /// nothing.
     ///
     /// - Parameters:
     ///   - elicitationId: The id of the elicitation.

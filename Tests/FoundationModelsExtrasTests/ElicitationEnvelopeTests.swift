@@ -374,6 +374,67 @@ struct ElicitationEnvelopeTests {
             let response = try Self.decodeResponse(json)
             #expect(response.action == action)
             #expect(response.content == nil)
+            #expect(response.reason == nil)
+        }
+    }
+
+    // MARK: - Response: a reason only on decline and cancel
+
+    /// The reason that the reason tests give to a decline or a cancel.
+    private static let sampleReason = "the user closed the form"
+
+    @Test("a decline with a reason and a cancel with a reason round-trip through Codable")
+    func reasonedResponsesRoundTrip() throws {
+        for response in [
+            ElicitationResponse.decline(reason: Self.sampleReason),
+            ElicitationResponse.cancel(reason: Self.sampleReason),
+        ] {
+            let data = try JSONEncoder().encode(response)
+            let decoded = try JSONDecoder().decode(ElicitationResponse.self, from: data)
+            #expect(decoded == response)
+            #expect(decoded.reason == Self.sampleReason)
+            #expect(decoded.content == nil)
+        }
+    }
+
+    @Test("a decline with a reason and a cancel with a reason keep their action")
+    func reasonedResponsesKeepTheirAction() {
+        #expect(ElicitationResponse.decline(reason: Self.sampleReason).action == .decline)
+        #expect(ElicitationResponse.cancel(reason: Self.sampleReason).action == .cancel)
+    }
+
+    @Test("the reason goes on the wire under the key reason, and a bare answer has no reason key")
+    func reasonWireKey() throws {
+        let reasoned = try JSONEncoder().encode(ElicitationResponse.cancel(reason: Self.sampleReason))
+        let reasonedObject = try #require(try JSONSerialization.jsonObject(with: reasoned) as? [String: Any])
+        #expect(reasonedObject["reason"] as? String == Self.sampleReason)
+
+        let bare = try JSONEncoder().encode(ElicitationResponse.cancel)
+        let bareObject = try #require(try JSONSerialization.jsonObject(with: bare) as? [String: Any])
+        #expect(bareObject["reason"] == nil)
+    }
+
+    @Test("a decline and a cancel with a reason decode with that reason")
+    func reasonDecodesOnDeclineAndCancel() throws {
+        for (action, expected) in [
+            ("decline", ElicitationResponse.decline(reason: Self.sampleReason)),
+            ("cancel", ElicitationResponse.cancel(reason: Self.sampleReason)),
+        ] {
+            let response = try Self.decodeResponse(
+                """
+                {"action": "\(action)", "reason": "\(Self.sampleReason)"}
+                """)
+            #expect(response == expected)
+        }
+    }
+
+    @Test("a reason on an accept is rejected at decode")
+    func reasonRejectedOnAccept() {
+        #expect(throws: DecodingError.self) {
+            try Self.decodeResponse(
+                """
+                {"action": "accept", "content": {"name": "Ada"}, "reason": "\(Self.sampleReason)"}
+                """)
         }
     }
 

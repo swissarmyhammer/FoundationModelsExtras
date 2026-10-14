@@ -409,6 +409,57 @@ struct ToolContextTests {
         #expect(answer.content == nil)
     }
 
+    /// The reason that the host gives with a decline or a cancel in the
+    /// reason tests.
+    private static let hostReason = "the user closed the request card"
+
+    /// Asks `request` through `elicit`, answers it with `response`, and
+    /// gives the answer that the run got.
+    private static func elicitAnswer(
+        _ response: ElicitationResponse,
+        to request: ElicitationRequest = MountFixtures.nameRequest()
+    ) async throws -> ElicitationResponse {
+        let runPlane = RunPlane()
+        let context = makeContext(sink: RecordingSink(), runPlane: runPlane)
+        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
+            try await context.elicit(request)
+        }
+        try await waitUntilPending([request.elicitationId], in: runPlane)
+        await runPlane.respond(elicitationId: request.elicitationId, response)
+        return try await answering.deliveredAnswer()
+    }
+
+    @Test("elicit gives the reason of a decline to the run")
+    func elicitDeclineCarriesReason() async throws {
+        let answer = try await Self.elicitAnswer(.decline(reason: Self.hostReason))
+
+        #expect(answer.action == .decline)
+        #expect(answer.content == nil)
+        #expect(answer.reason == Self.hostReason)
+    }
+
+    @Test("elicit gives the reason of a cancel to the run")
+    func elicitCancelCarriesReason() async throws {
+        let answer = try await Self.elicitAnswer(.cancel(reason: Self.hostReason))
+
+        #expect(answer.action == .cancel)
+        #expect(answer.content == nil)
+        #expect(answer.reason == Self.hostReason)
+    }
+
+    @Test("elicit gives the reason of a decline of a URL elicitation to the run")
+    func elicitURLDeclineCarriesReason() async throws {
+        let request = ElicitationRequest(
+            message: "open this",
+            elicitationId: ULID(),
+            url: try #require(URL(string: "https://example.com/flow"))
+        )
+        let answer = try await Self.elicitAnswer(.decline(reason: Self.hostReason), to: request)
+
+        #expect(answer.action == .decline)
+        #expect(answer.reason == Self.hostReason)
+    }
+
     @Test("two concurrent elicitations on one run resolve independently by elicitationId")
     func concurrentDoubleElicit() async throws {
         let sink = RecordingSink()
