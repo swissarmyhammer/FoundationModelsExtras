@@ -48,6 +48,14 @@ public struct ToolContext: Sendable {
     /// event of the run.
     public let completionToken: String
 
+    /// The completion token of the run that holds this call. Each question
+    /// that this context asks links to it.
+    ///
+    /// It is ``completionToken`` for a background run and for a call that no
+    /// run holds. For a synchronous call that a run mounted, it is the token
+    /// of that run, because the question stops that run.
+    let holdingRunToken: String
+
     /// The configured settle period of the session, in seconds. Each tool
     /// that this context mounts uses it. See ``MountSite``.
     public private(set) var inlineSettleGrace: TimeInterval
@@ -90,6 +98,7 @@ public struct ToolContext: Sendable {
             tool: tool,
             op: op,
             completionToken: completionToken,
+            holdingRunToken: completionToken,
             isCancelled: isCancelled,
             attachmentSink: attachmentSink
         )
@@ -107,6 +116,8 @@ public struct ToolContext: Sendable {
     ///   - tool: The tool name of the run. Must not be empty.
     ///   - op: The op of the run. Must not be empty.
     ///   - completionToken: The completion token of the run.
+    ///   - holdingRunToken: The completion token of the run that holds this
+    ///     call.
     ///   - isCancelled: Tells if a cancel of the run was asked.
     ///   - attachmentSink: Gets each attached record.
     private init(
@@ -116,6 +127,7 @@ public struct ToolContext: Sendable {
         tool: String,
         op: String,
         completionToken: String,
+        holdingRunToken: String,
         isCancelled: @escaping @Sendable () -> Bool,
         attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void
     ) {
@@ -129,6 +141,7 @@ public struct ToolContext: Sendable {
         self.tool = tool
         self.op = op
         self.completionToken = completionToken
+        self.holdingRunToken = holdingRunToken
         self.cancellationProbe = isCancelled
         self.attachmentSink = attachmentSink
         self.inlineSettleGrace = site.inlineSettleGrace
@@ -144,6 +157,9 @@ public struct ToolContext: Sendable {
     ///   - site: The mount site of the call.
     ///   - sink: The sink that each capability posts to.
     ///   - completionToken: The completion token of the run.
+    ///   - holdingRunToken: The completion token of the run that holds this
+    ///     call, or `nil` when the call is a run of its own or no run holds
+    ///     it. `nil` uses `completionToken`.
     ///   - state: The cancel flag and the records of the call.
     ///   - inlineSettleDeadline: The end of the settle period of the run, or
     ///     `nil` for a run that has none.
@@ -152,6 +168,7 @@ public struct ToolContext: Sendable {
         on site: MountSite,
         sink: any OperationEventSink,
         completionToken: String,
+        heldBy holdingRunToken: String?,
         state: ToolCallState,
         inlineSettleDeadline: ContinuousClock.Instant?
     ) {
@@ -163,6 +180,7 @@ public struct ToolContext: Sendable {
             tool: name,
             op: site.op.flatMap { $0.isEmpty ? nil : $0 } ?? name,
             completionToken: completionToken,
+            holdingRunToken: holdingRunToken ?? completionToken,
             isCancelled: { state.isCancelRequested },
             attachmentSink: { state.attach($0) }
         )
@@ -275,12 +293,15 @@ public struct ToolContext: Sendable {
     /// Only an answer, a completion, or the sweep of the run plane resumes the
     /// run. A cancel of the task does not. This function never throws now.
     ///
+    /// While the question is open, it links to the run that holds this call,
+    /// and ``RunPlane/runsWaitingOnlyForUser()`` lists that run.
+    ///
     /// - Parameter request: The question.
     /// - Returns: The answer of the user.
     public func elicit(_ request: ElicitationRequest) async throws -> ElicitationResponse {
         let event = stamped(.elicitation, detail: "", elicitation: request)
         let sink = sink
-        return await runPlane.awaitAnswer(to: request) {
+        return await runPlane.awaitAnswer(to: request, runToken: holdingRunToken) {
             await sink.post(event: event)
         }
     }
@@ -352,7 +373,8 @@ public struct ToolContext: Sendable {
             op: op,
             tracer: tracer,
             inlineSettleGrace: inlineSettleGrace,
-            inlineSettleDeadline: inlineSettleDeadline
+            inlineSettleDeadline: inlineSettleDeadline,
+            holdingRunToken: holdingRunToken
         )
         return Self.mount(tool, on: site, as: configuration)
     }
@@ -389,7 +411,8 @@ public struct ToolContext: Sendable {
     ) -> any Tool<T.Arguments, T.Output> {
         let site = MountSite(
             sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline)
+            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline,
+            holdingRunToken: holdingRunToken)
         return Self.mount(tool, on: site, as: configuration)
     }
 

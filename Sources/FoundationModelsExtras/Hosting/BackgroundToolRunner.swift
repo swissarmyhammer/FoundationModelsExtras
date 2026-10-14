@@ -119,8 +119,11 @@ struct BackgroundToolRunner<
     private func start(arguments: Arguments) async -> Answer {
         let grace = grace
         let deadline = site.runPlane.clock.now.advanced(by: .seconds(grace))
+        // A background call is a run of its own, so its questions stop only
+        // this run.
         let run = ToolRun(
-            wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout, inlineSettleDeadline: deadline)
+            wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout, inlineSettleDeadline: deadline,
+            heldBy: nil)
         let token = run.context.completionToken
         let pending = PendingRunEnvelope(
             completionToken: token, next: declared?.collectInstruction(forCompletionToken: token))

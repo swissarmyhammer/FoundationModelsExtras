@@ -83,6 +83,10 @@ public actor RunPlane {
         /// The id of the elicitation.
         let id: ULID
 
+        /// The completion token of the run that asked the question. The
+        /// question stops that run until the user answers.
+        let runToken: String
+
         /// The mode of the request.
         let mode: ElicitationMode
 
@@ -254,15 +258,40 @@ public actor RunPlane {
     ///
     /// - Returns: The runs, with no output.
     public func backgroundRuns() -> [BackgroundRun] {
-        runs.map { run in
-            BackgroundRun(
-                completionToken: run.token,
-                tool: run.tool,
-                op: run.op,
-                kind: run.kind,
-                latestProgressDetail: run.latestProgressDetail
-            )
-        }
+        runs.map(Self.backgroundRun(of:))
+    }
+
+    /// Each open run that waits only for the user, in start order.
+    ///
+    /// A run waits only for the user when one or more of its questions are
+    /// open. Each question stops the run until the user answers, thus the
+    /// open work of the run is its questions. A run that waits for a process
+    /// or for another run has no open question, and is not in the list. The
+    /// run plane does not see work that a run body does at the same time as
+    /// its question.
+    ///
+    /// A host does not count these runs as work of the session. Each
+    /// question that a run asks links to the run through
+    /// ``OpenElicitation/runToken``.
+    ///
+    /// - Returns: The runs, with no output.
+    public func runsWaitingOnlyForUser() -> [BackgroundRun] {
+        let askingRunTokens = Set(elicitations.map(\.runToken))
+        return runs.filter { askingRunTokens.contains($0.token) }.map(Self.backgroundRun(of:))
+    }
+
+    /// The public view of an open run.
+    ///
+    /// - Parameter run: The open run.
+    /// - Returns: The run, with no output.
+    private static func backgroundRun(of run: Run) -> BackgroundRun {
+        BackgroundRun(
+            completionToken: run.token,
+            tool: run.tool,
+            op: run.op,
+            kind: run.kind,
+            latestProgressDetail: run.latestProgressDetail
+        )
     }
 
     /// Waits until a run settles, with a deadline or with none.
@@ -336,17 +365,21 @@ public actor RunPlane {
     ///
     /// - Parameters:
     ///   - request: The request. Its `elicitationId` names the elicitation.
+    ///   - runToken: The completion token of the run that asks. The
+    ///     elicitation links to that run until it leaves the list.
     ///   - posting: Sends the request to the host.
     /// - Returns: The answer of the user.
     func awaitAnswer(
         to request: ElicitationRequest,
+        runToken: String,
         posting: @escaping @Sendable () async -> Void = {}
     ) async -> ElicitationResponse {
         guard elicitationIndex(of: request.elicitationId) == nil else {
             return .cancel
         }
         let elicitation = Elicitation(
-            id: request.elicitationId, mode: request.mode, ticket: elicitationTelemetry.enqueued())
+            id: request.elicitationId, runToken: runToken, mode: request.mode,
+            ticket: elicitationTelemetry.enqueued())
         elicitations.append(elicitation)
         Task { await posting() }
         return await elicitation.answer.value
@@ -357,6 +390,15 @@ public actor RunPlane {
     /// - Returns: The ids.
     func pendingElicitationIds() -> [ULID] {
         elicitations.map(\.id)
+    }
+
+    /// Each pending elicitation, with the run that asked it, in the order
+    /// they came. An accepted URL elicitation stays in the list until its
+    /// completion.
+    ///
+    /// - Returns: The open elicitations.
+    public func openElicitations() -> [OpenElicitation] {
+        elicitations.map { OpenElicitation(elicitationId: $0.id, runToken: $0.runToken) }
     }
 
     /// Gives the answer of the user to a pending elicitation.

@@ -481,6 +481,7 @@ struct ToolContextTests {
             on: MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: sink),
             sink: sink,
             completionToken: RunPlane.makeCompletionToken(),
+            heldBy: nil,
             state: ToolCallState(),
             inlineSettleDeadline: nil
         )

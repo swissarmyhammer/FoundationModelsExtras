@@ -225,7 +225,7 @@ enum MountFixtures {
     ) -> ToolRun<Arguments> {
         ToolRun(
             wrapped: tool, arguments: arguments, site: site(runPlane: RunPlane(), sink: sink), mountTimeout: nil,
-            inlineSettleDeadline: nil)
+            inlineSettleDeadline: nil, heldBy: nil)
     }
 
     // MARK: - Envelope and settlement helpers

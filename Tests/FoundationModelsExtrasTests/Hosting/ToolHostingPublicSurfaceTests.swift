@@ -256,6 +256,28 @@ struct ToolHostingPublicSurfaceTests {
         #expect(ULID(ulidString: RunPlane.makeCompletionToken()) != nil)
     }
 
+    @Test("the run plane lists each open question with its run token, and the runs that wait only for the user")
+    func theRunPlaneListsOpenQuestionsAndUserWaits() async throws {
+        let runPlane = RunPlane()
+        let token = RunPlane.makeCompletionToken()
+        let context = ToolContext(
+            sessionID: ULID(), runPlane: runPlane, sink: RecordingSink(), tool: "host", op: "ask user",
+            completionToken: token, isCancelled: { false })
+        let request = Self.formRequest()
+        let asking = Task { try await context.elicit(request) }
+        try await AwaitedCondition.wait { await !runPlane.openElicitations().isEmpty }
+
+        let question = try #require(await runPlane.openElicitations().first)
+        #expect(question.elicitationId == request.elicitationId)
+        #expect(question.runToken == token)
+        // No open run has the token of the host context.
+        #expect(await runPlane.runsWaitingOnlyForUser().isEmpty)
+
+        #expect(await runPlane.respond(elicitationId: request.elicitationId, .decline) == .delivered)
+        #expect(try await asking.value == .decline)
+        #expect(await runPlane.openElicitations().isEmpty)
+    }
+
     // MARK: - Elicitation
 
     @Test("respond gives the answer of the user to the run that asked")

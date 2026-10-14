@@ -45,6 +45,14 @@ public struct MountSite: Sendable {
     /// stops its wait before it. See ``BackgroundToolRunner``.
     let inlineSettleDeadline: ContinuousClock.Instant?
 
+    /// The completion token of the run that holds each synchronous call of
+    /// this site, or `nil` when no run holds them.
+    ///
+    /// A synchronous call that a run mounts runs inside the body of that run.
+    /// Thus each question of the call stops that run, and links to its token.
+    /// A background call is a run of its own, and does not use this value.
+    let holdingRunToken: String?
+
     /// Makes a mount site. Each value must belong to the same session.
     ///
     /// - Parameters:
@@ -68,7 +76,7 @@ public struct MountSite: Sendable {
     ) {
         self.init(
             sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: nil)
+            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: nil, holdingRunToken: nil)
     }
 
     /// Makes a mount site whose calls post to `sink`, and whose background
@@ -84,6 +92,8 @@ public struct MountSite: Sendable {
     ///   - inlineSettleGrace: The configured settle period, in seconds.
     ///   - inlineSettleDeadline: The end of the settle period of the run that
     ///     mounts this site, or `nil`.
+    ///   - holdingRunToken: The completion token of the run that holds each
+    ///     synchronous call of this site, or `nil` when no run holds them.
     init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -92,7 +102,8 @@ public struct MountSite: Sendable {
         op: String?,
         tracer: (any Tracer)?,
         inlineSettleGrace: TimeInterval,
-        inlineSettleDeadline: ContinuousClock.Instant?
+        inlineSettleDeadline: ContinuousClock.Instant?,
+        holdingRunToken: String?
     ) {
         self.sessionID = sessionID
         self.runPlane = runPlane
@@ -102,13 +113,15 @@ public struct MountSite: Sendable {
         self.tracer = tracer
         self.inlineSettleGrace = max(0, inlineSettleGrace)
         self.inlineSettleDeadline = inlineSettleDeadline
+        self.holdingRunToken = holdingRunToken
     }
 
     /// This site, with the sink of the session as the sink of each call.
     var postingToSession: MountSite {
         MountSite(
             sessionID: sessionID, runPlane: runPlane, sink: sessionSink, sessionSink: sessionSink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline)
+            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline,
+            holdingRunToken: holdingRunToken)
     }
 }
 

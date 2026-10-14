@@ -394,6 +394,10 @@ struct RunPlaneActorTests {
 
     // MARK: - Pending elicitations
 
+    /// The completion token of the run that asks each question in these
+    /// tests.
+    private static let askingRunToken = RunPlane.makeCompletionToken()
+
     /// A form request with `elicitationId`.
     private static func formRequest(elicitationId: ULID) -> ElicitationRequest {
         ElicitationRequest(
@@ -415,7 +419,7 @@ struct RunPlaneActorTests {
         let runPlane = RunPlane()
         let elicitationId = ULID()
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId))
+            await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
         }
         #expect(await Self.isPending(elicitationId, on: runPlane))
 
@@ -436,7 +440,7 @@ struct RunPlaneActorTests {
             url: try #require(URL(string: "https://example.com/flow"))
         )
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: request)
+            await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
         }
         #expect(await Self.isPending(elicitationId, on: runPlane))
 
@@ -460,7 +464,7 @@ struct RunPlaneActorTests {
             url: try #require(URL(string: "https://example.com/flow"))
         )
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: request)
+            await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
         }
         #expect(await Self.isPending(elicitationId, on: runPlane))
 
@@ -480,7 +484,7 @@ struct RunPlaneActorTests {
         let tokenB = await FakeRun.start(on: runPlane, latch: latch, kind: .process, cancels: cancels)
         let elicitationId = ULID()
         let rejected = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId) that the sweep rejects") {
-            await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId))
+            await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
         }
         #expect(await Self.isPending(elicitationId, on: runPlane))
 
@@ -713,7 +717,7 @@ extension RunPlaneActorTests {
 
         try await withMetricsFactory(metrics) { () async throws in
             let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId))
+                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
             }
             #expect(await Self.isPending(elicitationId, on: runPlane))
             #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .delivered)
@@ -739,7 +743,7 @@ extension RunPlaneActorTests {
 
         try await withMetricsFactory(metrics) { () async throws in
             let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-                await runPlane.awaitAnswer(to: request)
+                await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
             }
             #expect(await Self.isPending(elicitationId, on: runPlane))
             #expect(
@@ -765,7 +769,7 @@ extension RunPlaneActorTests {
 
         try await withMetricsFactory(metrics) { () async throws in
             let rejected = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId) that the sweep rejects") {
-                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId))
+                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
             }
             #expect(await Self.isPending(elicitationId, on: runPlane))
             _ = await runPlane.sweep()

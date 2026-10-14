@@ -46,9 +46,11 @@ struct RunToCompletionRunner<
         ) { call in
             // A synchronous call keeps the settle period of its caller, so an
             // inner background call of this run stops its wait in time too.
+            // It also runs inside the run that holds it, so its questions
+            // stop that run.
             let run = ToolRun(
                 wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout,
-                inlineSettleDeadline: site.inlineSettleDeadline)
+                inlineSettleDeadline: site.inlineSettleDeadline, heldBy: site.holdingRunToken)
             await run.open()
             let settlement = await run.execute(arguments: arguments)
             ToolCallSpan.record(outcomeOf: settlement.terminal, on: call)
