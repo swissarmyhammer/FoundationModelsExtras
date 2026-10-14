@@ -135,8 +135,18 @@ public actor RunPlane {
     /// because the observer is the session that owns this run plane.
     private weak var settlementObserver: (any BackgroundRunSettlementObserver)?
 
+    /// The clock of the timers of the runs: the deadline of each wait, the
+    /// timeout of each run, and the settle period of each background call.
+    public nonisolated let clock: any RunClock
+
     /// Makes an empty run plane.
-    public init() {}
+    ///
+    /// - Parameter clock: The clock of the timers of the runs. The default is
+    ///   ``ContinuousRunClock``, the real time. A test gives a
+    ///   ``ManualRunClock``.
+    public init(clock: any RunClock = ContinuousRunClock()) {
+        self.clock = clock
+    }
 
     /// A new completion token: a ULID string.
     ///
@@ -465,6 +475,15 @@ public actor RunPlane {
         return UInt64(nanoseconds)
     }
 
+    /// Converts seconds to a `Duration` for the ``clock``, with the same
+    /// limits as ``boundedNanoseconds(clamping:)``.
+    ///
+    /// - Parameter seconds: The duration in seconds.
+    /// - Returns: The duration.
+    static func boundedDuration(clamping seconds: Double) -> Duration {
+        .nanoseconds(boundedNanoseconds(clamping: seconds))
+    }
+
     /// Keeps a wait on the open run of `token` under `id`. A deadline starts
     /// one task that ends the wait when the deadline elapses; the resume of
     /// the wait cancels that task. A run that is not open answers at once.
@@ -484,10 +503,13 @@ public actor RunPlane {
             continuation.resume(returning: settled[token].map(WaitOutcome.settled) ?? .unknownToken)
             return
         }
+        let clock = clock
         let deadline = seconds.map { seconds in
-            Task { [weak self] in
+            // The end comes from the clock now, not when the task starts.
+            let end = clock.now.advanced(by: Self.boundedDuration(clamping: seconds))
+            return Task { [weak self] in
                 do {
-                    try await Task.sleep(nanoseconds: Self.boundedNanoseconds(clamping: seconds))
+                    try await clock.sleep(until: end)
                 } catch {
                     return
                 }

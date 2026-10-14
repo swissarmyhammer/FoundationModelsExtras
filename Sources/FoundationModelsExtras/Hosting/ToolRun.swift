@@ -352,16 +352,18 @@ actor RunEventFunnel: OperationEventSink {
     }
 
     /// Waits until a full window of `seconds` passes with no progress, no
-    /// message, no display event and no pending elicitation.
+    /// message, no display event and no pending elicitation. Each window
+    /// waits on the clock of the run plane.
     ///
     /// - Parameter seconds: The timeout.
     /// - Returns: `true` at the timeout, `false` when the wait was cancelled.
     func waitForTimeout(seconds: TimeInterval) async -> Bool {
-        let window = RunPlane.boundedNanoseconds(clamping: seconds)
+        let window = RunPlane.boundedDuration(clamping: seconds)
+        let clock = runPlane.clock
         while true {
             let before = await refreshedResetCount()
             do {
-                try await Task.sleep(nanoseconds: window)
+                try await clock.sleep(until: clock.now.advanced(by: window))
             } catch {
                 return false
             }

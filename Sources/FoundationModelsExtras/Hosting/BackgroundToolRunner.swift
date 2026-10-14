@@ -95,7 +95,7 @@ struct BackgroundToolRunner<
         }
         let own = max(0, stated)
         guard let outerEnd = site.inlineSettleDeadline else { return own }
-        let remaining = Self.seconds(of: outerEnd - ContinuousClock.now)
+        let remaining = Self.seconds(of: outerEnd - site.runPlane.clock.now)
         guard remaining > 0 else { return own }
         return min(own, max(0, remaining - Self.innerCallSettleReserve))
     }
@@ -118,7 +118,7 @@ struct BackgroundToolRunner<
     ///   terminal event of a run that settled.
     private func start(arguments: Arguments) async -> Answer {
         let grace = grace
-        let deadline = ContinuousClock.now.advanced(by: .seconds(grace))
+        let deadline = site.runPlane.clock.now.advanced(by: .seconds(grace))
         let run = ToolRun(
             wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout, inlineSettleDeadline: deadline)
         let token = run.context.completionToken
