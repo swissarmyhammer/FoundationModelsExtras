@@ -2,8 +2,8 @@ import Metrics
 import MetricsTestKit
 
 /// A metrics factory that keeps each metric in a `TestMetrics` factory, and
-/// tells a capture about each metric that it makes and each value that a
-/// metric records.
+/// tells a capture about each metric that it makes, each metric that it
+/// removes and each value that a metric records.
 ///
 /// `TestMetrics` is a final class with no hook, thus this factory stands in
 /// front of it. It makes each metric in `TestMetrics`, so that the reads of
@@ -18,8 +18,8 @@ final class ObservedMetricsFactory: MetricsFactory {
     /// The factory that keeps each metric.
     let metrics: TestMetrics
 
-    /// Called after each metric that this factory makes, and after each value
-    /// that one of its metrics records.
+    /// Called after each metric that this factory makes or removes, and after
+    /// each value that one of its metrics records.
     let metricDidChange: @Sendable () -> Void
 
     /// Makes a factory in front of `metrics`.
@@ -73,32 +73,36 @@ final class ObservedMetricsFactory: MetricsFactory {
         observed(metrics.makeTimer(label: label, dimensions: dimensions))
     }
 
-    /// Removes a counter from ``metrics``.
+    /// Removes a counter from ``metrics``, and tells the capture that a
+    /// metric was removed.
     ///
     /// - Parameter handler: A handler that this factory made.
     func destroyCounter(_ handler: CounterHandler) {
-        metrics.destroyCounter(Self.target(of: handler))
+        removed { metrics.destroyCounter(Self.target(of: handler as any CounterHandler)) }
     }
 
-    /// Removes a meter from ``metrics``.
+    /// Removes a meter from ``metrics``, and tells the capture that a
+    /// metric was removed.
     ///
     /// - Parameter handler: A handler that this factory made.
     func destroyMeter(_ handler: MeterHandler) {
-        metrics.destroyMeter(Self.target(of: handler))
+        removed { metrics.destroyMeter(Self.target(of: handler as any MeterHandler)) }
     }
 
-    /// Removes a recorder from ``metrics``.
+    /// Removes a recorder from ``metrics``, and tells the capture that a
+    /// metric was removed.
     ///
     /// - Parameter handler: A handler that this factory made.
     func destroyRecorder(_ handler: RecorderHandler) {
-        metrics.destroyRecorder(Self.target(of: handler))
+        removed { metrics.destroyRecorder(Self.target(of: handler as any RecorderHandler)) }
     }
 
-    /// Removes a timer from ``metrics``.
+    /// Removes a timer from ``metrics``, and tells the capture that a
+    /// metric was removed.
     ///
     /// - Parameter handler: A handler that this factory made.
     func destroyTimer(_ handler: TimerHandler) {
-        metrics.destroyTimer(Self.target(of: handler))
+        removed { metrics.destroyTimer(Self.target(of: handler as any TimerHandler)) }
     }
 
     /// Puts a front handler before `target`, and tells the capture that a
@@ -112,7 +116,21 @@ final class ObservedMetricsFactory: MetricsFactory {
         return handler
     }
 
+    /// Gives one removal to ``metrics``, then tells the capture that a metric
+    /// was removed.
+    ///
+    /// - Parameter remove: The removal of the metric.
+    private func removed(_ remove: () -> Void) {
+        remove()
+        metricDidChange()
+    }
+
     /// The `TestMetrics` handler behind a front handler.
+    ///
+    /// Give `handler` as an existential, for example
+    /// `handler as any CounterHandler`. Else Swift opens the existential, and
+    /// `Handler` is the type of the front handler, not the handler protocol.
+    /// Then the cast fails, and the call gives `handler` itself.
     ///
     /// - Parameter handler: A handler that this factory made, or a different
     ///   handler.

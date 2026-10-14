@@ -213,9 +213,9 @@ extension TelemetryCapture {
         public let metricsFactory: TestMetrics
 
         /// The factory that the capture binds with `withMetricsFactory`. It
-        /// keeps each metric in ``metricsFactory``, and each metric that it
-        /// makes and each value that such a metric records ends the waits of
-        /// ``wait(until:)`` whose condition is then true.
+        /// keeps each metric in ``metricsFactory``. Each metric that it makes
+        /// or removes, and each value that such a metric records, ends the
+        /// waits of ``wait(until:)`` whose condition is then true.
         ///
         /// Give this factory to the code in place of ``metricsFactory`` when
         /// the code takes a factory and a test waits for its metrics. A
@@ -260,8 +260,8 @@ extension TelemetryCapture {
         /// The wait tests `condition` at once, thus a wait for a record that
         /// arrived before the wait ends at once. Else the wait tests
         /// `condition` again after each span that ends, each log record, each
-        /// metric that ``observedMetricsFactory`` makes, and each value that
-        /// such a metric records. The wait uses no clock, no poll and no
+        /// metric that ``observedMetricsFactory`` makes or removes, and each
+        /// value that such a metric records. The wait uses no clock, no poll and no
         /// sleep. A cancel of the task ends the wait, and the wait does not
         /// throw. Thus after a cancel, test `condition` again if the test
         /// must know the cause of the end.
