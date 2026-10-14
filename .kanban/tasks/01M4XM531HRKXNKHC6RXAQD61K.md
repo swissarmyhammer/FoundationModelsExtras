@@ -67,8 +67,24 @@ comments:
     - evidence: 3 files — Tests/TelemetryTestSupport/ObservedMetricsFactory.swift (each of the 4 destroy methods calls metricDidChange through a new private `removed` helper; each gives the handler as an existential so that the cast to the TestMetrics handler succeeds), Tests/TelemetryTestSupport/TelemetryCapture.swift (the docs say that a removal ends waits), Tests/FoundationModelsExtrasTests/Telemetry/TelemetryCaptureWaitTests.swift (2 new tests: a meter write through observedMetricsFactory, and a counter destroy during a wait). `swift build --build-tests` 1 run (its output went through a pipe by mistake, thus it gave no result; the filtered test run built the code). `swift test --filter TelemetryCaptureWaitTests` 2 runs: the first hung on the destroy bug and the timeout killed it; the second passed 8/8. `swift test` 1 run: 1140 tests in 106 suites passed, 0 failures. The only warning is the SwiftPM build-system warning "missing creator for mutated node" for the mlx-swift_Cmlx.bundle, which was present before this change.
     - next: /review. The push and the mail to the peer session stay open.
   timestamp: 2026-10-14T17:39:38.470928+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4xr3e4j725e2y2wnh1rr88c
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit e37a2c4). 3 files reviewed. 0 findings, 0 confirmed, 0 refuted (7 attempted, 0 failed). All 3 prior review findings are checked.
+    - next: Do the last checklist item. Run the full suite one time. Push when it is green. Send the commit to the mail peer session.
+  timestamp: 2026-10-14T17:41:59.570702+00:00
+- actor: claude-code
+  id: 01m4xr3qp20yd04v5813pte1ws
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — ObservedMetricsFactory.swift, TelemetryCapture.swift, TelemetryCaptureWaitTests.swift
+    - test: green — the full swift test suite ran one time in the implement step, 1140 passed
+    - commit: e37a2c4
+    - review: clean — 0 findings; all 3 earlier findings are checked
+  timestamp: 2026-10-14T17:42:09.346330+00:00
+position_column: done
+position_ordinal: ff8980
 title: 'TelemetryCapture.Context: add an event wait for spans, log records and metric records'
 ---
 TelemetryTestSupport.TelemetryCapture.Context gives only reads of its spans, logRecords and metricsFactory. Thus, ACPAgent tests must poll it.
