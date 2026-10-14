@@ -38,19 +38,6 @@ struct RunPlaneUserWaitTests {
         }
     }
 
-    /// Calls the mounted tool of a background run in a synchronous mount, and
-    /// returns its output. The inner tool asks one question.
-    private struct MountingElicitTool: Tool {
-        let name = "mounting_elicit_tool"
-        let description = "mounts a tool that asks one question, and calls it"
-
-        func call(arguments: MountArguments) async throws -> String {
-            let context = try #require(ToolContext.current)
-            let inner = context.mount(MountFixtures.ElicitOnceTool())
-            return try await inner.call(arguments: arguments)
-        }
-    }
-
     // MARK: - The link of each question
 
     @Test("openElicitations() lists each open question with the token of the run that asked it, in arrival order")
@@ -147,7 +134,7 @@ struct RunPlaneUserWaitTests {
 
     @Test("a synchronous call that a background run mounts links its question to the background run")
     func aMountedSynchronousCallLinksItsQuestionToTheHoldingRun() async throws {
-        let harness = Fixtures.backgroundHarness(wrapping: MountingElicitTool())
+        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.MountingElicitTool())
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: Self.callValue))
         let outerToken = try Fixtures.decodeEnvelope(rendered).completionToken
         try await Self.waitForOpenQuestions(1, on: harness.runPlane)

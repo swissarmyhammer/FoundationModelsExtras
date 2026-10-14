@@ -251,6 +251,11 @@ struct ToolHostingPublicSurfaceTests {
         #expect(await runPlane.backgroundRuns().isEmpty)
     }
 
+    @Test("a host reads the reason of the cancel that the questions of a stopped run get")
+    func aHostReadsTheRunCancelledReason() {
+        #expect(RunPlane.runCancelledReason == "run cancelled")
+    }
+
     @Test("a completion token of the run plane is a ULID string")
     func aCompletionTokenIsAULIDString() {
         #expect(ULID(ulidString: RunPlane.makeCompletionToken()) != nil)

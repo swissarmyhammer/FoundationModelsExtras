@@ -523,7 +523,7 @@ struct RunPlaneActorTests {
         #expect(terminals.allSatisfy { $0.kind == .completed && $0.outcome == .cancelled })
         #expect(await runPlane.backgroundRuns().isEmpty)
         #expect(await runPlane.pendingElicitationIds().isEmpty)
-        #expect(try await rejected.deliveredAnswer() == .cancel)
+        #expect(try await rejected.deliveredAnswer() == .cancel(reason: RunPlane.runCancelledReason))
         // A swept token reports its terminal event to wait().
         #expect(await runPlane.wait(completionToken: tokenA, seconds: 5).settledTerminal?.correlationID == tokenA)
         latch.open()
@@ -801,7 +801,7 @@ extension RunPlaneActorTests {
             }
             #expect(await Self.isPending(elicitationId, on: runPlane))
             _ = await runPlane.sweep()
-            #expect(try await rejected.deliveredAnswer() == .cancel)
+            #expect(try await rejected.deliveredAnswer() == .cancel(reason: RunPlane.runCancelledReason))
         }
 
         try QueueMetricExpectations.expectCompletedJobs(

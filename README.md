@@ -902,6 +902,15 @@ questions that those runs ask the user.
 - The host gives the answers of the user with `respond(elicitationId:_:)` and
   `complete(elicitationId:)`. At the end of the session, `sweep()` stops each
   run that is still open.
+- When a run stops, its open questions end. `cancel(completionToken:)` gives
+  a cancel with the reason `RunPlane.runCancelledReason` (`"run cancelled"`)
+  to each open question of that run, and to each question of a synchronous
+  call that the run mounted. The questions of other runs stay open.
+  `sweep()` gives the same cancel to each open question. The questions of a
+  run end before the run plane runs the canceler of that run, because a run
+  that waits for an answer cannot stop. A host compares the reason with
+  `RunPlane.runCancelledReason` to tell this cancel from a cancel of the
+  user.
 - An answer (`ElicitationResponse`) has the shape `{ action, content, reason }`,
   with `action` = `accept`, `decline` or `cancel`. `content` is `nil` for a
   decline and a cancel. A decline or a cancel can tell why the question ended

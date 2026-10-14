@@ -108,6 +108,11 @@ public actor RunPlane {
     /// question has the same `elicitationId`.
     static let duplicateElicitationIdReason = "an open elicitation already has this elicitationId"
 
+    /// The reason of the cancel that each open question of a stopped run
+    /// gets. ``cancel(completionToken:)`` and ``sweep()`` give it, thus a
+    /// host can tell this cancel from a cancel of the user.
+    public static let runCancelledReason = "run cancelled"
+
     /// The open runs, in start order.
     private var runs: [Run] = []
 
@@ -341,8 +346,15 @@ public actor RunPlane {
         return runs[index].waiters.count
     }
 
-    /// Runs the canceler of a run and reports its outcome as is. The run
-    /// stays open until it settles.
+    /// Ends the open questions of a run, then runs the canceler of the run
+    /// and reports its outcome as is. The run stays open until it settles.
+    ///
+    /// Each open question that the run asked gets a cancel with
+    /// ``runCancelledReason``. A question of a synchronous call that the run
+    /// mounted links to the run, thus it ends too. The questions of other
+    /// runs stay open. The questions end before the canceler runs, because a
+    /// run that waits for an answer cannot settle, and a canceler that waits
+    /// for the run to stop then never returns.
     ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: ``CancelOutcome/reported(_:)``, or
@@ -355,6 +367,7 @@ public actor RunPlane {
         guard let index = index(of: completionToken) else {
             return .unknownToken
         }
+        cancelQuestions(ofRun: completionToken)
         return .reported(await runs[index].canceler())
     }
 
@@ -451,8 +464,13 @@ public actor RunPlane {
     // MARK: - The sweep
 
     /// The sweep at the end of a session: cancels each open run in start
-    /// order, gives one terminal event for each, then answers each pending
-    /// elicitation with ``ElicitationResponse/cancel``.
+    /// order, gives one terminal event for each, then ends each pending
+    /// elicitation that is still open.
+    ///
+    /// Each pending elicitation gets a cancel with ``runCancelledReason``.
+    /// The sweep ends the questions of each run before it runs the canceler
+    /// of that run, because a run that waits for an answer cannot settle,
+    /// and a canceler that waits for the run to stop then never returns.
     ///
     /// - Returns: One terminal event for each run that was open when the
     ///   sweep started. A sweep while another sweep runs returns nothing.
@@ -464,6 +482,7 @@ public actor RunPlane {
         for token in runs.map(\.token) {
             guard let index = index(of: token) else { continue }
             let run = runs[index]
+            cancelQuestions(ofRun: token)
             let outcome = await run.canceler()
             // The canceler suspends this actor, so the run can settle by
             // itself in that time. Its own terminal event is then the one
@@ -483,10 +502,7 @@ public actor RunPlane {
             settle(token, with: swept)
             terminals.append(swept)
         }
-        for elicitation in elicitations {
-            finish(elicitation, with: .cancel)
-        }
-        elicitations.removeAll()
+        cancelQuestions { _ in true }
         return terminals
     }
 
@@ -639,6 +655,27 @@ public actor RunPlane {
     private func finish(_ elicitation: Elicitation, with response: ElicitationResponse) {
         elicitationTelemetry.completed(elicitation.ticket, outcome: Self.queueOutcome(of: response))
         elicitation.answer.fulfill(response)
+    }
+
+    /// Ends each open question of the run of `token` with a cancel that gives
+    /// ``runCancelledReason``. The questions of other runs stay open.
+    ///
+    /// - Parameter token: The completion token of the run.
+    private func cancelQuestions(ofRun token: String) {
+        cancelQuestions { $0.runToken == token }
+    }
+
+    /// Ends each open question that `isEnded` selects with a cancel that
+    /// gives ``runCancelledReason``, in the order they came. The other
+    /// questions stay open.
+    ///
+    /// - Parameter isEnded: Selects each question to end.
+    private func cancelQuestions(where isEnded: (Elicitation) -> Bool) {
+        let ended = elicitations.filter(isEnded)
+        elicitations.removeAll(where: isEnded)
+        for elicitation in ended {
+            finish(elicitation, with: .cancel(reason: Self.runCancelledReason))
+        }
     }
 
     /// Gives the bounded queue outcome of the answer to an elicitation.

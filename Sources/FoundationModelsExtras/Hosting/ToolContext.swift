@@ -275,8 +275,10 @@ public struct ToolContext: Sendable {
     ///
     /// The run waits on the run plane under the `elicitationId` of the
     /// request, and the request goes to the sink as an elicitation event.
-    /// Only an answer, a completion, or the sweep of the run plane resumes the
-    /// run. A cancel of the task does not. This function never throws now.
+    /// Only an answer, a completion, a cancel of the run that holds this
+    /// call, or the sweep of the run plane resumes the run. A cancel of the
+    /// task does not. A cancel of the run and the sweep give a cancel with
+    /// ``RunPlane/runCancelledReason``. This function never throws now.
     ///
     /// The answer has the shape `{ action, content, reason }`. A decline and
     /// a cancel have no content, and they can carry a
@@ -320,6 +322,10 @@ public struct ToolContext: Sendable {
 
     /// Asks a background run to stop, and reports the outcome that its
     /// canceler gives. The run stays open until it settles.
+    ///
+    /// Each open question of the run ends first, with a cancel that gives
+    /// ``RunPlane/runCancelledReason``. The questions of other runs stay
+    /// open.
     ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: The ``CancelOutcome``.

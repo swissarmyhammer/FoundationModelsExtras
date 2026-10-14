@@ -555,6 +555,20 @@ enum MountFixtures {
         }
     }
 
+    /// Calls the mounted tool of a background run in a synchronous mount, and
+    /// returns its output. The inner tool is ``ElicitOnceTool``, thus it asks
+    /// one question.
+    struct MountingElicitTool: Tool {
+        let name = "mounting_elicit_tool"
+        let description = "mounts a tool that asks one question, and calls it"
+
+        func call(arguments: MountArguments) async throws -> String {
+            let context = try #require(ToolContext.current)
+            let inner = context.mount(ElicitOnceTool())
+            return try await inner.call(arguments: arguments)
+        }
+    }
+
     /// Asks one question, then sleeps for an hour.
     struct ElicitThenStallTool: Tool {
         let name = "elicit_then_stall_tool"
