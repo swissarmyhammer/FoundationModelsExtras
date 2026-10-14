@@ -67,13 +67,6 @@ public struct ToolContext: Sendable {
         runSite.inlineSettleGrace
     }
 
-    /// The end of the settle period of this run, or `nil` when this run has
-    /// none. Each background call that this context mounts stops its own wait
-    /// before it. See ``BackgroundToolRunner``.
-    var inlineSettleDeadline: ContinuousClock.Instant? {
-        runSite.inlineSettleDeadline
-    }
-
     /// Makes a context. A host makes one to bind around work that it runs
     /// for a session, for example a model call.
     ///
@@ -357,8 +350,9 @@ public struct ToolContext: Sendable {
         op: String? = nil,
         as configuration: ToolMount = .synchronous
     ) -> any Tool<T.Arguments, T.Output> {
-        let site = runSite.posting(to: MountedRunUpstreamSink(context: self), sessionSink: runSite.sessionSink, op: op)
-        return Self.mount(tool, on: site, as: configuration)
+        mount(
+            tool, op: op, as: configuration,
+            eventSink: MountedRunUpstreamSink(context: self), sessionSink: runSite.sessionSink)
     }
 
     /// This context, with `grace` as the settle period of each tool that it
@@ -391,21 +385,27 @@ public struct ToolContext: Sendable {
         as configuration: ToolMount = .synchronous,
         postingTo sink: any OperationEventSink
     ) -> any Tool<T.Arguments, T.Output> {
-        return Self.mount(tool, on: runSite.posting(to: sink, sessionSink: sink, op: op), as: configuration)
+        mount(tool, op: op, as: configuration, eventSink: sink, sessionSink: sink)
     }
 
-    /// Mounts `tool` on `site`, and keeps the types of `tool`.
+    /// Mounts `tool` on a copy of the site of this run that posts to
+    /// `eventSink` and `sessionSink`, and keeps the types of `tool`.
     ///
     /// - Parameters:
     ///   - tool: The tool to mount.
-    ///   - site: Where the tool runs.
+    ///   - op: The op of the mounted runs, or `nil` for the tool name.
     ///   - configuration: The mount when `tool` declares none.
+    ///   - eventSink: The sink of each synchronous mounted run.
+    ///   - sessionSink: The sink of each background mounted run.
     /// - Returns: The mounted tool, with the `Arguments` and `Output` of `tool`.
-    private static func mount<T: Tool>(
+    private func mount<T: Tool>(
         _ tool: T,
-        on site: MountSite,
-        as configuration: ToolMount
+        op: String?,
+        as configuration: ToolMount,
+        eventSink: any OperationEventSink,
+        sessionSink: any OperationEventSink
     ) -> any Tool<T.Arguments, T.Output> {
+        let site = runSite.posting(to: eventSink, sessionSink: sessionSink, op: op)
         let mounted = ToolMounting.makeWrapped(tool: tool, site: site, configuration: configuration)
         // Each mount keeps `Arguments` and `Output`, so the cast does not
         // fail. The fallback calls the tool with no mount.

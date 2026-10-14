@@ -55,6 +55,29 @@ comments:
     - evidence: Sources/FoundationModelsExtras/Hosting/{ToolMounting,ToolContext,ToolRun,ContextBindingTool,BackgroundToolRunner,RunToCompletionRunner}.swift; Tests/FoundationModelsExtrasTests/Hosting/{MountFixtures,RunPlaneUserWaitTests,RunPlaneActorTests,ToolContextTests}.swift. `swift build --build-tests`: build complete, no package warnings (only the SwiftPM note about the mlx-swift_Cmlx bundle). Filtered run of the 28 hosting suites: 264 tests passed. Full `swift test`: 1132 tests in 105 suites passed, 0 failures.
     - next: review
   timestamp: 2026-10-14T16:56:38.478796+00:00
+- actor: claude-code
+  id: 01m4xnqj5a2p04m9gjxn8rgant
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (a47fea0): 2 findings (2 confirmed, 2 refuted). Sources/FoundationModelsExtras/Hosting/ToolContext.swift:73, Sources/FoundationModelsExtras/Hosting/ToolContext.swift:360
+    - next: implement the 2 open items in the "Review Findings (2026-10-14 11:57)" section. The task stays in review.
+  timestamp: 2026-10-14T17:00:33.322751+00:00
+- actor: claude-code
+  id: 01m4xnqsphnsc4hzkxtttc3we2
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 6 source files, 4 test files
+    - test: green — the full swift test suite ran one time in the implement step, 1132 passed
+    - commit: a47fea0
+    - review: findings — ToolContext.swift:73, ToolContext.swift:360
+  timestamp: 2026-10-14T17:00:41.041740+00:00
+- actor: claude-code
+  id: 01m4xnva6tdms9yrbv434896zd
+  text: |-
+    ### implement — changed
+    - evidence: Sources/FoundationModelsExtras/Hosting/ToolContext.swift. I removed the unused instance property `inlineSettleDeadline`. No code in Sources or Tests read it. The init reads `site.inlineSettleDeadline` directly. Both public `mount` overloads now call one private instance helper `mount(_:op:as:eventSink:sessionSink:)`. That helper builds the MountSite with `runSite.posting(...)` and wraps the tool. It replaces the private static `mount(_:on:as:)`. `swift build --build-tests` gave no compiler warnings. The full `swift test` run passed 1132 tests in 105 suites with 0 failures.
+    - next: review
+  timestamp: 2026-10-14T17:02:36.250917+00:00
 position_column: doing
 position_ordinal: '80'
 title: Link each open question to the run token of the run that asked it
@@ -81,3 +104,13 @@ Do not start this task as part of the mail plan. This task is not in the mail pl
 - [x] `Sources/FoundationModelsExtras/Hosting/RunToCompletionRunner.swift:53` `duplication/duplication` — The ToolRun construction in callToCompletion repeats the ToolRun construction in BackgroundToolRunner.start. The two calls share the same first four arguments and the same argument labels. They differ only in the deadline source and in the heldBy value. The heldBy argument was added to both copies in this change. Use the same fix as the paired finding in BackgroundToolRunner.swift. This is a weaker finding, so keep the two sites if a shared helper would only move the arguments.
 - [x] `Sources/FoundationModelsExtras/Hosting/ToolMounting.swift:123` `duplication/duplication` — The MountSite construction in postingToSession repeats the same eight-argument MountSite construction in ToolContext.mount(_:op:as:postingTo:). The two blocks differ only by the sink value (sessionSink versus sink). The new inlineSettleGrace, inlineSettleDeadline and holdingRunToken arguments were added to both copies, so a later change to one copy can drift from the other. Add one method on MountSite, for example `func posting(to sink: any OperationEventSink, sessionSink: any OperationEventSink) -> MountSite`, that copies the other fields. Make postingToSession call it with sessionSink for both arguments, and make ToolContext.mount(_:op:as:postingTo:) call it with sink for both arguments. Then the field list appears once, and a new MountSite field needs one edit.
 - [x] `Tests/FoundationModelsExtrasTests/Hosting/RunPlaneUserWaitTests.swift:20` `reuse/reuse` — The new private `formRequest(elicitationId:)` rebuilds a form question that already exists in other test suites. Keeping several copies means a change to the form fixture must be made in each copy, and the copies can drift apart. Move one shared form-request helper into a common test support file (for example, next to `MountFixtures` or `RunPlaneTestSupport`) and call it from `RunPlaneUserWaitTests`, `RunPlaneActorTests` and, where it fits, `ToolContextTests`. Delete the private copies.
+
+## Review Findings (2026-10-14 11:57)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 10 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsExtras/Hosting/ToolContext.swift:73` `code-hygiene/dead-code-swift` — var.instance `inlineSettleDeadline` is unused.
+- [x] `Sources/FoundationModelsExtras/Hosting/ToolContext.swift:360` `duplication/duplication` — The two public mount overloads repeat the same steps: build a MountSite with runSite.posting(...), then call Self.mount(tool, on:, as:). They differ only by the sink value passed to posting. Two copies of this logic can drift apart, for example when the op or session-sink handling changes in one overload and not the other. Add one private helper that takes the tool, op, configuration, the event sink and the session sink. Call it from both public overloads, and pass MountedRunUpstreamSink(context: self) from the first overload and sink from the second.
