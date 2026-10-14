@@ -13,18 +13,6 @@ struct RunPlaneUserWaitTests {
     /// The value of each fixture call.
     private static let callValue = "x"
 
-    /// A form question with `elicitationId`.
-    ///
-    /// - Parameter elicitationId: The id of the question.
-    /// - Returns: The question.
-    private static func formRequest(elicitationId: ULID) -> ElicitationRequest {
-        ElicitationRequest(
-            message: "name?",
-            elicitationId: elicitationId,
-            requestedSchema: ElicitationRequestedSchema(properties: ["name": .string(ElicitationStringSchema())])
-        )
-    }
-
     /// Waits until `runPlane` has `count` open questions.
     ///
     /// - Parameters:
@@ -46,7 +34,7 @@ struct RunPlaneUserWaitTests {
         _ elicitationId: ULID, for runToken: String, on runPlane: RunPlane
     ) -> AnswerDrivenRun<ElicitationResponse> {
         AnswerDrivenRun(waitingFor: "the question \(elicitationId)") {
-            await runPlane.awaitAnswer(to: formRequest(elicitationId: elicitationId), runToken: runToken)
+            await runPlane.awaitAnswer(to: Fixtures.nameRequest(elicitationId: elicitationId), runToken: runToken)
         }
     }
 
@@ -190,7 +178,7 @@ struct RunPlaneUserWaitTests {
         )
         let question = ULID()
         let answer = AnswerDrivenRun(waitingFor: "the question of the host context") {
-            try await context.elicit(Self.formRequest(elicitationId: question))
+            try await context.elicit(Fixtures.nameRequest(elicitationId: question))
         }
         try await Self.waitForOpenQuestions(1, on: runPlane)
 

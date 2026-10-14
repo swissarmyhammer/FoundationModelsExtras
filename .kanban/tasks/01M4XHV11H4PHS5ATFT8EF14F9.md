@@ -22,6 +22,39 @@ comments:
     - Limit: the run plane cannot see work that a run body does at the same time as its question.
     - next: review
   timestamp: 2026-10-14T16:43:32.161807+00:00
+- actor: claude-code
+  id: 01m4xn276ppcf3pz2n7c07ssv1
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (commit 11426a4). 5 findings, 5 confirmed, 1 refuted. Sources/FoundationModelsExtras/Hosting/BackgroundToolRunner.swift:125, Sources/FoundationModelsExtras/Hosting/ContextBindingTool.swift:60, Sources/FoundationModelsExtras/Hosting/RunToCompletionRunner.swift:53, Sources/FoundationModelsExtras/Hosting/ToolMounting.swift:123, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneUserWaitTests.swift:20
+    - next: implement the 5 open findings in the section "Review Findings (2026-10-14 11:44)". The task stays in the review column.
+  timestamp: 2026-10-14T16:48:53.974415+00:00
+- actor: claude-code
+  id: 01m4xn2hwkgpak9nn3vjkyztt9
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 8 source files, 5 test files
+    - test: green — the full swift test suite ran one time in the implement step, 0 failures
+    - commit: 11426a4
+    - review: findings — BackgroundToolRunner.swift:125, ContextBindingTool.swift:60, RunToCompletionRunner.swift:53, ToolMounting.swift:123, RunPlaneUserWaitTests.swift:20
+  timestamp: 2026-10-14T16:49:04.915428+00:00
+- actor: claude-code
+  id: 01m4xngafbw3ax8qkdds6a1n9m
+  text: |-
+    Fixed the 5 findings of the section "Review Findings (2026-10-14 11:44)".
+    - MountSite: the fields that change are now `private(set) var`. The internal nine-argument init is gone. Three copy methods change a site: `posting(to:sessionSink:op:)`, `held(by:settlingBy:)` and `settling(within:)`. `postingToSession` calls `posting(to:sessionSink:op:)`. The public init is now the only field list.
+    - ToolContext: it keeps one `private var runSite: MountSite` (the site of the run, with the holding run token put on it). `sessionID`, `runPlane`, `inlineSettleGrace`, `inlineSettleDeadline` and `holdingRunToken` read from it. Both `mount` overloads call `runSite.posting(to:sessionSink:op:)`, and `settling(within:)` calls `runSite.settling(within:)`. `import Tracing` was removed because no line uses it now.
+    - ToolContext factory: `init(calling:on:sink:completionToken:state:)` reads the settle deadline and the holding run from the site. ToolRun.init and ContextBindingTool.settle pass only their own sink and token.
+    - ToolRun: `init(wrapped:arguments:site:mountTimeout:)`. The site carries the deadline and the holder. `MountRunner.makeRun(arguments:on:)` builds the ToolRun for both runners. BackgroundToolRunner passes `site.held(by: nil, settlingBy: deadline)`; RunToCompletionRunner passes `site` as it is.
+    - Tests: `MountFixtures.nameRequest(elicitationId:)` is the one shared form question. The private copies in RunPlaneUserWaitTests, RunPlaneActorTests and ToolContextTests are deleted. ToolHostingPublicSurfaceTests keeps its own form question: it imports the module with no `@testable` to test the public surface, and the finding names only the three suites above.
+  timestamp: 2026-10-14T16:56:36.075911+00:00
+- actor: claude-code
+  id: 01m4xngctebp02b3pc9584hphx
+  text: |-
+    ### implement — changed
+    - evidence: Sources/FoundationModelsExtras/Hosting/{ToolMounting,ToolContext,ToolRun,ContextBindingTool,BackgroundToolRunner,RunToCompletionRunner}.swift; Tests/FoundationModelsExtrasTests/Hosting/{MountFixtures,RunPlaneUserWaitTests,RunPlaneActorTests,ToolContextTests}.swift. `swift build --build-tests`: build complete, no package warnings (only the SwiftPM note about the mlx-swift_Cmlx bundle). Filtered run of the 28 hosting suites: 264 tests passed. Full `swift test`: 1132 tests in 105 suites passed, 0 failures.
+    - next: review
+  timestamp: 2026-10-14T16:56:38.478796+00:00
 position_column: doing
 position_ordinal: '80'
 title: Link each open question to the run token of the run that asked it
@@ -35,3 +68,16 @@ Expose the runs that wait only for the user. A run waits only for the user when 
 Router task 9 depends on this task. Router task 9: a run that waits only for the user does not count as work.
 
 Do not start this task as part of the mail plan. This task is not in the mail plan. #elicitation-phase-1
+
+## Review Findings (2026-10-14 11:44)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 13 file(s) reviewed, 8 not reviewed.
+
+> 8 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 8 file(s)
+
+- [x] `Sources/FoundationModelsExtras/Hosting/BackgroundToolRunner.swift:125` `duplication/duplication` — The ToolRun construction in start repeats the same ToolRun construction in RunToCompletionRunner.callToCompletion. Both pass the same wrapped, arguments, site and mountTimeout values, and the same inlineSettleDeadline and heldBy labels. They differ only in the deadline source and in the heldBy value. Both copies took the new heldBy argument in this change, so a later edit to one can drift from the other. This finding is weaker than the ToolContext pair. Two values differ, and both differences carry meaning. Consider a single helper on the mount site that builds a ToolRun for a call, with the deadline and the holder passed in. If that adds more than it removes, keep the two sites and leave them as they are.
+- [x] `Sources/FoundationModelsExtras/Hosting/ContextBindingTool.swift:60` `duplication/duplication` — The ToolContext construction in settle repeats the same seven-argument ToolContext construction in ToolRun.init. The two blocks differ only by the sink value and the source of the completion token. The new heldBy and inlineSettleDeadline arguments were added to both copies, so a later change to one copy can drift from the other. Consider one ToolContext factory that takes the sink, the completion token and the state, and fills in the other arguments from the site. Both call sites would then pass only their own sink and token. Keep the two sites apart if the factory would hide more than it removes; the overlap is seven arguments in each.
+- [x] `Sources/FoundationModelsExtras/Hosting/RunToCompletionRunner.swift:53` `duplication/duplication` — The ToolRun construction in callToCompletion repeats the ToolRun construction in BackgroundToolRunner.start. The two calls share the same first four arguments and the same argument labels. They differ only in the deadline source and in the heldBy value. The heldBy argument was added to both copies in this change. Use the same fix as the paired finding in BackgroundToolRunner.swift. This is a weaker finding, so keep the two sites if a shared helper would only move the arguments.
+- [x] `Sources/FoundationModelsExtras/Hosting/ToolMounting.swift:123` `duplication/duplication` — The MountSite construction in postingToSession repeats the same eight-argument MountSite construction in ToolContext.mount(_:op:as:postingTo:). The two blocks differ only by the sink value (sessionSink versus sink). The new inlineSettleGrace, inlineSettleDeadline and holdingRunToken arguments were added to both copies, so a later change to one copy can drift from the other. Add one method on MountSite, for example `func posting(to sink: any OperationEventSink, sessionSink: any OperationEventSink) -> MountSite`, that copies the other fields. Make postingToSession call it with sessionSink for both arguments, and make ToolContext.mount(_:op:as:postingTo:) call it with sink for both arguments. Then the field list appears once, and a new MountSite field needs one edit.
+- [x] `Tests/FoundationModelsExtrasTests/Hosting/RunPlaneUserWaitTests.swift:20` `reuse/reuse` — The new private `formRequest(elicitationId:)` rebuilds a form question that already exists in other test suites. Keeping several copies means a change to the form fixture must be made in each copy, and the copies can drift apart. Move one shared form-request helper into a common test support file (for example, next to `MountFixtures` or `RunPlaneTestSupport`) and call it from `RunPlaneUserWaitTests`, `RunPlaneActorTests` and, where it fits, `ToolContextTests`. Delete the private copies.

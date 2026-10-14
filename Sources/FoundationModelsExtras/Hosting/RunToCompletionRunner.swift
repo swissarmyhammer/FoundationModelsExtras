@@ -44,13 +44,11 @@ struct RunToCompletionRunner<
         let result = try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { call in
-            // A synchronous call keeps the settle period of its caller, so an
-            // inner background call of this run stops its wait in time too.
-            // It also runs inside the run that holds it, so its questions
-            // stop that run.
-            let run = ToolRun(
-                wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout,
-                inlineSettleDeadline: site.inlineSettleDeadline, heldBy: site.holdingRunToken)
+            // A synchronous call keeps the site of its caller as it is: it
+            // keeps the settle period of its caller, so an inner background
+            // call of this run stops its wait in time too. It also runs inside
+            // the run that holds it, so its questions stop that run.
+            let run = makeRun(arguments: arguments, on: site)
             await run.open()
             let settlement = await run.execute(arguments: arguments)
             ToolCallSpan.record(outcomeOf: settlement.terminal, on: call)

@@ -13,16 +13,16 @@ public struct MountSite: Sendable {
     let runPlane: RunPlane
 
     /// The sink of the events and the records of each call.
-    let sink: any OperationEventSink
+    private(set) var sink: any OperationEventSink
 
     /// The sink of the session. A background run lives longer than the call
     /// that starts it, so each background call posts here. The terminal of a
     /// run in a nested mount thus goes to the session as the terminal of that
     /// run.
-    let sessionSink: any OperationEventSink
+    private(set) var sessionSink: any OperationEventSink
 
     /// The `"verb noun"` op of the registration, or `nil` for the tool name.
-    let op: String?
+    private(set) var op: String?
 
     /// The tracer of the session, or `nil` for `InstrumentationSystem.tracer`
     /// at call time.
@@ -34,7 +34,7 @@ public struct MountSite: Sendable {
     ///
     /// A tool that states no ``BackgroundTool/inlineSettleGrace`` of its own
     /// uses this value.
-    let inlineSettleGrace: TimeInterval
+    private(set) var inlineSettleGrace: TimeInterval
 
     /// The end of the settle period of the run that mounts this site, or `nil`
     /// when no run in its settle period mounts it.
@@ -43,7 +43,7 @@ public struct MountSite: Sendable {
     /// its own settle period. An inner background call that waits past that
     /// end makes the outer run answer with a pending envelope, so an inner call
     /// stops its wait before it. See ``BackgroundToolRunner``.
-    let inlineSettleDeadline: ContinuousClock.Instant?
+    private(set) var inlineSettleDeadline: ContinuousClock.Instant?
 
     /// The completion token of the run that holds each synchronous call of
     /// this site, or `nil` when no run holds them.
@@ -51,7 +51,7 @@ public struct MountSite: Sendable {
     /// A synchronous call that a run mounts runs inside the body of that run.
     /// Thus each question of the call stops that run, and links to its token.
     /// A background call is a run of its own, and does not use this value.
-    let holdingRunToken: String?
+    private(set) var holdingRunToken: String?
 
     /// Makes a mount site. Each value must belong to the same session.
     ///
@@ -74,54 +74,67 @@ public struct MountSite: Sendable {
         tracer: (any Tracer)? = nil,
         inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
     ) {
-        self.init(
-            sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: nil, holdingRunToken: nil)
-    }
-
-    /// Makes a mount site whose calls post to `sink`, and whose background
-    /// calls post to `sessionSink`.
-    ///
-    /// - Parameters:
-    ///   - sessionID: The session of each call.
-    ///   - runPlane: The run plane of the session.
-    ///   - sink: The sink of the events and the records of each call.
-    ///   - sessionSink: The sink of the session.
-    ///   - op: The `"verb noun"` op of the registration, or `nil`.
-    ///   - tracer: The tracer of the session, or `nil`.
-    ///   - inlineSettleGrace: The configured settle period, in seconds.
-    ///   - inlineSettleDeadline: The end of the settle period of the run that
-    ///     mounts this site, or `nil`.
-    ///   - holdingRunToken: The completion token of the run that holds each
-    ///     synchronous call of this site, or `nil` when no run holds them.
-    init(
-        sessionID: ULID,
-        runPlane: RunPlane,
-        sink: any OperationEventSink,
-        sessionSink: any OperationEventSink,
-        op: String?,
-        tracer: (any Tracer)?,
-        inlineSettleGrace: TimeInterval,
-        inlineSettleDeadline: ContinuousClock.Instant?,
-        holdingRunToken: String?
-    ) {
         self.sessionID = sessionID
         self.runPlane = runPlane
         self.sink = sink
-        self.sessionSink = sessionSink
+        self.sessionSink = sink
         self.op = op
         self.tracer = tracer
         self.inlineSettleGrace = max(0, inlineSettleGrace)
-        self.inlineSettleDeadline = inlineSettleDeadline
-        self.holdingRunToken = holdingRunToken
+        self.inlineSettleDeadline = nil
+        self.holdingRunToken = nil
     }
 
     /// This site, with the sink of the session as the sink of each call.
     var postingToSession: MountSite {
-        MountSite(
-            sessionID: sessionID, runPlane: runPlane, sink: sessionSink, sessionSink: sessionSink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline,
-            holdingRunToken: holdingRunToken)
+        posting(to: sessionSink, sessionSink: sessionSink, op: op)
+    }
+
+    /// This site, with `sink` as the sink of each call, `sessionSink` as the
+    /// sink of the session, and `op` as the op of the registration. Each
+    /// other value stays.
+    ///
+    /// - Parameters:
+    ///   - sink: The sink of the events and the records of each call.
+    ///   - sessionSink: The sink of the session.
+    ///   - op: The `"verb noun"` op of the registration, or `nil` for the
+    ///     tool name.
+    /// - Returns: The changed site.
+    func posting(to sink: any OperationEventSink, sessionSink: any OperationEventSink, op: String?) -> MountSite {
+        var changed = self
+        changed.sink = sink
+        changed.sessionSink = sessionSink
+        changed.op = op
+        return changed
+    }
+
+    /// This site, for the calls of one run: `runToken` holds each synchronous
+    /// call, and `deadline` ends the settle period that the inner calls keep.
+    /// Each other value stays.
+    ///
+    /// - Parameters:
+    ///   - runToken: The completion token of the run that holds each
+    ///     synchronous call, or `nil` for a call that is a run of its own.
+    ///   - deadline: The end of the settle period of the run, or `nil` for
+    ///     none.
+    /// - Returns: The changed site.
+    func held(by runToken: String?, settlingBy deadline: ContinuousClock.Instant?) -> MountSite {
+        var changed = self
+        changed.holdingRunToken = runToken
+        changed.inlineSettleDeadline = deadline
+        return changed
+    }
+
+    /// This site, with `grace` as the configured settle period. Each other
+    /// value stays.
+    ///
+    /// - Parameter grace: The settle period in seconds. A negative value acts
+    ///   as `0`.
+    /// - Returns: The changed site.
+    func settling(within grace: TimeInterval) -> MountSite {
+        var changed = self
+        changed.inlineSettleGrace = max(0, grace)
+        return changed
     }
 }
 
@@ -184,6 +197,21 @@ extension MountRunner where Arguments: Sendable {
     func call(arguments: Arguments) async throws -> String {
         try await ToolMounting.call(
             wrapped, arguments: arguments, site: site, mount: ToolMount(mode: Self.defaultMode, timeout: timeout))
+    }
+
+    /// Prepares one call of the wrapped tool on `site`, with the timeout of
+    /// this runner. Each runner gives the site of its own run: a background
+    /// call is a run of its own, and a synchronous call keeps the site of its
+    /// caller.
+    ///
+    /// - Parameters:
+    ///   - arguments: The arguments of the call.
+    ///   - site: The site of the run, with its settle deadline and its holding
+    ///     run.
+    /// - Returns: The run of the call. Call `open()`, then
+    ///   `execute(arguments:)`.
+    func makeRun(arguments: Arguments, on site: MountSite) -> ToolRun<Arguments> {
+        ToolRun(wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout)
     }
 }
 

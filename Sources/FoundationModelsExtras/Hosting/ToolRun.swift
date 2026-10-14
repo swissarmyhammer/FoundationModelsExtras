@@ -33,20 +33,16 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
     /// - Parameters:
     ///   - wrapped: The called tool.
     ///   - arguments: The arguments of the call.
-    ///   - site: The mount site of the call.
+    ///   - site: The mount site of the call. Its settle deadline is the end
+    ///     of the settle period that the inner calls of the run must keep.
+    ///     Its holding run is the run that holds this call, or `nil` for a
+    ///     call that is a run of its own.
     ///   - mountTimeout: The timeout of the mount, or `nil` for none.
-    ///   - inlineSettleDeadline: The end of the settle period that the inner
-    ///     calls of the run must keep, or `nil` for none.
-    ///   - holdingRunToken: The completion token of the run that holds this
-    ///     call, or `nil` for a call that is a run of its own or that no run
-    ///     holds.
     init(
         wrapped: any Tool<Arguments, String>,
         arguments: Arguments,
         site: MountSite,
-        mountTimeout: TimeInterval?,
-        inlineSettleDeadline: ContinuousClock.Instant?,
-        heldBy holdingRunToken: String?
+        mountTimeout: TimeInterval?
     ) {
         let token = RunPlane.makeCompletionToken()
         let funnel = RunEventFunnel(upstream: site.sink, runPlane: site.runPlane, completionToken: token)
@@ -55,9 +51,7 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
         self.sink = site.sink
         self.funnel = funnel
         self.state = state
-        self.context = ToolContext(
-            calling: wrapped, on: site, sink: funnel, completionToken: token, heldBy: holdingRunToken,
-            state: state, inlineSettleDeadline: inlineSettleDeadline)
+        self.context = ToolContext(calling: wrapped, on: site, sink: funnel, completionToken: token, state: state)
         self.timeoutSeconds = Self.timeout(of: wrapped, for: arguments) ?? mountTimeout
         self.openRecord = ToolInvocationRecord(opening: context)
     }

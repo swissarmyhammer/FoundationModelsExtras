@@ -398,15 +398,6 @@ struct RunPlaneActorTests {
     /// tests.
     private static let askingRunToken = RunPlane.makeCompletionToken()
 
-    /// A form request with `elicitationId`.
-    private static func formRequest(elicitationId: ULID) -> ElicitationRequest {
-        ElicitationRequest(
-            message: "name?",
-            elicitationId: elicitationId,
-            requestedSchema: ElicitationRequestedSchema(properties: ["name": .string(ElicitationStringSchema())])
-        )
-    }
-
     /// Waits until `elicitationId` is the only pending elicitation.
     private static func isPending(_ elicitationId: ULID, on runPlane: RunPlane) async -> Bool {
         await BoundedWait.conditionReached("the elicitation \(elicitationId) pending") {
@@ -419,7 +410,7 @@ struct RunPlaneActorTests {
         let runPlane = RunPlane()
         let elicitationId = ULID()
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
+            await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
         }
         #expect(await Self.isPending(elicitationId, on: runPlane))
 
@@ -484,7 +475,7 @@ struct RunPlaneActorTests {
         let tokenB = await FakeRun.start(on: runPlane, latch: latch, kind: .process, cancels: cancels)
         let elicitationId = ULID()
         let rejected = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId) that the sweep rejects") {
-            await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
+            await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
         }
         #expect(await Self.isPending(elicitationId, on: runPlane))
 
@@ -717,7 +708,7 @@ extension RunPlaneActorTests {
 
         try await withMetricsFactory(metrics) { () async throws in
             let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
+                await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
             }
             #expect(await Self.isPending(elicitationId, on: runPlane))
             #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .delivered)
@@ -769,7 +760,7 @@ extension RunPlaneActorTests {
 
         try await withMetricsFactory(metrics) { () async throws in
             let rejected = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId) that the sweep rejects") {
-                await runPlane.awaitAnswer(to: Self.formRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
+                await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
             }
             #expect(await Self.isPending(elicitationId, on: runPlane))
             _ = await runPlane.sweep()

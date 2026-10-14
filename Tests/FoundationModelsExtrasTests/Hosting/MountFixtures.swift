@@ -223,9 +223,7 @@ enum MountFixtures {
         arguments: Arguments,
         sink: any OperationEventSink
     ) -> ToolRun<Arguments> {
-        ToolRun(
-            wrapped: tool, arguments: arguments, site: site(runPlane: RunPlane(), sink: sink), mountTimeout: nil,
-            inlineSettleDeadline: nil, heldBy: nil)
+        ToolRun(wrapped: tool, arguments: arguments, site: site(runPlane: RunPlane(), sink: sink), mountTimeout: nil)
     }
 
     // MARK: - Envelope and settlement helpers
@@ -521,6 +519,19 @@ enum MountFixtures {
             await gate.waitUntilOpen()
             throw FixtureError()
         }
+    }
+
+    /// A form question with one string field, `name`.
+    ///
+    /// - Parameter elicitationId: The id of the question. The default is a
+    ///   new id.
+    /// - Returns: The question.
+    static func nameRequest(elicitationId: ULID = ULID()) -> ElicitationRequest {
+        ElicitationRequest(
+            message: "What is your name?",
+            elicitationId: elicitationId,
+            requestedSchema: ElicitationRequestedSchema(properties: ["name": .string(ElicitationStringSchema())])
+        )
     }
 
     /// The question that the elicitation fixtures ask.

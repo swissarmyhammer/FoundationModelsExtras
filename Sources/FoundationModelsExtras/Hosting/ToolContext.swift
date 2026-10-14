@@ -1,6 +1,5 @@
 import Foundation
 import FoundationModels
-import Tracing
 import ULID
 
 /// What a running tool can use: the run plane, the event sink and the session
@@ -14,23 +13,15 @@ public struct ToolContext: Sendable {
     /// The context of the current task, or `nil` outside a tool call.
     @TaskLocal public static var current: ToolContext?
 
-    /// The session of the call.
-    public let sessionID: ULID
-
-    /// The run plane of the session.
-    let runPlane: RunPlane
+    /// The site of this run: the session, its run plane, the sink of the
+    /// session, the tracer, the settle period, and the run that holds each
+    /// synchronous call. Each tool that this context mounts runs on a copy of
+    /// it, so a new field of ``MountSite`` reaches each mount with no edit
+    /// here.
+    private var runSite: MountSite
 
     /// The sink that each capability posts to.
     private let sink: any OperationEventSink
-
-    /// The sink of the session. Each background run that this context mounts
-    /// posts to it.
-    private let sessionSink: any OperationEventSink
-
-    /// The tracer of the session, or `nil` for `InstrumentationSystem.tracer`
-    /// at call time. Each tool that this context mounts records its spans
-    /// with it.
-    private let tracer: (any Tracer)?
 
     /// Tells if a cancel of the run was asked.
     private let cancellationProbe: @Sendable () -> Bool
@@ -54,16 +45,34 @@ public struct ToolContext: Sendable {
     /// It is ``completionToken`` for a background run and for a call that no
     /// run holds. For a synchronous call that a run mounted, it is the token
     /// of that run, because the question stops that run.
-    let holdingRunToken: String
+    var holdingRunToken: String {
+        // The init puts a token on the site, so the fallback only gives the
+        // type.
+        runSite.holdingRunToken ?? completionToken
+    }
+
+    /// The session of the call.
+    public var sessionID: ULID {
+        runSite.sessionID
+    }
+
+    /// The run plane of the session.
+    var runPlane: RunPlane {
+        runSite.runPlane
+    }
 
     /// The configured settle period of the session, in seconds. Each tool
     /// that this context mounts uses it. See ``MountSite``.
-    public private(set) var inlineSettleGrace: TimeInterval
+    public var inlineSettleGrace: TimeInterval {
+        runSite.inlineSettleGrace
+    }
 
     /// The end of the settle period of this run, or `nil` when this run has
     /// none. Each background call that this context mounts stops its own wait
     /// before it. See ``BackgroundToolRunner``.
-    let inlineSettleDeadline: ContinuousClock.Instant?
+    var inlineSettleDeadline: ContinuousClock.Instant? {
+        runSite.inlineSettleDeadline
+    }
 
     /// Makes a context. A host makes one to bind around work that it runs
     /// for a session, for example a model call.
@@ -93,12 +102,10 @@ public struct ToolContext: Sendable {
     ) {
         self.init(
             site: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace),
-            inlineSettleDeadline: nil,
             sink: sink,
             tool: tool,
             op: op,
             completionToken: completionToken,
-            holdingRunToken: completionToken,
             isCancelled: isCancelled,
             attachmentSink: attachmentSink
         )
@@ -107,80 +114,65 @@ public struct ToolContext: Sendable {
     /// Makes a context on `site`. It posts to `sink`, and each background run
     /// that it mounts posts to the sink of the session of `site`.
     ///
+    /// The run that holds the call is the holding run of `site`. When `site`
+    /// names none, the call is a run of its own, and `completionToken` holds
+    /// it.
+    ///
     /// - Parameters:
-    ///   - site: The session, its run plane, its sink, its tracer and its
-    ///     settle period.
-    ///   - inlineSettleDeadline: The end of the settle period of the run, or
-    ///     `nil`.
+    ///   - site: The session, its run plane, its sink, its tracer, its settle
+    ///     period, and the run that holds the call.
     ///   - sink: The sink that each capability posts to.
     ///   - tool: The tool name of the run. Must not be empty.
     ///   - op: The op of the run. Must not be empty.
     ///   - completionToken: The completion token of the run.
-    ///   - holdingRunToken: The completion token of the run that holds this
-    ///     call.
     ///   - isCancelled: Tells if a cancel of the run was asked.
     ///   - attachmentSink: Gets each attached record.
     private init(
         site: MountSite,
-        inlineSettleDeadline: ContinuousClock.Instant?,
         sink: any OperationEventSink,
         tool: String,
         op: String,
         completionToken: String,
-        holdingRunToken: String,
         isCancelled: @escaping @Sendable () -> Bool,
         attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void
     ) {
         precondition(!tool.isEmpty, "the tool name of a ToolContext must not be empty")
         precondition(!op.isEmpty, "the op of a ToolContext must not be empty")
-        self.sessionID = site.sessionID
-        self.runPlane = site.runPlane
+        self.runSite = site.held(
+            by: site.holdingRunToken ?? completionToken, settlingBy: site.inlineSettleDeadline)
         self.sink = sink
-        self.sessionSink = site.sessionSink
-        self.tracer = site.tracer
         self.tool = tool
         self.op = op
         self.completionToken = completionToken
-        self.holdingRunToken = holdingRunToken
         self.cancellationProbe = isCancelled
         self.attachmentSink = attachmentSink
-        self.inlineSettleGrace = site.inlineSettleGrace
-        self.inlineSettleDeadline = inlineSettleDeadline
     }
 
     /// Makes the context of one call of `tool` on `site`, with the name of
     /// the tool, or its type name when the name is empty. The op is the op of
-    /// the site, or the tool name when the site has none.
+    /// the site, or the tool name when the site has none. The settle period
+    /// and the run that holds the call come from `site`.
     ///
     /// - Parameters:
     ///   - tool: The called tool.
     ///   - site: The mount site of the call.
     ///   - sink: The sink that each capability posts to.
     ///   - completionToken: The completion token of the run.
-    ///   - holdingRunToken: The completion token of the run that holds this
-    ///     call, or `nil` when the call is a run of its own or no run holds
-    ///     it. `nil` uses `completionToken`.
     ///   - state: The cancel flag and the records of the call.
-    ///   - inlineSettleDeadline: The end of the settle period of the run, or
-    ///     `nil` for a run that has none.
     init(
         calling tool: any Tool,
         on site: MountSite,
         sink: any OperationEventSink,
         completionToken: String,
-        heldBy holdingRunToken: String?,
-        state: ToolCallState,
-        inlineSettleDeadline: ContinuousClock.Instant?
+        state: ToolCallState
     ) {
         let name = tool.name.isEmpty ? String(describing: type(of: tool)) : tool.name
         self.init(
             site: site,
-            inlineSettleDeadline: inlineSettleDeadline,
             sink: sink,
             tool: name,
             op: site.op.flatMap { $0.isEmpty ? nil : $0 } ?? name,
             completionToken: completionToken,
-            holdingRunToken: holdingRunToken ?? completionToken,
             isCancelled: { state.isCancelRequested },
             attachmentSink: { state.attach($0) }
         )
@@ -365,17 +357,7 @@ public struct ToolContext: Sendable {
         op: String? = nil,
         as configuration: ToolMount = .synchronous
     ) -> any Tool<T.Arguments, T.Output> {
-        let site = MountSite(
-            sessionID: sessionID,
-            runPlane: runPlane,
-            sink: MountedRunUpstreamSink(context: self),
-            sessionSink: sessionSink,
-            op: op,
-            tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace,
-            inlineSettleDeadline: inlineSettleDeadline,
-            holdingRunToken: holdingRunToken
-        )
+        let site = runSite.posting(to: MountedRunUpstreamSink(context: self), sessionSink: runSite.sessionSink, op: op)
         return Self.mount(tool, on: site, as: configuration)
     }
 
@@ -388,7 +370,7 @@ public struct ToolContext: Sendable {
     /// - Returns: The changed context.
     public func settling(within grace: TimeInterval) -> ToolContext {
         var changed = self
-        changed.inlineSettleGrace = max(0, grace)
+        changed.runSite = runSite.settling(within: grace)
         return changed
     }
 
@@ -409,11 +391,7 @@ public struct ToolContext: Sendable {
         as configuration: ToolMount = .synchronous,
         postingTo sink: any OperationEventSink
     ) -> any Tool<T.Arguments, T.Output> {
-        let site = MountSite(
-            sessionID: sessionID, runPlane: runPlane, sink: sink, sessionSink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, inlineSettleDeadline: inlineSettleDeadline,
-            holdingRunToken: holdingRunToken)
-        return Self.mount(tool, on: site, as: configuration)
+        return Self.mount(tool, on: runSite.posting(to: sink, sessionSink: sink, op: op), as: configuration)
     }
 
     /// Mounts `tool` on `site`, and keeps the types of `tool`.

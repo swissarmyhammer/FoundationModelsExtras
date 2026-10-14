@@ -108,15 +108,6 @@ struct ToolContextTests {
         }
     }
 
-    /// A form question with one string field.
-    private static func formRequest() -> ElicitationRequest {
-        ElicitationRequest(
-            message: "What is your name?",
-            elicitationId: ULID(),
-            requestedSchema: ElicitationRequestedSchema(properties: ["name": .string(ElicitationStringSchema())])
-        )
-    }
-
     /// The short text line for the model on each plan event.
     private static let planProgressLine = "3 of 7 tasks done"
 
@@ -355,7 +346,7 @@ struct ToolContextTests {
         let runPlane = RunPlane()
         let completionToken = RunPlane.makeCompletionToken()
         let context = Self.makeContext(sink: sink, runPlane: runPlane, completionToken: completionToken)
-        let request = Self.formRequest()
+        let request = MountFixtures.nameRequest()
 
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
             try await ToolContext.$current.withValue(context) {
@@ -386,7 +377,7 @@ struct ToolContextTests {
     func elicitDeclineRoundTrip() async throws {
         let runPlane = RunPlane()
         let context = Self.makeContext(sink: RecordingSink(), runPlane: runPlane)
-        let request = Self.formRequest()
+        let request = MountFixtures.nameRequest()
 
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
             try await context.elicit(request)
@@ -404,7 +395,7 @@ struct ToolContextTests {
     func elicitCancelRoundTrip() async throws {
         let runPlane = RunPlane()
         let context = Self.makeContext(sink: RecordingSink(), runPlane: runPlane)
-        let request = Self.formRequest()
+        let request = MountFixtures.nameRequest()
 
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
             try await context.elicit(request)
@@ -423,8 +414,8 @@ struct ToolContextTests {
         let sink = RecordingSink()
         let runPlane = RunPlane()
         let context = Self.makeContext(sink: sink, runPlane: runPlane)
-        let first = Self.formRequest()
-        let second = Self.formRequest()
+        let first = MountFixtures.nameRequest()
+        let second = MountFixtures.nameRequest()
 
         let firstAnswering = AnswerDrivenRun(waitingFor: "the elicitation \(first.elicitationId)") {
             try await context.elicit(first)
@@ -463,7 +454,7 @@ struct ToolContextTests {
         let sink = ImmediatelyRespondingSink(runPlane: runPlane, response: .decline)
         let context = Self.makeContext(sink: sink, runPlane: runPlane)
 
-        let request = Self.formRequest()
+        let request = MountFixtures.nameRequest()
         let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
             try await context.elicit(request)
         }
@@ -481,9 +472,7 @@ struct ToolContextTests {
             on: MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: sink),
             sink: sink,
             completionToken: RunPlane.makeCompletionToken(),
-            heldBy: nil,
-            state: ToolCallState(),
-            inlineSettleDeadline: nil
+            state: ToolCallState()
         )
 
         #expect(context.tool == "EmptyNamedTool")
