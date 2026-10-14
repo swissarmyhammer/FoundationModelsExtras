@@ -143,15 +143,27 @@ final class LogRecordStore: Sendable {
     /// The records, in the order of the calls.
     private let storage = Mutex<[TelemetryCapture.LogRecord]>([])
 
+    /// Called after each append, outside the lock of the records.
+    private let recordDidArrive: @Sendable () -> Void
+
+    /// Makes a store with no records.
+    ///
+    /// - Parameter recordDidArrive: Called after each append, when
+    ///   ``records`` holds the new record.
+    init(recordDidArrive: @escaping @Sendable () -> Void) {
+        self.recordDidArrive = recordDidArrive
+    }
+
     /// The records, in the order of the calls.
     var records: [TelemetryCapture.LogRecord] {
         storage.withLock { $0 }
     }
 
-    /// Appends one record.
+    /// Appends one record, then calls the hook of the store.
     ///
     /// - Parameter record: The record to append.
     func append(record: TelemetryCapture.LogRecord) {
         storage.withLock { $0.append(record) }
+        recordDidArrive()
     }
 }

@@ -1,5 +1,6 @@
 import FoundationModelsExtras
 import InMemoryTracing
+import Synchronization
 import Tracing
 
 /// A tracer that records its spans in memory, and injects and extracts the
@@ -48,12 +49,28 @@ public struct W3CInMemoryTracer: Tracer {
     /// The in-memory tracer that makes and keeps the spans.
     public let inMemoryTracer: InMemoryTracer
 
+    /// The span that the code got for each span that did not end yet.
+    private let frontSpans = FrontSpanTable()
+
+    /// Called after each span ends, when ``finishedSpans`` holds it.
+    private let spanDidEnd: @Sendable () -> Void
+
     /// Makes a tracer with no spans, whose ids have the W3C format.
     public init() {
+        self.init(spanDidEnd: {})
+    }
+
+    /// Makes a tracer with no spans, whose ids have the W3C format, and that
+    /// calls `spanDidEnd` after each span ends.
+    ///
+    /// - Parameter spanDidEnd: Called after each span ends, when
+    ///   ``finishedSpans`` holds it.
+    init(spanDidEnd: @escaping @Sendable () -> Void) {
         inMemoryTracer = InMemoryTracer(idGenerator: .init(
             nextTraceID: { Self.randomID(digitCount: SpanIdentity.traceIDLength) },
             nextSpanID: { Self.randomID(digitCount: SpanIdentity.spanIDLength) }
         ))
+        self.spanDidEnd = spanDidEnd
     }
 
     /// The spans that ended, in the order of their end.
@@ -63,13 +80,19 @@ public struct W3CInMemoryTracer: Tracer {
 
     /// The spans that started and did not end yet.
     public var activeSpans: [InMemorySpan] {
-        inMemoryTracer.activeSpans
+        frontSpans.spans.withLock { Array($0.values) }
     }
 
     /// Starts a span in the in-memory tracer.
     ///
     /// The span is a child of the span context of `context`, local or remote.
     /// When `context` has no span context, the span starts a new trace.
+    ///
+    /// The `InMemoryTracer` gives no hook for the end of a span. Thus the
+    /// code gets a front span with the same span context. When the front
+    /// span ends, the tracer copies its name, attributes, events, links,
+    /// errors and status to the span of the `InMemoryTracer`, ends that span
+    /// at the same instant, and then calls the hook of the capture.
     ///
     /// - Parameters:
     ///   - operationName: The name of the span.
@@ -89,7 +112,7 @@ public struct W3CInMemoryTracer: Tracer {
         file fileID: String,
         line: UInt
     ) -> InMemorySpan {
-        inMemoryTracer.startSpan(
+        let recorded = inMemoryTracer.startSpan(
             operationName,
             context: context(),
             ofKind: kind,
@@ -98,6 +121,20 @@ public struct W3CInMemoryTracer: Tracer {
             file: fileID,
             line: line
         )
+        let spanContext = recorded.spanContext
+        let front = InMemorySpan(
+            operationName: recorded.operationName,
+            context: recorded.context,
+            spanContext: spanContext,
+            kind: recorded.kind,
+            startInstant: recorded.startInstant
+        ) { [frontSpans, spanDidEnd] finished in
+            Self.copy(finished, to: recorded)
+            frontSpans.spans.withLock { _ = $0.removeValue(forKey: spanContext) }
+            spanDidEnd()
+        }
+        frontSpans.spans.withLock { $0[spanContext] = front }
+        return front
     }
 
     /// Gives the active span that `context` names.
@@ -105,7 +142,60 @@ public struct W3CInMemoryTracer: Tracer {
     /// - Parameter context: The context of the span.
     /// - Returns: The span, or `nil` when no active span has that context.
     public func activeSpan(identifiedBy context: ServiceContext) -> InMemorySpan? {
-        inMemoryTracer.activeSpan(identifiedBy: context)
+        guard let spanContext = context.inMemorySpanContext else {
+            return nil
+        }
+        return frontSpans.spans.withLock { $0[spanContext] }
+    }
+
+    /// Copies a finished front span to the span of the `InMemoryTracer`, and
+    /// ends that span at the same instant.
+    ///
+    /// - Parameters:
+    ///   - finished: The finished front span.
+    ///   - recorded: The span of the `InMemoryTracer`, which nothing else
+    ///     changes.
+    private static func copy(_ finished: FinishedInMemorySpan, to recorded: InMemorySpan) {
+        recorded.operationName = finished.operationName
+        recorded.attributes = finished.attributes
+        for event in finished.events {
+            recorded.addEvent(event)
+        }
+        for link in finished.links {
+            recorded.addLink(link)
+        }
+        for error in finished.errors {
+            record(error, at: error.instant, on: recorded)
+        }
+        if let status = finished.status {
+            recorded.setStatus(status)
+        }
+        end(recorded, at: finished.endInstant)
+    }
+
+    /// Records one error of a front span on the span of the `InMemoryTracer`.
+    ///
+    /// The instant is a generic value, so that the call with `any
+    /// TracerInstant` opens it.
+    ///
+    /// - Parameters:
+    ///   - error: The recorded error.
+    ///   - instant: The instant of the error.
+    ///   - recorded: The span of the `InMemoryTracer`.
+    private static func record(_ error: InMemorySpan.RecordedError, at instant: some TracerInstant, on recorded: InMemorySpan) {
+        recorded.recordError(error.error, attributes: error.attributes, at: instant)
+    }
+
+    /// Ends the span of the `InMemoryTracer`.
+    ///
+    /// The instant is a generic value, so that the call with `any
+    /// TracerInstant` opens it.
+    ///
+    /// - Parameters:
+    ///   - recorded: The span of the `InMemoryTracer`.
+    ///   - instant: The instant of the end.
+    private static func end(_ recorded: InMemorySpan, at instant: some TracerInstant) {
+        recorded.end(at: instant)
     }
 
     /// Records a request to flush the spans in the in-memory tracer.
@@ -248,6 +338,16 @@ extension ServiceContext {
         get { self[W3CTraceStateKey.self] }
         set { self[W3CTraceStateKey.self] = newValue }
     }
+}
+
+/// The front span of each span of a ``W3CInMemoryTracer`` that did not end
+/// yet, by span context.
+///
+/// A `Mutex` cannot be a stored property of a struct that is copied, thus
+/// the tracer holds the table in this class.
+private final class FrontSpanTable: Sendable {
+    /// The front spans, by span context.
+    let spans = Mutex<[InMemorySpanContext: InMemorySpan]>([:])
 }
 
 /// The context key of the W3C trace flags.

@@ -124,7 +124,7 @@ public enum TelemetryCapture {
         }
         let serviceContext = TelemetryLogRouting.serviceContext(carrying: context)
         return try await withTracer(context.tracer) {
-            try await withMetricsFactory(context.metricsFactory) {
+            try await withMetricsFactory(context.observedMetricsFactory) {
                 try await ServiceContext.withValue(serviceContext) {
                     try await TelemetryLogRouting.currentContext.withValue(context) {
                         try await body(context)
@@ -212,21 +212,89 @@ extension TelemetryCapture {
         /// code makes.
         public let metricsFactory: TestMetrics
 
+        /// The factory that the capture binds with `withMetricsFactory`. It
+        /// keeps each metric in ``metricsFactory``, and each metric that it
+        /// makes and each value that such a metric records ends the waits of
+        /// ``wait(until:)`` whose condition is then true.
+        ///
+        /// Give this factory to the code in place of ``metricsFactory`` when
+        /// the code takes a factory and a test waits for its metrics. A
+        /// metric that the code makes directly with ``metricsFactory`` ends no
+        /// wait. Read the metrics of this factory from ``metricsFactory`` by
+        /// label, for example `expectCounter(label)`.
+        public var observedMetricsFactory: any MetricsFactory {
+            observedMetrics
+        }
+
         /// A logger that writes each level to the capture.
         public let logger: Logger
 
         /// The store that keeps the log records of the capture.
         let logRecordStore: LogRecordStore
 
+        /// The front factory of ``metricsFactory``.
+        private let observedMetrics: ObservedMetricsFactory
+
+        /// The waits of ``wait(until:)`` that did not end.
+        private let waits: TelemetryWaitList
+
         /// Makes the telemetry objects of a new capture.
         init() {
-            let store = LogRecordStore()
+            let waits = TelemetryWaitList()
+            let recordDidArrive: @Sendable () -> Void = { waits.recordDidArrive() }
+            let store = LogRecordStore(recordDidArrive: recordDidArrive)
+            let metrics = TestMetrics()
+            self.waits = waits
             logRecordStore = store
-            tracer = W3CInMemoryTracer()
-            metricsFactory = TestMetrics()
+            tracer = W3CInMemoryTracer(spanDidEnd: recordDidArrive)
+            metricsFactory = metrics
+            observedMetrics = ObservedMetricsFactory(metrics: metrics, metricDidChange: recordDidArrive)
             logger = Logger(label: TelemetryCapture.loggerLabel) { label in
                 RoutingLogHandler(label: label, destination: .store(store))
             }
+        }
+
+        /// Waits until `condition` is true for the records of the capture,
+        /// or until the task is cancelled.
+        ///
+        /// The wait tests `condition` at once, thus a wait for a record that
+        /// arrived before the wait ends at once. Else the wait tests
+        /// `condition` again after each span that ends, each log record, each
+        /// metric that ``observedMetricsFactory`` makes, and each value that
+        /// such a metric records. The wait uses no clock, no poll and no
+        /// sleep. A cancel of the task ends the wait, and the wait does not
+        /// throw. Thus after a cancel, test `condition` again if the test
+        /// must know the cause of the end.
+        ///
+        /// The capture runs `condition` on the task or the thread that wrote
+        /// the record, outside each lock of the capture. Thus `condition` can
+        /// read ``spans``, ``logRecords``, ``metricRecords`` and
+        /// ``metricsFactory``. It must not block, and it must not write a
+        /// record.
+        ///
+        /// ```swift
+        /// try await TelemetryCapture.run(forbidding: []) { context in
+        ///     let task = Task { await agent.prompt(request) }
+        ///     await context.wait { $0.spans.contains { $0.operationName == "agent.prompt" } }
+        ///     await task.value
+        /// }
+        /// ```
+        ///
+        /// - Parameter condition: The condition on the records. The capture
+        ///   keeps it until the wait ends, thus it is escaping.
+        public func wait(until condition: @escaping @Sendable (Context) -> Bool) async {
+            await waits.wait { condition(self) }
+        }
+
+        /// Waits until at least `count` calls of ``wait(until:)`` wait for a
+        /// record.
+        ///
+        /// A test calls this function before it writes a record, so that it
+        /// knows that a wait started before the record.
+        ///
+        /// - Parameter count: The number of waits.
+        public func waitForWaiters(atLeast count: Int) async {
+            await waits.waitForWaits(atLeast: count)
         }
 
         /// The spans that ended in the capture, in the order of their end.

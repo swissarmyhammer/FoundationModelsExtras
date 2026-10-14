@@ -78,8 +78,24 @@ comments:
     - evidence: Sources/FoundationModelsExtras/Hosting/ToolContext.swift. I removed the unused instance property `inlineSettleDeadline`. No code in Sources or Tests read it. The init reads `site.inlineSettleDeadline` directly. Both public `mount` overloads now call one private instance helper `mount(_:op:as:eventSink:sessionSink:)`. That helper builds the MountSite with `runSite.posting(...)` and wraps the tool. It replaces the private static `mount(_:on:as:)`. `swift build --build-tests` gave no compiler warnings. The full `swift test` run passed 1132 tests in 105 suites with 0 failures.
     - next: review
   timestamp: 2026-10-14T17:02:36.250917+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4xny4drc7yrjkkbxejb8fx1
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 9f81467). 1 file reviewed. 0 findings, 0 confirmed, 0 refuted. All prior findings are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-10-14T17:04:08.632795+00:00
+- actor: claude-code
+  id: 01m4xnyc2mnpxm74573zx2rz2h
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — ToolContext.swift
+    - test: green — the full swift test suite ran one time in the implement step, 1132 passed
+    - commit: 9f81467
+    - review: clean — 0 findings; all 7 earlier findings are checked
+  timestamp: 2026-10-14T17:04:16.468708+00:00
+position_column: done
+position_ordinal: ff8880
 title: Link each open question to the run token of the run that asked it
 ---
 Source: elicitation-plan.md, Extras task 15. ACPAgent step 4 (T5) found this gap.
