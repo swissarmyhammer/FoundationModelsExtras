@@ -291,6 +291,24 @@ struct ElicitationValidationTests {
                 == #"the field "nickname" is not in the requested schema"#)
     }
 
+    @Test("a schema with no properties asks for a free answer, so each key of the answer is valid")
+    func aSchemaWithNoPropertiesTakesEachKey() {
+        let freeAnswer = ElicitationRequestedSchema(properties: [:])
+        let content: [String: ElicitationValue] = ["repo": .string("swissarmyhammer"), "count": .number(3)]
+
+        #expect(freeAnswer.validationFailure(of: content) == nil)
+        #expect(freeAnswer.validationFailure(of: nil) == nil)
+    }
+
+    @Test("a schema with no properties still checks its required fields")
+    func aSchemaWithNoPropertiesChecksItsRequiredFields() {
+        let freeAnswer = ElicitationRequestedSchema(properties: [:], required: ["repo"])
+
+        #expect(
+            freeAnswer.validationFailure(of: ["other": .string("x")])
+                == #"the field "repo" is required, and the answer does not give it"#)
+    }
+
     @Test("with two failed fields, the failure names the field that comes first in name order")
     func theFirstFailedFieldInNameOrderIsNamed() {
         let short = ElicitationPrimitiveSchema.string(ElicitationStringSchema(minLength: 2))

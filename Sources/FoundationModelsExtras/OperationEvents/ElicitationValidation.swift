@@ -15,7 +15,10 @@ extension ElicitationRequestedSchema {
     ///
     /// - A field in ``required`` that `content` does not give. `nil` content
     ///   gives no field.
-    /// - A key of `content` that is not in ``properties``.
+    /// - A key of `content` that is not in ``properties``, when the schema
+    ///   declares one or more properties. A schema with no properties asks
+    ///   for a free answer: each key of the answer is then valid, and only
+    ///   the ``required`` fields are checked.
     /// - A value of the wrong type. A string property and a single select take
     ///   ``ElicitationValue/string(_:)``, a number property takes
     ///   ``ElicitationValue/number(_:)`` (a whole number when its type is
@@ -55,7 +58,9 @@ extension ElicitationRequestedSchema {
             return "\(FailureText.field(name)) is required, and the answer does not give it"
         }
         guard let property = properties[name] else {
-            return "\(FailureText.field(name)) is not in the requested schema"
+            // A schema with no properties asks for a free answer, so each key
+            // of the answer is valid.
+            return properties.isEmpty ? nil : "\(FailureText.field(name)) is not in the requested schema"
         }
         return property.failure(of: value, field: name)
     }
