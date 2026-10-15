@@ -240,13 +240,11 @@ extension ElicitationNumberSchema {
     /// - Returns: `nil` when the value is in its limits, or the sentence of
     ///   the failure.
     fileprivate func boundFailure(of number: Double, field name: String) -> String? {
-        if let minimum, number < minimum {
-            return "\(FailureText.field(name)) must be \(FailureText.number(minimum)) or more"
+        switch Bound.check(number, minimum: minimum, maximum: maximum) {
+        case .within: nil
+        case .below(let minimum): "\(FailureText.field(name)) must be \(FailureText.number(minimum)) or more"
+        case .above(let maximum): "\(FailureText.field(name)) must be \(FailureText.number(maximum)) or less"
         }
-        if let maximum, number > maximum {
-            return "\(FailureText.field(name)) must be \(FailureText.number(maximum)) or less"
-        }
-        return nil
     }
 }
 
@@ -333,12 +331,39 @@ private enum FailureText {
     /// - Returns: `nil` when the count is in its limits, or the sentence of
     ///   the failure.
     static func countFailure(field name: String, count: Int, minimum: Int?, maximum: Int?, unit: String) -> String? {
-        if let minimum, count < minimum {
-            return "\(field(name)) must have \(minimum) or more \(unit)"
+        switch Bound.check(count, minimum: minimum, maximum: maximum) {
+        case .within: nil
+        case .below(let minimum): "\(field(name)) must have \(minimum) or more \(unit)"
+        case .above(let maximum): "\(field(name)) must have \(maximum) or fewer \(unit)"
         }
-        if let maximum, count > maximum {
-            return "\(field(name)) must have \(maximum) or fewer \(unit)"
+    }
+}
+
+/// Where a value is, relative to an optional minimum and an optional maximum.
+private enum Bound<Value: Comparable> {
+    /// The value is in its limits.
+    case within
+
+    /// The value is less than this minimum.
+    case below(Value)
+
+    /// The value is more than this maximum.
+    case above(Value)
+
+    /// Compares `value` with `minimum`, then with `maximum`.
+    ///
+    /// - Parameters:
+    ///   - value: The value to compare.
+    ///   - minimum: The smallest value that is in the limits, or `nil`.
+    ///   - maximum: The largest value that is in the limits, or `nil`.
+    /// - Returns: Where `value` is, relative to the limits.
+    static func check(_ value: Value, minimum: Value?, maximum: Value?) -> Bound {
+        if let minimum, value < minimum {
+            return .below(minimum)
         }
-        return nil
+        if let maximum, value > maximum {
+            return .above(maximum)
+        }
+        return .within
     }
 }

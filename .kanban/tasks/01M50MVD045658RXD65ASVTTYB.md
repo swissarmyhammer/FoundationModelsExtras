@@ -48,7 +48,14 @@ comments:
     - evidence: Sources/FoundationModelsExtras/OperationEvents/Elicitation.swift, Sources/FoundationModelsExtras/OperationEvents/ElicitationValidation.swift (new), Sources/FoundationModelsExtras/Hosting/ToolContext.swift, README.md, Tests/FoundationModelsExtrasTests/ElicitationValidationTests.swift (new), Tests/FoundationModelsExtrasTests/ElicitationValidationPublicSurfaceTests.swift (new), Tests/FoundationModelsExtrasTests/Hosting/ToolContextAnswerValidationTests.swift (new), Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolContextTests.swift. RED filtered: 17 tests, 14 failed, 3 guards passed. GREEN filtered: 17/17. Full swift test: 1142 tests in 110 suites passed. No new compiler warning.
     - next: /review. Push waits for acceptance by the coordinating session. FoundationModelsMultitool SandboxGlobalsTests :166, :539, :565 break when that package takes this change.
   timestamp: 2026-10-15T20:57:38.059140+00:00
-position_column: doing
+- actor: claude-code
+  id: 01m50pztwhvs3bbmkx0g8nvq6m
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~2..HEAD (3e735a3, 32f6cd5). 1 finding (1 confirmed, 1 refuted). Sources/FoundationModelsExtras/OperationEvents/ElicitationValidation.swift:242 (duplication/duplication).
+    - next: Make one generic bound check for `boundFailure(of:field:)` and `FailureText.countFailure`. Then do the full test run and review again. The task stays in review.
+  timestamp: 2026-10-15T21:20:16.273731+00:00
+position_column: review
 position_ordinal: '80'
 title: Validate an accepted form answer against the requested schema, and keep pattern
 ---
@@ -62,6 +69,18 @@ Today only the UI checks an answer, and the Extras string schema drops `pattern`
 - [x] A run gets no content that is not valid: give it a decline with the validation failure as the reason.
 - [x] Fixed-order tests that fail on the old code. No clock, sleep, poll, retry or time limit.
 - [x] Doc comments and README.
-- [ ] One full test run. Push only after the coordinating session accepts.
+- [x] One full test run (1144 tests pass). The coordinating session accepted the design and the free-answer rule.
 
 #elicitation-phase-3
+
+## Review Findings (2026-10-15 16:00)
+
+> Scope: `review sha HEAD~2..HEAD` — reviewed the diffs only — lines this change added or modified. 8 file(s) reviewed, 11 not reviewed.
+
+> 10 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 10 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsExtras/OperationEvents/ElicitationValidation.swift:242` `duplication/duplication` — `boundFailure(of:field:)` repeats the minimum-then-maximum check of `FailureText.countFailure` (line 335). Both functions run the same two `if let` bound tests and differ only by the compared type (Double vs Int) and the wording. A future change to the bound rules must be made in both places, and they can drift apart. Make one generic bound check over `Comparable` that returns the comparison result (below, above, or within), and have both `boundFailure` and `countFailure` format their own sentence from it. The wording stays at each call site, and the comparison logic lives in one place.
