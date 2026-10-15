@@ -69,10 +69,17 @@ comments:
     - evidence: 5 files — Tests/FoundationModelsExtrasTests/Hosting/ElicitationSignalling.swift (new), Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift, Tests/FoundationModelsExtrasTests/Hosting/ElicitationCompletionEventTests.swift, Tests/FoundationModelsExtrasTests/Hosting/ElicitationCompletionPublicSurfaceTests.swift, Tests/FoundationModelsExtrasTests/Hosting/RunPlaneHeadlessQuestionTests.swift. Filtered run 14/14 passed. Full swift test exit 0 (1153 + 131 + 40 + 44 + 26 + 410 passed, 0 failures). No new warnings. 3 of 3 findings checked.
     - next: /review
   timestamp: 2026-10-15T21:53:30.552668+00:00
+- actor: claude-code
+  id: 01m50s3b1mvc7btdrb42k58txk
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (95666a6). 0 findings, 0 confirmed, 1 refuted. 5 files reviewed. The 3 prior findings are all checked.
+    - next: none. The task is in done.
+  timestamp: 2026-10-15T21:57:08.276983+00:00
 depends_on:
 - 01M50MVD045658RXD65ASVTTYB
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ff9480
 title: A host tool ends its own accepted URL flow, and the run plane posts an event when a URL flow completes
 ---
 Source: elicitation-plan.md, task 8 (phase 3: the async question path).
