@@ -79,8 +79,9 @@ public enum ProcessRunner {
     /// gave, for example `ENOENT` when the executable is not there.
     case spawnFailed(status: Int32)
 
-    /// `waitpid` could not reap the child. This happens only when the host
-    /// process ignores `SIGCHLD`, so the kernel reaps each child on its own.
+    /// `waitid` could not wait for the child, or `waitpid` could not reap
+    /// it. This happens only when the host process ignores `SIGCHLD`, so
+    /// the kernel reaps each child on its own.
     case waitFailed(errno: Int32)
   }
 
@@ -185,19 +186,66 @@ public enum ProcessRunner {
     case timedOut
   }
 
-  /// Races the reap of `pid` against `timeout`. When the timeout wins, sends
+  /// The steps that wait for, reap, and kill one child, and the timer of the
+  /// timeout.
+  ///
+  /// ``system`` holds the real system calls. A test gives stand-ins, so it
+  /// can put the reap and the timer in a fixed order, and so no signal
+  /// reaches a real process.
+  struct ChildControl: Sendable {
+    /// Blocks until the child ended, and leaves it unreaped. The pid of the
+    /// child stays reserved until ``reap`` runs.
+    var awaitExit: @Sendable (pid_t) async throws -> Void
+
+    /// Reaps the child that ``awaitExit`` saw end, and gives how it ended.
+    var reap: @Sendable (pid_t) async throws -> Termination
+
+    /// Returns when the timeout passed, or when the task is cancelled.
+    var sleep: @Sendable (Duration) async -> Void
+
+    /// Sends `SIGKILL` to the process group that the pid leads.
+    var signalGroup: @Sendable (pid_t) -> Void
+
+    /// Runs after the timer fired and before its kill. It does nothing in
+    /// ``system``. A test holds the kill here until the reap path moved on.
+    var timerWillSignal: @Sendable () async -> Void
+
+    /// The real system calls.
+    static let system = ChildControl(
+      awaitExit: { pid in try await ProcessRunner.awaitExit(pid) },
+      reap: { pid in try await ProcessRunner.reap(pid) },
+      sleep: { timeout in try? await Task.sleep(for: timeout) },
+      signalGroup: { pid in _ = killpg(pid, SIGKILL) },
+      timerWillSignal: {})
+  }
+
+  /// Races the end of `pid` against `timeout`. When the timeout wins, sends
   /// `SIGKILL` to the whole process group of `pid`, then reaps it.
+  ///
+  /// The kill goes through a ``ProcessGroupKill``. The reap path closes it
+  /// after the child ended and before the reap, so no kill reaches the pid
+  /// after the reap, when the kernel can give that pid to an unrelated
+  /// process. A timer that fires after the close sends nothing, and the
+  /// result is how the child ended on its own.
   ///
   /// - Parameters:
   ///   - pid: The child, which leads its own process group.
   ///   - timeout: How long to wait before the group kill.
-  /// - Returns: How the child ended, or `.timedOut`.
-  /// - Throws: `Failure.waitFailed` when the reap failed.
-  private static func waitOrKill(pid: pid_t, timeout: Duration) async throws -> Termination {
-    try await withThrowingTaskGroup(of: Race.self) { group in
-      group.addTask { .reaped(try await Self.reap(pid)) }
+  ///   - control: The steps that wait for, reap, and kill the child.
+  /// - Returns: How the child ended, or `.timedOut` when the kill went out.
+  /// - Throws: `Failure.waitFailed` when the wait or the reap failed.
+  static func waitOrKill(
+    pid: pid_t, timeout: Duration, control: ChildControl = .system
+  ) async throws -> Termination {
+    let processGroup = ProcessGroupKill(pid: pid, signal: control.signalGroup)
+    return try await withThrowingTaskGroup(of: Race.self) { group in
       group.addTask {
-        try? await Task.sleep(for: timeout)
+        try await control.awaitExit(pid)
+        processGroup.close()
+        return .reaped(try await control.reap(pid))
+      }
+      group.addTask {
+        await control.sleep(timeout)
         return .timedOut
       }
 
@@ -208,10 +256,10 @@ public enum ProcessRunner {
           group.cancelAll()
           return timedOut ? .timedOut : termination
         case .timedOut:
-          timedOut = true
           // The reap task ends once the group is dead; the next iteration
           // takes its result, so no second `waitpid` runs for the same pid.
-          _ = killpg(pid, SIGKILL)
+          await control.timerWillSignal()
+          timedOut = processGroup.kill()
         }
       }
       // The reap task always gives a result or throws, so the loop returns
@@ -220,8 +268,21 @@ public enum ProcessRunner {
     }
   }
 
-  /// Blocks (on a background thread) until `pid` ends, and gives how it
-  /// ended.
+  /// Blocks (on a background thread) until `pid` ends, and leaves it
+  /// unreaped, so the kernel keeps its pid.
+  ///
+  /// - Parameter pid: The child to wait for.
+  /// - Throws: `Failure.waitFailed` when `waitid` failed for a cause other
+  ///   than an interrupt.
+  private static func awaitExit(_ pid: pid_t) async throws {
+    try await Self.blocking {
+      var info = siginfo_t()
+      try Self.retryingInterrupts { waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT) }
+    }
+  }
+
+  /// Blocks (on a background thread) until `pid` ends, reaps it, and gives
+  /// how it ended.
   ///
   /// - Parameter pid: The child to reap.
   /// - Returns: The exit code or the signal.
@@ -230,10 +291,20 @@ public enum ProcessRunner {
   private static func reap(_ pid: pid_t) async throws -> Termination {
     try await Self.blocking {
       var status: Int32 = 0
-      while waitpid(pid, &status, 0) == -1 {
-        guard errno == EINTR else { throw Failure.waitFailed(errno: errno) }
-      }
+      try Self.retryingInterrupts { waitpid(pid, &status, 0) }
       return Termination(waitStatus: status)
+    }
+  }
+
+  /// Calls `wait` again after each interrupt, until it gives a result that
+  /// is not `-1`.
+  ///
+  /// - Parameter wait: A `waitid` or `waitpid` call.
+  /// - Throws: `Failure.waitFailed` when `wait` failed for a cause other
+  ///   than an interrupt.
+  private static func retryingInterrupts(_ wait: () -> Int32) throws {
+    while wait() == -1 {
+      guard errno == EINTR else { throw Failure.waitFailed(errno: errno) }
     }
   }
 
@@ -274,7 +345,8 @@ public enum ProcessRunner {
 
   /// Runs blocking `work` on the global utility-QoS dispatch queue, off the
   /// cooperative pool, and gives its result to the caller. The one place
-  /// `reap(_:)` and `readToEnd(descriptor:cap:)` share this continuation.
+  /// `awaitExit(_:)`, `reap(_:)` and `readToEnd(descriptor:cap:)` share
+  /// this continuation.
   ///
   /// - Parameter work: The blocking work.
   /// - Returns: The result of `work`.

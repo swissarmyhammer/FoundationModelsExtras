@@ -1,5 +1,6 @@
 import FixtureSupport
 import Foundation
+import Synchronization
 import Testing
 
 @testable import FoundationModelsExtras
@@ -148,6 +149,62 @@ import Testing
     let grandchildText = try #require(outcome.output.first)
     let grandchild = try #require(pid_t(grandchildText))
     #expect(try await Self.isGone(grandchild))
+  }
+
+  // MARK: - No kill after the reap
+
+  /// A pid that the stand-in steps of `raceTheTimerAfterTheReap(kills:)`
+  /// use. No real process gets a signal, because a recorder stands in for
+  /// the kill.
+  private static let standInPid: pid_t = 4242
+
+  /// Runs `ProcessRunner.waitOrKill` with stand-in steps in a fixed order:
+  /// the child ends, the reap path closes the right to kill and starts the
+  /// reap, and only then does the timer fire. The reap does not return
+  /// until the timer is at its kill, so the kill of the timer comes after
+  /// the reap in each run.
+  ///
+  /// After the reap, the kernel can give the pid to an unrelated process,
+  /// so a kill at that time can reach a process that is not ours.
+  ///
+  /// - Parameter kills: The recorder that stands in for the kill.
+  /// - Returns: How `waitOrKill` says the child ended.
+  private static func raceTheTimerAfterTheReap(kills: KillRecorder) async throws
+    -> ProcessRunner.Termination
+  {
+    let (reaped, reapedContinuation) = AsyncStream<Void>.makeStream()
+    let (timerAtKill, timerAtKillContinuation) = AsyncStream<Void>.makeStream()
+    let control = ProcessRunner.ChildControl(
+      awaitExit: { _ in },
+      reap: { _ in
+        reapedContinuation.finish()
+        for await _ in timerAtKill {}
+        return .exited(code: 0)
+      },
+      sleep: { _ in
+        for await _ in reaped {}
+      },
+      signalGroup: { pid in kills.record(pid) },
+      timerWillSignal: { timerAtKillContinuation.finish() })
+
+    return try await ProcessRunner.waitOrKill(
+      pid: Self.standInPid, timeout: Self.generousTimeout, control: control)
+  }
+
+  @Test func aTimerThatFiresAfterTheReapStartedSendsNoKill() async throws {
+    let kills = KillRecorder()
+
+    _ = try await Self.raceTheTimerAfterTheReap(kills: kills)
+
+    #expect(
+      kills.pids.isEmpty,
+      "the timer sent a kill to \(kills.pids) after the reap of the child started")
+  }
+
+  @Test func aTimerThatFiresAfterTheReapStartedGivesTheTerminationOfTheReap() async throws {
+    let termination = try await Self.raceTheTimerAfterTheReap(kills: KillRecorder())
+
+    #expect(termination == .exited(code: 0))
   }
 
   // MARK: - The registry ledger
@@ -301,5 +358,24 @@ import Testing
     #expect(outcome.termination == .exited(code: exitCode))
     #expect(outcome.output == ["building", "warning: slow"])
     #expect(!outcome.isTruncated)
+  }
+}
+
+/// Records each kill of a process group that a runner sends, in place of
+/// `killpg`. No kill reaches a real process.
+private final class KillRecorder: Sendable {
+  /// The pid of each recorded kill, in the order of the calls.
+  private let recorded = Mutex<[pid_t]>([])
+
+  /// Records one kill of the group that `pid` leads.
+  ///
+  /// - Parameter pid: The pid that the kill names.
+  func record(_ pid: pid_t) {
+    recorded.withLock { $0.append(pid) }
+  }
+
+  /// The pid of each recorded kill, in the order of the calls.
+  var pids: [pid_t] {
+    recorded.withLock { $0 }
   }
 }
