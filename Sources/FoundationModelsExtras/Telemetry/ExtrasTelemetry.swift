@@ -554,9 +554,6 @@ enum QueueName: String, Sendable, CaseIterable {
     /// The delivery chain of the tool events.
     case toolEvents = "tool_events"
 
-    /// The mailbox that posts messages to a session.
-    case mailbox
-
     /// The mail queue of a session.
     case mailQueue = "mail_queue"
 }

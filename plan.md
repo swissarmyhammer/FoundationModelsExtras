@@ -301,10 +301,9 @@ public enum FrontmatterDocument {
   does not move: the type needs Foundation and Dispatch, and Dispatch is a
   system module, not a package.)
 - **One model pool for each process, in the core target (decision
-  2026-09-26).** Extras owns the one process-wide model pool, the work
-  queue of each model, and the `Mailbox` that posts messages to a session.
-  In one process, each model loads one time only, and all consumers share
-  it. The pool, the work queue and the `Mailbox` are in the core
+  2026-09-26).** Extras owns the one process-wide model pool and the work
+  queue of each model. In one process, each model loads one time only, and
+  all consumers share it. The pool and the work queue are in the core
   `FoundationModelsExtras` target, in `Sources/FoundationModelsExtras/ModelPool/`.
   There is no new library product and no new target: a consumer imports
   `FoundationModelsExtras`. The work queue came first, from
@@ -340,7 +339,7 @@ public enum FrontmatterDocument {
 | FoundationModelsAgents (plan-only) | `AgentsMd` (§10) when assembling per-sub-agent instructions, so sub-agents see the repo's agent-instructions files |
 | FoundationModelsSkills | `SlashCommandProviding` conformer; renders SKILL.md through the same engine and `_partials/`; the consumer of `Marketplace` (§12): its registry inserts the layers of `MarketplaceStore` at the bottom of its stack, with `MarketplaceLayout(documentName: "SKILL.md")`, and reads them as it reads a local layer |
 | FoundationModelsShelltool | candidate adopter of `DotfolderStack` for its stacked `ShellPolicy` YAML; potential `/ps`-style `.action` commands — illustrative, not committed |
-| FoundationModelsRouter | the model pool of §5 (decision 2026-09-26): each routed session submits each model call to the `GenerationQueue` of its model, binds a `ModelCallMark` around the call, and reports a wait through the `onQueued` overload of `submit`; its model pool and its mail go through the pool and the `Mailbox` of this package; tool hosting (decision 2026-09-26): each routed session has one `RunPlane`, mounts its tools with `ToolMounting` under `ToolFailureDelivery`, binds a `ToolContext` around each model call, and gives the answers of the user to `respond(elicitationId:_:)` and `complete(elicitationId:)` |
+| FoundationModelsRouter | the model pool of §5 (decision 2026-09-26): each routed session submits each model call to the `GenerationQueue` of its model, binds a `ModelCallMark` around the call, and reports a wait through the `onQueued` overload of `submit`; its model pool goes through the pool of this package, and its mail goes through the `MailQueue` of this package; tool hosting (decision 2026-09-26): each routed session has one `RunPlane`, mounts its tools with `ToolMounting` under `ToolFailureDelivery`, binds a `ToolContext` around each model call, and gives the answers of the user to `respond(elicitationId:_:)` and `complete(elicitationId:)` |
 | FoundationModelsMultitool | tool hosting: its tools read `ToolContext.current` to post events and progress, attach records, ask the user (`elicit`), read, wait for and cancel background runs, and mount their inner tool calls (`mount`); `MultiTool`, the shell `Execute` tool and `SearchToolsTool` are `BackgroundTool`s, `LostRunError` marks a lost run, and `ToolContext.makeCompletionToken()` names a command with no tracked run |
 | FoundationModelsMetadataRegistry | the model pool of §5 (decision 2026-09-26): it gets its embedding model from the one pool of the process, thus a model that the router has loaded is not loaded a second time, and each embed call goes through the work queue of that model |
 
