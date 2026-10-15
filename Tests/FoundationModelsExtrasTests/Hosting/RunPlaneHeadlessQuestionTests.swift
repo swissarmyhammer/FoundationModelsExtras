@@ -19,12 +19,6 @@ import ULID
 struct RunPlaneHeadlessQuestionTests {
     private typealias Fixtures = MountFixtures
 
-    /// The tool of each context that the tests make.
-    private static let hostTool = "host"
-
-    /// The op of each context that the tests make.
-    private static let hostOp = "ask user"
-
     /// A sink that keeps each event in a ``MountFixtures/RecordingSink``, and
     /// also gives each elicitation event to ``elicitationPosts``.
     private actor SignallingSink: OperationEventSink {
@@ -87,9 +81,7 @@ struct RunPlaneHeadlessQuestionTests {
         sink: SignallingSink,
         completionToken: String = RunPlane.makeCompletionToken()
     ) -> ToolContext {
-        ToolContext(
-            sessionID: ULID(), runPlane: runPlane, sink: sink, tool: hostTool, op: hostOp,
-            completionToken: completionToken, isCancelled: { false })
+        Fixtures.hostContext(on: runPlane, sink: sink, completionToken: completionToken)
     }
 
     /// Asks `request` through `context`, and gives the answer.

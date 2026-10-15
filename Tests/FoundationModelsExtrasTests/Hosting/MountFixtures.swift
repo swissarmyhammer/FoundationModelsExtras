@@ -177,6 +177,35 @@ enum MountFixtures {
         }
     }
 
+    // MARK: - Host context
+
+    /// The tool of each context that ``hostContext(on:sink:completionToken:)``
+    /// makes.
+    static let hostTool = "host_tool"
+
+    /// The op of each context that ``hostContext(on:sink:completionToken:)``
+    /// makes.
+    static let hostOp = "ask user"
+
+    /// A context that a host makes on `runPlane`, bound to `sink`. It is a run
+    /// of its own, and it is never cancelled.
+    ///
+    /// - Parameters:
+    ///   - runPlane: The run plane of the session.
+    ///   - sink: The sink of the context.
+    ///   - completionToken: The completion token of the context. A question
+    ///     of the context links to it. The default is a new token.
+    /// - Returns: The context.
+    static func hostContext(
+        on runPlane: RunPlane,
+        sink: any OperationEventSink,
+        completionToken: String = RunPlane.makeCompletionToken()
+    ) -> ToolContext {
+        ToolContext(
+            sessionID: ULID(), runPlane: runPlane, sink: sink, tool: hostTool, op: hostOp,
+            completionToken: completionToken, isCancelled: { false })
+    }
+
     // MARK: - Harness
 
     /// The wiring of one test: the run plane, the sink and the mounted tool.
