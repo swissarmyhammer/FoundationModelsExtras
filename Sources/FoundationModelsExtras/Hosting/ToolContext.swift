@@ -61,6 +61,17 @@ public struct ToolContext: Sendable {
         runSite.runPlane
     }
 
+    /// Tells if a user can answer questions in the session of the call.
+    ///
+    /// The host sets the value one time, when it makes the run plane of the
+    /// session, and each context of the session gives the same value. A tool
+    /// can read it to show a question feature only when a user is present.
+    /// In a ``UserPresence/headless`` session, ``elicit(_:)`` returns a cancel
+    /// with ``RunPlane/noUserPresentReason`` at once.
+    public var userPresence: UserPresence {
+        runPlane.userPresence
+    }
+
     /// The configured settle period of the session, in seconds. Each tool
     /// that this context mounts uses it. See ``MountSite``.
     public var inlineSettleGrace: TimeInterval {

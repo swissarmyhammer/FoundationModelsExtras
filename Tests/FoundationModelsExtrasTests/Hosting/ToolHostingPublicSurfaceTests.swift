@@ -266,6 +266,18 @@ struct ToolHostingPublicSurfaceTests {
         #expect(RunPlane.noUserPresentReason == "no user is present")
     }
 
+    @Test("a tool reads the user presence of its session through its context")
+    func aToolReadsTheUserPresenceOfItsSession() {
+        let context = ToolContext(
+            sessionID: ULID(), runPlane: RunPlane(userPresence: .headless), sink: RecordingSink(),
+            tool: "host_tool", op: "run host", completionToken: ToolContext.makeCompletionToken(),
+            isCancelled: { false })
+
+        let presence: UserPresence = context.userPresence
+
+        #expect(presence == .headless)
+    }
+
     @Test("a completion token of the run plane is a ULID string")
     func aCompletionTokenIsAULIDString() {
         #expect(ULID(ulidString: RunPlane.makeCompletionToken()) != nil)

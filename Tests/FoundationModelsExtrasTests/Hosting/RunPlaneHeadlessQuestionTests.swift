@@ -216,4 +216,17 @@ struct RunPlaneHeadlessQuestionTests {
     func theDefaultIsInteractive() {
         #expect(RunPlane().userPresence == .interactive)
     }
+
+    // MARK: - The user presence through a tool context
+
+    @Test(
+        "a tool context gives the user presence of the run plane of its session",
+        arguments: [UserPresence.headless, .interactive])
+    func aToolContextGivesTheUserPresence(of presence: UserPresence) {
+        let context = Self.makeContext(on: RunPlane(userPresence: presence), sink: SignallingSink())
+
+        #expect(context.userPresence == presence)
+        // A changed copy of the context is in the same session.
+        #expect(context.settling(within: 0).userPresence == presence)
+    }
 }
