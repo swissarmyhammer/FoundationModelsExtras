@@ -27,8 +27,24 @@ comments:
     - evidence: 3 files — Sources/FoundationModelsExtras/ProcessGroupKill.swift (new), Sources/FoundationModelsExtras/ProcessRunner.swift, Tests/FoundationModelsExtrasTests/ProcessRunnerTests.swift. RED: `swift test --filter ProcessRunnerTests` 17 tests, 2 issues (kill sent to [4242]; result .timedOut). GREEN: same filter 17/17 passed. Full `swift test`: 1157 tests in 107 suites passed.
     - next: /review
   timestamp: 2026-10-15T08:06:54.771758+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4z9w1v67p700vy1vxfk9f5x
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 8882b46). 0 findings, 0 confirmed, 0 refuted. 3 files reviewed. 4 .kanban files not reviewed because of .reviewignore.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-15T08:11:46.406897+00:00
+- actor: claude-code
+  id: 01m4z9w9c39hpm6tqnkqr53gt4
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 1157 passed (the full run of the implement step); RED shown first with the filtered ProcessRunnerTests run
+    - commit: 8882b46
+    - review: clean — 0 findings
+  timestamp: 2026-10-15T08:11:54.115531+00:00
+position_column: done
+position_ordinal: ff8c80
 title: ProcessRunner.waitOrKill can send killpg to a process group after waitpid reaped the child
 ---
 ## Defect
