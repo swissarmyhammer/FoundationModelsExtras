@@ -862,6 +862,18 @@ questions that those runs ask the user.
   with no answer: `.decline(reason:)` and `.cancel(reason:)` set `reason`, and
   the run gets the reason unchanged. An accept has no reason. `elicit(_:)`
   never throws for an answer: a cancel is not an error.
+- The run gets no form content that is not valid. When the answer to a form
+  question is an accept, `elicit(_:)` checks the content against the requested
+  schema with `ElicitationRequestedSchema.validationFailure(of:)`: the
+  required fields, keys that are not in the schema, the value types, the
+  length, `pattern` (a match of the whole value), `format`, `minimum`,
+  `maximum`, the select values and the item counts. Content that fails reaches
+  the run as a decline with no content. Its reason is
+  `ElicitationRequestedSchema.invalidAnswerReasonPrefix`
+  (`"the answer is not valid: "`) followed by the failure. A host that also
+  sends the accepted answer to a different place (for example, a router that
+  posts it as mail to the model), or a UI that keeps a form open for a
+  correction, calls `validationFailure(of:)` before it sends the answer.
 
 ```swift
 /// Runs the tests in the background. A call waits for the settle period of

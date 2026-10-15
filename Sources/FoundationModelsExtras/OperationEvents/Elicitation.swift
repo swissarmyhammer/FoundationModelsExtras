@@ -237,6 +237,9 @@ public struct ElicitationStringSchema: Codable, Sendable, Equatable {
     /// The pre-filled default, carried on the wire as `default`.
     public let defaultValue: String?
 
+    /// A regular expression that the whole value must match.
+    public let pattern: String?
+
     /// Creates a string schema from its fields. Every parameter defaults to `nil`.
     public init(
         title: String? = nil,
@@ -244,7 +247,8 @@ public struct ElicitationStringSchema: Codable, Sendable, Equatable {
         minLength: Int? = nil,
         maxLength: Int? = nil,
         format: ElicitationStringFormat? = nil,
-        defaultValue: String? = nil
+        defaultValue: String? = nil,
+        pattern: String? = nil
     ) {
         self.title = title
         self.description = description
@@ -252,6 +256,7 @@ public struct ElicitationStringSchema: Codable, Sendable, Equatable {
         self.maxLength = maxLength
         self.format = format
         self.defaultValue = defaultValue
+        self.pattern = pattern
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -262,6 +267,7 @@ public struct ElicitationStringSchema: Codable, Sendable, Equatable {
         case maxLength
         case format
         case defaultValue = "default"
+        case pattern
     }
 
     public init(from decoder: any Decoder) throws {
@@ -272,6 +278,7 @@ public struct ElicitationStringSchema: Codable, Sendable, Equatable {
         self.maxLength = try container.decodeIfPresent(Int.self, forKey: .maxLength)
         self.format = try container.decodeIfPresent(ElicitationStringFormat.self, forKey: .format)
         self.defaultValue = try container.decodeIfPresent(String.self, forKey: .defaultValue)
+        self.pattern = try container.decodeIfPresent(String.self, forKey: .pattern)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -283,6 +290,7 @@ public struct ElicitationStringSchema: Codable, Sendable, Equatable {
         try container.encodeIfPresent(maxLength, forKey: .maxLength)
         try container.encodeIfPresent(format, forKey: .format)
         try container.encodeIfPresent(defaultValue, forKey: .defaultValue)
+        try container.encodeIfPresent(pattern, forKey: .pattern)
     }
 }
 

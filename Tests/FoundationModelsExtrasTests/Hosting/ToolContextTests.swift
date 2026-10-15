@@ -57,28 +57,7 @@ struct ToolContextTests {
 
     /// A sink that answers an elicitation when it sees the event, with no
     /// poll.
-    private actor ImmediatelyRespondingSink: OperationEventSink {
-        /// The run plane that holds the elicitation.
-        private let runPlane: RunPlane
-
-        /// The answer to give.
-        private let response: ElicitationResponse
-
-        /// Makes the sink.
-        ///
-        /// - Parameters:
-        ///   - runPlane: The run plane that holds the elicitation.
-        ///   - response: The answer to give.
-        init(runPlane: RunPlane, response: ElicitationResponse) {
-            self.runPlane = runPlane
-            self.response = response
-        }
-
-        func post(event: OperationEvent) async {
-            guard let request = event.elicitation else { return }
-            await runPlane.respond(elicitationId: request.elicitationId, response)
-        }
-    }
+    private typealias ImmediatelyRespondingSink = MountFixtures.ImmediatelyRespondingSink
 
     /// A context bound to `sink`, with ``demoToolName`` as its tool and op.
     private static func makeContext(

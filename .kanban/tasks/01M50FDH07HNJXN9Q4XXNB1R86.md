@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8480'
+position_column: done
+position_ordinal: ff9180
 title: ToolContext gives the user presence of its session
 ---
 Add `public var userPresence: UserPresence { runPlane.userPresence }` to `ToolContext`. `ToolContext.runPlane` is internal, so a tool package (for example FoundationModelsMultitool) cannot read the presence today. Multitool needs it to install `elicit` only in interactive sessions.

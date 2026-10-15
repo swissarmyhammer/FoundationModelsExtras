@@ -304,14 +304,40 @@ public struct ToolContext: Sendable {
     /// ``RunPlane/noUserPresentReason`` at once. The request does not go to
     /// the sink, no question opens, and the run does not wait.
     ///
+    /// The run gets no content that is not valid. When the request is in form
+    /// mode and the answer is an accept, this function checks the content with
+    /// ``ElicitationRequestedSchema/validationFailure(of:)``. When the check
+    /// finds a failure, the run gets a decline with no content, and its
+    /// reason is ``ElicitationRequestedSchema/invalidAnswerReasonPrefix``
+    /// followed by the failure. Each other answer, and each accept of a URL
+    /// question, reaches the run unchanged.
+    ///
     /// - Parameter request: The question.
     /// - Returns: The answer of the user.
     public func elicit(_ request: ElicitationRequest) async throws -> ElicitationResponse {
         let event = stamped(.elicitation, detail: "", elicitation: request)
         let sink = sink
-        return await runPlane.awaitAnswer(to: request, runToken: holdingRunToken) {
+        let answer = await runPlane.awaitAnswer(to: request, runToken: holdingRunToken) {
             await sink.post(event: event)
         }
+        return Self.checked(answer, to: request)
+    }
+
+    /// Gives `answer` to the run, or a decline when it is an accepted form
+    /// answer whose content does not agree with the requested schema of
+    /// `request`.
+    ///
+    /// - Parameters:
+    ///   - answer: The answer that the run plane gave.
+    ///   - request: The question of the answer.
+    /// - Returns: `answer`, or a decline that tells why the content is not
+    ///   valid.
+    private static func checked(_ answer: ElicitationResponse, to request: ElicitationRequest) -> ElicitationResponse {
+        guard request.mode == .form, answer.action == .accept,
+            let schema = request.requestedSchema,
+            let failure = schema.validationFailure(of: answer.content)
+        else { return answer }
+        return .decline(reason: ElicitationRequestedSchema.invalidAnswerReasonPrefix + failure)
     }
 
     // MARK: - The run plane

@@ -107,6 +107,41 @@ enum MountFixtures {
         }
     }
 
+    /// A sink that answers an elicitation when it sees the event, with no
+    /// poll. The answer goes to the run plane from inside `post(event:)`, so
+    /// the question ends before the post returns. When the answer is the
+    /// accept of a URL question, the sink also completes the question, as a
+    /// user who finishes the flow.
+    actor ImmediatelyRespondingSink: OperationEventSink {
+        /// The run plane that holds the elicitation.
+        private let runPlane: RunPlane
+
+        /// The answer to give.
+        private let response: ElicitationResponse
+
+        /// Makes the sink.
+        ///
+        /// - Parameters:
+        ///   - runPlane: The run plane that holds the elicitation.
+        ///   - response: The answer to give.
+        init(runPlane: RunPlane, response: ElicitationResponse) {
+            self.runPlane = runPlane
+            self.response = response
+        }
+
+        /// Gives ``response`` to the question of `event`, when `event` is an
+        /// elicitation event. Completes the question when the run plane waits
+        /// for the completion of a URL accept.
+        ///
+        /// - Parameter event: The event.
+        func post(event: OperationEvent) async {
+            guard let request = event.elicitation else { return }
+            let delivery = await runPlane.respond(elicitationId: request.elicitationId, response)
+            guard delivery == .acceptedAwaitingCompletion else { return }
+            await runPlane.complete(elicitationId: request.elicitationId)
+        }
+    }
+
     /// A sink that stages each event for a later prompt, and takes back the
     /// staged events of a run on request. It gives each display event to its
     /// ``RecordingSink``, which keeps the display events. It records how many
