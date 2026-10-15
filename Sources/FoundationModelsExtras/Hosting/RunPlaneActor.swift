@@ -379,6 +379,11 @@ public actor RunPlane {
     /// run that waits for an answer cannot settle, and a canceler that waits
     /// for the run to stop then never returns.
     ///
+    /// A question whose accepted URL flow ``complete(elicitationId:)`` ended
+    /// left the list already, also while its completion post is in progress.
+    /// This call does not end that question: its run gets the accept when the
+    /// post returns.
+    ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: ``CancelOutcome/reported(_:)``, or
     ///   ``CancelOutcome/alreadySettled(_:)`` when the run settled first, or
@@ -419,7 +424,8 @@ public actor RunPlane {
     ///   - completing: Tells the host that the accepted URL flow completed.
     ///     The run plane starts it only when ``complete(elicitationId:)``
     ///     completes an accepted URL flow. No other end of the question
-    ///     starts it.
+    ///     starts it. The run gets the accept only after `completing`
+    ///     returns, thus the completion is posted before the run resumes.
     /// - Returns: The answer of the user.
     func awaitAnswer(
         to request: ElicitationRequest,
@@ -490,6 +496,18 @@ public actor RunPlane {
     /// the same way as the sink gets the event of a new question. A host
     /// reports it, for example as the end of the URL flow to the client.
     ///
+    /// The completion is posted before the run resumes: the task resumes the
+    /// run with the accept only after that post returned. Thus the sink gets
+    /// the completion before each post of the resumed run.
+    ///
+    /// This method does not wait for that task. The question leaves the list
+    /// at once, and the method returns at once. Thus a second call gives
+    /// ``ElicitationCompletionDelivery/noPendingElicitation``. A run cancel
+    /// (``cancel(completionToken:)``) or a ``sweep()`` that comes before the
+    /// run resumes does not find the question and gives it no cancel: the run
+    /// gets one answer only, the accept, when the post returns. A sink whose
+    /// post does not return keeps the run waiting.
+    ///
     /// - Parameter elicitationId: The id of the elicitation.
     /// - Returns: The ``ElicitationCompletionDelivery``.
     @discardableResult
@@ -521,6 +539,11 @@ public actor RunPlane {
     /// The sweep ends the questions of each run before it runs the canceler
     /// of that run, because a run that waits for an answer cannot settle,
     /// and a canceler that waits for the run to stop then never returns.
+    ///
+    /// A question whose accepted URL flow ``complete(elicitationId:)`` ended
+    /// left the list already, also while its completion post is in progress.
+    /// The sweep does not end that question: its run gets the accept when the
+    /// post returns.
     ///
     /// - Returns: One terminal event for each run that was open when the
     ///   sweep started. A sweep while another sweep runs returns nothing.
@@ -707,9 +730,14 @@ public actor RunPlane {
         elicitation.answer.fulfill(response)
     }
 
-    /// Ends the accepted URL flow of `elicitationId`, resumes the run with the
-    /// accept, and starts the completion event of the question. This is the
-    /// one place that starts that event.
+    /// Ends the accepted URL flow of `elicitationId`: the question leaves the
+    /// list at once, and one task posts the completion event of the question
+    /// and only after that resumes the run with the accept. This is the one
+    /// place that starts that event.
+    ///
+    /// The question is off the list before this method returns, thus a second
+    /// completion, a run cancel and the sweep do not find it, and the run gets
+    /// one answer only: the accept.
     ///
     /// - Parameters:
     ///   - elicitationId: The id of the elicitation.
@@ -726,8 +754,10 @@ public actor RunPlane {
             return .noPendingElicitation
         }
         let elicitation = elicitations.remove(at: index)
-        finish(elicitation, with: accepted)
-        Task { await elicitation.completing() }
+        Task {
+            await elicitation.completing()
+            finish(elicitation, with: accepted)
+        }
         return .completed
     }
 

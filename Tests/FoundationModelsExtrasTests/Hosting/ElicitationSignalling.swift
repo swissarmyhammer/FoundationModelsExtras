@@ -8,6 +8,14 @@ enum ElicitationSignal: Hashable, Sendable {
 
     /// The end of the accepted URL flow of the question with this id.
     case completed(ULID)
+
+    /// The sink got the end of the accepted URL flow of the question with
+    /// this id, and holds it until its completion gate opens. Only a sink
+    /// with a completion gate sends it.
+    case completionHeld(ULID)
+
+    /// A progress event with this detail.
+    case progress(String)
 }
 
 /// A sink that sends each question and each completion of a URL flow to one
@@ -18,6 +26,12 @@ enum ElicitationSignal: Hashable, Sendable {
 /// open question has ended. A reader that waits for a signal that never comes
 /// then reads the end of the stream, and the test fails and does not hang.
 ///
+/// A sink with a completion gate holds each completion until the gate opens.
+/// It sends ``ElicitationSignal/completionHeld(_:)`` first, and
+/// ``ElicitationSignal/completed(_:)`` after the gate opens. A progress event
+/// also opens the gate, thus a run that posts while the sink holds a
+/// completion releases it, and the stream gets both signals.
+///
 /// The sink uses only the public API, so a file with a plain import can use
 /// it.
 actor SignallingSink: OperationEventSink {
@@ -27,27 +41,46 @@ actor SignallingSink: OperationEventSink {
     /// Adds a signal to ``signals``.
     private let continuation: AsyncStream<ElicitationSignal>.Continuation
 
+    /// The gate that each completion waits for, or `nil` for no wait.
+    private let completionGate: RunLatch?
+
     /// Makes a sink with an empty stream.
-    init() {
+    ///
+    /// - Parameter completionGate: The gate that each completion waits for,
+    ///   or `nil` to send each completion at once. The default is `nil`.
+    init(completionGate: RunLatch? = nil) {
         (signals, continuation) = AsyncStream.makeStream()
+        self.completionGate = completionGate
     }
 
     deinit {
         continuation.finish()
     }
 
-    /// Sends the id of the question of `event`, when `event` asks one.
+    /// Sends the id of the question of `event`, when `event` asks one, and
+    /// the detail of `event`, when it is a progress event. A progress event
+    /// opens the completion gate.
     ///
     /// - Parameter event: The event.
     func post(event: OperationEvent) {
-        guard let request = event.elicitation else { return }
-        continuation.yield(.asked(request.elicitationId))
+        if let request = event.elicitation {
+            continuation.yield(.asked(request.elicitationId))
+        }
+        guard event.kind == .progress else { return }
+        continuation.yield(.progress(event.detail))
+        completionGate?.open()
     }
 
-    /// Sends the id of the question whose URL flow completed.
+    /// Sends the id of the question whose URL flow completed. With a
+    /// completion gate, sends that the sink holds the completion, then waits
+    /// for the gate before it sends the completion.
     ///
     /// - Parameter elicitationId: The id of the question.
-    func post(elicitationCompleted elicitationId: ULID) {
+    func post(elicitationCompleted elicitationId: ULID) async {
+        if let completionGate {
+            continuation.yield(.completionHeld(elicitationId))
+            await completionGate.waitUntilOpen()
+        }
         continuation.yield(.completed(elicitationId))
     }
 }

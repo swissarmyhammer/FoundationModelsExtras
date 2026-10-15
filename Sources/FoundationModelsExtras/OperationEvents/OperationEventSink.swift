@@ -32,6 +32,11 @@ public protocol OperationEventSink: Sendable {
     /// ACP agent does this) makes this call come at consent. A host that
     /// completes the flow at its real end makes this call come at that time.
     ///
+    /// The completion is posted before the run resumes: the run that asked
+    /// gets the accept only after this call returns. Thus this sink gets the
+    /// completion before each post of the resumed run. A sink that does not
+    /// return from this call keeps that run waiting.
+    ///
     /// - Parameter elicitationId: The id of the elicitation that completed.
     func post(elicitationCompleted elicitationId: ULID) async
 }

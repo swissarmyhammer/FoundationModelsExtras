@@ -1,6 +1,8 @@
-@testable import FoundationModelsExtras
+@_spi(Testing) @testable import FoundationModelsExtras
 import Foundation
 import FoundationModels
+import Metrics
+import MetricsTestKit
 import Testing
 import ULID
 
@@ -296,5 +298,167 @@ struct ElicitationCompletionEventTests {
         await reader.wait(for: [.completed(request.elicitationId)])
 
         #expect(reader.completions == [request.elicitationId])
+    }
+
+    // MARK: - The order of the completion and the resumed run
+
+    /// The detail of the progress event that a resumed run posts at once.
+    private static let resumedDetail = "after"
+
+    /// The depth of the elicitation queue when no question is open.
+    private static let noOpenQuestion: Double = 0
+
+    /// The dimensions of the queue metrics of the questions.
+    private static var elicitationQueue: [(String, String)] {
+        QueueMetricDimensions.queue(named: QueueName.elicitation.rawValue)
+    }
+
+    /// Tells if the run plane gave the answer of the one question that
+    /// `metrics` records. The run plane records the depth of the
+    /// elicitation queue in the same step as it gives the answer, so the
+    /// depth tells it with no wait.
+    ///
+    /// - Parameter metrics: The factory that the run plane recorded into.
+    /// - Returns: `true` when the depth went back to zero.
+    /// - Throws: When `metrics` has no depth of the elicitation queue.
+    private static func answerWasGiven(in metrics: TestMetrics) throws -> Bool {
+        try QueueMetricExpectations.depth(in: metrics, queue: elicitationQueue).last == noOpenQuestion
+    }
+
+    /// Proves that the completion of a URL flow reaches the sink before the
+    /// first post of the resumed run.
+    ///
+    /// The sink holds the completion on a gate. While the sink holds it, the
+    /// test reads the depth of the elicitation queue, which tells with no
+    /// wait if the run has its answer:
+    ///
+    /// - When the run has no answer, the order is correct. The test opens
+    ///   the gate. The sink records the completion, and only after that the
+    ///   run resumes and posts.
+    /// - When the run has its answer, the run resumed before the completion
+    ///   post ended. The test does not open the gate. The resumed run posts,
+    ///   that post opens the gate, and the sink records the post before the
+    ///   completion.
+    ///
+    /// In each case the stream gets both signals, so the test does not hang.
+    /// The order of the two signals then gives the result, with no clock
+    /// and no race.
+    @Test("the completion of an accepted URL flow reaches the sink before the first post of the resumed run")
+    func theCompletionReachesTheSinkBeforeTheResumedRunPosts() async throws {
+        let metrics = TestMetrics()
+        let runPlane = RunPlane()
+        let gate = RunLatch.closed()
+        let sink = SignallingSink(completionGate: gate)
+        var reader = SignalReader(sink.signals)
+        let context = MountFixtures.hostContext(on: runPlane, sink: sink)
+        let request = try Self.urlRequest()
+        let asking = withMetricsFactory(metrics) {
+            Task {
+                let answer = try await context.elicit(request)
+                await context.progress(Self.resumedDetail)
+                return answer
+            }
+        }
+        await reader.wait(for: [.asked(request.elicitationId)])
+        await Self.acceptAndComplete(request.elicitationId, on: runPlane)
+        await reader.wait(for: [.completionHeld(request.elicitationId)])
+
+        let answeredWhileHeld = try Self.answerWasGiven(in: metrics)
+        #expect(!answeredWhileHeld)
+        if !answeredWhileHeld {
+            gate.open()
+        }
+        let expectedOrder: [ElicitationSignal] = [.completed(request.elicitationId), .progress(Self.resumedDetail)]
+        await reader.wait(for: Set(expectedOrder))
+
+        #expect(reader.history.filter { expectedOrder.contains($0) } == expectedOrder)
+        #expect(try await asking.value == .accept(content: nil))
+        try QueueMetricExpectations.expectCompletedJobs(
+            in: metrics, queue: Self.elicitationQueue, outcome: .succeeded, ran: false)
+    }
+
+    // MARK: - A stop of the run while the sink holds the completion
+
+    /// Asks `request` through `context`, and appends the answer to `answers`.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - context: The context of the run.
+    ///   - answers: Gets the answer.
+    private static func recordAnswer(
+        to request: ElicitationRequest, through context: ToolContext, in answers: Recorder<ElicitationResponse>
+    ) async {
+        do {
+            answers.append(try await context.elicit(request))
+        } catch {
+            Issue.record(error, "the question threw")
+        }
+    }
+
+    /// Starts a background run on `runPlane` with the cooperative canceler.
+    /// Its body asks `request` through a host context of the run, and
+    /// appends the answer to `answers`.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - runPlane: The run plane of the session.
+    ///   - sink: The sink of the context of the run.
+    ///   - answers: Gets each answer of the run.
+    /// - Returns: The completion token of the run.
+    private static func startAskingRun(
+        _ request: ElicitationRequest, on runPlane: RunPlane, sink: SignallingSink, answers: Recorder<ElicitationResponse>
+    ) async -> String {
+        let token = RunPlane.makeCompletionToken()
+        let context = MountFixtures.hostContext(on: runPlane, sink: sink, completionToken: token)
+        await runPlane.start(
+            tool: MountFixtures.hostTool, op: MountFixtures.hostOp, kind: .swiftTask, completionToken: token,
+            canceler: nil
+        ) {
+            await recordAnswer(to: request, through: context, in: answers)
+            return OperationEvent.terminal(token: token, outcome: .succeeded)
+        }
+        return token
+    }
+
+    /// Accepts and completes the URL question of a run while the sink holds
+    /// the completion on a gate, runs `stop` while the sink holds it, then
+    /// opens the gate. Expects that the body of the run ends, that the run
+    /// got one answer, the accept, and that the sink got one completion.
+    ///
+    /// - Parameter stop: Stops the run of the token on the run plane.
+    /// - Throws: When the URL of the question does not parse.
+    private static func expectOneAccept(whenStoppedBy stop: (RunPlane, String) async -> Void) async throws {
+        let runPlane = RunPlane()
+        let gate = RunLatch.closed()
+        let sink = SignallingSink(completionGate: gate)
+        var reader = SignalReader(sink.signals)
+        let answers = Recorder<ElicitationResponse>()
+        let request = try urlRequest()
+        let token = await startAskingRun(request, on: runPlane, sink: sink, answers: answers)
+        await reader.wait(for: [.asked(request.elicitationId)])
+        await acceptAndComplete(request.elicitationId, on: runPlane)
+        await reader.wait(for: [.completionHeld(request.elicitationId)])
+
+        await stop(runPlane, token)
+        gate.open()
+        await runPlane.joinRunBodies()
+        await reader.wait(for: [.completed(request.elicitationId)])
+
+        #expect(answers.values == [.accept(content: nil)])
+        #expect(reader.completions == [request.elicitationId])
+    }
+
+    @Test("a run cancel while the sink holds the completion leaves the run one answer, the accept, and the run ends")
+    func aRunCancelWhileTheCompletionIsHeldLeavesOneAccept() async throws {
+        try await Self.expectOneAccept { runPlane, token in
+            #expect(await runPlane.cancel(completionToken: token) != .unknownToken)
+        }
+    }
+
+    @Test("a sweep while the sink holds the completion leaves the run one answer, the accept, and the run ends")
+    func aSweepWhileTheCompletionIsHeldLeavesOneAccept() async throws {
+        try await Self.expectOneAccept { runPlane, _ in
+            #expect(await runPlane.sweep().count == 1)
+        }
     }
 }
