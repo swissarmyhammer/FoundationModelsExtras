@@ -256,6 +256,16 @@ struct ToolHostingPublicSurfaceTests {
         #expect(RunPlane.runCancelledReason == "run cancelled")
     }
 
+    @Test("a host states the user presence of a session, and reads the reason of the cancel of a headless session")
+    func aHostStatesTheUserPresenceOfASession() {
+        let presence: UserPresence = .headless
+
+        #expect(RunPlane(userPresence: presence).userPresence == .headless)
+        #expect(RunPlane(clock: ContinuousRunClock(), userPresence: .interactive).userPresence == .interactive)
+        #expect(RunPlane().userPresence == .interactive)
+        #expect(RunPlane.noUserPresentReason == "no user is present")
+    }
+
     @Test("a completion token of the run plane is a ULID string")
     func aCompletionTokenIsAULIDString() {
         #expect(ULID(ulidString: RunPlane.makeCompletionToken()) != nil)

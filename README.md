@@ -848,8 +848,14 @@ questions that those runs ask the user.
   `sweep()` gives the same cancel to each open question. The questions of a
   run end before the run plane runs the canceler of that run, because a run
   that waits for an answer cannot stop. A host compares the reason with
-  `RunPlane.runCancelledReason` to tell this cancel from a cancel of the
-  user.
+   `RunPlane.runCancelledReason` to tell this cancel from a cancel of the
+   user.
+- A host that runs a session with no user makes its run plane with
+  `RunPlane(userPresence: .headless)`. The default is `.interactive`. In a
+  headless session, `elicit(_:)` returns a cancel with the reason
+  `RunPlane.noUserPresentReason` (`"no user is present"`) at once. The
+  question does not go to the sink, no question opens, and nothing waits.
+
 - An answer (`ElicitationResponse`) has the shape `{ action, content, reason }`,
   with `action` = `accept`, `decline` or `cancel`. `content` is `nil` for a
   decline and a cancel. A decline or a cancel can tell why the question ended

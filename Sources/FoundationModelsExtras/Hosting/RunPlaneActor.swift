@@ -10,6 +10,11 @@ import ULID
 /// names a run: it is a ULID string, and it is also the `correlationID` of
 /// each event of the run.
 ///
+/// The host that makes the session states its ``userPresence`` one time. In
+/// a ``UserPresence/headless`` session, each question ends at once with a
+/// cancel that gives ``noUserPresentReason``: the question does not go to
+/// the sink, and no question opens.
+///
 /// The run plane records two queues of queue metrics. Each run is one task
 /// of the `run_plane` queue: it starts at once, and it completes when it
 /// settles, with the bounded outcome of its terminal event. Each pending
@@ -113,6 +118,11 @@ public actor RunPlane {
     /// host can tell this cancel from a cancel of the user.
     public static let runCancelledReason = "run cancelled"
 
+    /// The reason of the cancel that each question of a headless session
+    /// gets at once. A host can tell this cancel from a cancel of the user.
+    /// See ``UserPresence/headless``.
+    public static let noUserPresentReason = "no user is present"
+
     /// The open runs, in start order.
     private var runs: [Run] = []
 
@@ -152,13 +162,22 @@ public actor RunPlane {
     /// timeout of each run, and the settle period of each background call.
     public nonisolated let clock: any RunClock
 
+    /// Tells if a user can answer the questions of the session. The value is
+    /// fixed for the life of the run plane, which is the life of one session.
+    public nonisolated let userPresence: UserPresence
+
     /// Makes an empty run plane.
     ///
-    /// - Parameter clock: The clock of the timers of the runs. The default is
-    ///   ``ContinuousRunClock``, the real time. A test gives a
-    ///   ``ManualRunClock``.
-    public init(clock: any RunClock = ContinuousRunClock()) {
+    /// - Parameters:
+    ///   - clock: The clock of the timers of the runs. The default is
+    ///     ``ContinuousRunClock``, the real time. A test gives a
+    ///     ``ManualRunClock``.
+    ///   - userPresence: Tells if a user can answer the questions of the
+    ///     session. The default is ``UserPresence/interactive``. A host that
+    ///     runs a session with no user gives ``UserPresence/headless``.
+    public init(clock: any RunClock = ContinuousRunClock(), userPresence: UserPresence = .interactive) {
         self.clock = clock
+        self.userPresence = userPresence
     }
 
     /// A new completion token: a ULID string.
@@ -376,6 +395,10 @@ public actor RunPlane {
     /// Suspends the calling run until its elicitation gets an answer. An
     /// accepted URL elicitation also waits for ``complete(elicitationId:)``.
     ///
+    /// A headless run plane (see ``userPresence``) gives a cancel with
+    /// ``noUserPresentReason`` at once. Then `posting` does not run, no
+    /// elicitation becomes pending, and nothing waits.
+    ///
     /// The elicitation is pending before `posting` runs. A duplicate
     /// `elicitationId` gets a cancel with ``duplicateElicitationIdReason``
     /// at once, and `posting` does not run. The open question with that id
@@ -395,6 +418,9 @@ public actor RunPlane {
         runToken: String,
         posting: @escaping @Sendable () async -> Void = {}
     ) async -> ElicitationResponse {
+        guard userPresence == .interactive else {
+            return .cancel(reason: Self.noUserPresentReason)
+        }
         guard elicitationIndex(of: request.elicitationId) == nil else {
             return .cancel(reason: Self.duplicateElicitationIdReason)
         }

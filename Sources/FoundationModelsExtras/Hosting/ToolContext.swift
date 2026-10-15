@@ -288,6 +288,11 @@ public struct ToolContext: Sendable {
     /// While the question is open, it links to the run that holds this call,
     /// and ``RunPlane/runsWaitingOnlyForUser()`` lists that run.
     ///
+    /// In a headless session (``RunPlane/userPresence`` is
+    /// ``UserPresence/headless``), this function returns a cancel with
+    /// ``RunPlane/noUserPresentReason`` at once. The request does not go to
+    /// the sink, no question opens, and the run does not wait.
+    ///
     /// - Parameter request: The question.
     /// - Returns: The answer of the user.
     public func elicit(_ request: ElicitationRequest) async throws -> ElicitationResponse {
