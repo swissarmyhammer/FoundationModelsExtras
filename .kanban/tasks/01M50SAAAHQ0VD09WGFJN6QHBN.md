@@ -23,8 +23,25 @@ comments:
     - Not done by order of the coordinator: commit and push (fourth subtask stays open for the push and the head).
     - next: /review
   timestamp: 2026-10-15T22:16:23.394841+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m50td9awwepmgtekh3redaya
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (9b25b98). 0 findings, 0 confirmed, 1 refuted, 7 attempted, 0 failed. 4 files reviewed. 2 .kanban files not reviewed (ignore rule).
+    - next: The task is in done. The subtask "One full test run" is not checked. The test step must do the full test run, push, and report the head.
+  timestamp: 2026-10-15T22:20:02.780690+00:00
+- actor: claude-code
+  id: 01m50tdqsehmc4zfwq6te95dp1
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 files
+    - test: green — swift test, 1156 passed (the one full run of the implement step); RED shown first: the order test and the sweep test failed on the old code
+    - commit: 9b25b98
+    - review: clean — 0 findings
+    - push: follows this comment
+  timestamp: 2026-10-15T22:20:17.582517+00:00
+position_column: done
+position_ordinal: ff9580
 title: Post the completion of a URL flow before the run resumes
 ---
 When an accepted URL flow completes, the run plane resumes the run first and posts the completion after that. The first posts of the resumed run can then reach the session sink before the completion, and a host cannot order them.
