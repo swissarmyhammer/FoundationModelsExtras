@@ -841,6 +841,15 @@ questions that those runs ask the user.
 - The host gives the answers of the user with `respond(elicitationId:_:)` and
   `complete(elicitationId:)`. At the end of the session, `sweep()` stops each
   run that is still open.
+- When an accepted URL flow completes, the sink of the question gets
+  `post(elicitationCompleted:)` with the id, and a host reports it, for
+  example as the end of the URL flow to the client. The requirement has an
+  empty default, so a sink that does not implement it still compiles. No other
+  end of a question (a decline, a cancel, a form accept, a cancel of the run,
+  the sweep) sends it. A tool ends the accepted URL flow of its own question
+  with `ToolContext.complete(elicitationId:)` from a second task, for example
+  a callback handler that sees the end of the flow. A question of another run
+  gives `.noPendingElicitation` and stays open.
 - When a run stops, its open questions end. `cancel(completionToken:)` gives
   a cancel with the reason `RunPlane.runCancelledReason` (`"run cancelled"`)
   to each open question of that run, and to each question of a synchronous

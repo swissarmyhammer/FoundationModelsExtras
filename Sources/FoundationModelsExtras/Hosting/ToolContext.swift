@@ -271,6 +271,16 @@ public struct ToolContext: Sendable {
         await post(display: .metadata(title: title, kind: kind, locations: locations, rawInput: nil))
     }
 
+    /// Tells the sink of this context that the accepted URL flow of
+    /// `elicitationId` completed. A synchronous call that this context
+    /// mounted sends the completion of its question through here, so the
+    /// completion takes the same sink path as the question.
+    ///
+    /// - Parameter elicitationId: The id of the question.
+    fileprivate func postElicitationCompleted(_ elicitationId: ULID) async {
+        await sink.post(elicitationCompleted: elicitationId)
+    }
+
     /// Attaches `attachment` to the call of this context.
     ///
     /// The records go on the ``ToolCallReport`` of the call, in call order,
@@ -317,10 +327,38 @@ public struct ToolContext: Sendable {
     public func elicit(_ request: ElicitationRequest) async throws -> ElicitationResponse {
         let event = stamped(.elicitation, detail: "", elicitation: request)
         let sink = sink
-        let answer = await runPlane.awaitAnswer(to: request, runToken: holdingRunToken) {
-            await sink.post(event: event)
-        }
+        let elicitationId = request.elicitationId
+        let answer = await runPlane.awaitAnswer(
+            to: request,
+            runToken: holdingRunToken,
+            posting: { await sink.post(event: event) },
+            completing: { await sink.post(elicitationCompleted: elicitationId) }
+        )
         return Self.checked(answer, to: request)
+    }
+
+    /// Ends the accepted URL flow of a question that the run of this context
+    /// asked, and resumes the run with the accept.
+    ///
+    /// The flow ends only when the open question links to the run that holds
+    /// this context. A question of another run, an unknown id, or a question
+    /// with no accept gives ``ElicitationCompletionDelivery/noPendingElicitation``,
+    /// and nothing changes. When the flow ends, the sink of the question gets
+    /// ``OperationEventSink/post(elicitationCompleted:)``, as it does for a
+    /// completion by the host through ``RunPlane/complete(elicitationId:)``.
+    ///
+    /// A run that waits in ``elicit(_:)`` cannot call this function from the
+    /// same task. Another task of the tool calls it: for example, a callback
+    /// handler that sees the end of the flow, or the notification handler of
+    /// an MCP client that maps the wire id of the server to this elicitation
+    /// id.
+    ///
+    /// - Parameter elicitationId: The id of the question.
+    /// - Returns: ``ElicitationCompletionDelivery/completed`` when the flow
+    ///   ended, or ``ElicitationCompletionDelivery/noPendingElicitation``.
+    @discardableResult
+    public func complete(elicitationId: ULID) async -> ElicitationCompletionDelivery {
+        await runPlane.complete(elicitationId: elicitationId, runToken: holdingRunToken)
     }
 
     /// Gives `answer` to the run, or a decline when it is an accepted form
@@ -505,7 +543,8 @@ extension ToolInvocationRecord {
 
 /// The sink of a synchronous call that ``ToolContext/mount(_:op:as:)``
 /// mounted. It posts each event and each display event through the mounting
-/// context, so the event gets the correlation of the mounting run. It also
+/// context, so the event gets the correlation of the mounting run. It sends
+/// each completion of a URL flow to the sink of the mounting context. It also
 /// gives each record of a mounted call to the mounting context, so the
 /// records go on the report of the mounting run.
 ///
@@ -535,6 +574,15 @@ private struct MountedRunUpstreamSink: OperationEventSink, ToolCallReportSink {
     /// - Parameter event: The display event of the mounted run.
     func post(display event: ToolDisplayEvent) async {
         await context.post(display: event.kind)
+    }
+
+    /// Sends the completion of the URL flow of a question of the mounted run
+    /// through the sink of the mounting context, the same path as the
+    /// question.
+    ///
+    /// - Parameter elicitationId: The id of the question.
+    func post(elicitationCompleted elicitationId: ULID) async {
+        await context.postElicitationCompleted(elicitationId)
     }
 
     /// Attaches each record of `report` to the mounting context, in order.

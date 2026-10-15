@@ -98,6 +98,10 @@ public actor RunPlane {
         /// The accept of a URL elicitation that waits for its completion.
         var accepted: ElicitationResponse?
 
+        /// Tells the sink of the question that the accepted URL flow
+        /// completed. Only the completion of an accepted URL flow starts it.
+        let completing: @Sendable () async -> Void
+
         /// Gets the answer that resumes the run.
         let answer = Promise<ElicitationResponse>()
 
@@ -412,11 +416,16 @@ public actor RunPlane {
     ///   - runToken: The completion token of the run that asks. The
     ///     elicitation links to that run until it leaves the list.
     ///   - posting: Sends the request to the host.
+    ///   - completing: Tells the host that the accepted URL flow completed.
+    ///     The run plane starts it only when ``complete(elicitationId:)``
+    ///     completes an accepted URL flow. No other end of the question
+    ///     starts it.
     /// - Returns: The answer of the user.
     func awaitAnswer(
         to request: ElicitationRequest,
         runToken: String,
-        posting: @escaping @Sendable () async -> Void = {}
+        posting: @escaping @Sendable () async -> Void = {},
+        completing: @escaping @Sendable () async -> Void = {}
     ) async -> ElicitationResponse {
         guard userPresence == .interactive else {
             return .cancel(reason: Self.noUserPresentReason)
@@ -425,7 +434,7 @@ public actor RunPlane {
             return .cancel(reason: Self.duplicateElicitationIdReason)
         }
         let elicitation = Elicitation(
-            id: request.elicitationId, runToken: runToken, mode: request.mode,
+            id: request.elicitationId, runToken: runToken, mode: request.mode, completing: completing,
             ticket: elicitationTelemetry.enqueued())
         elicitations.append(elicitation)
         Task { await posting() }
@@ -476,15 +485,30 @@ public actor RunPlane {
     /// Tells that the flow of an accepted URL elicitation ended, and resumes
     /// the run. An unknown id, or one with no accept, does nothing.
     ///
+    /// When the flow ends, the sink of the question gets
+    /// ``OperationEventSink/post(elicitationCompleted:)`` in a new task, in
+    /// the same way as the sink gets the event of a new question. A host
+    /// reports it, for example as the end of the URL flow to the client.
+    ///
     /// - Parameter elicitationId: The id of the elicitation.
     /// - Returns: The ``ElicitationCompletionDelivery``.
     @discardableResult
     public func complete(elicitationId: ULID) -> ElicitationCompletionDelivery {
-        guard let index = elicitationIndex(of: elicitationId), let accepted = elicitations[index].accepted else {
-            return .noPendingElicitation
-        }
-        finish(elicitations.remove(at: index), with: accepted)
-        return .completed
+        completeAccepted(elicitationId: elicitationId, linkedTo: nil)
+    }
+
+    /// Completes an accepted URL elicitation as ``complete(elicitationId:)``
+    /// does, but only when the elicitation links to the run of `runToken`.
+    /// An elicitation of another run does not change.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the elicitation.
+    ///   - runToken: The completion token of the run that must hold the
+    ///     elicitation.
+    /// - Returns: The ``ElicitationCompletionDelivery``.
+    @discardableResult
+    func complete(elicitationId: ULID, runToken: String) -> ElicitationCompletionDelivery {
+        completeAccepted(elicitationId: elicitationId, linkedTo: runToken)
     }
 
     // MARK: - The sweep
@@ -681,6 +705,30 @@ public actor RunPlane {
     private func finish(_ elicitation: Elicitation, with response: ElicitationResponse) {
         elicitationTelemetry.completed(elicitation.ticket, outcome: Self.queueOutcome(of: response))
         elicitation.answer.fulfill(response)
+    }
+
+    /// Ends the accepted URL flow of `elicitationId`, resumes the run with the
+    /// accept, and starts the completion event of the question. This is the
+    /// one place that starts that event.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the elicitation.
+    ///   - runToken: The completion token of the run that must hold the
+    ///     elicitation, or `nil` for any run.
+    /// - Returns: ``ElicitationCompletionDelivery/completed``, or
+    ///   ``ElicitationCompletionDelivery/noPendingElicitation`` when no
+    ///   accepted URL elicitation with this id links to the run.
+    private func completeAccepted(elicitationId: ULID, linkedTo runToken: String?) -> ElicitationCompletionDelivery {
+        guard let index = elicitationIndex(of: elicitationId),
+            runToken == nil || elicitations[index].runToken == runToken,
+            let accepted = elicitations[index].accepted
+        else {
+            return .noPendingElicitation
+        }
+        let elicitation = elicitations.remove(at: index)
+        finish(elicitation, with: accepted)
+        Task { await elicitation.completing() }
+        return .completed
     }
 
     /// Ends each open question of the run of `token` with a cancel that gives

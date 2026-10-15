@@ -256,8 +256,8 @@ final class ToolCallState: Sendable {
 }
 
 /// The one route of the events of one run. It lets one `.completed` event
-/// through, keeps the state of the timeout, and delivers the events and the
-/// display events upstream in order.
+/// through, keeps the state of the timeout, and delivers the events, the
+/// display events and the completions of URL flows upstream in order.
 actor RunEventFunnel: OperationEventSink {
     /// The sink of the session.
     private let upstream: any OperationEventSink
@@ -339,6 +339,18 @@ actor RunEventFunnel: OperationEventSink {
         await enqueue { await $0.post(display: event) }.value
     }
 
+    /// Sends the completion of the URL flow of a question of the run
+    /// upstream, in order with the other events of the run.
+    ///
+    /// The completion can come after the terminal event, because the flow
+    /// can end after the run settles. It still goes upstream: it tells the
+    /// host about the flow, not about the run.
+    ///
+    /// - Parameter elicitationId: The id of the question.
+    func post(elicitationCompleted elicitationId: ULID) async {
+        await enqueue { await $0.post(elicitationCompleted: elicitationId) }.value
+    }
+
     /// Sends `terminal` upstream when no terminal event went yet, and the run
     /// posted an event or did not succeed. A silent success posts nothing.
     ///
@@ -387,8 +399,8 @@ actor RunEventFunnel: OperationEventSink {
 
     /// Adds `delivery` to the upstream sink behind the earlier deliveries.
     ///
-    /// - Parameter delivery: Posts one event or one display event to the
-    ///   upstream sink that it gets.
+    /// - Parameter delivery: Posts one event, one display event or one
+    ///   completion of a URL flow to the upstream sink that it gets.
     /// - Returns: The task of the delivery.
     private func enqueue(
         _ delivery: @escaping @Sendable (any OperationEventSink) async -> Void
