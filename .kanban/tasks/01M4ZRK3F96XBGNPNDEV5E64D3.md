@@ -35,10 +35,17 @@ comments:
     - evidence: deleted Sources/FoundationModelsExtras/ModelPool/Mailbox.swift, Sources/FoundationModelsExtras/ModelPool/MessageQueue.swift, Tests/FoundationModelsExtrasTests/ModelPool/MailboxTests.swift; edited Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Tests/FoundationModelsExtrasTests/Telemetry/QueueTelemetryTests.swift, README.md, plan.md. `swift build --build-tests`: Build complete, one warning only ("missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency product; it comes from the SwiftPM build graph, not from a source file). `swift test` (one run): 1118 tests in 105 suites passed, 0 failures, 0 skipped.
     - next: /review
   timestamp: 2026-10-15T12:34:28.856119+00:00
+- actor: claude-code
+  id: 01m4zs0mzggj6m4591jsg14sca
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 11ec63e). 0 findings, 0 confirmed, 0 refuted. 5 files reviewed. README.md and plan.md have no validator. Some Swift tool rules did not read Mailbox.swift, MessageQueue.swift and MailboxTests.swift, because the commit deletes these files.
+    - next: The task is in done.
+  timestamp: 2026-10-15T12:36:25.712489+00:00
 depends_on:
 - 01M4ZRJZ5TX9H33DP2PDNW7R6E
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ff8e80
 title: 'Mail step 8 T1: remove Mailbox, MailboxAnswer, the MessageQueue types and QueueName.mailbox'
 ---
 Remove these seven public items from FoundationModelsExtras:
