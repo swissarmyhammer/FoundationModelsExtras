@@ -138,6 +138,12 @@ public actor RunPlane {
     /// The pending elicitations, in the order they came.
     private var elicitations: [Elicitation] = []
 
+    /// The id of each accepted URL question whose completion post is in
+    /// progress, in the order of the completes. A question is here from the
+    /// step that takes it off ``elicitations`` until its completion post
+    /// returns, and it leaves before its run resumes.
+    private var completingElicitationIds: [ULID] = []
+
     /// The task of each run body that did not end, by completion token. A
     /// run that the sweep settled stays here until its body ends, because a
     /// cancel of a ``RunKind/swiftTask`` run is only a request.
@@ -458,9 +464,31 @@ public actor RunPlane {
     /// they came. An accepted URL elicitation stays in the list until its
     /// completion.
     ///
+    /// When ``complete(elicitationId:)`` completes an accepted URL flow, the
+    /// question leaves this list and goes into ``completingElicitations()``
+    /// in the same step. Thus, while its completion post is in progress, each
+    /// read finds the question in one of the two lists.
+    ///
     /// - Returns: The open elicitations.
     public func openElicitations() -> [OpenElicitation] {
         elicitations.map { OpenElicitation(elicitationId: $0.id, runToken: $0.runToken) }
+    }
+
+    /// The id of each question whose completion post is in progress, in the
+    /// order of the completes.
+    ///
+    /// A question goes into this list in the same step as
+    /// ``complete(elicitationId:)`` takes it off ``openElicitations()``. It
+    /// leaves this list when its post of
+    /// ``OperationEventSink/post(elicitationCompleted:)`` returns, before its
+    /// run resumes with the accept. Thus a host can tell a completion that is
+    /// on its way from a question that a run cancel ended: a question that a
+    /// run cancel or a ``sweep()`` ended is in neither list. A read after the
+    /// run resumed does not find the question in this list.
+    ///
+    /// - Returns: The ids.
+    public func completingElicitations() -> [ULID] {
+        completingElicitationIds
     }
 
     /// Gives the answer of the user to a pending elicitation.
@@ -507,6 +535,11 @@ public actor RunPlane {
     /// run resumes does not find the question and gives it no cancel: the run
     /// gets one answer only, the accept, when the post returns. A sink whose
     /// post does not return keeps the run waiting.
+    ///
+    /// While the post is in progress, ``completingElicitations()`` gives the
+    /// id of the question. The question goes into that list in the same step
+    /// as it leaves the list of ``openElicitations()``, and it leaves that
+    /// list when the post returns, before the run resumes.
     ///
     /// - Parameter elicitationId: The id of the elicitation.
     /// - Returns: The ``ElicitationCompletionDelivery``.
@@ -739,6 +772,11 @@ public actor RunPlane {
     /// completion, a run cancel and the sweep do not find it, and the run gets
     /// one answer only: the accept.
     ///
+    /// The id goes into ``completingElicitationIds`` in the same step as the
+    /// question leaves the list. The task removes the id after the post
+    /// returns and before it resumes the run, with no suspension between the
+    /// two, so no read sees the id after the run has its answer.
+    ///
     /// - Parameters:
     ///   - elicitationId: The id of the elicitation.
     ///   - runToken: The completion token of the run that must hold the
@@ -754,11 +792,29 @@ public actor RunPlane {
             return .noPendingElicitation
         }
         let elicitation = elicitations.remove(at: index)
+        completingElicitationIds.append(elicitation.id)
         Task {
             await elicitation.completing()
+            endCompletingPost(of: elicitation.id)
             finish(elicitation, with: accepted)
         }
         return .completed
+    }
+
+    /// Removes the first `elicitationId` from ``completingElicitationIds``,
+    /// because its completion post returned. Only the first one goes,
+    /// because a new question can use the same id while this post is in
+    /// progress, and its own complete then adds the id again.
+    ///
+    /// - Parameter elicitationId: The id of the question.
+    private func endCompletingPost(of elicitationId: ULID) {
+        guard let index = completingElicitationIds.firstIndex(of: elicitationId) else {
+            assertionFailure("a completion post ended for an id that is not completing")
+            ExtrasTelemetry.makeLogger().error(
+                "a completion post ended for an id that is not completing; nothing to remove")
+            return
+        }
+        completingElicitationIds.remove(at: index)
     }
 
     /// Ends each open question of the run of `token` with a cancel that gives

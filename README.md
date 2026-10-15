@@ -849,7 +849,10 @@ questions that those runs ask the user.
   the sweep) sends it. A tool ends the accepted URL flow of its own question
   with `ToolContext.complete(elicitationId:)` from a second task, for example
   a callback handler that sees the end of the flow. A question of another run
-  gives `.noPendingElicitation` and stays open.
+  gives `.noPendingElicitation` and stays open. While the completion post is
+  in progress, `RunPlane.completingElicitations()` gives the id of the
+  question, and `openElicitations()` does not; the id leaves that list when
+  the post returns, before the run resumes.
 - When a run stops, its open questions end. `cancel(completionToken:)` gives
   a cancel with the reason `RunPlane.runCancelledReason` (`"run cancelled"`)
   to each open question of that run, and to each question of a synchronous

@@ -20,8 +20,9 @@ struct EventOnlySink: OperationEventSink {
 }
 
 /// Holds the completion of a URL flow to the public surface:
-/// ``OperationEventSink/post(elicitationCompleted:)`` with its default, and
-/// ``ToolContext/complete(elicitationId:)``.
+/// ``OperationEventSink/post(elicitationCompleted:)`` with its default,
+/// ``ToolContext/complete(elicitationId:)`` and
+/// ``RunPlane/completingElicitations()``.
 ///
 /// The import is plain, with no `@testable`. When a member loses `public`,
 /// this file does not compile.
@@ -49,5 +50,30 @@ struct ElicitationCompletionPublicSurfaceTests {
         try #require(delivery == .completed)
         #expect(try await asking.value == .accept(content: nil))
         #expect(await runPlane.openElicitations().isEmpty)
+    }
+
+    @Test("a host reads the question whose completion post is in progress")
+    func aHostReadsTheCompletingQuestionThroughThePublicSurface() async throws {
+        let runPlane = RunPlane()
+        let gate = RunLatch.closed()
+        let sink = SignallingSink(completionGate: gate)
+        var reader = SignalReader(sink.signals)
+        let request = ElicitationRequest(
+            message: "Sign in", elicitationId: ULID(), url: try #require(URL(string: "https://example.com/sign-in")))
+        let context = MountFixtures.hostContext(on: runPlane, sink: sink)
+        let asking = Task { try await context.elicit(request) }
+        await reader.wait(for: [.asked(request.elicitationId)])
+        let accepted = await runPlane.respond(elicitationId: request.elicitationId, .accept(content: nil))
+        let delivery = await runPlane.complete(elicitationId: request.elicitationId)
+        await reader.wait(for: [.completionHeld(request.elicitationId)])
+
+        let completing: [ULID] = await runPlane.completingElicitations()
+        gate.open()
+
+        #expect(accepted == .acceptedAwaitingCompletion)
+        #expect(delivery == .completed)
+        #expect(completing == [request.elicitationId])
+        #expect(try await asking.value == .accept(content: nil))
+        #expect(await runPlane.completingElicitations().isEmpty)
     }
 }

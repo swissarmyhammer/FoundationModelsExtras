@@ -37,6 +37,11 @@ public protocol OperationEventSink: Sendable {
     /// completion before each post of the resumed run. A sink that does not
     /// return from this call keeps that run waiting.
     ///
+    /// While this call is in progress, ``RunPlane/completingElicitations()``
+    /// gives `elicitationId`, and ``RunPlane/openElicitations()`` does not.
+    /// When this call returns, the id leaves that list before the run
+    /// resumes.
+    ///
     /// - Parameter elicitationId: The id of the elicitation that completed.
     func post(elicitationCompleted elicitationId: ULID) async
 }

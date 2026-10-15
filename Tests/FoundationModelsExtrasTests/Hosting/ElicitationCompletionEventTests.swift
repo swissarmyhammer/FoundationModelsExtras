@@ -461,4 +461,61 @@ struct ElicitationCompletionEventTests {
             #expect(await runPlane.sweep().count == 1)
         }
     }
+
+    // MARK: - The questions whose completion post is in progress
+
+    /// Asks each of `requests` through one host context on `runPlane` that
+    /// posts to `sink`, accepts and completes each one in order, and waits
+    /// until the sink holds each completion on its gate.
+    ///
+    /// - Parameters:
+    ///   - requests: The URL questions.
+    ///   - runPlane: The run plane of the session.
+    ///   - sink: The sink of the context. It must have a completion gate.
+    /// - Returns: The answer of each question, in the order of `requests`.
+    private static func holdCompletions(
+        of requests: [ElicitationRequest], on runPlane: RunPlane, sink: SignallingSink
+    ) async -> [Task<ElicitationResponse, any Error>] {
+        var reader = SignalReader(sink.signals)
+        let context = MountFixtures.hostContext(on: runPlane, sink: sink)
+        let answers = requests.map { request in Task { try await context.elicit(request) } }
+        await reader.wait(for: Set(requests.map { .asked($0.elicitationId) }))
+        for request in requests {
+            await acceptAndComplete(request.elicitationId, on: runPlane)
+        }
+        await reader.wait(for: Set(requests.map { .completionHeld($0.elicitationId) }))
+        return answers
+    }
+
+    @Test("while the sink holds the completion, the question is completing and not open, and after the run resumes it is in neither list")
+    func aHeldCompletionShowsTheQuestionAsCompleting() async throws {
+        let runPlane = RunPlane()
+        let gate = RunLatch.closed()
+        let request = try Self.urlRequest()
+        let answers = await Self.holdCompletions(
+            of: [request], on: runPlane, sink: SignallingSink(completionGate: gate))
+
+        #expect(await runPlane.completingElicitations() == [request.elicitationId])
+        #expect(await runPlane.openElicitations().isEmpty)
+        gate.open()
+        #expect(try await answers[0].value == .accept(content: nil))
+        #expect(await runPlane.completingElicitations().isEmpty)
+        #expect(await runPlane.openElicitations().isEmpty)
+    }
+
+    @Test("two held completions are completing in the order of the completes")
+    func twoHeldCompletionsAreCompletingInCompleteOrder() async throws {
+        let runPlane = RunPlane()
+        let gate = RunLatch.closed()
+        let requests = [try Self.urlRequest(), try Self.urlRequest()]
+        let answers = await Self.holdCompletions(
+            of: requests, on: runPlane, sink: SignallingSink(completionGate: gate))
+
+        #expect(await runPlane.completingElicitations() == requests.map(\.elicitationId))
+        gate.open()
+        for answer in answers {
+            #expect(try await answer.value == .accept(content: nil))
+        }
+        #expect(await runPlane.completingElicitations().isEmpty)
+    }
 }
