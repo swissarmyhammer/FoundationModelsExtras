@@ -1,0 +1,1 @@
+{"id":"01M531364VBHTN4HTQ7768K4RF","timestamp":"2026-10-16T18:55:20.731984Z","op":"create","item_id":"01M531364S89MA89VV98SS4R2K","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 1d76db\n+tag_name: test\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 1d76db\n-tag_name: test\n","transaction_id":null}
