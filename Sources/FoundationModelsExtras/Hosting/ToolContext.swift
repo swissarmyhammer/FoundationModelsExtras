@@ -350,6 +350,12 @@ public struct ToolContext: Sendable {
     /// ``RunPlane/noUserPresentReason`` at once. The request does not go to
     /// the sink, no question opens, and the run does not wait.
     ///
+    /// After a cancel of the run that holds this call
+    /// (``RunPlane/cancel(completionToken:)`` or ``RunPlane/sweep()``), this
+    /// function returns a cancel with ``RunPlane/runCancelledReason`` at once,
+    /// in the same way. Thus a run that asks again after a cancel does not
+    /// wait.
+    ///
     /// The run gets no content that is not valid. When the request is in form
     /// mode and the answer is an accept, this function checks the content with
     /// ``ElicitationRequestedSchema/validationFailure(of:)``. When the check
@@ -446,6 +452,10 @@ public struct ToolContext: Sendable {
     /// ``OperationEventSink/post(elicitationEnded:response:)`` before the
     /// canceler runs, and a run that settles while those posts are in
     /// progress gives ``CancelOutcome/alreadySettled(_:)``.
+    ///
+    /// The questions of a settled or unknown token end in the same way. The
+    /// token stays cancelled: each question that it asks after this call
+    /// starts gets a cancel with ``RunPlane/runCancelledReason`` at once.
     ///
     /// This call waits for the end posts, and they wait on the sink chain of
     /// the run. Thus a sink must not await this call inside a post: the call

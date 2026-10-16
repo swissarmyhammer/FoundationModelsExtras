@@ -153,6 +153,13 @@ public actor RunPlane {
     /// `cancel` gets the terminal event, not `unknownToken`.
     private var settled: [String: OperationEvent] = [:]
 
+    /// The completion token of each run that ``cancel(completionToken:)`` or
+    /// ``sweep()`` cancelled: open, settled and unknown tokens. A question
+    /// that one of these runs asks after the cancel ends at once. The run
+    /// plane keeps each token for the life of the session, as it keeps the
+    /// settled runs.
+    private var cancelledRunTokens: Set<String> = []
+
     /// The pending elicitations, in the order they came.
     private var elicitations: [Elicitation] = []
 
@@ -436,6 +443,17 @@ public actor RunPlane {
     /// run that waits for an answer cannot settle, and a canceler that waits
     /// for the run to stop then never returns.
     ///
+    /// The token stays cancelled for the life of the session. Each question
+    /// that the token asks after this call starts gets a cancel with
+    /// ``runCancelledReason`` at once: the question does not open, and no
+    /// event is posted. Thus a run that asks again after it got the cancel
+    /// cannot wait for a user that never sees the question.
+    ///
+    /// The questions of a settled or unknown token end too, before this call
+    /// returns its outcome. A top-level foreground call asks with a token
+    /// that names no run of the run plane, and a child task of a run can ask
+    /// after the body of the run returned.
+    ///
     /// A question whose accepted URL flow ``complete(elicitationId:)`` ended
     /// left the list already, also while its completion post is in progress.
     /// This call does not end that question: its run gets the accept when the
@@ -458,12 +476,11 @@ public actor RunPlane {
     /// - Returns: ``CancelOutcome/reported(_:)``, or
     ///   ``CancelOutcome/alreadySettled(_:)`` when the run settled first, also
     ///   while the end posts were in progress, or
-    ///   ``CancelOutcome/unknownToken``.
+    ///   ``CancelOutcome/unknownToken``. The questions of the token ended
+    ///   before each of these outcomes.
     func cancel(completionToken: String) async -> CancelOutcome {
         Self.checkNotInSinkPost()
-        if case .closed(let outcome) = cancelTarget(of: completionToken) {
-            return outcome
-        }
+        cancelledRunTokens.insert(completionToken)
         await cancelQuestions(ofRun: completionToken)
         // The end posts suspend this actor, so the run can settle by itself
         // in that time. Thus the run is found again.
@@ -483,6 +500,10 @@ public actor RunPlane {
     /// A headless run plane (see ``userPresence``) gives a cancel with
     /// ``noUserPresentReason`` at once. Then `posting` does not run, no
     /// elicitation becomes pending, and nothing waits.
+    ///
+    /// A run that ``cancel(completionToken:)`` or ``sweep()`` cancelled gets
+    /// a cancel with ``runCancelledReason`` at once, in the same way: no
+    /// elicitation becomes pending, and `posting` does not run.
     ///
     /// The elicitation is pending before `posting` runs. A duplicate
     /// `elicitationId` gets a cancel with ``duplicateElicitationIdReason``
@@ -519,6 +540,9 @@ public actor RunPlane {
     ) async -> ElicitationResponse {
         guard userPresence == .interactive else {
             return .cancel(reason: Self.noUserPresentReason)
+        }
+        guard !cancelledRunTokens.contains(runToken) else {
+            return .cancel(reason: Self.runCancelledReason)
         }
         guard elicitationIndex(of: request.elicitationId) == nil else {
             return .cancel(reason: Self.duplicateElicitationIdReason)
@@ -794,6 +818,7 @@ public actor RunPlane {
     /// - Returns: The one terminal event of the run, or `nil` when the run
     ///   is not open and not settled.
     private func sweepRun(_ token: String) async -> OperationEvent? {
+        cancelledRunTokens.insert(token)
         await cancelQuestions(ofRun: token)
         if let own = settled[token] {
             return own
