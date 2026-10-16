@@ -1,0 +1,1 @@
+{"id":"01M524PEX4YG875N5PAM0K0VNW","timestamp":"2026-10-16T10:39:03.588505Z","op":"create","item_id":"01M524PEX4QH9SSSXAGTTVMT6Q","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 7057ff\n+tag_name: elicitation\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 7057ff\n-tag_name: elicitation\n","transaction_id":null}
