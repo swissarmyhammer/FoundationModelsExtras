@@ -37,10 +37,10 @@ extension ElicitationRequestedSchema {
     ///   (`String.unicodeScalars`), not Characters and not UTF-16 code units.
     ///   Thus `"e\u{301}"` has a length of 2, and `"👍"` has a length of 1.
     /// - ``ElicitationStringSchema/pattern`` is an ECMA-262 regular expression
-    ///   with no flags, and it is not anchored: the value is valid when the
-    ///   pattern matches a part of it. A pattern that must match the whole
-    ///   value starts with `^` and ends with `$`. The match works on Unicode
-    ///   code points, as ECMA-262 does with the `u` flag.
+    ///   with the meaning of the `u` flag and no other flag: the match works on
+    ///   Unicode code points. The pattern is not anchored: the value is valid
+    ///   when the pattern matches a part of it. A pattern that must match the
+    ///   whole value starts with `^` and ends with `$`.
     ///
     /// The pattern runs on `NSRegularExpression` (ICU) after a translation that
     /// gives the ECMA-262 meaning to these parts:
@@ -66,11 +66,11 @@ extension ElicitationRequestedSchema {
     ///   ECMA-262 rejects it or reads it in a different way: possessive
     ///   quantifiers, atomic groups, inline flags such as `(?i)`, `\Q…\E`,
     ///   `\x{…}`, and the escapes `\A`, `\z`, `\Z`, `\G`, `\X`, `\h`, `\H`,
-    ///   `\V`, `\R` and `\N{…}`. In ECMA-262 with no `u` flag, an
-    ///   escape of a letter with no meaning is that letter.
+    ///   `\V`, `\R` and `\N{…}`. With the `u` flag, ECMA-262
+    ///   rejects an escape of a letter that has no meaning.
     /// - A pattern with syntax that only ECMA-262 knows does not compile here,
-    ///   and the field fails: for example, a literal `{` that does not start a
-    ///   quantifier, `\u{…}`, or a backreference before its group.
+    ///   and the field fails: for example, `\u{…}`, or a backreference before
+    ///   its group.
     /// - `--` in a class, and a range next to a class escape such as
     ///   `[\d-z]`, can have a different meaning.
     /// - The names in `\p{…}` are the names of ICU.
@@ -213,12 +213,12 @@ public enum ElicitationValidation {
     /// `text`.
     ///
     /// The check is a search, as JSON Schema `pattern` is: a pattern with no
-    /// `^` and no `$` can match in the middle of `text`. The pattern has no
-    /// flags.
+    /// `^` and no `$` can match in the middle of `text`. The pattern has the
+    /// meaning of the ECMA-262 `u` flag (code points), and no other flag.
     ///
     /// - Parameters:
     ///   - text: The value of the field.
-    ///   - pattern: An ECMA-262 regular expression with no flags.
+    ///   - pattern: An ECMA-262 regular expression with the `u` flag only.
     /// - Returns: `nil` when `pattern` does not compile, `true` when a match
     ///   is in `text`, and `false` when no match is in `text`.
     public static func patternMatches(_ text: String, pattern: String) -> Bool? {
@@ -268,7 +268,7 @@ private enum ECMAPattern {
     ///
     /// - Parameters:
     ///   - text: The value in the answer.
-    ///   - pattern: An ECMA-262 regular expression with no flags.
+    ///   - pattern: An ECMA-262 regular expression with the `u` flag only.
     /// - Returns: `nil` when `pattern` does not compile, else whether a match
     ///   is in `text`.
     static func search(_ text: String, for pattern: String) -> Bool? {
@@ -283,7 +283,7 @@ private enum ECMAPattern {
     /// the doc of ``ElicitationRequestedSchema/validationFailure(of:)`` names,
     /// and it copies each other part.
     ///
-    /// - Parameter pattern: An ECMA-262 regular expression with no flags.
+    /// - Parameter pattern: An ECMA-262 regular expression with the `u` flag only.
     /// - Returns: The ICU regular expression.
     static func icuPattern(of pattern: String) -> String {
         let scalars = Array(pattern.unicodeScalars)
