@@ -302,13 +302,16 @@ enum MountFixtures {
     ///     ``pendingAtOnceGrace``.
     ///   - tracer: The tracer of the session, or `nil` for
     ///     `InstrumentationSystem.tracer` at call time. The default is `nil`.
+    ///   - runPlane: The run plane of the mount. The default is a new run
+    ///     plane on the real clock. A test of the settle period gives a run
+    ///     plane on a ``ManualRunClock``.
     static func backgroundHarness<Arguments: ConvertibleFromGeneratedContent & Sendable>(
         wrapping tool: any Tool<Arguments, String>,
         timeout: TimeInterval? = nil,
         inlineSettleGrace: TimeInterval = pendingAtOnceGrace,
-        tracer: (any Tracer)? = nil
+        tracer: (any Tracer)? = nil,
+        runPlane: RunPlane = RunPlane()
     ) -> Harness<BackgroundToolRunner<Arguments>> {
-        let runPlane = RunPlane()
         let sink = RecordingSink()
         let site = site(runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace, tracer: tracer)
         let mounted = BackgroundToolRunner(wrapping: tool, site: site, timeout: timeout)

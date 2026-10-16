@@ -77,7 +77,7 @@ struct ToolContextMountTests {
 
     /// What the inner call of ``InnerCallTimingTool`` gave.
     private actor InnerCallWitness {
-        /// The seconds that the inner call took.
+        /// The seconds that the inner call took on the manual clock.
         private(set) var elapsed: TimeInterval?
 
         /// The output of the inner call.
@@ -91,27 +91,36 @@ struct ToolContextMountTests {
     }
 
     /// Mounts `inner` as a background tool on its own context, calls it, and
-    /// records the time and the output of that inner call.
+    /// records the time on `clock` and the output of that inner call.
     private struct InnerCallTimingTool: Tool {
         let name = "inner_call_timing_tool"
         let description = "makes one inner background call and records how long it took"
         let inner: Fixtures.InlineGraceTool
         let witness: InnerCallWitness
+        let clock: ManualRunClock
 
         func call(arguments: MountArguments) async throws -> String {
             let context = try #require(ToolContext.current)
             let mounted = context.mount(inner, as: ToolMount(mode: .background))
-            let start = ContinuousClock.now
+            let start = clock.now
             let output = try await mounted.call(arguments: arguments)
-            await witness.record(elapsed: ToolContextMountTests.seconds(since: start), output: output)
+            await witness.record(elapsed: ToolContextMountTests.seconds(of: clock.now - start), output: output)
             return ToolContextMountTests.outerOutput
         }
     }
 
-    /// The seconds from `start` to now.
-    private static func seconds(since start: ContinuousClock.Instant) -> TimeInterval {
-        let parts = (ContinuousClock.now - start).components
+    /// `duration` in seconds.
+    private static func seconds(of duration: Duration) -> TimeInterval {
+        let parts = duration.components
         return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
+    }
+
+    /// Waits until the run of `completionToken` settles, with no deadline, and
+    /// gives its terminal event. A wait with a deadline puts one more wait on
+    /// the manual clock, thus these tests do not use one.
+    private static func settledTerminal(of completionToken: String, in runPlane: RunPlane) async throws -> OperationEvent {
+        let result = await runPlane.wait(completionToken: completionToken, seconds: nil)
+        return try #require(result.settledTerminal, "run \(completionToken) did not settle: \(result)")
     }
 
     // MARK: - The three decorators
@@ -371,53 +380,84 @@ struct ToolContextMountTests {
 
     @Test("an inner background call inside the settle period of its outer run stops its wait the reserve before the outer deadline, so the outer run answers inline")
     func innerCallInsideTheOuterSettlePeriodKeepsTheReserve() async throws {
+        let clock = ManualRunClock()
         let gate = RunLatch()
         let witness = InnerCallWitness()
         // The inner tool asks for a long wait, and its gate stays closed.
         let inner = Fixtures.InlineGraceTool(gate: gate, grace: Fixtures.generousInterval)
         let harness = Fixtures.backgroundHarness(
-            wrapping: InnerCallTimingTool(inner: inner, witness: witness), inlineSettleGrace: Self.outerSettleGrace)
-        let start = ContinuousClock.now
+            wrapping: InnerCallTimingTool(inner: inner, witness: witness, clock: clock),
+            inlineSettleGrace: Self.outerSettleGrace, runPlane: RunPlane(clock: clock))
+        let start = clock.now
+        let reserve = BackgroundToolRunner<MountArguments>.innerCallSettleReserve
 
-        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "nested"))
+        let call = Task { try await harness.mounted.call(arguments: MountArguments(value: "nested")) }
+        // Two waits are on the clock: the settle wait of the outer call, and
+        // the settle wait of the inner call.
+        await clock.waitForSleepers(atLeast: 2)
+        let waits = clock.sleeperCount
+        clock.advance(by: .seconds(Self.outerSettleGrace - reserve))
+
+        // At the outer deadline minus the reserve, only the inner wait ends.
+        let innerWaitEnded = clock.sleeperCount == waits - 1
+        #expect(innerWaitEnded)
+        if !innerWaitEnded {
+            // The inner wait did not keep the reserve. Pass each deadline, so
+            // the call returns and the expectations below fail.
+            clock.advance(by: .seconds(Fixtures.generousInterval))
+        }
+        let rendered = try await call.value
 
         // The outer run ended inside its own grace: its own output, no envelope.
         #expect(rendered == Self.outerOutput)
-        #expect(Self.seconds(since: start) < Self.outerSettleGrace)
+        #expect(Self.seconds(of: clock.now - start) < Self.outerSettleGrace)
         // The inner call stopped its wait before the outer deadline, and left
         // the reserve to the outer run.
         let elapsed = try #require(await witness.elapsed)
-        let reserve = BackgroundToolRunner<MountArguments>.innerCallSettleReserve
         #expect(elapsed < Self.outerSettleGrace - reserve / 2)
         let innerOutput = try #require(await witness.output)
         let innerEnvelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: innerOutput))
 
         gate.open()
-        let terminal = try await Fixtures.settledTerminal(of: innerEnvelope.completionToken, in: harness.runPlane)
+        let terminal = try await Self.settledTerminal(of: innerEnvelope.completionToken, in: harness.runPlane)
         #expect(terminal.detail == Fixtures.InlineGraceTool.output(for: "nested"))
     }
 
     @Test("an inner background call after the outer run already answered waits for its full grace")
     func innerCallAfterTheOuterDeadlineWaitsItsFullGrace() async throws {
+        let clock = ManualRunClock()
         let gate = RunLatch()
         let witness = InnerCallWitness()
         let inner = Fixtures.InlineGraceTool(gate: gate, grace: Self.innerSettleGrace)
         // Grace 0: the outer run answers at once, so its deadline passed
         // before the inner call starts.
         let harness = Fixtures.backgroundHarness(
-            wrapping: InnerCallTimingTool(inner: inner, witness: witness), inlineSettleGrace: 0)
+            wrapping: InnerCallTimingTool(inner: inner, witness: witness, clock: clock), inlineSettleGrace: 0,
+            runPlane: RunPlane(clock: clock))
 
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "late"))
         let outerEnvelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: rendered))
-        let outerTerminal = try await Fixtures.settledTerminal(of: outerEnvelope.completionToken, in: harness.runPlane)
+        let runPlane = harness.runPlane
+
+        // The inner call puts its settle wait on the clock. When it keeps no
+        // wait, the outer run settles first.
+        await Waits.untilFirstEnds(
+            { await clock.waitForSleepers(atLeast: 1) },
+            { _ = await runPlane.wait(completionToken: outerEnvelope.completionToken, seconds: nil) })
+        #expect(clock.sleeperCount == 1)
+        // Half the grace does not end the inner wait.
+        clock.advance(by: .seconds(Self.innerSettleGrace / 2))
+        #expect(clock.sleeperCount == 1)
+        clock.advance(by: .seconds(Self.innerSettleGrace))
+        let outerTerminal = try await Self.settledTerminal(of: outerEnvelope.completionToken, in: runPlane)
 
         #expect(outerTerminal.detail == Self.outerOutput)
         let elapsed = try #require(await witness.elapsed)
-        #expect(elapsed >= Self.innerSettleGrace * 0.9)
+        #expect(elapsed >= Self.innerSettleGrace)
         let innerOutput = try #require(await witness.output)
         let innerEnvelope = try #require(PendingRunEnvelope.makeDecoded(fromRendered: innerOutput))
 
         gate.open()
-        _ = try await Fixtures.settledTerminal(of: innerEnvelope.completionToken, in: harness.runPlane)
+        _ = try await Self.settledTerminal(of: innerEnvelope.completionToken, in: runPlane)
     }
 }
