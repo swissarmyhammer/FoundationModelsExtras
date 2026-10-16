@@ -301,19 +301,11 @@ struct BackgroundToolRunnerTests {
         #expect(await sink.staged.isEmpty)
     }
 
-    /// `tool` under the decorator that gives a failure to the model, as a
-    /// session sees it.
-    private static func modelFacing(
-        _ tool: BackgroundToolRunner<MountArguments>
-    ) throws -> FailureDeliveringTextTool<MountArguments> {
-        try #require(ToolFailureDelivery.makeWrapped(tool: tool) as? FailureDeliveringTextTool<MountArguments>)
-    }
-
     @Test("a run that a cancel of only that run ends inside the grace gives the model a tool result that tells so, and its terminal outcome is cancelled")
     func runCancelledInsideTheGraceGivesAToolResult() async throws {
         let wrapped = Fixtures.SelfCancellingTool()
         let harness = Fixtures.backgroundHarness(wrapping: wrapped, inlineSettleGrace: Fixtures.generousInterval)
-        let tool = try Self.modelFacing(harness.mounted)
+        let tool = try Fixtures.modelFacingTextTool(harness.mounted, arguments: MountArguments.self)
 
         let output = try await tool.call(arguments: MountArguments(value: "x"))
 
@@ -328,7 +320,7 @@ struct BackgroundToolRunnerTests {
         let site = Fixtures.site(
             runPlane: RunPlane(), sink: Fixtures.CallCancellingSink(), inlineSettleGrace: Fixtures.generousInterval)
         let runner = BackgroundToolRunner(wrapping: Fixtures.SelfCancellingTool(), site: site, timeout: nil)
-        let tool = try Self.modelFacing(runner)
+        let tool = try Fixtures.modelFacingTextTool(runner, arguments: MountArguments.self)
 
         let calling = Task { try await tool.call(arguments: MountArguments(value: "x")) }
 

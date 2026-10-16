@@ -7,6 +7,8 @@ import ULID
 /// model reads, and only a cancellation of the task of the call throws.
 @Suite("ToolFailureDelivery: a failure is the call's output, a cancellation of the call throws")
 struct ToolFailureDeliveryTests {
+    private typealias Fixtures = MountFixtures
+
     /// The step that each call of this suite names.
     private static let step = "ONE"
 
@@ -167,8 +169,7 @@ struct ToolFailureDeliveryTests {
 
     @Test("a String-output tool that throws gives the failure text as its String output")
     func stringOutputToolFailureIsText() async throws {
-        let wrapped = ToolFailureDelivery.makeWrapped(tool: ThrowingTool())
-        let tool = try #require(wrapped as? FailureDeliveringTextTool<StepArguments>)
+        let tool = try Fixtures.modelFacingTextTool(ThrowingTool(), arguments: StepArguments.self)
 
         let output = try await tool.call(arguments: Self.arguments)
 
@@ -177,8 +178,7 @@ struct ToolFailureDeliveryTests {
 
     @Test("a String-output tool that ends as cancelled in a cancelled task still throws the cancellation")
     func stringOutputToolCancellationThrows() async throws {
-        let wrapped = ToolFailureDelivery.makeWrapped(tool: CancellingTool())
-        let tool = try #require(wrapped as? FailureDeliveringTextTool<StepArguments>)
+        let tool = try Fixtures.modelFacingTextTool(CancellingTool(), arguments: StepArguments.self)
 
         let result = await Self.resultInCancelledTask { try await tool.call(arguments: Self.arguments) }
 
@@ -187,8 +187,7 @@ struct ToolFailureDeliveryTests {
 
     @Test("a String-output tool's output passes through unchanged")
     func stringOutputPassesThrough() async throws {
-        let wrapped = ToolFailureDelivery.makeWrapped(tool: MarkerTool())
-        let tool = try #require(wrapped as? FailureDeliveringTextTool<StepArguments>)
+        let tool = try Fixtures.modelFacingTextTool(MarkerTool(), arguments: StepArguments.self)
 
         let output = try await tool.call(arguments: Self.arguments)
 
@@ -259,23 +258,25 @@ struct ToolFailureDeliveryTests {
 
     /// `ThrowingTool` mounted with ``ToolMount/synchronous``, with the
     /// decorator outermost, as a host gives it to the model.
-    private static func mountedForTheModel() -> any Tool {
+    ///
+    /// - Returns: The decorated text tool.
+    /// - Throws: When the decorator is not the outermost text tool.
+    private static func mountedForTheModel() throws -> FailureDeliveringTextTool<StepArguments> {
         let site = MountSite(sessionID: ULID(), runPlane: RunPlane(), sink: DiscardingOperationEventSink())
         let mounted = ToolMounting.makeWrapped(tool: ThrowingTool(), site: site, configuration: .synchronous)
-        return ToolFailureDelivery.makeWrapped(tool: mounted)
+        return try Fixtures.modelFacingTextTool(mounted, arguments: StepArguments.self)
     }
 
     @Test("over the mount, the decorator is outermost and the runner is the tool beneath it")
-    func mountPutsTheDecoratorOutermost() {
-        let mounted = Self.mountedForTheModel()
+    func mountPutsTheDecoratorOutermost() throws {
+        let mounted = try Self.mountedForTheModel()
 
-        #expect(mounted is FailureDeliveringTextTool<StepArguments>)
         #expect(ToolFailureDelivery.throwingTool(of: mounted) is RunToCompletionRunner<StepArguments>)
     }
 
     @Test("a failed call through the whole mount is a tool result")
     func mountedFailureIsAToolResult() async throws {
-        let tool = try #require(Self.mountedForTheModel() as? FailureDeliveringTextTool<StepArguments>)
+        let tool = try Self.mountedForTheModel()
 
         let output = try await tool.call(arguments: Self.arguments)
 

@@ -41,6 +41,33 @@ comments:
     - Not done here, by instruction: commit and push. The last subtask stays open.
     - next: /review
   timestamp: 2026-10-16T01:17:32.354778+00:00
+- actor: claude-code
+  id: 01m514t1qfx2f2eqtp6x7fhrt7
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (67e3aaa). 1 finding, 1 confirmed, 0 refuted. Tests/FoundationModelsExtrasTests/Hosting/BackgroundToolRunnerTests.swift:306 (reuse/reuse).
+    - next: Move the wrap-and-cast of `modelFacing` into one shared fixture in `MountFixtures.swift`. Call it from `BackgroundToolRunnerTests` and `ToolFailureDeliveryTests`. Remove the private copy. Then review again.
+  timestamp: 2026-10-16T01:21:46.735818+00:00
+- actor: claude-code
+  id: 01m514tg0trsg82a5dsgfg8qdk
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 6 files
+    - test: green — swift test, 1176 passed; RED 2 of 16 failed on the old code
+    - commit: 67e3aaa
+    - review: findings — Tests/FoundationModelsExtrasTests/Hosting/BackgroundToolRunnerTests.swift:306
+  timestamp: 2026-10-16T01:22:01.370995+00:00
+- actor: claude-code
+  id: 01m5154dvwhrzaes4z8qfy99mn
+  text: |-
+    ### implement — changed
+    - evidence: 3 files. Tests/FoundationModelsExtrasTests/Hosting/MountFixtures.swift: new static `modelFacingTextTool(_:arguments:)` under "MARK: - Model-facing tool". It takes `any Tool` and the arguments type, and returns the `FailureDeliveringTextTool` of `ToolFailureDelivery.makeWrapped`. Tests/FoundationModelsExtrasTests/Hosting/BackgroundToolRunnerTests.swift: the private `modelFacing` is removed, and its 2 callers use the fixture. Tests/FoundationModelsExtrasTests/Hosting/ToolFailureDeliveryTests.swift: the 3 String-output tests use the fixture. `mountedForTheModel()` now gives the decorated text tool through the fixture, and the `is FailureDeliveringTextTool` check is now the `#require` of the fixture.
+    - The other `ToolFailureDelivery.makeWrapped` uses in the test target do not cast to the text tool: `FailureDeliveringResultTool` casts (a different type), `throwingTool(of:)` unwraps, and ToolHostingPublicSurfaceTests has a plain import, so it cannot name the internal type and casts to the public `any Tool<ProbeArguments, String>` on purpose. They do not change.
+    - Filtered `swift test --filter 'BackgroundToolRunnerTests|ToolFailureDeliveryTests'` (one run): 38 tests in 2 suites passed.
+    - Full `swift test` (one run): 1176 tests in 113 suites passed, exit 0. No compiler warnings. The only "warning:" line is the known build-system note "missing creator for mutated node" for the mlx-swift_Cmlx bundle.
+    - No production code change. No commit, no push, by instruction. The finding is checked.
+    - next: /review
+  timestamp: 2026-10-16T01:27:26.844910+00:00
 position_column: doing
 position_ordinal: '80'
 title: A cancel of one background run gives its waiting call a tool result, not a thrown CancellationError
@@ -55,3 +82,15 @@ A background call waits up to its settle period for its run. When something canc
 - [ ] One full test run. The change is additive. Push when green, and report the head.
 
 #defect
+
+## Review Findings (2026-10-15 20:18)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 3 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+
+- [x] `Tests/FoundationModelsExtrasTests/Hosting/BackgroundToolRunnerTests.swift:306` `reuse/reuse` — The new private helper `modelFacing` repeats the wrap-and-cast that `ToolFailureDeliveryTests` already writes inline, so the same logic now lives in two places and can drift apart. Move the wrap-and-cast into one shared fixture, for example a static helper in `MountFixtures.swift` that takes a `Tool` and returns the model-facing text tool. Call it from `BackgroundToolRunnerTests` and `ToolFailureDeliveryTests`, and remove the private `modelFacing` copy.

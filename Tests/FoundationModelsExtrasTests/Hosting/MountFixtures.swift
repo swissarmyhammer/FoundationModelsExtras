@@ -331,6 +331,23 @@ enum MountFixtures {
         ToolRun(wrapped: tool, arguments: arguments, site: site(runPlane: RunPlane(), sink: sink), mountTimeout: nil)
     }
 
+    // MARK: - Model-facing tool
+
+    /// `tool` under the decorator that gives a failure to the model, as a
+    /// session sees a `String` tool.
+    ///
+    /// - Parameters:
+    ///   - tool: The `String` tool to decorate.
+    ///   - arguments: The arguments type of `tool`.
+    /// - Returns: The decorated text tool.
+    /// - Throws: When the decorator does not keep `tool` as a text tool of
+    ///   `arguments`.
+    static func modelFacingTextTool<Arguments: ConvertibleFromGeneratedContent>(
+        _ tool: any Tool, arguments: Arguments.Type
+    ) throws -> FailureDeliveringTextTool<Arguments> {
+        try #require(ToolFailureDelivery.makeWrapped(tool: tool) as? FailureDeliveringTextTool<Arguments>)
+    }
+
     // MARK: - Envelope and settlement helpers
 
     /// The decoded fields of an envelope.
