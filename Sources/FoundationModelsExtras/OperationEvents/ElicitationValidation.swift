@@ -166,7 +166,8 @@ extension ElicitationStringSchema {
     /// - Returns: `nil` when the value is valid, or the sentence of its failure.
     fileprivate func failure(of text: String, field name: String) -> String? {
         FailureText.countFailure(
-            field: name, count: text.unicodeScalars.count, minimum: minLength, maximum: maxLength, unit: "characters")
+            field: name, count: ElicitationValidation.codePointLength(text), minimum: minLength, maximum: maxLength,
+            unit: "characters")
             ?? patternFailure(of: text, field: name)
             ?? formatFailure(of: text, field: name)
     }
@@ -180,7 +181,7 @@ extension ElicitationStringSchema {
     ///   of the value, or the sentence of the failure.
     private func patternFailure(of text: String, field name: String) -> String? {
         guard let pattern else { return nil }
-        guard let matches = ECMAPattern.search(text, for: pattern) else {
+        guard let matches = ElicitationValidation.patternMatches(text, pattern: pattern) else {
             return "the pattern \(FailureText.quoted(pattern)) of \(FailureText.field(name)) "
                 + "is not a valid regular expression"
         }
@@ -197,6 +198,43 @@ extension ElicitationStringSchema {
     private func formatFailure(of text: String, field name: String) -> String? {
         guard let format, !format.accepts(text) else { return nil }
         return "\(FailureText.field(name)) is not a valid \(format.valueName)"
+    }
+}
+
+/// The text rules of an elicitation string field, for a client that checks
+/// a form field before it sends the answer.
+///
+/// ``ElicitationRequestedSchema/validationFailure(of:)`` uses these
+/// functions, thus a client that calls them gets the same result as the run
+/// plane. The doc of ``ElicitationRequestedSchema/validationFailure(of:)``
+/// gives the full rules and the gaps that stay.
+public enum ElicitationValidation {
+    /// Tells if the ECMA-262 regular expression `pattern` matches a part of
+    /// `text`.
+    ///
+    /// The check is a search, as JSON Schema `pattern` is: a pattern with no
+    /// `^` and no `$` can match in the middle of `text`. The pattern has no
+    /// flags.
+    ///
+    /// - Parameters:
+    ///   - text: The value of the field.
+    ///   - pattern: An ECMA-262 regular expression with no flags.
+    /// - Returns: `nil` when `pattern` does not compile, `true` when a match
+    ///   is in `text`, and `false` when no match is in `text`.
+    public static func patternMatches(_ text: String, pattern: String) -> Bool? {
+        ECMAPattern.search(text, for: pattern)
+    }
+
+    /// The length of `text` for `minLength` and `maxLength`: the count of its
+    /// Unicode code points, as JSON Schema counts it.
+    ///
+    /// For example, "👍" has the length 1, "e" followed by U+0301 has the
+    /// length 2, and a family emoji of three persons has the length 5.
+    ///
+    /// - Parameter text: The value of the field.
+    /// - Returns: The count of the Unicode code points of `text`.
+    public static func codePointLength(_ text: String) -> Int {
+        text.unicodeScalars.count
     }
 }
 
