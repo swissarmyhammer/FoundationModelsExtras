@@ -35,22 +35,81 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
     /// The URL the user is asked to open. Non-nil exactly when ``mode`` is ``ElicitationMode/url``.
     public let url: URL?
 
+    /// The names of the agents that relayed this question to the user, from
+    /// the agent nearest the user to the agent that asked. Empty for a
+    /// question that a run of this session asked.
+    public let agentPath: [String]
+
+    /// The tool of the run that asked this question, at the level where the
+    /// question was asked, or `nil` when no relay set it.
+    public let source: String?
+
     /// Creates a form-mode request.
-    public init(message: String, elicitationId: ULID, requestedSchema: ElicitationRequestedSchema) {
-        self.mode = .form
-        self.message = message
-        self.elicitationId = elicitationId
-        self.requestedSchema = requestedSchema
-        self.url = nil
+    ///
+    /// - Parameters:
+    ///   - message: The question or instruction that the host shows the user.
+    ///   - elicitationId: The identifier that an answer addresses.
+    ///   - requestedSchema: The form.
+    ///   - agentPath: The agents that relayed the question. The default is
+    ///     no agent.
+    ///   - source: The tool of the run that asked the question. The default
+    ///     is `nil`.
+    public init(
+        message: String, elicitationId: ULID, requestedSchema: ElicitationRequestedSchema, agentPath: [String] = [],
+        source: String? = nil
+    ) {
+        self.init(
+            mode: .form, message: message, elicitationId: elicitationId, requestedSchema: requestedSchema, url: nil,
+            agentPath: agentPath, source: source)
     }
 
     /// Creates a URL-mode request.
-    public init(message: String, elicitationId: ULID, url: URL) {
-        self.mode = .url
+    ///
+    /// - Parameters:
+    ///   - message: The question or instruction that the host shows the user.
+    ///   - elicitationId: The identifier that an answer addresses.
+    ///   - url: The URL that the user is asked to open.
+    ///   - agentPath: The agents that relayed the question. The default is
+    ///     no agent.
+    ///   - source: The tool of the run that asked the question. The default
+    ///     is `nil`.
+    public init(message: String, elicitationId: ULID, url: URL, agentPath: [String] = [], source: String? = nil) {
+        self.init(
+            mode: .url, message: message, elicitationId: elicitationId, requestedSchema: nil, url: url,
+            agentPath: agentPath, source: source)
+    }
+
+    /// The one memberwise entry point. Private, so the payload always
+    /// matches the mode.
+    private init(
+        mode: ElicitationMode, message: String, elicitationId: ULID, requestedSchema: ElicitationRequestedSchema?,
+        url: URL?, agentPath: [String], source: String?
+    ) {
+        self.mode = mode
         self.message = message
         self.elicitationId = elicitationId
-        self.requestedSchema = nil
+        self.requestedSchema = requestedSchema
         self.url = url
+        self.agentPath = agentPath
+        self.source = source
+    }
+
+    /// This question as the parent of `agent` sends it to its own host.
+    ///
+    /// The copy keeps ``elicitationId``, so an answer at any level reaches
+    /// the run that asked. Each relay puts its agent at the front of
+    /// ``agentPath``, thus after the relays of all levels the path goes from
+    /// the agent nearest the user to the agent that asked. The first relay
+    /// sets ``source``, and a later relay keeps it.
+    ///
+    /// - Parameters:
+    ///   - agent: The name of the agent whose question this is.
+    ///   - tool: The tool of the run that asked the question in `agent`.
+    /// - Returns: The relayed copy.
+    public func relayed(by agent: String, askedBy tool: String) -> ElicitationRequest {
+        ElicitationRequest(
+            mode: mode, message: message, elicitationId: elicitationId, requestedSchema: requestedSchema, url: url,
+            agentPath: [agent] + agentPath, source: source ?? tool)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -59,10 +118,14 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
         case elicitationId
         case requestedSchema
         case url
+        case agentPath
+        case source
     }
 
     /// Decodes a request. An omitted `mode` defaults to ``ElicitationMode/form``.
-    /// The decoded mode's payload is required.
+    /// The decoded mode's payload is required. An omitted `agentPath` decodes
+    /// as no agent, and an omitted `source` as `nil`, so a request that was
+    /// recorded before these keys existed still decodes.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let mode = try container.decodeIfPresent(ElicitationMode.self, forKey: .mode) ?? .form
@@ -77,9 +140,13 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
             self.requestedSchema = nil
             self.url = try container.decode(URL.self, forKey: .url)
         }
+        self.agentPath = try container.decodeIfPresent([String].self, forKey: .agentPath) ?? []
+        self.source = try container.decodeIfPresent(String.self, forKey: .source)
     }
 
-    /// Encodes this request with its mode explicit.
+    /// Encodes this request with its mode explicit. The `agentPath` key is
+    /// present only when the path is not empty, and the `source` key only
+    /// when there is a source.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(mode, forKey: .mode)
@@ -87,6 +154,10 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
         try container.encode(elicitationId, forKey: .elicitationId)
         try container.encodeIfPresent(requestedSchema, forKey: .requestedSchema)
         try container.encodeIfPresent(url, forKey: .url)
+        if !agentPath.isEmpty {
+            try container.encode(agentPath, forKey: .agentPath)
+        }
+        try container.encodeIfPresent(source, forKey: .source)
     }
 }
 
