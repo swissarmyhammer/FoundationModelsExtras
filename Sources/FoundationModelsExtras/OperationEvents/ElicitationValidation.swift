@@ -21,8 +21,9 @@ extension ElicitationRequestedSchema {
     ///   the ``required`` fields are checked.
     /// - A value of the wrong type. A string property and a single select take
     ///   ``ElicitationValue/string(_:)``, a number property takes
-    ///   ``ElicitationValue/number(_:)`` (a whole number when its type is
-    ///   ``ElicitationNumberSchema/NumberType/integer``), a boolean property
+    ///   ``ElicitationValue/number(_:)`` (a finite number, and a whole number
+    ///   when its type is ``ElicitationNumberSchema/NumberType/integer``;
+    ///   NaN and infinity fail each number field), a boolean property
     ///   takes ``ElicitationValue/boolean(_:)``, and a multi select takes
     ///   ``ElicitationValue/stringArray(_:)``.
     /// - A value that breaks a rule of its property: the length, the pattern,
@@ -388,13 +389,14 @@ extension ElicitationStringFormat {
 }
 
 extension ElicitationNumberSchema {
-    /// Tells if `number` is of ``type``: any number, or a whole number for
-    /// ``NumberType/integer``.
+    /// Tells if `number` is of ``type``: a finite number, or a finite whole
+    /// number for ``NumberType/integer``. NaN, infinity and minus infinity
+    /// are not JSON numbers, thus no field takes them.
     ///
     /// - Parameter number: The value in the answer.
     /// - Returns: `true` when `number` is of the type.
     fileprivate func admits(_ number: Double) -> Bool {
-        type == .number || number == number.rounded()
+        number.isFinite && (type == .number || number == number.rounded())
     }
 
     /// Tells why `number` is less than ``minimum`` or more than ``maximum``.

@@ -166,6 +166,26 @@ struct ElicitationValidationTests {
             schema: .number(ElicitationNumberSchema(type: .integer)),
             value: .number(2.5), failure: #"the field "count" must be a whole number"#),
         ElicitationFieldCase(
+            label: "an integer field with infinity", field: "count",
+            schema: .number(ElicitationNumberSchema(type: .integer)),
+            value: .number(.infinity), failure: #"the field "count" must be a whole number"#),
+        ElicitationFieldCase(
+            label: "an integer field with minus infinity", field: "count",
+            schema: .number(ElicitationNumberSchema(type: .integer)),
+            value: .number(-.infinity), failure: #"the field "count" must be a whole number"#),
+        ElicitationFieldCase(
+            label: "a number field with infinity", field: "score",
+            schema: .number(ElicitationNumberSchema(type: .number)),
+            value: .number(.infinity), failure: #"the field "score" must be a number"#),
+        ElicitationFieldCase(
+            label: "a bounded number field with NaN", field: "score",
+            schema: .number(ElicitationNumberSchema(type: .number, minimum: 0, maximum: 1)),
+            value: .number(.nan), failure: #"the field "score" must be a number"#),
+        ElicitationFieldCase(
+            label: "a bounded integer field with NaN", field: "count",
+            schema: .number(ElicitationNumberSchema(type: .integer, minimum: 0, maximum: 10)),
+            value: .number(.nan), failure: #"the field "count" must be a whole number"#),
+        ElicitationFieldCase(
             label: "a boolean field with a string", field: "agree", schema: .boolean(ElicitationBooleanSchema()),
             value: .string("yes"), failure: #"the field "agree" must be true or false"#),
         ElicitationFieldCase(
