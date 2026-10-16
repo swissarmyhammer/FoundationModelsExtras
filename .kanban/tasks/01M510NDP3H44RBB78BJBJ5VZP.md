@@ -68,8 +68,25 @@ comments:
     - No production code change. No commit, no push, by instruction. The finding is checked.
     - next: /review
   timestamp: 2026-10-16T01:27:26.844910+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m515aa876e53mmf0xy706zbp
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (edf0c16). 0 findings, 0 confirmed, 0 refuted. 3 files reviewed. 2 .kanban files not reviewed (ignore rule). The prior finding (BackgroundToolRunnerTests.swift:306 reuse/reuse) is checked.
+    - next: The task moves to done. The subtask "One full test run. Push when green, and report the head." is not checked.
+  timestamp: 2026-10-16T01:30:39.751260+00:00
+- actor: claude-code
+  id: 01m515azh8ef1r7p25xmxkrzny
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 3 test files
+    - test: green — swift test, 1176 passed
+    - commit: edf0c16
+    - review: clean — 0 findings
+    - push: follows this comment
+  timestamp: 2026-10-16T01:31:01.544498+00:00
+position_column: done
+position_ordinal: ff9880
 title: A cancel of one background run gives its waiting call a tool result, not a thrown CancellationError
 ---
 A background call waits up to its settle period for its run. When something cancels only that run (`RunPlane.cancel(completionToken:)`, for example from `ToolContext.cancel`), the body ends with `CancellationError`. `BackgroundToolRunner` gives that error back to the waiting call, `ToolCallResult` throws it again unchanged, and the model call of the session fails. The caller was not cancelled, so the answer must not stop. The rule: a call stops only for its own cancel.
