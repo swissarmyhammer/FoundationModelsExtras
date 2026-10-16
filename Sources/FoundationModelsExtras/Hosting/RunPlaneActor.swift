@@ -701,6 +701,27 @@ public actor RunPlane {
         return await !endQuestions(with: response) { $0.id == elicitationId }.isEmpty
     }
 
+    /// Ends the open question `elicitationId` as ``endElicitation(_:with:)``
+    /// does, but only when the question links to the run of `runToken`.
+    ///
+    /// A tool calls it through ``ToolContext/endElicitation(_:with:)``. An
+    /// accept is not an end, thus it gives `false` and changes nothing, with
+    /// no precondition failure, as ``complete(elicitationId:runToken:)`` gives
+    /// ``ElicitationCompletionDelivery/noPendingElicitation`` for a wrong use.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - response: The decline or cancel that ends the question.
+    ///   - runToken: The completion token of the run that the question must
+    ///     link to.
+    /// - Returns: `true` when the question was open, linked to the run, and
+    ///   this call ended it. Else `false`, and the call posts nothing.
+    func endElicitation(_ elicitationId: ULID, with response: ElicitationResponse, runToken: String) async -> Bool {
+        guard response.action != .accept else { return false }
+        Self.checkNotInSinkPost()
+        return await !endQuestions(with: response) { $0.id == elicitationId && $0.runToken == runToken }.isEmpty
+    }
+
     /// Gives the answer of the user to a pending elicitation.
     ///
     /// A URL accept keeps the elicitation open until

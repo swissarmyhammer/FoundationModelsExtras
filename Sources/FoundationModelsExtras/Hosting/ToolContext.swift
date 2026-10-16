@@ -423,6 +423,35 @@ public struct ToolContext: Sendable {
         await runPlane.complete(elicitationId: elicitationId, runToken: holdingRunToken)
     }
 
+    /// Ends an open question that the run of this context asked, with a
+    /// decline or a cancel, and resumes the run with that answer.
+    ///
+    /// A tool calls it when it stops a question by itself, for example when
+    /// the server of an MCP elicitation cancels its own request. The end goes
+    /// through ``RunPlane/endElicitation(_:with:)``: the sink of the question
+    /// gets ``OperationEventSink/post(elicitationEnded:response:)``, in order
+    /// with the events of the run, and the waiting run then gets `response`
+    /// with its ``ElicitationResponse/reason``.
+    ///
+    /// The question ends only when it is open and links to the run that holds
+    /// this context, the same check as ``complete(elicitationId:)``. A
+    /// question of another run, an unknown id, a question that already ended,
+    /// or an accept gives `false`, and nothing changes. Only the user accepts
+    /// a question.
+    ///
+    /// A run that waits in ``elicit(_:)`` cannot call this function from the
+    /// same task. Another task of the tool calls it. This call waits for the
+    /// end post, thus a sink must not await it inside a post.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - response: The decline or the cancel that ends the question.
+    /// - Returns: `true` when this call ended the question.
+    @discardableResult
+    public func endElicitation(_ elicitationId: ULID, with response: ElicitationResponse) async -> Bool {
+        await runPlane.endElicitation(elicitationId, with: response, runToken: holdingRunToken)
+    }
+
     /// Gives `answer` to the run, or a decline when it is an accepted form
     /// answer whose content does not agree with the requested schema of
     /// `request`.
