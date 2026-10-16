@@ -42,26 +42,9 @@ struct ModelPoolTests {
     /// submits an admit job at once.
     private static let releaseRepetitions = 200
 
-    /// The number of tasks that start and cancel footprint streams in the
-    /// stress tests.
-    private static let stressConsumerCount = 8
-
-    /// The number of tasks that acquire and release holds in the stress tests.
-    private static let stressHolderCount = 4
-
-    /// The number of rounds that each task of the stress tests does.
-    private static let stressRounds = 200
-
-    /// The executor of the tasks of the stress tests. A deadlock of those
-    /// tasks then cannot block the thread of the wait for their end.
-    private static let stressExecutor = DedicatedTaskExecutor()
-
-    /// The time that the tasks of a stress test get to end.
-    ///
-    /// A lock-order deadlock blocks the threads of its tasks and gives no
-    /// event, thus only a deadline ends the wait for tasks that deadlock.
-    /// Tasks that do not deadlock end in a small part of this time.
-    private static let stressDeadline: Duration = .seconds(30)
+    /// The number of rounds of the churn test. Each round starts and cancels
+    /// one footprint stream, and acquires and releases one hold.
+    private static let churnRounds = 20
 
     /// The depth records of the admission queue while one job runs and no
     /// other job came: the record of its enqueue.
@@ -536,90 +519,72 @@ struct ModelPoolTests {
         #expect(await Self.first(expected.count, of: secondStream) == expected)
     }
 
-    /// Starts a footprint stream and cancels its consumer, ``stressRounds``
-    /// times. Each cancel runs the termination handler of a stream. Each
-    /// consumer runs on ``stressExecutor``.
-    ///
-    /// - Parameter pool: The pool.
-    private static func startAndCancelStreams(of pool: ModelPool) async {
-        for _ in 0..<stressRounds {
-            let consumer = Task(executorPreference: stressExecutor) { for await _ in pool.footprints {} }
-            await Task.yield()
-            consumer.cancel()
+    /// A termination handler of a stream takes the state lock. A yield that
+    /// runs while the state lock is held can wait for a consumer task that
+    /// the runtime cancels, and the termination handler of that task then
+    /// waits for the state lock: a deadlock. Thus each delivery to a stream
+    /// must run with the state lock free. The pool calls the delivery probe
+    /// just before each delivery, and the probe reads the state lock with no
+    /// wait. A pool that delivers under the state lock fails this test at
+    /// once, and no deadline is necessary.
+    @Test("each footprint yield and each progress send runs with the state lock free")
+    func eachStreamDeliveryRunsWithTheStateLockFree() async throws {
+        let readings = Recorder<StateLockReading>()
+        let pool = ModelPool(loader: MLXModelLoader()) { pool, delivery in
+            readings.append(StateLockReading(delivery: delivery, isFree: pool.isStateLockFree))
         }
+        let loader = RecordingLoader(name: "A", log: Recorder<String>())
+        let footprints = pool.footprints
+        let progress = pool.progress(for: Self.key.ref)
+        do {
+            let hold = try await Self.acquire(from: pool, with: loader)
+            #expect(hold.key == Self.key)
+        }
+        try await pool.waitForTheEarlierAdmissionJobs()
+
+        let deliveries = Set(readings.values.map(\.delivery))
+        #expect(deliveries == [.footprint, .progress])
+        let lockedReadings = readings.values.filter { !$0.isFree }
+        #expect(lockedReadings.isEmpty)
+
+        // The two streams were live during each delivery, and got values.
+        #expect(await Self.first(1, of: footprints) == [ModelPoolFootprint(resident: [:], loadingBytes: 0)])
+        var lastProgress: ModelLoadProgress?
+        for await value in progress {
+            lastProgress = value
+        }
+        #expect(lastProgress == .ready)
     }
 
-    /// Acquires and releases a hold of ``key``, ``stressRounds`` times. A
-    /// release of the last hold puts an eviction job in the admission queue.
-    ///
-    /// - Parameters:
-    ///   - pool: The pool.
-    ///   - loader: The loader.
-    /// - Throws: What the load throws.
-    private static func acquireAndRelease(from pool: ModelPool, with loader: RecordingLoader) async throws {
-        for _ in 0..<stressRounds {
-            let hold = try await acquire(from: pool, with: loader)
-            #expect(hold.key == key)
-        }
+    /// What the delivery probe of the lock-order test reads before one
+    /// delivery.
+    private struct StateLockReading: Sendable {
+        /// The kind of the delivery.
+        let delivery: ModelPool.StreamDelivery
+
+        /// Whether the state lock was free.
+        let isFree: Bool
     }
 
-    /// Runs ``stressConsumerCount`` tasks that start and cancel footprint
-    /// streams, beside ``stressHolderCount`` tasks that acquire and release
-    /// holds, all on ``stressExecutor``. Waits for the end of all the tasks,
-    /// or for ``stressDeadline``, so a deadlock fails the test and does not
-    /// stop the run.
-    ///
-    /// This is the one wait of the suite that reads a clock. A lock-order
-    /// deadlock blocks the threads of its tasks and gives no event, thus only
-    /// a deadline can end the wait for such tasks.
-    ///
-    /// - Parameters:
-    ///   - pool: The pool.
-    ///   - loader: The loader.
-    /// - Throws: An `ExpectationFailedError` when the tasks did not end before
-    ///   the deadline, or what a load throws.
-    private static func runStress(on pool: ModelPool, with loader: RecordingLoader) async throws {
-        let ended = Recorder<Bool>()
-        let stress = Task(executorPreference: stressExecutor) {
-            defer { ended.append(true) }
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for _ in 0..<stressConsumerCount {
-                    group.addTask { await startAndCancelStreams(of: pool) }
-                }
-                for _ in 0..<stressHolderCount {
-                    group.addTask { try await acquireAndRelease(from: pool, with: loader) }
-                }
-                try await group.waitForAll()
-            }
-        }
-        await Waits.untilFirstEnds(
-            { await ended.waitUntil { !$0.isEmpty } },
-            { try? await Task.sleep(for: stressDeadline) })
-        try #require(!ended.values.isEmpty, "the stress tasks did not end before the deadline: a deadlock")
-        try await stress.value
-    }
-
-    @Test("streams that start and cancel, beside holds that release and evict, end with no deadlock")
-    func streamsThatCancelBesideEvictionsDoNotDeadlock() async throws {
+    @Test("after streams that start and cancel beside holds that release and evict, a live stream sees the last footprint")
+    func aLiveStreamSeesTheLastFootprintAfterTheChurn() async throws {
         let pool = ModelPool()
         let log = Recorder<String>()
         let loader = RecordingLoader(name: "A", log: log)
-
-        try await Self.runStress(on: pool, with: loader)
-        try await pool.waitForTheEarlierAdmissionJobs()
-
-        #expect(log.values.contains(Self.evictionOfA))
-    }
-
-    @Test("after the stress, a footprint stream that stayed live sees the last footprint")
-    func aLiveStreamSeesTheLastFootprintAfterTheStress() async throws {
-        let pool = ModelPool()
-        let loader = RecordingLoader(name: "A", log: Recorder<String>())
         let seen = Recorder<ModelPoolFootprint>()
         let stream = pool.footprints
         let consumer = Task { for await footprint in stream { seen.append(footprint) } }
 
-        try await Self.runStress(on: pool, with: loader)
+        for _ in 0..<Self.churnRounds {
+            let churned = Task { for await _ in pool.footprints {} }
+            churned.cancel()
+            await churned.value
+            let hold = try await Self.acquire(from: pool, with: loader)
+            #expect(hold.key == Self.key)
+        }
+        try await pool.waitForTheEarlierAdmissionJobs()
+        #expect(log.values.contains(Self.evictionOfA))
+
         let hold = try await Self.acquire(from: pool, with: loader)
         let last = ModelPoolFootprint(resident: [Self.key: Self.footprintBytes], loadingBytes: 0)
         // The pool gave the last footprint to the stream before the acquire

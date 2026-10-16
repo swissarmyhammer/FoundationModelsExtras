@@ -129,12 +129,53 @@ public final class ModelPool: Sendable {
     /// The loader of ``acquire(_:)``.
     public let loader: any PooledModelLoader
 
+    /// The kind of value that the pool gives to its streams in one delivery.
+    enum StreamDelivery: Sendable, Hashable {
+        /// A footprint, to the footprint streams.
+        case footprint
+
+        /// A progress value, to the progress streams.
+        case progress
+    }
+
+    /// A probe that the pool calls just before each delivery to its streams,
+    /// with the pool and the kind of the delivery. It is `nil` in
+    /// production.
+    ///
+    /// A test gives the probe through the internal initializer, and reads
+    /// ``isStateLockFree`` in the probe. Thus the test checks the lock order
+    /// of each delivery directly. A deadlock of the lock order gives no event
+    /// that a test can wait for.
+    private let deliveryProbe: (@Sendable (ModelPool, StreamDelivery) -> Void)?
+
     /// Makes an empty pool.
     ///
     /// - Parameter loader: The loader of ``acquire(_:)``. The default is
     ///   ``MLXModelLoader``, which loads a model from its Hugging Face name.
     public init(loader: any PooledModelLoader = MLXModelLoader()) {
         self.loader = loader
+        self.deliveryProbe = nil
+    }
+
+    /// Makes an empty pool with a delivery probe.
+    ///
+    /// Internal, for `@testable` access only. See ``deliveryProbe``.
+    ///
+    /// - Parameters:
+    ///   - loader: The loader of ``acquire(_:)``.
+    ///   - deliveryProbe: Called just before each delivery to the streams.
+    init(loader: any PooledModelLoader, deliveryProbe: (@Sendable (ModelPool, StreamDelivery) -> Void)?) {
+        self.loader = loader
+        self.deliveryProbe = deliveryProbe
+    }
+
+    /// Whether the state lock is free now. The read does not wait for the
+    /// lock.
+    ///
+    /// Internal, for `@testable` access only: the delivery probe of a test
+    /// reads it. See ``deliveryProbe``.
+    var isStateLockFree: Bool {
+        state.withLockIfAvailable { _ in true } ?? false
     }
 
     /// Gives a hold of the model of `key`. A resident key adds a hold at once.
@@ -458,6 +499,7 @@ public final class ModelPool: Sendable {
                 return (result, streams, state.footprint, state.gauges)
             }
             PoolTelemetry.recordGauges(gauges)
+            deliveryProbe?(self, .footprint)
             for stream in streams {
                 stream.yield(footprint)
             }
@@ -488,6 +530,7 @@ public final class ModelPool: Sendable {
     ) -> Result {
         publishing.withLock { _ in
             let (result, delivery) = state.withLock { step(&$0) }
+            deliveryProbe?(self, .progress)
             delivery.send()
             return result
         }

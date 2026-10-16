@@ -397,29 +397,6 @@ struct FakeEmbedding: PooledEmbedding {
     }
 }
 
-/// A task executor that runs each job on a dispatch queue of its own, not on
-/// the cooperative thread pool.
-///
-/// A deadlock blocks the threads of the tasks that it stops. When those tasks
-/// run on the cooperative pool, the deadlock can block all its threads, and
-/// then the deadline wait of the stress test never runs again and the test
-/// hangs. A task with a preference for this executor blocks a thread of this
-/// queue, so the deadline wait on the cooperative pool still ends and fails
-/// the test.
-final class DedicatedTaskExecutor: TaskExecutor {
-    /// The queue that runs the jobs.
-    private let queue = DispatchQueue(label: "DedicatedTaskExecutor", attributes: .concurrent)
-
-    /// Runs `job` on the queue.
-    ///
-    /// - Parameter job: The job to run.
-    func enqueue(_ job: consuming ExecutorJob) {
-        let unownedJob = UnownedJob(job)
-        let executor = asUnownedTaskExecutor()
-        queue.async { unownedJob.runSynchronously(on: executor) }
-    }
-}
-
 /// A loader that gives one container that the test makes. Its eviction does nothing.
 struct FixedLoader: PooledModelLoader {
     /// The container that each load gives.
