@@ -65,8 +65,7 @@ struct ElicitationCompletionPublicSurfaceTests {
         var reader = SignalReader(sink.signals)
         let request = ElicitationRequest(
             message: "Sign in", elicitationId: ULID(), url: try #require(URL(string: "https://example.com/sign-in")))
-        let context = MountFixtures.hostContext(on: runPlane, sink: sink)
-        let asking = Task { try await context.elicit(request) }
+        let asking = Asking.askingTask(request, on: runPlane, sink: sink)
         await reader.wait(for: [.asked(request.elicitationId)])
         let accepted = await runPlane.respond(elicitationId: request.elicitationId, .accept(content: nil))
         let delivery = await runPlane.complete(elicitationId: request.elicitationId)
@@ -89,11 +88,10 @@ struct ElicitationCompletionPublicSurfaceTests {
         var reader = SignalReader(signalling.signals)
         let sink = EventOnlySink(signalling: signalling)
         let request = MountFixtures.nameRequest()
-        let context = MountFixtures.hostContext(on: runPlane, sink: sink)
         let sinkAsProtocol: any OperationEventSink = sink
         await sinkAsProtocol.post(elicitationEnded: request.elicitationId, response: .cancel)
 
-        let asking = Task { try await context.elicit(request) }
+        let asking = Asking.askingTask(request, on: runPlane, sink: sink)
         await reader.wait(for: [.asked(request.elicitationId)])
         let ended: [ULID] = await runPlane.cancelOpenElicitations()
         let ending: [ULID] = await runPlane.endingElicitations()

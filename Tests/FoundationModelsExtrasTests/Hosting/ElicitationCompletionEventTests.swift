@@ -372,9 +372,9 @@ struct ElicitationCompletionEventTests {
 
     // MARK: - The questions whose completion post is in progress
 
-    /// Asks each of `requests` through one host context on `runPlane` that
-    /// posts to `sink`, accepts and completes each one in order, and waits
-    /// until the sink holds each completion on its gate.
+    /// Asks each of `requests` through its own host context on `runPlane`
+    /// that posts to `sink`, accepts and completes each one in order, and
+    /// waits until the sink holds each completion on its gate.
     ///
     /// - Parameters:
     ///   - requests: The URL questions.
@@ -385,8 +385,7 @@ struct ElicitationCompletionEventTests {
         of requests: [ElicitationRequest], on runPlane: RunPlane, sink: SignallingSink
     ) async -> [Task<ElicitationResponse, any Error>] {
         var reader = SignalReader(sink.signals)
-        let context = MountFixtures.hostContext(on: runPlane, sink: sink)
-        let answers = requests.map { request in Task { try await context.elicit(request) } }
+        let answers = requests.map { Asking.askingTask($0, on: runPlane, sink: sink) }
         await reader.wait(for: Set(requests.map { .asked($0.elicitationId) }))
         for request in requests {
             await acceptAndComplete(request.elicitationId, on: runPlane)

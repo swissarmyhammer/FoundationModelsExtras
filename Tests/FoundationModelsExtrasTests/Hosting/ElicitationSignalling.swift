@@ -160,26 +160,35 @@ struct Asking {
     ) -> Asking {
         let sink = SignallingSink(completionGate: completionGate, endGate: endGate)
         let answers =
-            requests.map { askingTask($0, on: runPlane, sink: sink, after: nil) }
+            requests.map { askingTask($0, on: runPlane, sink: sink) }
             + gatedRequests.map { askingTask($0, on: runPlane, sink: sink, after: gate) }
         return Asking(signals: sink.signals, answers: answers)
     }
 
     /// Starts one task that asks `request` through a new host context on
-    /// `runPlane`, after `gate` opens.
+    /// `runPlane`, after `gate` opens. The context posts to `sink`, and has
+    /// the run token `completionToken`.
     ///
     /// - Parameters:
     ///   - request: The question.
     ///   - runPlane: The run plane of the session.
     ///   - sink: The sink of the context.
-    ///   - gate: The gate to wait for, or `nil` to ask at once.
+    ///   - completionToken: The completion token of the context. The default
+    ///     is a new token.
+    ///   - gate: The gate to wait for, or `nil` to ask at once. The default is
+    ///     `nil`.
     /// - Returns: The task, which gives the answer.
-    private static func askingTask(
-        _ request: ElicitationRequest, on runPlane: RunPlane, sink: SignallingSink, after gate: RunLatch?
+    static func askingTask(
+        _ request: ElicitationRequest,
+        on runPlane: RunPlane,
+        sink: any OperationEventSink,
+        completionToken: String = RunPlane.makeCompletionToken(),
+        after gate: RunLatch? = nil
     ) -> Task<ElicitationResponse, any Error> {
         Task {
             await gate?.waitUntilOpen()
-            return try await MountFixtures.hostContext(on: runPlane, sink: sink).elicit(request)
+            return try await MountFixtures.hostContext(on: runPlane, sink: sink, completionToken: completionToken)
+                .elicit(request)
         }
     }
 }

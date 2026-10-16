@@ -95,15 +95,12 @@ struct ElicitationEndEventTests {
         let signalling = SignallingSink()
         let gate = RunLatch.closed()
         let sink = HoldingAskSink(signalling: signalling, heldId: held.elicitationId, gate: gate, entered: entered)
-        let firstAnswer = Task {
-            let answer = try await Fixtures.hostContext(on: runPlane, sink: sink).elicit(first)
+        let firstAnswer = Asking.askingTask(first, on: runPlane, sink: sink)
+        Task {
+            _ = await firstAnswer.result
             gate.open()
-            return answer
         }
-        let heldAnswer = Task {
-            await askHeld.waitUntilOpen()
-            return try await Fixtures.hostContext(on: runPlane, sink: sink).elicit(held)
-        }
+        let heldAnswer = Asking.askingTask(held, on: runPlane, sink: sink, after: askHeld)
         return Asking(signals: signalling.signals, answers: [firstAnswer, heldAnswer])
     }
 
@@ -376,7 +373,6 @@ struct ElicitationEndEventTests {
     ) async -> (signals: AsyncStream<ElicitationSignal>, token: String) {
         let sink = SignallingSink(endGate: endGate)
         let token = RunPlane.makeCompletionToken()
-        let context = Fixtures.hostContext(on: runPlane, sink: sink, completionToken: token)
         await runPlane.start(
             tool: Fixtures.hostTool, op: Fixtures.hostOp, kind: .swiftTask, completionToken: token,
             canceler: {
@@ -385,7 +381,7 @@ struct ElicitationEndEventTests {
                 return .cancelled
             }
         ) {
-            _ = Task { try await context.elicit(request) }
+            _ = Asking.askingTask(request, on: runPlane, sink: sink, completionToken: token)
             await settle.waitUntilOpen()
             return OperationEvent.terminal(token: token, outcome: .succeeded)
         }
@@ -502,9 +498,7 @@ struct ElicitationEndEventTests {
         let funnel = RunEventFunnel(
             upstream: MarkRecordingSink(marks: marks, signalling: signalling), runPlane: runPlane,
             completionToken: token)
-        let answer = Task {
-            try await Fixtures.hostContext(on: runPlane, sink: funnel, completionToken: token).elicit(request)
-        }
+        let answer = Asking.askingTask(request, on: runPlane, sink: funnel, completionToken: token)
         return Asking(signals: signalling.signals, answers: [answer])
     }
 
