@@ -90,6 +90,7 @@ struct ElicitationCompletionEventTests {
         await reader.wait(for: [.completed(later.elicitationId)])
 
         #expect(reader.completions == [later.elicitationId])
+        #expect(try await asking.answers[1].value == .accept(content: nil))
     }
 
     // MARK: - The completion by the host
@@ -110,6 +111,7 @@ struct ElicitationCompletionEventTests {
 
         #expect(reader.completions.count == 2)
         #expect(Set(reader.completions) == [first.elicitationId, second.elicitationId])
+        #expect(try await asking.answers[1].value == .accept(content: nil))
     }
 
     // MARK: - The ends that post no completion
@@ -154,6 +156,7 @@ struct ElicitationCompletionEventTests {
         await reader.wait(for: [.completed(later.elicitationId)])
 
         #expect(reader.completions == [later.elicitationId])
+        #expect(try await asking.answers[1].value == .accept(content: nil))
     }
 
     // MARK: - The completion by the tool

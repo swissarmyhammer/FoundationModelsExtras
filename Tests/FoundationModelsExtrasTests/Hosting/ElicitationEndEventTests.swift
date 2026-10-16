@@ -80,6 +80,10 @@ struct ElicitationEndEventTests {
     /// ``HoldingAskSink`` that holds the elicitation event of `held` until
     /// the run of `first` has its answer. Only the tasks hold the sink.
     ///
+    /// The answer of `first` comes from a task that awaits the ask task of
+    /// `first`, opens the gate, and then gives the result of the ask. Thus
+    /// the test owns each task, and an error of the ask reaches the test.
+    ///
     /// - Parameters:
     ///   - first: The question to ask at once.
     ///   - held: The question whose elicitation event the sink holds.
@@ -95,10 +99,11 @@ struct ElicitationEndEventTests {
         let signalling = SignallingSink()
         let gate = RunLatch.closed()
         let sink = HoldingAskSink(signalling: signalling, heldId: held.elicitationId, gate: gate, entered: entered)
-        let firstAnswer = Asking.askingTask(first, on: runPlane, sink: sink)
-        Task {
-            _ = await firstAnswer.result
+        let askingFirst = Asking.askingTask(first, on: runPlane, sink: sink)
+        let firstAnswer = Task {
+            let result = await askingFirst.result
             gate.open()
+            return try result.get()
         }
         let heldAnswer = Asking.askingTask(held, on: runPlane, sink: sink, after: askHeld)
         return Asking(signals: signalling.signals, answers: [firstAnswer, heldAnswer])
@@ -321,6 +326,9 @@ struct ElicitationEndEventTests {
 
         #expect(ended == [first.elicitationId, later.elicitationId])
         #expect(reader.ends == ended)
+        for answer in asking.answers {
+            #expect(try await answer.value == Self.cancelled)
+        }
     }
 
     // MARK: - A question whose completion post is in progress
@@ -349,15 +357,21 @@ struct ElicitationEndEventTests {
         await reader.wait(for: [Self.ended(later.elicitationId)])
 
         #expect(reader.ends == [later.elicitationId])
+        #expect(try await asking.answers[1].value == Self.cancelled)
     }
 
     // MARK: - A run that settles while the end post is in progress
 
-    /// Starts a background run on `runPlane` whose body asks `request` in a
-    /// task of its own, and settles when `settle` opens. Its canceler
-    /// records ``cancelerDetail`` in `cancels` and opens `settle`. The
-    /// context posts to a new ``SignallingSink`` with `endGate`, and only
+    /// Starts a background run on `runPlane` whose body lets a task of its
+    /// own ask `request`, and settles when `settle` opens. The task asks
+    /// with the run token of the run, after the body opens its gate. Its
+    /// canceler records ``cancelerDetail`` in `cancels` and opens `settle`.
+    /// The context posts to a new ``SignallingSink`` with `endGate`, and only
     /// the run and its question hold that sink.
+    ///
+    /// The body does not wait for the answer, because the answer comes only
+    /// after the end post, and the test holds the end post until the run
+    /// settled. The test owns the task and awaits the answer.
     ///
     /// - Parameters:
     ///   - request: The question.
@@ -365,14 +379,16 @@ struct ElicitationEndEventTests {
     ///   - endGate: The end gate of the sink.
     ///   - settle: The gate that the body waits for before it returns.
     ///   - cancels: Gets one value each time the canceler runs.
-    /// - Returns: The stream of the sink, and the completion token of the
-    ///   run.
+    /// - Returns: The stream of the sink, the completion token of the run,
+    ///   and the task that gives the answer of `request`.
     private static func startRunThatSettlesWhileAsking(
         _ request: ElicitationRequest, on runPlane: RunPlane, endGate: RunLatch, settle: RunLatch,
         cancels: Recorder<String>
-    ) async -> (signals: AsyncStream<ElicitationSignal>, token: String) {
+    ) async -> (signals: AsyncStream<ElicitationSignal>, token: String, answer: Task<ElicitationResponse, any Error>) {
         let sink = SignallingSink(endGate: endGate)
         let token = RunPlane.makeCompletionToken()
+        let ask = RunLatch.closed()
+        let answer = Asking.askingTask(request, on: runPlane, sink: sink, completionToken: token, after: ask)
         await runPlane.start(
             tool: Fixtures.hostTool, op: Fixtures.hostOp, kind: .swiftTask, completionToken: token,
             canceler: {
@@ -381,11 +397,11 @@ struct ElicitationEndEventTests {
                 return .cancelled
             }
         ) {
-            _ = Asking.askingTask(request, on: runPlane, sink: sink, completionToken: token)
+            ask.open()
             await settle.waitUntilOpen()
             return OperationEvent.terminal(token: token, outcome: .succeeded)
         }
-        return (sink.signals, token)
+        return (sink.signals, token, answer)
     }
 
     @Test("cancel(completionToken:) gives alreadySettled when the run settles while the end post is in progress")
@@ -407,6 +423,7 @@ struct ElicitationEndEventTests {
         endGate.open()
 
         #expect(await cancelling.value == .alreadySettled(terminal))
+        #expect(try await run.answer.value == Self.cancelled)
         #expect(cancels.values.isEmpty)
     }
 
