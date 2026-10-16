@@ -18,19 +18,6 @@ import ULID
 /// completion that came.
 @Suite("Run plane: the completion event of a URL flow")
 struct ElicitationCompletionEventTests {
-    /// The value of each mounted call.
-    private static let callValue = "x"
-
-    /// The questions of one test, and the stream of the sink that they post
-    /// to.
-    private struct Asking {
-        /// The stream of the sink.
-        let signals: AsyncStream<ElicitationSignal>
-
-        /// The answer of each question, in the order of the requests.
-        let answers: [Task<ElicitationResponse, any Error>]
-    }
-
     /// Asks one question with `request`, then returns the action of the
     /// answer.
     private struct AskingTool: Tool {
@@ -64,70 +51,7 @@ struct ElicitationCompletionEventTests {
     /// - Returns: The question.
     /// - Throws: When the URL does not parse.
     private static func urlRequest() throws -> ElicitationRequest {
-        ElicitationRequest(
-            message: "Sign in", elicitationId: ULID(), url: try #require(URL(string: "https://example.com/sign-in")))
-    }
-
-    /// Starts one task that asks `request` through a new host context on
-    /// `runPlane`, after `gate` opens.
-    ///
-    /// - Parameters:
-    ///   - request: The question.
-    ///   - runPlane: The run plane of the session.
-    ///   - sink: The sink of the context.
-    ///   - gate: The gate to wait for, or `nil` to ask at once.
-    /// - Returns: The task, which gives the answer.
-    private static func askingTask(
-        _ request: ElicitationRequest, on runPlane: RunPlane, sink: SignallingSink, after gate: RunLatch?
-    ) -> Task<ElicitationResponse, any Error> {
-        Task {
-            await gate?.waitUntilOpen()
-            return try await MountFixtures.hostContext(on: runPlane, sink: sink).elicit(request)
-        }
-    }
-
-    /// Asks each of `requests` at once, and each of `gatedRequests` after
-    /// `gate` opens. Each question has its own host context, and all post to
-    /// one new ``SignallingSink``. Only the tasks hold the sink.
-    ///
-    /// - Parameters:
-    ///   - requests: The questions to ask at once.
-    ///   - runPlane: The run plane of the session.
-    ///   - gatedRequests: The questions to ask after `gate` opens.
-    ///   - gate: The gate of `gatedRequests`.
-    /// - Returns: The stream of the sink and the answers, first `requests`,
-    ///   then `gatedRequests`.
-    private static func ask(
-        _ requests: [ElicitationRequest],
-        on runPlane: RunPlane,
-        gatedRequests: [ElicitationRequest] = [],
-        gate: RunLatch = RunLatch.closed()
-    ) -> Asking {
-        let sink = SignallingSink()
-        let answers =
-            requests.map { askingTask($0, on: runPlane, sink: sink, after: nil) }
-            + gatedRequests.map { askingTask($0, on: runPlane, sink: sink, after: gate) }
-        return Asking(signals: sink.signals, answers: answers)
-    }
-
-    /// Mounts `tool` in a synchronous mount on a new site of `runPlane` that
-    /// posts to a new ``SignallingSink``, and starts one call. Only the call
-    /// holds the sink.
-    ///
-    /// - Parameters:
-    ///   - tool: The tool to mount.
-    ///   - runPlane: The run plane of the session.
-    /// - Returns: The stream of the sink, and the task of the call.
-    /// - Throws: When the mounted tool does not keep the types of `tool`.
-    private static func call(
-        _ tool: any Tool, mountedOn runPlane: RunPlane
-    ) throws -> (signals: AsyncStream<ElicitationSignal>, calling: Task<String, any Error>) {
-        let sink = SignallingSink()
-        let site = MountFixtures.site(runPlane: runPlane, sink: sink)
-        let mounted = try #require(
-            ToolMounting.makeWrapped(tool: tool, site: site, configuration: .synchronous)
-                as? any Tool<MountArguments, String>)
-        return (sink.signals, Task { try await mounted.call(arguments: MountArguments(value: callValue)) })
+        try MountFixtures.urlRequest()
     }
 
     /// Accepts the URL question of `elicitationId` and completes its flow, as
@@ -155,8 +79,8 @@ struct ElicitationCompletionEventTests {
         after answer: ElicitationResponse, to request: ElicitationRequest, delivers delivered: ElicitationResponse
     ) async throws {
         let runPlane = RunPlane()
-        let later = try urlRequest()
-        let asking = ask([request, later], on: runPlane)
+        let later = try MountFixtures.urlRequest()
+        let asking = Asking.start([request, later], on: runPlane)
         var reader = SignalReader(asking.signals)
         await reader.wait(for: [.asked(request.elicitationId), .asked(later.elicitationId)])
 
@@ -173,9 +97,9 @@ struct ElicitationCompletionEventTests {
     @Test("a host completion of an accepted URL flow posts one completion with its id, and the run gets the accept")
     func aHostCompletionPostsOneCompletion() async throws {
         let runPlane = RunPlane()
-        let first = try Self.urlRequest()
+        let first = try MountFixtures.urlRequest()
         let second = try Self.urlRequest()
-        let asking = Self.ask([first, second], on: runPlane)
+        let asking = Asking.start([first, second], on: runPlane)
         var reader = SignalReader(asking.signals)
         await reader.wait(for: [.asked(first.elicitationId), .asked(second.elicitationId)])
 
@@ -217,7 +141,7 @@ struct ElicitationCompletionEventTests {
         let swept = try Self.urlRequest()
         let later = try Self.urlRequest()
         let gate = RunLatch.closed()
-        let asking = Self.ask([swept], on: runPlane, gatedRequests: [later], gate: gate)
+        let asking = Asking.start([swept], on: runPlane, gatedRequests: [later], gate: gate)
         var reader = SignalReader(asking.signals)
         await reader.wait(for: [.asked(swept.elicitationId)])
         #expect(await runPlane.respond(elicitationId: swept.elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
@@ -289,7 +213,7 @@ struct ElicitationCompletionEventTests {
     func theCompletionOfANestedQuestionReachesTheSessionSink() async throws {
         let runPlane = RunPlane()
         let request = try Self.urlRequest()
-        let mounted = try Self.call(MountingAskingTool(request: request), mountedOn: runPlane)
+        let mounted = try MountFixtures.callSynchronously(MountingAskingTool(request: request), mountedOn: runPlane)
         var reader = SignalReader(mounted.signals)
         await reader.wait(for: [.asked(request.elicitationId)])
 
@@ -379,22 +303,6 @@ struct ElicitationCompletionEventTests {
 
     // MARK: - A stop of the run while the sink holds the completion
 
-    /// Asks `request` through `context`, and appends the answer to `answers`.
-    ///
-    /// - Parameters:
-    ///   - request: The question.
-    ///   - context: The context of the run.
-    ///   - answers: Gets the answer.
-    private static func recordAnswer(
-        to request: ElicitationRequest, through context: ToolContext, in answers: Recorder<ElicitationResponse>
-    ) async {
-        do {
-            answers.append(try await context.elicit(request))
-        } catch {
-            Issue.record(error, "the question threw")
-        }
-    }
-
     /// Starts a background run on `runPlane` with the cooperative canceler.
     /// Its body asks `request` through a host context of the run, and
     /// appends the answer to `answers`.
@@ -414,7 +322,7 @@ struct ElicitationCompletionEventTests {
             tool: MountFixtures.hostTool, op: MountFixtures.hostOp, kind: .swiftTask, completionToken: token,
             canceler: nil
         ) {
-            await recordAnswer(to: request, through: context, in: answers)
+            await MountFixtures.recordAnswer(to: request, through: context, in: answers)
             return OperationEvent.terminal(token: token, outcome: .succeeded)
         }
         return token

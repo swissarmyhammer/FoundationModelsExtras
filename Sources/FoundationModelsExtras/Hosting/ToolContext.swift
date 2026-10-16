@@ -281,6 +281,18 @@ public struct ToolContext: Sendable {
         await sink.post(elicitationCompleted: elicitationId)
     }
 
+    /// Tells the sink of this context that a cancel of the run plane ended
+    /// the question of `elicitationId`. A synchronous call that this context
+    /// mounted sends the end of its question through here, so the end takes
+    /// the same sink path as the question.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - response: The answer that the run of the question gets.
+    fileprivate func postElicitationEnded(_ elicitationId: ULID, response: ElicitationResponse) async {
+        await sink.post(elicitationEnded: elicitationId, response: response)
+    }
+
     /// Attaches `attachment` to the call of this context.
     ///
     /// The records go on the ``ToolCallReport`` of the call, in call order,
@@ -298,8 +310,14 @@ public struct ToolContext: Sendable {
     /// request, and the request goes to the sink as an elicitation event.
     /// Only an answer, a completion, a cancel of the run that holds this
     /// call, or the sweep of the run plane resumes the run. A cancel of the
-    /// task does not. A cancel of the run and the sweep give a cancel with
+    /// task does not. A cancel of the run, the sweep and
+    /// ``RunPlane/cancelOpenElicitations()`` give a cancel with
     /// ``RunPlane/runCancelledReason``. This function never throws now.
+    ///
+    /// When a cancel of the run plane ends the question, the sink of this
+    /// context gets ``OperationEventSink/post(elicitationEnded:response:)``,
+    /// in order with the events of the run: after the elicitation event of
+    /// the question, and before the run gets the cancel.
     ///
     /// The answer has the shape `{ action, content, reason }`. A decline and
     /// a cancel have no content, and they can carry a
@@ -332,7 +350,8 @@ public struct ToolContext: Sendable {
             to: request,
             runToken: holdingRunToken,
             posting: { await sink.post(event: event) },
-            completing: { await sink.post(elicitationCompleted: elicitationId) }
+            completing: { await sink.post(elicitationCompleted: elicitationId) },
+            ending: { await sink.post(elicitationEnded: elicitationId, response: $0) }
         )
         return Self.checked(answer, to: request)
     }
@@ -405,7 +424,14 @@ public struct ToolContext: Sendable {
     ///
     /// Each open question of the run ends first, with a cancel that gives
     /// ``RunPlane/runCancelledReason``. The questions of other runs stay
-    /// open.
+    /// open. The sink of each question gets
+    /// ``OperationEventSink/post(elicitationEnded:response:)`` before the
+    /// canceler runs, and a run that settles while those posts are in
+    /// progress gives ``CancelOutcome/alreadySettled(_:)``.
+    ///
+    /// This call waits for the end posts, and they wait on the sink chain of
+    /// the run. Thus a sink must not await this call inside a post: the call
+    /// then never returns. A debug build stops at such a call.
     ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: The ``CancelOutcome``.
@@ -544,7 +570,8 @@ extension ToolInvocationRecord {
 /// The sink of a synchronous call that ``ToolContext/mount(_:op:as:)``
 /// mounted. It posts each event and each display event through the mounting
 /// context, so the event gets the correlation of the mounting run. It sends
-/// each completion of a URL flow to the sink of the mounting context. It also
+/// each completion of a URL flow and each end of a question that a cancel of
+/// the run plane ended to the sink of the mounting context. It also
 /// gives each record of a mounted call to the mounting context, so the
 /// records go on the report of the mounting run.
 ///
@@ -583,6 +610,17 @@ private struct MountedRunUpstreamSink: OperationEventSink, ToolCallReportSink {
     /// - Parameter elicitationId: The id of the question.
     func post(elicitationCompleted elicitationId: ULID) async {
         await context.postElicitationCompleted(elicitationId)
+    }
+
+    /// Sends the end of a question of the mounted run through the sink of
+    /// the mounting context, the same path as the question, thus in order
+    /// with the events of the mounting run.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - response: The answer that the run of the question gets.
+    func post(elicitationEnded elicitationId: ULID, response: ElicitationResponse) async {
+        await context.postElicitationEnded(elicitationId, response: response)
     }
 
     /// Attaches each record of `report` to the mounting context, in order.

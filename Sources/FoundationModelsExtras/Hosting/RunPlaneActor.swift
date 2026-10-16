@@ -102,6 +102,16 @@ public actor RunPlane {
         /// completed. Only the completion of an accepted URL flow starts it.
         let completing: @Sendable () async -> Void
 
+        /// Tells the sink of the question that a cancel of the run plane
+        /// ended the question, with the answer that the run gets. Only a
+        /// cancel of the run plane starts it, after ``posting`` returned.
+        let ending: @Sendable (ElicitationResponse) async -> Void
+
+        /// The task that posts the elicitation event of the question. The
+        /// end of the question waits for it, so the end comes after that
+        /// event.
+        let posting: Task<Void, Never>
+
         /// Gets the answer that resumes the run.
         let answer = Promise<ElicitationResponse>()
 
@@ -118,9 +128,15 @@ public actor RunPlane {
     static let duplicateElicitationIdReason = "an open elicitation already has this elicitationId"
 
     /// The reason of the cancel that each open question of a stopped run
-    /// gets. ``cancel(completionToken:)`` and ``sweep()`` give it, thus a
-    /// host can tell this cancel from a cancel of the user.
+    /// gets. ``cancel(completionToken:)``, ``sweep()`` and
+    /// ``cancelOpenElicitations()`` give it, thus a host can tell this cancel
+    /// from a cancel of the user.
     public static let runCancelledReason = "run cancelled"
+
+    /// The text of the record when a sink awaits a cancel of the run plane
+    /// inside a post.
+    private static let cancelInsideSinkPostMessage =
+        "a sink awaited a cancel of the run plane inside a post; the cancel waits for the end posts, and they wait for that post"
 
     /// The reason of the cancel that each question of a headless session
     /// gets at once. A host can tell this cancel from a cancel of the user.
@@ -143,6 +159,12 @@ public actor RunPlane {
     /// step that takes it off ``elicitations`` until its completion post
     /// returns, and it leaves before its run resumes.
     private var completingElicitationIds: [ULID] = []
+
+    /// The id of each question whose end post is in progress, in the order
+    /// that the cancels of the run plane ended them. A question is here from
+    /// the step that takes it off ``elicitations`` until its end post
+    /// returns, and it leaves before its run resumes.
+    private var endingElicitationIds: [ULID] = []
 
     /// The task of each run body that did not end, by completion token. A
     /// run that the sweep settled stays here until its body ends, because a
@@ -390,19 +412,38 @@ public actor RunPlane {
     /// This call does not end that question: its run gets the accept when the
     /// post returns.
     ///
+    /// The order is fixed. The questions of the run leave the list in one
+    /// step, as ``cancelOpenElicitations()`` tells. The sink of each question
+    /// gets ``OperationEventSink/post(elicitationEnded:response:)`` after the
+    /// elicitation event of the question. The run gets the cancel only after
+    /// that post returned, and the canceler runs only after each end post
+    /// returned. The run can settle while the end posts are in progress.
+    /// Then this call finds the run again after the posts, and gives
+    /// ``CancelOutcome/alreadySettled(_:)`` with no call of the canceler.
+    ///
+    /// This call waits for the end posts, and they wait on the sink chain of
+    /// the run. Thus a sink must not await this call inside a post: the call
+    /// then never returns. A debug build stops at such a call.
+    ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: ``CancelOutcome/reported(_:)``, or
-    ///   ``CancelOutcome/alreadySettled(_:)`` when the run settled first, or
+    ///   ``CancelOutcome/alreadySettled(_:)`` when the run settled first, also
+    ///   while the end posts were in progress, or
     ///   ``CancelOutcome/unknownToken``.
     func cancel(completionToken: String) async -> CancelOutcome {
-        if let terminal = settled[completionToken] {
-            return .alreadySettled(terminal)
+        Self.checkNotInSinkPost()
+        if case .closed(let outcome) = cancelTarget(of: completionToken) {
+            return outcome
         }
-        guard let index = index(of: completionToken) else {
-            return .unknownToken
+        await cancelQuestions(ofRun: completionToken)
+        // The end posts suspend this actor, so the run can settle by itself
+        // in that time. Thus the run is found again.
+        switch cancelTarget(of: completionToken) {
+        case .closed(let outcome):
+            return outcome
+        case .open(let canceler):
+            return .reported(await canceler())
         }
-        cancelQuestions(ofRun: completionToken)
-        return .reported(await runs[index].canceler())
     }
 
     // MARK: - Pending elicitations
@@ -432,12 +473,20 @@ public actor RunPlane {
     ///     completes an accepted URL flow. No other end of the question
     ///     starts it. The run gets the accept only after `completing`
     ///     returns, thus the completion is posted before the run resumes.
+    ///   - ending: Tells the host that a cancel of the run plane ended the
+    ///     question, with the answer that the run gets. The run plane starts
+    ///     it only when ``cancel(completionToken:)``, ``sweep()`` or
+    ///     ``cancelOpenElicitations()`` ends the open question, and only
+    ///     after `posting` returned. The run gets the cancel only after
+    ///     `ending` returns, thus the end is posted after the question and
+    ///     before the run resumes.
     /// - Returns: The answer of the user.
     func awaitAnswer(
         to request: ElicitationRequest,
         runToken: String,
         posting: @escaping @Sendable () async -> Void = {},
-        completing: @escaping @Sendable () async -> Void = {}
+        completing: @escaping @Sendable () async -> Void = {},
+        ending: @escaping @Sendable (ElicitationResponse) async -> Void = { _ in }
     ) async -> ElicitationResponse {
         guard userPresence == .interactive else {
             return .cancel(reason: Self.noUserPresentReason)
@@ -445,11 +494,13 @@ public actor RunPlane {
         guard elicitationIndex(of: request.elicitationId) == nil else {
             return .cancel(reason: Self.duplicateElicitationIdReason)
         }
+        // The question goes on the list in this step, before this actor can
+        // run a call of the posting task, so the question is pending before
+        // `posting` can answer it.
         let elicitation = Elicitation(
             id: request.elicitationId, runToken: runToken, mode: request.mode, completing: completing,
-            ticket: elicitationTelemetry.enqueued())
+            ending: ending, posting: Task { await posting() }, ticket: elicitationTelemetry.enqueued())
         elicitations.append(elicitation)
-        Task { await posting() }
         return await elicitation.answer.value
     }
 
@@ -467,7 +518,9 @@ public actor RunPlane {
     /// When ``complete(elicitationId:)`` completes an accepted URL flow, the
     /// question leaves this list and goes into ``completingElicitations()``
     /// in the same step. Thus, while its completion post is in progress, each
-    /// read finds the question in one of the two lists.
+    /// read finds the question in one of the two lists. In the same way, when
+    /// a cancel of the run plane ends an open question, the question leaves
+    /// this list and goes into ``endingElicitations()`` in the same step.
     ///
     /// - Returns: The open elicitations.
     public func openElicitations() -> [OpenElicitation] {
@@ -483,12 +536,65 @@ public actor RunPlane {
     /// ``OperationEventSink/post(elicitationCompleted:)`` returns, before its
     /// run resumes with the accept. Thus a host can tell a completion that is
     /// on its way from a question that a run cancel ended: a question that a
-    /// run cancel or a ``sweep()`` ended is in neither list. A read after the
-    /// run resumed does not find the question in this list.
+    /// run cancel or a ``sweep()`` ended is not in this list. It is in
+    /// ``endingElicitations()`` while its end post is in progress. A read
+    /// after the run resumed does not find the question in this list.
     ///
     /// - Returns: The ids.
     public func completingElicitations() -> [ULID] {
         completingElicitationIds
+    }
+
+    /// The id of each question whose end post is in progress, in the order
+    /// that the cancels of the run plane ended them.
+    ///
+    /// A question goes into this list in the same step as a cancel of the
+    /// run plane (``cancel(completionToken:)``, ``sweep()`` or
+    /// ``cancelOpenElicitations()``) takes it off ``openElicitations()``. It
+    /// leaves this list when its post of
+    /// ``OperationEventSink/post(elicitationEnded:response:)`` returns,
+    /// before its run resumes with the cancel. Thus, while the end post is in
+    /// progress, each read finds the question in this list and not in
+    /// ``openElicitations()``. A read after the run resumed finds the
+    /// question in neither list.
+    ///
+    /// - Returns: The ids.
+    public func endingElicitations() -> [ULID] {
+        endingElicitationIds
+    }
+
+    /// Ends each open question with a cancel that gives
+    /// ``runCancelledReason``, and returns their ids.
+    ///
+    /// A host calls this when it cancels all the work of the session, or
+    /// when it closes, so the run plane ends each question and posts the end.
+    /// The run of each question gets the cancel; the run itself does not
+    /// stop.
+    ///
+    /// The order is fixed. Each open question leaves ``openElicitations()``
+    /// and goes into ``endingElicitations()`` in one step, with no
+    /// suspension. Thus an answer (``respond(elicitationId:_:)``) or a
+    /// completion (``complete(elicitationId:)``) that comes before this step
+    /// wins, and the run plane posts no end for that question. An answer or
+    /// a completion that comes after this step gives
+    /// ``ElicitationAnswerDelivery/noPendingElicitation`` or
+    /// ``ElicitationCompletionDelivery/noPendingElicitation``. Then, one
+    /// question at a time in the order they came, the sink of the question
+    /// gets ``OperationEventSink/post(elicitationEnded:response:)`` after the
+    /// post of its elicitation event returned. The run gets the cancel only
+    /// after the end post returned. A question whose completion post is in
+    /// progress (``completingElicitations()``) is not open: it gets no end,
+    /// and its run gets the accept.
+    ///
+    /// This call waits for the end posts, and they wait on the sink chain of
+    /// each run. Thus a sink must not await this call inside a post: the call
+    /// then never returns. A debug build stops at such a call.
+    ///
+    /// - Returns: The ids of the questions that ended, in the order they
+    ///   came. The call returns only after each end post returned.
+    public func cancelOpenElicitations() async -> [ULID] {
+        Self.checkNotInSinkPost()
+        return await cancelQuestions { _ in true }
     }
 
     /// Gives the answer of the user to a pending elicitation.
@@ -497,7 +603,8 @@ public actor RunPlane {
     /// ``complete(elicitationId:)``. Each other answer resumes the run. The
     /// run gets the answer unchanged, thus a decline or a cancel keeps its
     /// ``ElicitationResponse/reason``. An unknown or answered id does
-    /// nothing.
+    /// nothing, and so does the id of a question that a cancel of the run
+    /// plane ended.
     ///
     /// - Parameters:
     ///   - elicitationId: The id of the elicitation.
@@ -578,38 +685,73 @@ public actor RunPlane {
     /// The sweep does not end that question: its run gets the accept when the
     /// post returns.
     ///
+    /// The order is the order of ``cancel(completionToken:)``, for each run:
+    /// the sink of each question gets
+    /// ``OperationEventSink/post(elicitationEnded:response:)`` after the
+    /// elicitation event of the question, the run gets the cancel after that
+    /// post returned, and the canceler of the run runs only after each end
+    /// post of the run returned. A run that settles by itself while its end
+    /// posts or its canceler are in progress gives its own terminal event.
+    /// The questions that are still open at the end get their end posts
+    /// before this call returns.
+    ///
+    /// This call waits for the end posts, and they wait on the sink chain of
+    /// each run. Thus a sink must not await this call inside a post: the call
+    /// then never returns. A debug build stops at such a call.
+    ///
     /// - Returns: One terminal event for each run that was open when the
     ///   sweep started. A sweep while another sweep runs returns nothing.
     public func sweep() async -> [OperationEvent] {
+        Self.checkNotInSinkPost()
         guard !isSweeping else { return [] }
         isSweeping = true
         defer { isSweeping = false }
         var terminals: [OperationEvent] = []
-        for token in runs.map(\.token) {
-            guard let index = index(of: token) else { continue }
-            let run = runs[index]
-            cancelQuestions(ofRun: token)
-            let outcome = await run.canceler()
-            // The canceler suspends this actor, so the run can settle by
-            // itself in that time. Its own terminal event is then the one
-            // terminal event of the run.
-            if let own = settled[token] {
-                terminals.append(own)
-                continue
+        for token in runs.map(\.token) where index(of: token) != nil {
+            if let terminal = await sweepRun(token) {
+                terminals.append(terminal)
             }
-            let swept = OperationEvent(
-                tool: run.tool,
-                op: run.op,
-                correlationID: token,
-                kind: .completed,
-                detail: run.latestProgressDetail ?? "",
-                outcome: outcome
-            )
-            settle(token, with: swept)
-            terminals.append(swept)
         }
-        cancelQuestions { _ in true }
+        await cancelQuestions { _ in true }
         return terminals
+    }
+
+    /// Ends the open questions of the run of `token`, runs its canceler, and
+    /// settles the run with the outcome of the canceler.
+    ///
+    /// The end posts and the canceler suspend this actor, so the run can
+    /// settle by itself in that time. Its own terminal event is then the one
+    /// terminal event of the run, and a run that settled during the end
+    /// posts gets no call of its canceler.
+    ///
+    /// - Parameter token: The completion token of an open run.
+    /// - Returns: The one terminal event of the run, or `nil` when the run
+    ///   is not open and not settled.
+    private func sweepRun(_ token: String) async -> OperationEvent? {
+        await cancelQuestions(ofRun: token)
+        if let own = settled[token] {
+            return own
+        }
+        guard let index = index(of: token) else {
+            assertionFailure("a swept run is neither open nor settled")
+            ExtrasTelemetry.makeLogger().error("a swept run is neither open nor settled; it gives no terminal event")
+            return nil
+        }
+        let run = runs[index]
+        let outcome = await run.canceler()
+        if let own = settled[token] {
+            return own
+        }
+        let swept = OperationEvent(
+            tool: run.tool,
+            op: run.op,
+            correlationID: token,
+            kind: .completed,
+            detail: run.latestProgressDetail ?? "",
+            outcome: outcome
+        )
+        settle(token, with: swept)
+        return swept
     }
 
     /// Waits until the body of each run ended: each run that is open, each
@@ -795,47 +937,125 @@ public actor RunPlane {
         completingElicitationIds.append(elicitation.id)
         Task {
             await elicitation.completing()
-            endCompletingPost(of: elicitation.id)
+            Self.removeFirst(elicitation.id, from: &completingElicitationIds, for: .completion)
             finish(elicitation, with: accepted)
         }
         return .completed
     }
 
-    /// Removes the first `elicitationId` from ``completingElicitationIds``,
-    /// because its completion post returned. Only the first one goes,
-    /// because a new question can use the same id while this post is in
-    /// progress, and its own complete then adds the id again.
+    /// A post of the run plane that keeps the id of its question in a list
+    /// while the post is in progress.
+    private enum TrackedPost {
+        /// The completion post of an accepted URL flow, tracked in
+        /// ``completingElicitationIds``.
+        case completion
+
+        /// The end post of a question that a cancel of the run plane ended,
+        /// tracked in ``endingElicitationIds``.
+        case end
+
+        /// The text of the record when the post ends for an id that is not
+        /// in its list.
+        var missingIdMessage: String {
+            switch self {
+            case .completion: "a completion post ended for an id that is not completing"
+            case .end: "an end post ended for an id that is not ending"
+            }
+        }
+    }
+
+    /// Removes the first `elicitationId` from `ids`, because the post of
+    /// the question returned. Only the first one goes, because a new
+    /// question can use the same id while this post is in progress, and its
+    /// own post then adds the id again.
     ///
-    /// - Parameter elicitationId: The id of the question.
-    private func endCompletingPost(of elicitationId: ULID) {
-        guard let index = completingElicitationIds.firstIndex(of: elicitationId) else {
-            assertionFailure("a completion post ended for an id that is not completing")
-            ExtrasTelemetry.makeLogger().error(
-                "a completion post ended for an id that is not completing; nothing to remove")
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - ids: The list of the posts in progress.
+    ///   - post: The post that returned.
+    private static func removeFirst(_ elicitationId: ULID, from ids: inout [ULID], for post: TrackedPost) {
+        guard let index = ids.firstIndex(of: elicitationId) else {
+            assertionFailure(post.missingIdMessage)
+            ExtrasTelemetry.makeLogger().error("\(post.missingIdMessage); nothing to remove")
             return
         }
-        completingElicitationIds.remove(at: index)
+        ids.remove(at: index)
     }
 
     /// Ends each open question of the run of `token` with a cancel that gives
-    /// ``runCancelledReason``. The questions of other runs stay open.
+    /// ``runCancelledReason``, as ``cancelQuestions(where:)`` does. The
+    /// questions of other runs stay open.
     ///
     /// - Parameter token: The completion token of the run.
-    private func cancelQuestions(ofRun token: String) {
-        cancelQuestions { $0.runToken == token }
+    private func cancelQuestions(ofRun token: String) async {
+        await cancelQuestions { $0.runToken == token }
     }
 
     /// Ends each open question that `isEnded` selects with a cancel that
     /// gives ``runCancelledReason``, in the order they came. The other
     /// questions stay open.
     ///
+    /// In one step with no suspension, the selected questions leave
+    /// ``elicitations`` and go into ``endingElicitationIds``. Thus an answer
+    /// or a completion after this step finds no question. Then, one question
+    /// at a time: the end waits until the post of the elicitation event of
+    /// the question returned, so the end comes after that event. It posts the
+    /// end, and only after that post returned it removes the id and resumes
+    /// the run with the cancel, with no suspension between the two.
+    ///
     /// - Parameter isEnded: Selects each question to end.
-    private func cancelQuestions(where isEnded: (Elicitation) -> Bool) {
+    /// - Returns: The ids of the questions that ended, in the order they
+    ///   came, after each end post returned.
+    @discardableResult
+    private func cancelQuestions(where isEnded: (Elicitation) -> Bool) async -> [ULID] {
         let ended = elicitations.filter(isEnded)
         elicitations.removeAll(where: isEnded)
+        endingElicitationIds.append(contentsOf: ended.map(\.id))
+        let response = ElicitationResponse.cancel(reason: Self.runCancelledReason)
         for elicitation in ended {
-            finish(elicitation, with: .cancel(reason: Self.runCancelledReason))
+            await elicitation.posting.value
+            await elicitation.ending(response)
+            Self.removeFirst(elicitation.id, from: &endingElicitationIds, for: .end)
+            finish(elicitation, with: response)
         }
+        return ended.map(\.id)
+    }
+
+    /// What a cancel of a run finds now.
+    private enum CancelTarget {
+        /// The run is open. The cancel runs this canceler of the run.
+        case open(canceler: @Sendable () async -> OperationOutcome)
+
+        /// No run is open. The cancel reports this outcome.
+        case closed(CancelOutcome)
+    }
+
+    /// What a cancel of the run of `token` finds now: the canceler of the
+    /// open run, or the outcome of a settled or unknown run.
+    ///
+    /// - Parameter token: The completion token of the run.
+    /// - Returns: The ``CancelTarget``.
+    private func cancelTarget(of token: String) -> CancelTarget {
+        if let terminal = settled[token] {
+            return .closed(.alreadySettled(terminal))
+        }
+        guard let index = index(of: token) else {
+            return .closed(.unknownToken)
+        }
+        return .open(canceler: runs[index].canceler)
+    }
+
+    /// Stops a debug build when the current task is in a post to a sink of
+    /// the session, and records it in each build.
+    ///
+    /// A cancel of the run plane waits for the end posts, and they wait on
+    /// the sink chain of the run. A sink that awaits such a cancel inside a
+    /// post thus waits for itself, and neither the post nor the cancel
+    /// returns.
+    private static func checkNotInSinkPost() {
+        guard SinkPost.isInProgress else { return }
+        assertionFailure(cancelInsideSinkPostMessage)
+        ExtrasTelemetry.makeLogger().error("\(cancelInsideSinkPostMessage)")
     }
 
     /// Gives the bounded queue outcome of the answer to an elicitation.

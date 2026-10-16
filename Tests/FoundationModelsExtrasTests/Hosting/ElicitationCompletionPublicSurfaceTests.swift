@@ -5,8 +5,9 @@ import ULID
 
 /// A sink as a caller outside this package writes it: a conformance to the
 /// public ``OperationEventSink`` in a file with a plain import. It implements
-/// `post(event:)` only, so `post(elicitationCompleted:)` comes from the
-/// default. It gives each event to a ``SignallingSink``.
+/// `post(event:)` only, so `post(elicitationCompleted:)` and
+/// `post(elicitationEnded:response:)` come from the defaults. It gives each
+/// event to a ``SignallingSink``.
 struct EventOnlySink: OperationEventSink {
     /// The sink that gets each event.
     let signalling: SignallingSink
@@ -22,7 +23,11 @@ struct EventOnlySink: OperationEventSink {
 /// Holds the completion of a URL flow to the public surface:
 /// ``OperationEventSink/post(elicitationCompleted:)`` with its default,
 /// ``ToolContext/complete(elicitationId:)`` and
-/// ``RunPlane/completingElicitations()``.
+/// ``RunPlane/completingElicitations()``. It also holds the end of a
+/// question that the run plane cancels to the public surface:
+/// ``OperationEventSink/post(elicitationEnded:response:)`` with its default,
+/// ``RunPlane/cancelOpenElicitations()`` and
+/// ``RunPlane/endingElicitations()``.
 ///
 /// The import is plain, with no `@testable`. When a member loses `public`,
 /// this file does not compile.
@@ -75,5 +80,28 @@ struct ElicitationCompletionPublicSurfaceTests {
         #expect(completing == [request.elicitationId])
         #expect(try await asking.value == .accept(content: nil))
         #expect(await runPlane.completingElicitations().isEmpty)
+    }
+
+    @Test("a sink with no post(elicitationEnded:response:) gets the default, and a host ends each open question")
+    func aHostEndsTheOpenQuestionsThroughThePublicSurface() async throws {
+        let runPlane = RunPlane()
+        let signalling = SignallingSink()
+        var reader = SignalReader(signalling.signals)
+        let sink = EventOnlySink(signalling: signalling)
+        let request = MountFixtures.nameRequest()
+        let context = MountFixtures.hostContext(on: runPlane, sink: sink)
+        let sinkAsProtocol: any OperationEventSink = sink
+        await sinkAsProtocol.post(elicitationEnded: request.elicitationId, response: .cancel)
+
+        let asking = Task { try await context.elicit(request) }
+        await reader.wait(for: [.asked(request.elicitationId)])
+        let ended: [ULID] = await runPlane.cancelOpenElicitations()
+        let ending: [ULID] = await runPlane.endingElicitations()
+
+        #expect(reader.history == [.asked(request.elicitationId)])
+        #expect(ended == [request.elicitationId])
+        #expect(ending.isEmpty)
+        #expect(try await asking.value == .cancel(reason: RunPlane.runCancelledReason))
+        #expect(await runPlane.openElicitations().isEmpty)
     }
 }

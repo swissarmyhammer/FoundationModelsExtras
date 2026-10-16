@@ -861,7 +861,13 @@ questions that those runs ask the user.
   run end before the run plane runs the canceler of that run, because a run
   that waits for an answer cannot stop. A host compares the reason with
    `RunPlane.runCancelledReason` to tell this cancel from a cancel of the
-   user.
+   user. A host that cancels all work or closes calls
+   `RunPlane.cancelOpenElicitations()`, and does not end the questions
+   itself. For each question that the run plane cancels, the sink gets
+   `post(elicitationEnded:response:)` after the elicitation event and before
+   the run resumes (empty default), and `endingElicitations()` gives the id
+   while that post is in progress. A sink must not await a cancel of the run
+   plane inside a post: the cancel waits for the end posts.
 - A host that runs a session with no user makes its run plane with
   `RunPlane(userPresence: .headless)`. The default is `.interactive`. In a
   headless session, `elicit(_:)` returns a cancel with the reason

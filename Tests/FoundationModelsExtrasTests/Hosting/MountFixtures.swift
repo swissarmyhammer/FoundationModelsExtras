@@ -206,6 +206,33 @@ enum MountFixtures {
             completionToken: completionToken, isCancelled: { false })
     }
 
+    /// The value of each call that ``callSynchronously(_:mountedOn:)``
+    /// starts.
+    static let synchronousCallValue = "x"
+
+    /// Mounts `tool` in a synchronous mount on a new site of `runPlane` that
+    /// posts to a new ``SignallingSink``, and starts one call. Only the call
+    /// holds the sink, thus the stream ends when the call ends.
+    ///
+    /// - Parameters:
+    ///   - tool: The tool to mount.
+    ///   - runPlane: The run plane of the session.
+    /// - Returns: The stream of the sink, and the task of the call.
+    /// - Throws: When the mounted tool does not keep the types of `tool`.
+    static func callSynchronously(
+        _ tool: any Tool, mountedOn runPlane: RunPlane
+    ) throws -> (signals: AsyncStream<ElicitationSignal>, calling: Task<String, any Error>) {
+        let sink = SignallingSink()
+        let site = site(runPlane: runPlane, sink: sink)
+        let mounted = try #require(
+            ToolMounting.makeWrapped(tool: tool, site: site, configuration: .synchronous)
+                as? any Tool<MountArguments, String>)
+        return (
+            sink.signals,
+            Task { try await mounted.call(arguments: MountArguments(value: synchronousCallValue)) }
+        )
+    }
+
     // MARK: - Harness
 
     /// The wiring of one test: the run plane, the sink and the mounted tool.
@@ -596,6 +623,32 @@ enum MountFixtures {
             elicitationId: elicitationId,
             requestedSchema: ElicitationRequestedSchema(properties: ["name": .string(ElicitationStringSchema())])
         )
+    }
+
+    /// A URL question with a new id.
+    ///
+    /// - Returns: The question.
+    /// - Throws: When the URL does not parse.
+    static func urlRequest() throws -> ElicitationRequest {
+        ElicitationRequest(
+            message: "Sign in", elicitationId: ULID(), url: try #require(URL(string: "https://example.com/sign-in")))
+    }
+
+    /// Asks `request` through `context`, and appends the answer to `answers`.
+    /// A question that throws records an issue.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - context: The context of the run.
+    ///   - answers: Gets the answer.
+    static func recordAnswer(
+        to request: ElicitationRequest, through context: ToolContext, in answers: Recorder<ElicitationResponse>
+    ) async {
+        do {
+            answers.append(try await context.elicit(request))
+        } catch {
+            Issue.record(error, "the question threw")
+        }
     }
 
     /// The question that the elicitation fixtures ask.

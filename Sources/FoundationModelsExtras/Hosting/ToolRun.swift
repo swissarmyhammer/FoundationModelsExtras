@@ -255,9 +255,22 @@ final class ToolCallState: Sendable {
     }
 }
 
+/// Marks the task of a post to a sink of the session.
+///
+/// ``RunEventFunnel`` sets the mark around each post to the sink of the
+/// session. A cancel of the run plane reads it: such a cancel waits for the
+/// end posts of the questions, and they wait on the same chain of posts, so
+/// a cancel inside a post never returns. A task that a post starts with
+/// `Task {}` inherits the mark; `Task.detached` does not.
+enum SinkPost {
+    /// Whether the current task is in a post to a sink of the session.
+    @TaskLocal static var isInProgress = false
+}
+
 /// The one route of the events of one run. It lets one `.completed` event
 /// through, keeps the state of the timeout, and delivers the events, the
-/// display events and the completions of URL flows upstream in order.
+/// display events, the completions of URL flows and the ends of questions
+/// upstream in order.
 actor RunEventFunnel: OperationEventSink {
     /// The sink of the session.
     private let upstream: any OperationEventSink
@@ -351,6 +364,22 @@ actor RunEventFunnel: OperationEventSink {
         await enqueue { await $0.post(elicitationCompleted: elicitationId) }.value
     }
 
+    /// Sends the end of a question of the run upstream, in order with the
+    /// other events of the run: after the elicitation event of the question,
+    /// and before each post of the run after it resumes.
+    ///
+    /// The end can come after the terminal event, because a question of a
+    /// synchronous call that the run mounted can end after this run settles.
+    /// It still goes upstream: it tells the host about the question, not
+    /// about the run.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - response: The answer that the run of the question gets.
+    func post(elicitationEnded elicitationId: ULID, response: ElicitationResponse) async {
+        await enqueue { await $0.post(elicitationEnded: elicitationId, response: response) }.value
+    }
+
     /// Sends `terminal` upstream when no terminal event went yet, and the run
     /// posted an event or did not succeed. A silent success posts nothing.
     ///
@@ -398,14 +427,20 @@ actor RunEventFunnel: OperationEventSink {
     }
 
     /// Adds `delivery` to the upstream sink behind the earlier deliveries.
+    /// The delivery runs with the ``SinkPost`` mark set.
     ///
-    /// - Parameter delivery: Posts one event, one display event or one
-    ///   completion of a URL flow to the upstream sink that it gets.
+    /// - Parameter delivery: Posts one event, one display event, one
+    ///   completion of a URL flow or one end of a question to the upstream
+    ///   sink that it gets.
     /// - Returns: The task of the delivery.
     private func enqueue(
         _ delivery: @escaping @Sendable (any OperationEventSink) async -> Void
     ) -> Task<Void, Never> {
         let upstream = upstream
-        return deliveries.enqueue { await delivery(upstream) }
+        return deliveries.enqueue {
+            await SinkPost.$isInProgress.withValue(true) {
+                await delivery(upstream)
+            }
+        }
     }
 }
