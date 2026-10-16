@@ -325,11 +325,25 @@ public struct ToolContext: Sendable {
     /// call, or the sweep of the run plane resumes the run. A cancel of the
     /// task does not. A cancel of the run, the sweep and
     /// ``RunPlane/cancelOpenElicitations()`` give a cancel with
-    /// ``RunPlane/runCancelledReason``. This function never throws now.
+    /// ``RunPlane/runCancelledReason``.
+    ///
+    /// This function does not throw. Each result, also a cancel, a decline and
+    /// an answer that is not valid, comes back as an ``ElicitationResponse``.
+    /// The declaration keeps `throws` only so that a later check of a
+    /// malformed request can throw with no change to the callers. Today no
+    /// request throws.
+    ///
+    /// When an open question already has the `elicitationId` of the request,
+    /// this function does not throw. It returns a cancel with the reason
+    /// "an open elicitation already has this elicitationId" at once. The
+    /// request does not go to the sink, and the open question does not
+    /// change.
     ///
     /// A host can also end the question with
     /// ``RunPlane/endElicitation(_:with:)``. Then the run gets the decline or
-    /// the cancel of that call.
+    /// the cancel of that call. That call accepts only a decline or a cancel:
+    /// an accept hits a precondition and stops the process, because only the
+    /// user accepts a question.
     ///
     /// When the run plane ends the question (a cancel, or
     /// ``RunPlane/endElicitation(_:with:)``), the sink of this context gets
