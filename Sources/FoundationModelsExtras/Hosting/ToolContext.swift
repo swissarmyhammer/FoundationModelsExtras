@@ -39,13 +39,26 @@ public struct ToolContext: Sendable {
     /// event of the run.
     public let completionToken: String
 
-    /// The completion token of the run that holds this call. Each question
-    /// that this context asks links to it.
+    /// The completion token of the run that holds this call.
     ///
-    /// It is ``completionToken`` for a background run and for a call that no
-    /// run holds. For a synchronous call that a run mounted, it is the token
-    /// of that run, because the question stops that run.
-    var holdingRunToken: String {
+    /// A host reads it to know if two contexts belong to one run. Each inner
+    /// call has its own ``completionToken``, thus that token cannot tell
+    /// that two inner calls come from one run. This value can:
+    ///
+    /// - The context of a run gives its own ``completionToken``.
+    /// - Each synchronous call that the run mounts with
+    ///   ``mount(_:op:as:)`` gives the token of that run, also when a
+    ///   synchronous call mounts a synchronous call of its own.
+    /// - A background call is a run of its own, thus it gives its own
+    ///   ``completionToken``.
+    /// - A context that a host makes with the public init gives its own
+    ///   ``completionToken``.
+    ///
+    /// Thus two runs give different values. Each question that this context
+    /// asks links to this run, and ``OpenElicitation/runToken`` of the
+    /// question gives the same value, because a question of a synchronous
+    /// call stops the run that holds it.
+    public var holdingRunToken: String {
         // The init puts a token on the site, so the fallback only gives the
         // type.
         runSite.holdingRunToken ?? completionToken
