@@ -106,14 +106,20 @@ struct ElicitationValidationTests {
             label: "a maximum length", field: "name", schema: .string(ElicitationStringSchema(maxLength: 5)),
             value: .string("Grace"), failure: nil),
         ElicitationFieldCase(
-            label: "a length in characters, not in scalars", field: "letter",
-            schema: .string(ElicitationStringSchema(maxLength: 1)), value: .string("e\u{301}"), failure: nil),
+            label: "a length in code points, not in UTF-16 code units: one emoji is one code point", field: "letter",
+            schema: .string(ElicitationStringSchema(maxLength: 1)), value: .string("👍"), failure: nil),
+        ElicitationFieldCase(
+            label: "a length in code points, not in Characters: a family emoji is five code points", field: "family",
+            schema: .string(ElicitationStringSchema(minLength: 5)), value: .string("👨‍👩‍👧"), failure: nil),
         ElicitationFieldCase(
             label: "a pattern", field: "zip", schema: .string(ElicitationStringSchema(pattern: zipPattern)),
             value: .string("12345"), failure: nil),
         ElicitationFieldCase(
             label: "a pattern that matches the whole value through an alternative", field: "code",
             schema: .string(ElicitationStringSchema(pattern: "a|ab")), value: .string("ab"), failure: nil),
+        ElicitationFieldCase(
+            label: "a pattern with no anchors that matches a part of the value", field: "zip",
+            schema: .string(ElicitationStringSchema(pattern: "[0-9]{5}")), value: .string("123456"), failure: nil),
         ElicitationFieldCase(
             label: "an email address", field: "email", schema: .string(ElicitationStringSchema(format: .email)),
             value: .string("ada@example.com"), failure: nil),
@@ -179,13 +185,21 @@ struct ElicitationValidationTests {
             schema: .string(ElicitationStringSchema(maxLength: 5)),
             value: .string("Gracie"), failure: #"the field "name" must have 5 or fewer characters"#),
         ElicitationFieldCase(
+            label: "a combining mark is a code point of its own", field: "letter",
+            schema: .string(ElicitationStringSchema(maxLength: 1)),
+            value: .string("e\u{301}"), failure: #"the field "letter" must have 1 or fewer characters"#),
+        ElicitationFieldCase(
+            label: "a family emoji is one Character but five code points", field: "family",
+            schema: .string(ElicitationStringSchema(maxLength: 4)),
+            value: .string("👨‍👩‍👧"), failure: #"the field "family" must have 4 or fewer characters"#),
+        ElicitationFieldCase(
             label: "a string that does not match the pattern", field: "zip",
             schema: .string(ElicitationStringSchema(pattern: zipPattern)),
             value: .string("1234"), failure: #"the field "zip" does not match the pattern "^[0-9]{5}$""#),
         ElicitationFieldCase(
-            label: "a string that matches only a part of the value", field: "zip",
-            schema: .string(ElicitationStringSchema(pattern: "[0-9]{5}")),
-            value: .string("123456"), failure: #"the field "zip" does not match the pattern "[0-9]{5}""#),
+            label: "an anchored pattern that matches only a part of the value", field: "zip",
+            schema: .string(ElicitationStringSchema(pattern: zipPattern)),
+            value: .string("123456"), failure: #"the field "zip" does not match the pattern "^[0-9]{5}$""#),
         ElicitationFieldCase(
             label: "a pattern that does not compile", field: "zip",
             schema: .string(ElicitationStringSchema(pattern: "[0-9")),

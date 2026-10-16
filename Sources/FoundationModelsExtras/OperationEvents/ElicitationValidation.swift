@@ -25,10 +25,54 @@ extension ElicitationRequestedSchema {
     ///   ``ElicitationNumberSchema/NumberType/integer``), a boolean property
     ///   takes ``ElicitationValue/boolean(_:)``, and a multi select takes
     ///   ``ElicitationValue/stringArray(_:)``.
-    /// - A value that breaks a rule of its property: the length in characters,
-    ///   the pattern (a match of the whole value), the format, the minimum and
-    ///   the maximum, the values of a select, and the number of items of a
-    ///   multi select.
+    /// - A value that breaks a rule of its property: the length, the pattern,
+    ///   the format, the minimum and the maximum, the values of a select, and
+    ///   the number of items of a multi select.
+    ///
+    /// The length and the pattern follow JSON Schema:
+    ///
+    /// - ``ElicitationStringSchema/minLength`` and
+    ///   ``ElicitationStringSchema/maxLength`` count Unicode code points
+    ///   (`String.unicodeScalars`), not Characters and not UTF-16 code units.
+    ///   Thus `"e\u{301}"` has a length of 2, and `"👍"` has a length of 1.
+    /// - ``ElicitationStringSchema/pattern`` is an ECMA-262 regular expression
+    ///   with no flags, and it is not anchored: the value is valid when the
+    ///   pattern matches a part of it. A pattern that must match the whole
+    ///   value starts with `^` and ends with `$`. The match works on Unicode
+    ///   code points, as ECMA-262 does with the `u` flag.
+    ///
+    /// The pattern runs on `NSRegularExpression` (ICU) after a translation that
+    /// gives the ECMA-262 meaning to these parts:
+    ///
+    /// - `\d` and `\D` are `[0-9]` and its complement, `\w` and `\W` are
+    ///   `[A-Za-z0-9_]` and its complement, and `\b` and `\B` use that `\w`.
+    ///   ICU gives each of them a Unicode meaning: for example, ICU `\d`
+    ///   matches the Arabic-Indic digit `"١"`, and ECMA-262 `\d` does not.
+    /// - `\s` and `\S` also take U+000B and U+FEFF as white space, and `\v`
+    ///   is U+000B. ICU `\v` is each vertical white space.
+    /// - `.` matches each code point except `\n`, `\r`, U+2028 and U+2029.
+    ///   ICU `.` also does not match U+0085.
+    /// - `$` matches only at the end of the value. ICU `$` also matches before
+    ///   a line terminator at the end.
+    /// - `[]` matches nothing, and `[^]` matches each code point.
+    /// - In a character class, `[` and `&` are literal, and `[\b]` is the
+    ///   backspace U+0008. ICU reads `[` and `&&` in a class as set
+    ///   operations.
+    ///
+    /// These gaps stay:
+    ///
+    /// - A pattern with syntax that only ICU knows compiles here, and
+    ///   ECMA-262 rejects it or reads it in a different way: possessive
+    ///   quantifiers, atomic groups, inline flags such as `(?i)`, `\Q…\E`,
+    ///   `\x{…}`, and the escapes `\A`, `\z`, `\Z`, `\G`, `\X`, `\h`, `\H`,
+    ///   `\V`, `\R` and `\N{…}`. In ECMA-262 with no `u` flag, an
+    ///   escape of a letter with no meaning is that letter.
+    /// - A pattern with syntax that only ECMA-262 knows does not compile here,
+    ///   and the field fails: for example, a literal `{` that does not start a
+    ///   quantifier, `\u{…}`, or a backreference before its group.
+    /// - `--` in a class, and a range next to a class escape such as
+    ///   `[\d-z]`, can have a different meaning.
+    /// - The names in `\p{…}` are the names of ICU.
     ///
     /// A host calls this function before it sends or posts an accepted form
     /// answer. For example, a router that also posts the answer as mail to the
@@ -121,7 +165,7 @@ extension ElicitationStringSchema {
     /// - Returns: `nil` when the value is valid, or the sentence of its failure.
     fileprivate func failure(of text: String, field name: String) -> String? {
         FailureText.countFailure(
-            field: name, count: text.count, minimum: minLength, maximum: maxLength, unit: "characters")
+            field: name, count: text.unicodeScalars.count, minimum: minLength, maximum: maxLength, unit: "characters")
             ?? patternFailure(of: text, field: name)
             ?? formatFailure(of: text, field: name)
     }
@@ -131,11 +175,11 @@ extension ElicitationStringSchema {
     /// - Parameters:
     ///   - text: The value in the answer.
     ///   - name: The name of the field.
-    /// - Returns: `nil` when there is no pattern or the whole value matches
-    ///   it, or the sentence of the failure.
+    /// - Returns: `nil` when there is no pattern or the pattern matches a part
+    ///   of the value, or the sentence of the failure.
     private func patternFailure(of text: String, field name: String) -> String? {
         guard let pattern else { return nil }
-        guard let matches = Self.wholeValue(text, matches: pattern) else {
+        guard let matches = ECMAPattern.search(text, for: pattern) else {
             return "the pattern \(FailureText.quoted(pattern)) of \(FailureText.field(name)) "
                 + "is not a valid regular expression"
         }
@@ -153,20 +197,141 @@ extension ElicitationStringSchema {
         guard let format, !format.accepts(text) else { return nil }
         return "\(FailureText.field(name)) is not a valid \(format.valueName)"
     }
+}
 
-    /// Tells if `pattern` matches the whole of `text`.
+/// The search of an ECMA-262 pattern, on `NSRegularExpression`.
+///
+/// ``ElicitationRequestedSchema/validationFailure(of:)`` tells which parts of
+/// the pattern get their ECMA-262 meaning, and which gaps stay.
+private enum ECMAPattern {
+    /// The code points of ECMA-262 `\w`, for a character class.
+    private static let wordMembers = "A-Za-z0-9_"
+
+    /// The code points of ECMA-262 `\d`, for a character class.
+    private static let digitMembers = "0-9"
+
+    /// The code points of ECMA-262 `\s`, for a character class: ICU `\s`, and
+    /// the two code points that ICU `\s` does not have.
+    private static let spaceMembers = "\\s\\x{0B}\\x{FEFF}"
+
+    /// ECMA-262 `.`: each code point except a line terminator.
+    private static let anyButLineTerminator = "[^\\n\\r\\x{2028}\\x{2029}]"
+
+    /// ECMA-262 `\b`, with the `\w` of ECMA-262.
+    private static let wordBoundary =
+        "(?:(?<=[\(wordMembers)])(?![\(wordMembers)])|(?<![\(wordMembers)])(?=[\(wordMembers)]))"
+
+    /// ECMA-262 `\B`, with the `\w` of ECMA-262.
+    private static let notWordBoundary =
+        "(?:(?<=[\(wordMembers)])(?=[\(wordMembers)])|(?<![\(wordMembers)])(?![\(wordMembers)]))"
+
+    /// Tells if `pattern` matches a part of `text`.
     ///
     /// - Parameters:
     ///   - text: The value in the answer.
-    ///   - pattern: A regular expression in the syntax of
-    ///     `NSRegularExpression`.
+    ///   - pattern: An ECMA-262 regular expression with no flags.
     /// - Returns: `nil` when `pattern` does not compile, else whether a match
-    ///   covers all of `text`.
-    private static func wholeValue(_ text: String, matches pattern: String) -> Bool? {
-        guard (try? NSRegularExpression(pattern: pattern)) != nil,
-            let anchored = try? NSRegularExpression(pattern: "\\A(?:\(pattern))\\z")
-        else { return nil }
-        return anchored.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    ///   is in `text`.
+    static func search(_ text: String, for pattern: String) -> Bool? {
+        guard let regex = try? NSRegularExpression(pattern: icuPattern(of: pattern)) else { return nil }
+        return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
+    /// The ICU form of the ECMA-262 `pattern`.
+    ///
+    /// The translation reads the pattern one code point at a time, and it
+    /// knows if it is in a character class. It changes only the parts that
+    /// the doc of ``ElicitationRequestedSchema/validationFailure(of:)`` names,
+    /// and it copies each other part.
+    ///
+    /// - Parameter pattern: An ECMA-262 regular expression with no flags.
+    /// - Returns: The ICU regular expression.
+    static func icuPattern(of pattern: String) -> String {
+        let scalars = Array(pattern.unicodeScalars)
+        var output = ""
+        var isInClass = false
+        var index = 0
+        while index < scalars.count {
+            let scalar = scalars[index]
+            let next = index + 1 < scalars.count ? scalars[index + 1] : nil
+            if scalar == "\\", let next {
+                output += (isInClass ? classEscape(next) : escape(next)) ?? "\\\(next)"
+                index += 2
+                continue
+            }
+            if isInClass {
+                switch scalar {
+                case "]": isInClass = false; output += "]"
+                case "[", "&": output += "\\\(scalar)"
+                default: output.unicodeScalars.append(scalar)
+                }
+                index += 1
+                continue
+            }
+            switch scalar {
+            case "[":
+                let afterCaret = index + 2 < scalars.count ? scalars[index + 2] : nil
+                if next == "]" {
+                    output += "(?!)"
+                    index += 2
+                    continue
+                }
+                if next == "^", afterCaret == "]" {
+                    output += "[\\s\\S]"
+                    index += 3
+                    continue
+                }
+                isInClass = true
+                output += "["
+                if next == "^" {
+                    output += "^"
+                    index += 1
+                }
+            case ".": output += anyButLineTerminator
+            case "$": output += "\\z"
+            default: output.unicodeScalars.append(scalar)
+            }
+            index += 1
+        }
+        return output
+    }
+
+    /// The ICU form of the escape `\` + `letter` out of a character class.
+    ///
+    /// - Parameter letter: The code point after the backslash.
+    /// - Returns: The ICU form, or `nil` when the escape stays as it is.
+    private static func escape(_ letter: Unicode.Scalar) -> String? {
+        switch letter {
+        case "d": "[\(digitMembers)]"
+        case "D": "[^\(digitMembers)]"
+        case "w": "[\(wordMembers)]"
+        case "W": "[^\(wordMembers)]"
+        case "s": "[\(spaceMembers)]"
+        case "S": "[^\(spaceMembers)]"
+        case "b": wordBoundary
+        case "B": notWordBoundary
+        case "v": "\\x{0B}"
+        default: nil
+        }
+    }
+
+    /// The ICU form of the escape `\` + `letter` in a character class. A
+    /// complement goes in as a nested set, which ICU adds to the class.
+    ///
+    /// - Parameter letter: The code point after the backslash.
+    /// - Returns: The ICU form, or `nil` when the escape stays as it is.
+    private static func classEscape(_ letter: Unicode.Scalar) -> String? {
+        switch letter {
+        case "d": digitMembers
+        case "D": "[^\(digitMembers)]"
+        case "w": wordMembers
+        case "W": "[^\(wordMembers)]"
+        case "s": spaceMembers
+        case "S": "[^\(spaceMembers)]"
+        case "b": "\\x{08}"
+        case "v": "\\x{0B}"
+        default: nil
+        }
     }
 }
 
