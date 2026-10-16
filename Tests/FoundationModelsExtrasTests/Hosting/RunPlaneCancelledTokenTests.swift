@@ -128,6 +128,46 @@ struct RunPlaneCancelledTokenTests {
         latch.open()
     }
 
+    @Test("after sweep(), a token that is not a run and had an open question asks no new question")
+    func aQuestionAfterTheSweepOfATokenThatIsNotARunEndsAtOnce() async {
+        let runPlane = RunPlane()
+        // A top-level call is not a run of the run plane.
+        let token = RunPlane.makeCompletionToken()
+        let asking = await Self.openQuestion(for: token, on: runPlane)
+        #expect(await runPlane.sweep().isEmpty)
+        #expect(await asking.value == Self.runCancelled)
+
+        let result = await Self.firstResult(ofQuestionFor: token, on: runPlane)
+
+        #expect(result == .answered(Self.runCancelled))
+    }
+
+    @Test("sweep() does not end a new question of a token that had no open question at the sweep")
+    func theSweepDoesNotEndANewQuestionOfADifferentToken() async {
+        let runPlane = RunPlane()
+        #expect(await runPlane.sweep().isEmpty)
+
+        let result = await Self.firstResult(ofQuestionFor: RunPlane.makeCompletionToken(), on: runPlane)
+
+        #expect(result == .posted)
+    }
+
+    // MARK: - A question after the settle
+
+    @Test("a run that settled with no cancel asks no new question: the question ends at once with the reason of an ended run")
+    func aQuestionAfterTheSettleEndsAtOnce() async {
+        let runPlane = RunPlane()
+        let latch = RunLatch()
+        latch.open()
+        let token = await FakeRun.start(on: runPlane, latch: latch)
+        #expect(await runPlane.wait(completionToken: token, seconds: nil).settledTerminal != nil)
+
+        let result = await Self.firstResult(ofQuestionFor: token, on: runPlane)
+
+        #expect(result == .answered(.cancel(reason: RunPlane.runEndedReason)))
+        #expect(await runPlane.openElicitations().isEmpty)
+    }
+
     @Test("a cancel of one token does not end a new question of a different token")
     func aCancelDoesNotEndANewQuestionOfADifferentToken() async {
         let runPlane = RunPlane()
@@ -157,10 +197,12 @@ struct RunPlaneCancelledTokenTests {
     func aCancelOfASettledTokenEndsItsOpenQuestion() async {
         let runPlane = RunPlane()
         let latch = RunLatch()
-        latch.open()
         let token = await FakeRun.start(on: runPlane, latch: latch)
-        let settled = await runPlane.wait(completionToken: token, seconds: nil).settledTerminal
+        // A task of the run asks while the run is open, and the run settles
+        // after that.
         let asking = await Self.openQuestion(for: token, on: runPlane)
+        latch.open()
+        let settled = await runPlane.wait(completionToken: token, seconds: nil).settledTerminal
 
         let outcome = await runPlane.cancel(completionToken: token)
 

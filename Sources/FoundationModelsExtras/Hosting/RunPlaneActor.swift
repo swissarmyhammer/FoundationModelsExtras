@@ -135,6 +135,11 @@ public actor RunPlane {
     /// from a cancel of the user.
     public static let runCancelledReason = "run cancelled"
 
+    /// The reason of the cancel that a question gets at once when its run
+    /// already settled with no cancel, for example a question of a child
+    /// task after the body of its run returned. See ``awaitAnswer``.
+    public static let runEndedReason = "the run has ended"
+
     /// The text of the record when a sink awaits an end of the run plane
     /// inside a post.
     private static let endInsideSinkPostMessage =
@@ -503,7 +508,13 @@ public actor RunPlane {
     ///
     /// A run that ``cancel(completionToken:)`` or ``sweep()`` cancelled gets
     /// a cancel with ``runCancelledReason`` at once, in the same way: no
-    /// elicitation becomes pending, and `posting` does not run.
+    /// elicitation becomes pending, and `posting` does not run. A token whose
+    /// question ``sweep()`` ended is cancelled too, also a token that is not
+    /// a run of this plane.
+    ///
+    /// A run that settled with no cancel gets a cancel with
+    /// ``runEndedReason`` at once, in the same way. For example, a child task
+    /// that asks after the body of its run returned.
     ///
     /// The elicitation is pending before `posting` runs. A duplicate
     /// `elicitationId` gets a cancel with ``duplicateElicitationIdReason``
@@ -543,6 +554,9 @@ public actor RunPlane {
         }
         guard !cancelledRunTokens.contains(runToken) else {
             return .cancel(reason: Self.runCancelledReason)
+        }
+        guard settled[runToken] == nil else {
+            return .cancel(reason: Self.runEndedReason)
         }
         guard elicitationIndex(of: request.elicitationId) == nil else {
             return .cancel(reason: Self.duplicateElicitationIdReason)
@@ -783,7 +797,11 @@ public actor RunPlane {
     /// post of the run returned. A run that settles by itself while its end
     /// posts or its canceler are in progress gives its own terminal event.
     /// The questions that are still open at the end get their end posts
-    /// before this call returns.
+    /// before this call returns. The token of each of these questions stays
+    /// cancelled, also a token that is not a run of this plane, such as a
+    /// top-level call. Thus a later question of that token ends at once with
+    /// ``runCancelledReason``. A token that had no open question at the sweep
+    /// can still ask.
     ///
     /// This call waits for the end posts, and they wait on the sink chain of
     /// each run. Thus a sink must not await this call inside a post: the call
@@ -802,6 +820,10 @@ public actor RunPlane {
                 terminals.append(terminal)
             }
         }
+        // A question that is still open can come from a token that is not a
+        // run of this plane, for example a top-level call. Its token is
+        // cancelled in the same step, so a later question of it ends at once.
+        cancelledRunTokens.formUnion(elicitations.map(\.runToken))
         await cancelQuestions { _ in true }
         return terminals
     }

@@ -368,7 +368,12 @@ public struct ToolContext: Sendable {
     /// (``RunPlane/cancel(completionToken:)`` or ``RunPlane/sweep()``), this
     /// function returns a cancel with ``RunPlane/runCancelledReason`` at once,
     /// in the same way. Thus a run that asks again after a cancel does not
-    /// wait.
+    /// wait. A sweep also cancels the token of each question that it ends.
+    ///
+    /// After the run that holds this call settled with no cancel, this
+    /// function returns a cancel with ``RunPlane/runEndedReason`` at once, in
+    /// the same way. For example, a child task that asks after the body of
+    /// its run returned.
     ///
     /// The run gets no content that is not valid. When the request is in form
     /// mode and the answer is an accept, this function checks the content with
