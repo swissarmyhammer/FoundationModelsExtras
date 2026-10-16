@@ -44,7 +44,7 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
         site: MountSite,
         mountTimeout: TimeInterval?
     ) {
-        let token = RunPlane.makeCompletionToken()
+        let token = site.runPlane.makeRunToken()
         let funnel = RunEventFunnel(upstream: site.sink, runPlane: site.runPlane, completionToken: token)
         let state = ToolCallState()
         self.wrapped = wrapped
@@ -67,6 +67,18 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
     /// Posts the open record of the call.
     func open() async {
         await sink.post(invocation: openRecord)
+    }
+
+    /// Posts the pending envelope of a background call as a progress event of
+    /// the run, in order with the other events of the run. The progress
+    /// detail of the run on the run plane does not change.
+    ///
+    /// - Parameter rendered: The rendered envelope.
+    func post(pendingEnvelope rendered: String) async {
+        await funnel.post(
+            pendingEnvelope: OperationEvent(
+                tool: context.tool, op: context.op, correlationID: context.completionToken, kind: .progress,
+                detail: rendered))
     }
 
     /// Runs the canceler of the tool one time, and reports its outcome. The
@@ -323,6 +335,29 @@ actor RunEventFunnel: OperationEventSink {
     ///
     /// - Parameter event: The event.
     func post(event: OperationEvent) async {
+        await post(event: event, showingProgress: true)
+    }
+
+    /// Sends the pending envelope of the run upstream, as a progress event of
+    /// the run.
+    ///
+    /// The run-plane list keeps the progress of the tool, not the envelope,
+    /// thus this event does not change the progress detail of the run on the
+    /// run plane.
+    ///
+    /// - Parameter event: The progress event whose detail is the rendered
+    ///   envelope, with the stamps of the run.
+    func post(pendingEnvelope event: OperationEvent) async {
+        await post(event: event, showingProgress: false)
+    }
+
+    /// Records the timeout state of `event`, then sends it upstream.
+    ///
+    /// - Parameters:
+    ///   - event: The event.
+    ///   - showingProgress: Whether a progress event changes the progress
+    ///     detail of the run on the run plane.
+    private func post(event: OperationEvent, showingProgress: Bool) async {
         switch event.kind {
         case .completed:
             guard !hasDeliveredTerminal else { return }
@@ -339,7 +374,7 @@ actor RunEventFunnel: OperationEventSink {
         }
         hasDeliveredAnyEvent = true
         let delivery = enqueue { await $0.post(event: event) }
-        if event.kind == .progress {
+        if event.kind == .progress, showingProgress {
             await runPlane.updateProgress(completionToken: completionToken, detail: event.detail)
         }
         await delivery.value

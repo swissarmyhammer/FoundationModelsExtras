@@ -4,8 +4,10 @@ import FoundationModels
 /// A decorator that runs each call of the tool in the background, unless the
 /// tool gives a synchronous mount for that call.
 ///
-/// A background call posts one progress event, starts the run on the run
-/// plane, and waits for the run up to its settle period. A run that ends in
+/// A background call starts the run on the run plane, posts one progress
+/// event before the body of the run starts its work, and waits for the run up
+/// to its settle period. A call whose run the run plane refuses posts nothing,
+/// and fails with ``DuplicateRunTokenError``. A run that ends in
 /// that time answers with its own result, the same as a synchronous call: the
 /// output of the tool, or the error that the tool threw. A cancel of only that
 /// run is not a cancel of the call: the call answers with a text that tells
@@ -139,9 +141,10 @@ struct BackgroundToolRunner<
         let pending = PendingRunEnvelope(
             completionToken: token, next: declared?.collectInstruction(forCompletionToken: token))
         let result = Promise<Result<String, any Error>>()
-        await run.open()
-        await run.context.progress(pending.rendered)
-        await site.runPlane.start(
+        // The body waits until the call posted its open record and its
+        // envelope, thus each event of the run comes after them.
+        let posted = Promise<Void>()
+        let started = await site.runPlane.start(
             tool: run.context.tool,
             op: run.context.op,
             kind: declared?.runKind ?? .swiftTask,
@@ -149,13 +152,27 @@ struct BackgroundToolRunner<
             canceler: canceler(of: run),
             tracer: site.tracer
         ) {
+            await posted.value
             // The run goes on beside the model call that started it, not in it.
-            await ModelCallMark.withBackgroundRunMark {
+            return await ModelCallMark.withBackgroundRunMark {
                 let settlement = await run.execute(arguments: arguments)
                 result.fulfill(settlement.result)
                 return settlement.terminal
             }
         }
+        guard started == .started else {
+            return Self.refusedAnswer(completionToken: token, tool: run.context.tool)
+        }
+        // The body must not wait for ever, thus the gate opens on each path
+        // out of this call, and at a cancel of its task.
+        defer { posted.fulfill(()) }
+        await withTaskCancellationHandler {
+            await run.open()
+            await run.post(pendingEnvelope: pending.rendered)
+        } onCancel: {
+            posted.fulfill(())
+        }
+        posted.fulfill(())
         guard grace > 0,
             case .settled(let terminal) = await site.runPlane.wait(completionToken: token, seconds: grace)
         else {
@@ -171,6 +188,21 @@ struct BackgroundToolRunner<
         return Answer(
             result: Self.modelResult(of: settled, completionToken: token, tool: run.context.tool),
             settledTerminal: terminal)
+    }
+
+    /// The answer of a call whose run the run plane refused, because a
+    /// different run has the same completion token. The call posted nothing
+    /// under that token, thus the other run keeps its events. It writes one
+    /// error log line, and fails with ``DuplicateRunTokenError``.
+    ///
+    /// - Parameters:
+    ///   - completionToken: The completion token that the run plane refused.
+    ///   - tool: The name of the tool of the call.
+    /// - Returns: The failure, with no terminal event.
+    private static func refusedAnswer(completionToken: String, tool: String) -> Answer {
+        let error = DuplicateRunTokenError(completionToken: completionToken, tool: tool)
+        ExtrasTelemetry.makeLogger().error("\(error.description)")
+        return Answer(result: .failure(error), settledTerminal: nil)
     }
 
     /// The text that the model reads for the run `completionToken` of `tool`
@@ -223,5 +255,21 @@ struct BackgroundToolRunner<
             return supplied
         }
         return { await run.stop(using: supplied) }
+    }
+}
+
+/// The error of a background call whose run did not start, because the run
+/// plane already has a run with the same completion token. The run plane
+/// makes each token new, thus this error shows a defect.
+struct DuplicateRunTokenError: Error, CustomStringConvertible {
+    /// The completion token that the run plane refused.
+    let completionToken: String
+
+    /// The name of the tool of the call.
+    let tool: String
+
+    /// The text that the model and the log read.
+    var description: String {
+        "The run of \(tool) did not start, because a different run already has the completion token \(completionToken)."
     }
 }

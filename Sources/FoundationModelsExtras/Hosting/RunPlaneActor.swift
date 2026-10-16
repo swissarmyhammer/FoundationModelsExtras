@@ -210,15 +210,42 @@ public actor RunPlane {
     ///     session. The default is ``UserPresence/interactive``. A host that
     ///     runs a session with no user gives ``UserPresence/headless``.
     public init(clock: any RunClock = ContinuousRunClock(), userPresence: UserPresence = .interactive) {
+        self.init(clock: clock, userPresence: userPresence, tokenSource: Self.makeCompletionToken)
+    }
+
+    /// Makes an empty run plane whose runs get their completion tokens from
+    /// `tokenSource`.
+    ///
+    /// - Parameters:
+    ///   - clock: The clock of the timers of the runs.
+    ///   - userPresence: Tells if a user can answer the questions of the
+    ///     session.
+    ///   - tokenSource: Gives the completion token of each new run of a tool
+    ///     call. A test gives a source that repeats a token, so that two
+    ///     calls ask for the same token.
+    init(clock: any RunClock, userPresence: UserPresence, tokenSource: @escaping @Sendable () -> String) {
         self.clock = clock
         self.userPresence = userPresence
+        self.tokenSource = tokenSource
     }
+
+    /// Gives the completion token of each new run of a tool call. The public
+    /// init gives ``makeCompletionToken()``, thus each token is a new ULID.
+    private nonisolated let tokenSource: @Sendable () -> String
 
     /// A new completion token: a ULID string.
     ///
     /// - Returns: The token.
     public static func makeCompletionToken() -> String {
         ULID().ulidString
+    }
+
+    /// The completion token of a new run of a tool call on this run plane,
+    /// from its token source.
+    ///
+    /// - Returns: The token.
+    nonisolated func makeRunToken() -> String {
+        tokenSource()
     }
 
     // MARK: - Background runs
