@@ -85,6 +85,13 @@ comments:
     - review: clean — 0 findings
     - push: follows this comment
   timestamp: 2026-10-16T01:31:01.544498+00:00
+- actor: claude-code
+  id: 01m51bhfxvdm5z5vxvp3cqyzy8
+  text: |-
+    ### push — green
+    - evidence: pushed 6cfd13c; CI run 38835560550 success (Build & test, Integration); head reported to the peer
+    - next: none
+  timestamp: 2026-10-16T03:19:26.395921+00:00
 position_column: done
 position_ordinal: ff9880
 title: A cancel of one background run gives its waiting call a tool result, not a thrown CancellationError
@@ -96,7 +103,7 @@ A background call waits up to its settle period for its run. When something canc
 - [x] `ToolCallResult` throws a `CancellationError` again only when the task of the call is cancelled. Each other `CancellationError` becomes the text of a failure.
 - [x] Doc comments state the rule.
 - [x] Fixed-order tests for both cases. They fail on the old code. No clock, sleep, poll, retry or time limit.
-- [ ] One full test run. The change is additive. Push when green, and report the head.
+- [x] One full test run. The change is additive. Push when green, and report the head.
 
 #defect
 
