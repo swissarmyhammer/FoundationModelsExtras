@@ -438,8 +438,10 @@ closes each file descriptor and is safe to call from inside `onChange`, and
 `deinit` calls it.
 
 This example is mirrored in `readmeStackWatcherExample` in
-`Tests/FoundationModelsExtrasTests/DotfolderWatcherTests.swift`, kept green by
-`swift test --filter DotfolderWatcherTests`. The test binds
+`IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/DotfolderWatcherIntegrationTests.swift`,
+kept green by `swift test --package-path IntegrationTests --filter DotfolderWatcherIntegrationTests`.
+The test waits for a real file system event, thus it is in the integration
+package. The test binds
 `workingDirectory` and `userDirectory` to one temporary folder, thus it
 touches no home directory.
 

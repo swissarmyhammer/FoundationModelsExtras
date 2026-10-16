@@ -53,8 +53,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
     defaultDebounceMilliseconds)
 
   /// Marks `queue`, thus `runOnQueue(_:)` can find a reentrant call from
-  /// inside an event handler of one of the `DispatchSource` values of this
-  /// watcher.
+  /// inside an event handler of one of the watch sources of this watcher.
   private static let queueSpecificKey = DispatchSpecificKey<Bool>()
 
   /// The event mask that each directory-level `DispatchSource` observes,
@@ -101,9 +100,74 @@ public final class DotfolderWatcher: @unchecked Sendable {
     queue.asyncAfter(deadline: .now() + interval, execute: fire)
   }
 
+  /// The two handlers of one watch source. A source calls each handler on
+  /// the queue of the watcher: `onEvent` for each event that it gives, and
+  /// `onCancel` one time, after a cancel, when it released its descriptor.
+  struct WatchSourceHandlers: Sendable {
+    /// Called for each event of the source.
+    let onEvent: @Sendable () -> Void
+
+    /// Called one time, after a cancel, when the source released its
+    /// descriptor.
+    let onCancel: @Sendable () -> Void
+  }
+
+  /// One open watch source, as the watcher keeps it.
+  ///
+  /// `cancel` stops the events of the source at once. The source then calls
+  /// its cancel handler on the queue of the watcher, later.
+  struct WatchSource {
+    /// Stops the source.
+    let cancel: () -> Void
+  }
+
+  /// Opens one watch source for `path` that observes `eventMask` and calls
+  /// `handlers` on `queue`. It gives `nil` when it cannot open `path`.
+  ///
+  /// This is the seam that lets a test give the file system events by
+  /// hand. The events of the OS come when the OS gives them, and no event
+  /// shows that an event will not come, thus a test that waits for them
+  /// needs a deadline. A test that fires the events itself on `queue` knows
+  /// that each event was handled when the call that fired it returns.
+  typealias OpenWatchSource = @Sendable (
+    _ path: String, _ eventMask: DispatchSource.FileSystemEvent, _ queue: DispatchQueue,
+    _ handlers: WatchSourceHandlers
+  ) -> WatchSource?
+
+  /// The watch source of the package: a
+  /// `DispatchSource.makeFileSystemObjectSource` over the descriptor that
+  /// `open(_:_:)` gives with `O_EVTONLY`. Its cancel handler closes that
+  /// descriptor, then calls `onCancel`.
+  ///
+  /// Internal, and not private, for `@testable` access: a test of the
+  /// descriptor count gives it to the watcher with a count observer.
+  static let openDispatchSource: OpenWatchSource = { path, eventMask, queue, handlers in
+    let descriptor = open(path, O_EVTONLY)
+    guard descriptor >= 0 else { return nil }
+    let source = DispatchSource.makeFileSystemObjectSource(
+      fileDescriptor: descriptor, eventMask: eventMask, queue: queue)
+    source.setEventHandler(handler: handlers.onEvent)
+    source.setCancelHandler {
+      close(descriptor)
+      handlers.onCancel()
+    }
+    source.resume()
+    return WatchSource(cancel: source.cancel)
+  }
+
   private let roots: [URL]
   private let debounceInterval: DispatchTimeInterval
   private let startDebounceTimer: DebounceTimer
+  private let openWatchSource: OpenWatchSource
+
+  /// Called on `queue` with the new value of `openDescriptorCount` after
+  /// each change of that value, or `nil`. It is `nil` in production.
+  ///
+  /// A test gives it through the internal initializer. A cancel handler
+  /// closes its descriptor later, on `queue`, and this call is the event
+  /// that shows that it did, thus the test waits for that event and not on
+  /// a clock.
+  private let descriptorCountDidChange: (@Sendable (Int) -> Void)?
   private let onChange: @Sendable () -> Void
   private let queue: DispatchQueue
 
@@ -111,7 +175,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
   /// absolute path.
   ///
   /// Read and changed only while the code runs on `queue`.
-  private var watchedSources: [String: DispatchSourceFileSystemObject] = [:]
+  private var watchedSources: [String: WatchSource] = [:]
 
   /// For each armed ancestor (keyed by absolute path), the absolute paths
   /// of the entries directly under it whose creation would bring a missing
@@ -161,7 +225,8 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ) {
     self.init(
       roots: roots, debounceInterval: debounceInterval,
-      startDebounceTimer: Self.startDispatchTimer, onChange: onChange)
+      startDebounceTimer: Self.startDispatchTimer, openWatchSource: Self.openDispatchSource,
+      descriptorCountDidChange: nil, onChange: onChange)
   }
 
   /// Creates a watcher over the layer roots of `stack`, which does not
@@ -189,36 +254,42 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ) {
     self.init(
       stack: stack, debounceInterval: debounceInterval,
-      startDebounceTimer: Self.startDispatchTimer, onChange: onChange)
+      startDebounceTimer: Self.startDispatchTimer, openWatchSource: Self.openDispatchSource,
+      onChange: onChange)
   }
 
   /// Creates a watcher over the layer roots of `stack` with a given
-  /// debounce timer, which does not watch yet.
+  /// debounce timer and a given source factory, which does not watch yet.
   ///
   /// Internal, for `@testable` access only: a test gives a timer that the
   /// test ends by hand, thus the speed of the host cannot divide one burst
-  /// into two callbacks.
+  /// into two callbacks, and sources whose events the test gives by hand.
   ///
   /// - Parameters:
   ///   - stack: The stack whose layer roots the watcher watches.
   ///   - debounceInterval: The interval that `startDebounceTimer` receives.
   ///   - startDebounceTimer: Starts one debounce timer. See
   ///     `DebounceTimer` for the contract.
+  ///   - openWatchSource: Opens one watch source. See `OpenWatchSource` for
+  ///     the contract.
   ///   - onChange: Called one time for each quiet period at the most, as it
   ///     is for the public initializer.
   convenience init(
     stack: some DotfolderStacking,
     debounceInterval: DispatchTimeInterval,
     startDebounceTimer: @escaping DebounceTimer,
+    openWatchSource: @escaping OpenWatchSource,
     onChange: @escaping @Sendable () -> Void
   ) {
     self.init(
       roots: stack.layers.map(\.root), debounceInterval: debounceInterval,
-      startDebounceTimer: startDebounceTimer, onChange: onChange)
+      startDebounceTimer: startDebounceTimer, openWatchSource: openWatchSource,
+      descriptorCountDidChange: nil, onChange: onChange)
   }
 
-  /// Creates a watcher over `roots` with a given debounce timer, which does
-  /// not watch yet.
+  /// Creates a watcher over `roots` with a given debounce timer, a given
+  /// source factory and a given descriptor count observer, which does not
+  /// watch yet.
   ///
   /// Internal, for `@testable` access only, for the reason that the
   /// initializer above states.
@@ -229,17 +300,25 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ///   - debounceInterval: The interval that `startDebounceTimer` receives.
   ///   - startDebounceTimer: Starts one debounce timer. See
   ///     `DebounceTimer` for the contract.
+  ///   - openWatchSource: Opens one watch source. See `OpenWatchSource` for
+  ///     the contract.
+  ///   - descriptorCountDidChange: Called on the queue of the watcher with
+  ///     the count of open descriptors after each change, or `nil`.
   ///   - onChange: Called one time for each quiet period at the most, as it
   ///     is for the public initializer.
   init(
     roots: [URL],
     debounceInterval: DispatchTimeInterval,
     startDebounceTimer: @escaping DebounceTimer,
+    openWatchSource: @escaping OpenWatchSource,
+    descriptorCountDidChange: (@Sendable (Int) -> Void)?,
     onChange: @escaping @Sendable () -> Void
   ) {
     self.roots = roots
     self.debounceInterval = debounceInterval
     self.startDebounceTimer = startDebounceTimer
+    self.openWatchSource = openWatchSource
+    self.descriptorCountDidChange = descriptorCountDidChange
     self.onChange = onChange
     queue = DispatchQueue(label: "FoundationModelsExtras.DotfolderWatcher")
     queue.setSpecific(key: Self.queueSpecificKey, value: true)
@@ -305,7 +384,8 @@ public final class DotfolderWatcher: @unchecked Sendable {
   /// the watcher watches, this value settles to
   /// `watchedSourceCountForTesting`; after `stop()` it settles to zero. It
   /// settles and does not agree immediately, because a cancel handler runs
-  /// on `queue` after `cancel()`.
+  /// on `queue` after `cancel()`. The descriptor count observer of the
+  /// internal initializer reports each change.
   var openDescriptorCountForTesting: Int {
     queue.sync { openDescriptorCount }
   }
@@ -314,7 +394,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
 
   /// Runs `work` with exclusive access to the state of this watcher that
   /// changes: directly when the code runs on `queue` already (a nested call
-  /// from inside the event handler of a `DispatchSource`), and through
+  /// from inside the event handler of a watch source), and through
   /// `queue.sync` in each other case.
   ///
   /// This prevents the deadlock that a plain `queue.sync` would risk if
@@ -397,7 +477,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
     }
   }
 
-  /// Opens a `DispatchSource` for `directory` and for each entry under it
+  /// Opens a watch source for `directory` and for each entry under it
   /// now, recursively, and adds each one to `watchedSources`.
   ///
   /// Always called on `queue`.
@@ -415,7 +495,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
     }
   }
 
-  /// Opens one `DispatchSource` for an entry of the watched tree at `url`,
+  /// Opens one watch source for an entry of the watched tree at `url`,
   /// which observes `eventMask`; each event starts the debounce timer
   /// again.
   ///
@@ -430,12 +510,12 @@ public final class DotfolderWatcher: @unchecked Sendable {
     }
   }
 
-  /// Opens one `DispatchSource` for `url`, which observes `eventMask`, and
-  /// stores it in `watchedSources` under `url.path`. It cancels a source
-  /// that is stored there already first, thus the earlier descriptor is
-  /// closed and not leaked. That replacement occurs when the ancestor of a
-  /// missing root is armed and the watched tree of a later root then
-  /// reaches the same directory.
+  /// Opens one watch source for `url` with `openWatchSource`, which
+  /// observes `eventMask`, and stores it in `watchedSources` under
+  /// `url.path`. It cancels a source that is stored there already first,
+  /// thus the earlier descriptor is closed and not leaked. That replacement
+  /// occurs when the ancestor of a missing root is armed and the watched
+  /// tree of a later root then reaches the same directory.
   ///
   /// A path that the watcher cannot open (a broken symbolic link, or a
   /// permission error, for example) is simply skipped, and is not an error.
@@ -446,22 +526,27 @@ public final class DotfolderWatcher: @unchecked Sendable {
   ///   - eventMask: The events to observe on `url`.
   ///   - onEvent: Called on `queue` for each event that the source gives.
   private func installSource(
-    at url: URL, eventMask: DispatchSource.FileSystemEvent, onEvent: @escaping () -> Void
+    at url: URL, eventMask: DispatchSource.FileSystemEvent, onEvent: @escaping @Sendable () -> Void
   ) {
-    let descriptor = open(url.path, O_EVTONLY)
-    guard descriptor >= 0 else { return }
-    openDescriptorCount += 1
-
-    let source = DispatchSource.makeFileSystemObjectSource(
-      fileDescriptor: descriptor, eventMask: eventMask, queue: queue)
-    source.setEventHandler(handler: onEvent)
-    source.setCancelHandler { [weak self] in
-      close(descriptor)
-      self?.openDescriptorCount -= 1
-    }
+    let handlers = WatchSourceHandlers(
+      onEvent: onEvent,
+      onCancel: { [weak self] in self?.changeOpenDescriptorCount(by: -1) })
+    guard let source = openWatchSource(url.path, eventMask, queue, handlers) else { return }
+    changeOpenDescriptorCount(by: 1)
     watchedSources[url.path]?.cancel()
     watchedSources[url.path] = source
-    source.resume()
+  }
+
+  /// Adds `change` to `openDescriptorCount`, and reports the new value to
+  /// `descriptorCountDidChange`.
+  ///
+  /// Always called on `queue`.
+  ///
+  /// - Parameter change: `1` for a descriptor that a source opened, `-1`
+  ///   for a descriptor that a cancel handler closed.
+  private func changeOpenDescriptorCount(by change: Int) {
+    openDescriptorCount += change
+    descriptorCountDidChange?(openDescriptorCount)
   }
 
   /// Cancels and discards each source that is open now, and forgets each
@@ -502,8 +587,7 @@ public final class DotfolderWatcher: @unchecked Sendable {
   /// Starts the shared debounce timer again: it starts a new timer, and the
   /// new timer number makes each earlier timer stale.
   ///
-  /// Always called on `queue`, from the event handler of a
-  /// `DispatchSource`.
+  /// Always called on `queue`, from the event handler of a watch source.
   private func fileSystemEventDidOccur() {
     guard isWatching else { return }
     newestTimerNumber += 1
