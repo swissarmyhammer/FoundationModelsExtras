@@ -177,6 +177,20 @@ enum MountFixtures {
         }
     }
 
+    /// A sink that cancels the task of the call when the runner takes back
+    /// the staged events of a run. The runner does that after the wait for
+    /// the run settled and before it makes its answer, thus the cancel comes
+    /// at a known point of the call.
+    actor CallCancellingSink: OperationEventSink, StagedEventWithdrawing {
+        /// Drops `event`.
+        func post(event _: OperationEvent) {}
+
+        /// Cancels the task of the call that takes back the staged events.
+        func withdrawStagedEvents(correlationID _: String) {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+    }
+
     // MARK: - Host context
 
     /// The tool of each context that ``hostContext(on:sink:completionToken:)``
@@ -609,6 +623,21 @@ enum MountFixtures {
         func call(arguments: MountArguments) async throws -> String {
             await gate.waitUntilOpen()
             throw FixtureError()
+        }
+    }
+
+    /// Cancels its own run on the run plane through its context, then ends
+    /// at that cancel with `CancellationError`. The cancel stops only the
+    /// run: the task of the call that waits for the run is not cancelled.
+    struct SelfCancellingTool: Tool {
+        let name = "self_cancelling_tool"
+        let description = "cancels its own run, then ends at the cancel"
+
+        func call(arguments: MountArguments) async throws -> String {
+            let context = try #require(ToolContext.current)
+            _ = await context.cancel(completionToken: context.completionToken)
+            try Task.checkCancellation()
+            return "not cancelled: \(arguments.value)"
         }
     }
 

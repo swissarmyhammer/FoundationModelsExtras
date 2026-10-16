@@ -301,6 +301,42 @@ struct BackgroundToolRunnerTests {
         #expect(await sink.staged.isEmpty)
     }
 
+    /// `tool` under the decorator that gives a failure to the model, as a
+    /// session sees it.
+    private static func modelFacing(
+        _ tool: BackgroundToolRunner<MountArguments>
+    ) throws -> FailureDeliveringTextTool<MountArguments> {
+        try #require(ToolFailureDelivery.makeWrapped(tool: tool) as? FailureDeliveringTextTool<MountArguments>)
+    }
+
+    @Test("a run that a cancel of only that run ends inside the grace gives the model a tool result that tells so, and its terminal outcome is cancelled")
+    func runCancelledInsideTheGraceGivesAToolResult() async throws {
+        let wrapped = Fixtures.SelfCancellingTool()
+        let harness = Fixtures.backgroundHarness(wrapping: wrapped, inlineSettleGrace: Fixtures.generousInterval)
+        let tool = try Self.modelFacing(harness.mounted)
+
+        let output = try await tool.call(arguments: MountArguments(value: "x"))
+
+        let token = try #require(await harness.runPlane.settledRunTokens().first)
+        #expect(output == "The run \(token) of \(wrapped.name) was cancelled before it ended, so it gives no result.")
+        let terminal = try await Fixtures.settledTerminal(of: token, in: harness.runPlane)
+        #expect(terminal.outcome == .cancelled)
+    }
+
+    @Test("a call whose own task is cancelled, for a run that a cancel ended inside the grace, still throws CancellationError")
+    func cancelledCallOfACancelledRunThrowsTheCancellation() async throws {
+        let site = Fixtures.site(
+            runPlane: RunPlane(), sink: Fixtures.CallCancellingSink(), inlineSettleGrace: Fixtures.generousInterval)
+        let runner = BackgroundToolRunner(wrapping: Fixtures.SelfCancellingTool(), site: site, timeout: nil)
+        let tool = try Self.modelFacing(runner)
+
+        let calling = Task { try await tool.call(arguments: MountArguments(value: "x")) }
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await calling.value
+        }
+    }
+
     // MARK: - A run that continues past the grace
 
     @Test("a run that continues past the configured grace answers with the pending envelope, and later settles with exactly one terminal event")

@@ -837,7 +837,10 @@ questions that those runs ask the user.
 - `SubmissionBoundaryTool` gets a call before each submission of the session.
   `ToolDecorator` passes that call down to the tool beneath a decorator.
 - `ToolFailureDelivery.makeWrapped(tool:)` gives a failed call to the model as
-  text. Only a cancellation throws.
+  text. Only a cancel of the task of the call throws: a call stops only for
+  its own cancel, so a run that `cancel(completionToken:)` ends inside the
+  settle period answers with a text that tells the model that the run was
+  cancelled.
 - The host gives the answers of the user with `respond(elicitationId:_:)` and
   `complete(elicitationId:)`. At the end of the session, `sweep()` stops each
   run that is still open.

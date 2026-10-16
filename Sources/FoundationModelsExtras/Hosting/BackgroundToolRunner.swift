@@ -7,9 +7,11 @@ import FoundationModels
 /// A background call posts one progress event, starts the run on the run
 /// plane, and waits for the run up to its settle period. A run that ends in
 /// that time answers with its own result, the same as a synchronous call: the
-/// output of the tool, or the error that the tool threw. A run that continues
-/// answers with a ``PendingRunEnvelope``, and settles later with one terminal
-/// event: at its end, at a cancel, or at the timeout.
+/// output of the tool, or the error that the tool threw. A cancel of only that
+/// run is not a cancel of the call: the call answers with a text that tells
+/// the model that the run was cancelled. A run that continues answers with a
+/// ``PendingRunEnvelope``, and settles later with one terminal event: at its
+/// end, at a cancel, or at the timeout.
 struct BackgroundToolRunner<
     Arguments: ConvertibleFromGeneratedContent & Sendable
 >: MountRunner, SubmissionBoundaryTool, ToolDecorator {
@@ -51,9 +53,18 @@ struct BackgroundToolRunner<
     /// `tool.settled_inline`. A timeout is not an error: it gives the span no
     /// error status, and the call throws it after the span ends.
     ///
+    /// A call stops only for its own cancel. A run that a cancel of only that
+    /// run (``RunPlane/cancel(completionToken:)``) ends inside the settle
+    /// period answers with ``cancelledRunText(completionToken:tool:)``, and
+    /// the model reads it. The span still records the outcome `cancelled`.
+    /// When the task of this call is cancelled, the call throws the
+    /// `CancellationError` of the run.
+    ///
     /// - Parameter arguments: The arguments of the call.
-    /// - Returns: The output of the tool, or the rendered envelope.
-    /// - Throws: The error of a run that ended inside the settle period.
+    /// - Returns: The output of the tool, the text of a run that a cancel of
+    ///   only that run ended, or the rendered envelope.
+    /// - Throws: The error of a run that ended inside the settle period. A
+    ///   `CancellationError` only when the task of this call is cancelled.
     func callInBackground(arguments: Arguments) async throws -> String {
         let result = try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .background
@@ -68,8 +79,9 @@ struct BackgroundToolRunner<
     /// The answer of one background call to the model, and how its run
     /// stood at the end of the settle period.
     private struct Answer {
-        /// The output of the tool or the rendered pending envelope, or the
-        /// error of a run that ended inside the settle period.
+        /// The output of the tool, the text of a run that a cancel of only
+        /// that run ended, or the rendered pending envelope, or the error of
+        /// a run that ended inside the settle period.
         let result: Result<String, any Error>
 
         /// The terminal event of a run that settled inside the settle
@@ -114,7 +126,8 @@ struct BackgroundToolRunner<
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool, the error of a run that ended
-    ///   inside the settle period, or the rendered pending envelope, with the
+    ///   inside the settle period, the text of a run that a cancel of only
+    ///   that run ended there, or the rendered pending envelope, with the
     ///   terminal event of a run that settled.
     private func start(arguments: Arguments) async -> Answer {
         let grace = grace
@@ -154,7 +167,43 @@ struct BackgroundToolRunner<
         // plane settled while the body still runs (a sweep, or a stop of a
         // process) has none, and the call must not wait for a body that can
         // ignore the cancel. That call answers from the terminal event.
-        return Answer(result: result.fulfilledValue ?? .success(terminal.detail), settledTerminal: terminal)
+        let settled = result.fulfilledValue ?? .success(terminal.detail)
+        return Answer(
+            result: Self.modelResult(of: settled, completionToken: token, tool: run.context.tool),
+            settledTerminal: terminal)
+    }
+
+    /// The text that the model reads for the run `completionToken` of `tool`
+    /// when a cancel of only that run ended it inside the settle period.
+    ///
+    /// - Parameters:
+    ///   - completionToken: The completion token of the run.
+    ///   - tool: The name of the tool of the run.
+    /// - Returns: The text.
+    static func cancelledRunText(completionToken: String, tool: String) -> String {
+        "The run \(completionToken) of \(tool) was cancelled before it ended, so it gives no result."
+    }
+
+    /// The result that the model reads for a run that settled inside the
+    /// settle period.
+    ///
+    /// A run that ended with `CancellationError` while the task of this call
+    /// is not cancelled was cancelled alone. Its result is
+    /// ``cancelledRunText(completionToken:tool:)``, so the answer of the
+    /// model goes on. Each other result stays as it is.
+    ///
+    /// - Parameters:
+    ///   - settled: The result of the run.
+    ///   - completionToken: The completion token of the run.
+    ///   - tool: The name of the tool of the run.
+    /// - Returns: The result for the model.
+    private static func modelResult(
+        of settled: Result<String, any Error>, completionToken: String, tool: String
+    ) -> Result<String, any Error> {
+        guard case .failure(let error) = settled, error is CancellationError, !Task.isCancelled else {
+            return settled
+        }
+        return .success(cancelledRunText(completionToken: completionToken, tool: tool))
     }
 
     /// `duration` in seconds.

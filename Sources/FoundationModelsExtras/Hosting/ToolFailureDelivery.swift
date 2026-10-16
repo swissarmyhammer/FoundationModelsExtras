@@ -5,8 +5,10 @@ import FoundationModels
 /// `LanguageModelSession` runs the tool calls of one round together. When one
 /// call throws, the session cancels the other calls and ends the submission,
 /// so the model never reads the failure. Thus a failure must not leave
-/// `Tool.call` as a throw on the tool list that the model sees. A
-/// cancellation still throws, or cancellation stops working.
+/// `Tool.call` as a throw on the tool list that the model sees. A cancel of
+/// the task of the call still throws, or cancellation stops working. A call
+/// stops only for its own cancel: a `CancellationError` from a cancel of
+/// other work, such as one background run, is a failure that the model reads.
 ///
 /// Only the tool list of the model gets this decorator, as the outermost
 /// layer. A caller that is not the model uses ``throwingTool(of:)`` to keep
@@ -63,7 +65,8 @@ struct FailureDeliveringTextTool<
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of `wrapped`, or the text of its failure.
-    /// - Throws: A `CancellationError`, unchanged.
+    /// - Throws: A `CancellationError`, unchanged, only when the task of this
+    ///   call is cancelled.
     func call(arguments: Arguments) async throws -> String {
         let text = try await ToolCallResult { try await wrapped.call(arguments: arguments) }.text
         await ToolResultAppendBoundary.current?.deliver(
@@ -90,7 +93,8 @@ struct FailureDeliveringResultTool<
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of `wrapped`, or the text of its failure.
-    /// - Throws: A `CancellationError`, unchanged.
+    /// - Throws: A `CancellationError`, unchanged, only when the task of this
+    ///   call is cancelled.
     func call(arguments: Arguments) async throws -> ToolCallResult<WrappedOutput> {
         let result = try await ToolCallResult { try await wrapped.call(arguments: arguments) }
         await ToolResultAppendBoundary.current?.deliver(
@@ -114,13 +118,18 @@ enum ToolCallResult<Output: PromptRepresentable>: PromptRepresentable {
 
     /// Runs one call, and keeps its output or the text of its failure.
     ///
+    /// A call stops only for its own cancel. A `CancellationError` from a
+    /// cancel of other work, such as a cancel of one background run, does
+    /// not cancel the task of the call, so the model reads it as a failure.
+    ///
     /// - Parameter call: The call.
-    /// - Throws: A `CancellationError` from `call`, unchanged. Each other
-    ///   error becomes ``failure(_:)``.
+    /// - Throws: A `CancellationError` from `call`, unchanged, only when the
+    ///   task of the call is cancelled. Each other error becomes
+    ///   ``failure(_:)``.
     init(catching call: () async throws -> Output) async throws {
         do {
             self = .output(try await call())
-        } catch let cancellation as CancellationError {
+        } catch let cancellation as CancellationError where Task.isCancelled {
             throw cancellation
         } catch {
             self = .failure(String(describing: error))

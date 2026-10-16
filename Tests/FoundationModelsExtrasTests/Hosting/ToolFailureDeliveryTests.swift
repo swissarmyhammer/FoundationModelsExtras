@@ -4,8 +4,8 @@ import Testing
 import ULID
 
 /// Exercises ``ToolFailureDelivery``: a failed call is a tool result that the
-/// model reads, and only a cancellation throws.
-@Suite("ToolFailureDelivery: a failure is the call's output, a cancellation throws")
+/// model reads, and only a cancellation of the task of the call throws.
+@Suite("ToolFailureDelivery: a failure is the call's output, a cancellation of the call throws")
 struct ToolFailureDeliveryTests {
     /// The step that each call of this suite names.
     private static let step = "ONE"
@@ -135,11 +135,32 @@ struct ToolFailureDeliveryTests {
         #expect(result.wrappedOutput == nil)
     }
 
-    @Test("a body that throws a CancellationError throws it again")
-    func cancellationIsThrownAgain() async throws {
-        await #expect(throws: CancellationError.self) {
-            _ = try await ToolCallResult<String> { throw CancellationError() }
+    /// The result of `body`, run in a new task that is cancelled before
+    /// `body` starts.
+    private static func resultInCancelledTask(
+        _ body: @escaping @Sendable () async throws -> String
+    ) async -> Result<String, any Error> {
+        await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await body()
+        }.result
+    }
+
+    @Test("a body that throws a CancellationError while the task of the call is cancelled throws it again")
+    func cancellationOfTheCallIsThrownAgain() async throws {
+        let result = await Self.resultInCancelledTask {
+            try await ToolCallResult<String> { throw CancellationError() }.text
         }
+
+        #expect(throws: CancellationError.self) { try result.get() }
+    }
+
+    @Test("a body that throws a CancellationError while the task of the call is not cancelled gives the failure text")
+    func cancellationOfAnotherTaskBecomesTheFailureText() async throws {
+        let result = try await ToolCallResult<String> { throw CancellationError() }
+
+        #expect(result.failureText == String(describing: CancellationError()))
+        #expect(result.wrappedOutput == nil)
     }
 
     // MARK: - A String-output tool
@@ -154,14 +175,14 @@ struct ToolFailureDeliveryTests {
         #expect(output == Self.failureText)
     }
 
-    @Test("a String-output tool that ends as cancelled still throws the cancellation")
+    @Test("a String-output tool that ends as cancelled in a cancelled task still throws the cancellation")
     func stringOutputToolCancellationThrows() async throws {
         let wrapped = ToolFailureDelivery.makeWrapped(tool: CancellingTool())
         let tool = try #require(wrapped as? FailureDeliveringTextTool<StepArguments>)
 
-        await #expect(throws: CancellationError.self) {
-            _ = try await tool.call(arguments: Self.arguments)
-        }
+        let result = await Self.resultInCancelledTask { try await tool.call(arguments: Self.arguments) }
+
+        #expect(throws: CancellationError.self) { try result.get() }
     }
 
     @Test("a String-output tool's output passes through unchanged")
