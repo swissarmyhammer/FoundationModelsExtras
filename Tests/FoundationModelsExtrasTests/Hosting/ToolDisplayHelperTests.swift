@@ -10,7 +10,7 @@ import Testing
 /// the run. A background run sends them also after its settle period. A run
 /// that answers in its settle period keeps them: the runner does not withdraw
 /// a display event. Each display event starts the timeout of the run again.
-@Suite("ToolContext.emit(chunk:) and update(title:kind:locations:): the display helpers of a tool", .timeLimit(.minutes(1)))
+@Suite("ToolContext.emit(chunk:) and update(title:kind:locations:): the display helpers of a tool")
 struct ToolDisplayHelperTests {
     private typealias Fixtures = MountFixtures
 
@@ -27,11 +27,9 @@ struct ToolDisplayHelperTests {
     /// The number of beats of ``DisplayBeatTool``.
     private static let beatCount = 8
 
-    /// The pause between two beats, well inside ``beatTimeout``.
-    private static let beatInterval: TimeInterval = 0.1
-
-    /// The timeout that the beats start again. The full run is longer.
-    private static let beatTimeout: TimeInterval = 0.5
+    /// The timeout, in seconds of the manual clock, that the beats start
+    /// again. The full run is longer.
+    private static let beatTimeout: TimeInterval = 10
 
     /// The display events that a fixture tool sends for ``callValue``, in
     /// order, under `token`.
@@ -97,18 +95,22 @@ struct ToolDisplayHelperTests {
         case metadata
     }
 
-    /// Sends one display event on each beat, and no progress, then returns.
+    /// Sends one display event when each of its gates opens, in order, and no
+    /// progress, then returns.
     private struct DisplayBeatTool: Tool {
         /// The output of the tool when each beat was sent.
         static let output = "display beats done"
 
         let name = "display_beat_tool"
-        let description = "sends one display event on each beat, then returns"
+        let description = "sends one display event for each gate that opens, then returns"
         let beat: DisplayBeat
 
+        /// The gate of each beat, in order.
+        let gates: [RunLatch]
+
         func call(arguments: MountArguments) async throws -> String {
-            for index in 0..<ToolDisplayHelperTests.beatCount {
-                try await Task.sleep(for: .seconds(ToolDisplayHelperTests.beatInterval))
+            for (index, gate) in gates.enumerated() {
+                await gate.waitUntilOpen()
                 await send(beatNumber: index)
             }
             return Self.output
@@ -214,12 +216,28 @@ struct ToolDisplayHelperTests {
     @Test("a display event starts the timeout again: a tool that sends display events faster than the timeout runs past it",
           arguments: DisplayBeat.allCases)
     func displayEventResetsTheTimeout(beat: DisplayBeat) async throws {
-        let harness = Fixtures.runToCompletionHarness(
-            wrapping: DisplayBeatTool(beat: beat), timeout: Self.beatTimeout)
+        let gates = (0..<Self.beatCount).map { _ in RunLatch() }
+        let clock = ManualRunClock()
+        let sink = Fixtures.RecordingSink()
+        let mounted = RunToCompletionRunner(
+            wrapping: DisplayBeatTool(beat: beat, gates: gates),
+            site: Fixtures.site(runPlane: RunPlane(clock: clock), sink: sink),
+            timeout: Self.beatTimeout)
+        let calling = Task { try await mounted.call(arguments: MountArguments(value: Self.callValue)) }
 
-        let output = try await harness.mounted.call(arguments: MountArguments(value: Self.callValue))
+        // Each beat comes in the middle of a window, and each window ends
+        // after the beat. The whole run is longer than one timeout.
+        for (index, gate) in gates.enumerated() {
+            await clock.waitForSleepers(atLeast: 1) { _ = await calling.result }
+            clock.advance(by: .seconds(Self.beatTimeout / 2))
+            gate.open()
+            await Waits.untilFirstEnds(
+                { _ = await sink.displayLog.waitUntil { $0.count > index } }, { _ = await calling.result })
+            clock.advance(by: .seconds(Self.beatTimeout / 2))
+        }
 
+        let output = try await calling.value
         #expect(output == DisplayBeatTool.output)
-        #expect(await harness.sink.displays.count == Self.beatCount)
+        #expect(await sink.displays.count == Self.beatCount)
     }
 }

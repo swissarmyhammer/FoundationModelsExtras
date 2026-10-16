@@ -80,9 +80,6 @@ struct RunPlaneActorTests {
     /// A deadline longer than one day.
     private static let longerThanOneDaySeconds: Double = 90_000
 
-    /// The time after which the fake run of the no-deadline test settles.
-    private static let settleAfterSeconds: Double = 2
-
     /// A deadline that elapses before the fake run of the no-deadline test
     /// settles.
     private static let shorterDeadlineSeconds: Double = 1
@@ -110,20 +107,21 @@ struct RunPlaneActorTests {
 
     @Test("wait() with no deadline returns the settlement; a shorter named deadline elapses first")
     func waitWithNoDeadlineReturnsTheSettlement() async throws {
-        let runPlane = RunPlane()
+        let clock = ManualRunClock()
+        let runPlane = RunPlane(clock: clock)
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch)
-        let settleAfter = UInt64(Self.settleAfterSeconds * Self.nanosecondsPerSecond)
-        let opener = Task {
-            try await Task.sleep(nanoseconds: settleAfter)
-            latch.open()
-        }
+        let elapsing = Task { await runPlane.wait(completionToken: token, seconds: Self.shorterDeadlineSeconds) }
+        await Waits.untilFirstEnds({ await clock.waitForSleepers(atLeast: 1) }, { _ = await elapsing.value })
 
-        #expect(await runPlane.wait(completionToken: token, seconds: Self.shorterDeadlineSeconds) == .deadlineElapsed)
-        let result = await runPlane.wait(completionToken: token, seconds: nil)
+        clock.advance(by: .seconds(Self.shorterDeadlineSeconds))
+        #expect(await elapsing.value == .deadlineElapsed)
+        let unbounded = Task { await runPlane.wait(completionToken: token, seconds: nil) }
+        latch.open()
+        let result = await unbounded.value
+
         let terminal = try #require(result.settledTerminal, "expected .settled, got \(result)")
         #expect(terminal.correlationID == token)
-        try await opener.value
     }
 
     @Test("a cancelled wait() with no deadline returns .cancelled and leaves the run tracked")
@@ -305,10 +303,6 @@ struct RunPlaneActorTests {
     /// The detail of a swept run that ends after the sweep.
     private static let lateBodyDetail = "finished after the sweep"
 
-    /// The time that a test waits after a late settlement before it reads
-    /// the observer, so that a wrong delivery has time to occur.
-    private static let forwardingGraceNanoseconds: UInt64 = 200_000_000
-
     @Test("the run plane gives the terminal event of a run that settled by itself to the observer one time")
     func startForwardsTheSettledTerminalOnce() async {
         let runPlane = RunPlane()
@@ -319,13 +313,13 @@ struct RunPlaneActorTests {
 
         latch.open()
         let waited = await runPlane.wait(completionToken: token, seconds: 5)
-        #expect(
-            await BoundedWait.conditionReached("the observer receiving the settled terminal") {
-                await observer.settledTerminals.count == 1
-            })
+        // The task of the body gives the terminal event to the observer
+        // before it ends, thus the join returns after the delivery.
+        await runPlane.joinRunBodies()
 
         // The observer gets the same event that wait returned.
         let forwarded = await observer.settledTerminals
+        #expect(forwarded.count == 1)
         #expect(forwarded.first.map(WaitOutcome.settled) == waited)
         #expect(forwarded.first?.correlationID == token)
         #expect(forwarded.first?.detail == "exit 0")
@@ -337,7 +331,6 @@ struct RunPlaneActorTests {
         let observer = RecordingSettlementObserver()
         await runPlane.attach(settlementObserver: observer)
         let latch = RunLatch()
-        let bodyEnded = RunLatch()
         let token = RunPlane.makeCompletionToken()
         // A process run: the canceler only reports, so the body waits on the
         // latch through the sweep and ends only when the test opens it.
@@ -349,7 +342,6 @@ struct RunPlaneActorTests {
             canceler: { .cancelled },
             body: {
                 await latch.waitUntilOpen()
-                bodyEnded.open()
                 return FakeRun.terminalEvent(token: token, outcome: .succeeded, detail: Self.lateBodyDetail)
             }
         )
@@ -359,10 +351,10 @@ struct RunPlaneActorTests {
 
         // The body ends after the sweep. The run plane does not track the run
         // now, so it drops the late terminal event, and the observer gets
-        // nothing.
+        // nothing. The task of the body gives each delivery before it ends,
+        // thus the join returns after the step that would deliver.
         latch.open()
-        await bodyEnded.waitUntilOpen()
-        try await Task.sleep(nanoseconds: Self.forwardingGraceNanoseconds)
+        await runPlane.joinRunBodies()
         #expect(await observer.settledTerminals.isEmpty)
 
         // wait still reports the swept terminal event.
@@ -398,25 +390,41 @@ struct RunPlaneActorTests {
     /// tests.
     private static let askingRunToken = RunPlane.makeCompletionToken()
 
-    /// Waits until `elicitationId` is the only pending elicitation.
-    private static func isPending(_ elicitationId: ULID, on runPlane: RunPlane) async -> Bool {
-        await BoundedWait.conditionReached("the elicitation \(elicitationId) pending") {
-            await runPlane.pendingElicitationIds() == [elicitationId]
-        }
+    /// Asks `request` on `runPlane` for ``askingRunToken``, and expects that
+    /// the question is the only pending elicitation.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - runPlane: The run plane.
+    /// - Returns: The task that waits for the answer.
+    private static func ask(_ request: ElicitationRequest, on runPlane: RunPlane) async -> QuestionTask<ElicitationResponse> {
+        let question = await QuestionTask.ask(request, runToken: askingRunToken, on: runPlane)
+        #expect(await runPlane.pendingElicitationIds() == [request.elicitationId])
+        return question
+    }
+
+    /// A URL question with the id `elicitationId`.
+    ///
+    /// - Parameter elicitationId: The id of the question.
+    /// - Returns: The question.
+    /// - Throws: When the URL does not parse.
+    private static func urlRequest(elicitationId: ULID) throws -> ElicitationRequest {
+        ElicitationRequest(
+            message: "open this",
+            elicitationId: elicitationId,
+            url: try #require(URL(string: "https://example.com/flow"))
+        )
     }
 
     @Test("a form elicitation resumes on respond(), and a second respond does nothing")
     func formElicitationDeliversAnswer() async throws {
         let runPlane = RunPlane()
         let elicitationId = ULID()
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
-        }
-        #expect(await Self.isPending(elicitationId, on: runPlane))
+        let question = await Self.ask(MountFixtures.nameRequest(elicitationId: elicitationId), on: runPlane)
 
         let answer = ElicitationResponse.accept(content: ["name": .string("Ada")])
         #expect(await runPlane.respond(elicitationId: elicitationId, answer) == .delivered)
-        #expect(try await answering.deliveredAnswer() == answer)
+        #expect(try await question.answer(on: runPlane) == answer)
         #expect(await runPlane.pendingElicitationIds().isEmpty)
         #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .noPendingElicitation)
     }
@@ -425,22 +433,14 @@ struct RunPlaneActorTests {
     func urlElicitationStaysOpenPastAccept() async throws {
         let runPlane = RunPlane()
         let elicitationId = ULID()
-        let request = ElicitationRequest(
-            message: "open this",
-            elicitationId: elicitationId,
-            url: try #require(URL(string: "https://example.com/flow"))
-        )
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
-        }
-        #expect(await Self.isPending(elicitationId, on: runPlane))
+        let question = await Self.ask(try Self.urlRequest(elicitationId: elicitationId), on: runPlane)
 
         #expect(await runPlane.respond(elicitationId: elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
         // The accept alone does not resume the run: the entry stays open.
         #expect(await runPlane.pendingElicitationIds() == [elicitationId])
 
         #expect(await runPlane.complete(elicitationId: elicitationId) == .completed)
-        #expect(try await answering.deliveredAnswer() == .accept(content: nil))
+        #expect(try await question.answer(on: runPlane) == .accept(content: nil))
         #expect(await runPlane.pendingElicitationIds().isEmpty)
         #expect(await runPlane.complete(elicitationId: elicitationId) == .noPendingElicitation)
     }
@@ -449,18 +449,10 @@ struct RunPlaneActorTests {
     func urlElicitationDeclineResumesImmediately() async throws {
         let runPlane = RunPlane()
         let elicitationId = ULID()
-        let request = ElicitationRequest(
-            message: "open this",
-            elicitationId: elicitationId,
-            url: try #require(URL(string: "https://example.com/flow"))
-        )
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
-        }
-        #expect(await Self.isPending(elicitationId, on: runPlane))
+        let question = await Self.ask(try Self.urlRequest(elicitationId: elicitationId), on: runPlane)
 
         #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .delivered)
-        #expect(try await answering.deliveredAnswer() == .decline)
+        #expect(try await question.answer(on: runPlane) == .decline)
         #expect(await runPlane.pendingElicitationIds().isEmpty)
     }
 
@@ -472,14 +464,10 @@ struct RunPlaneActorTests {
             ElicitationResponse.cancel(reason: "the user closed the card"),
         ] {
             let elicitationId = ULID()
-            let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-                await runPlane.awaitAnswer(
-                    to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
-            }
-            #expect(await Self.isPending(elicitationId, on: runPlane))
+            let question = await Self.ask(MountFixtures.nameRequest(elicitationId: elicitationId), on: runPlane)
 
             #expect(await runPlane.respond(elicitationId: elicitationId, answer) == .delivered)
-            #expect(try await answering.deliveredAnswer() == answer)
+            #expect(try await question.answer(on: runPlane) == answer)
         }
     }
 
@@ -488,17 +476,14 @@ struct RunPlaneActorTests {
         let runPlane = RunPlane()
         let elicitationId = ULID()
         let request = MountFixtures.nameRequest(elicitationId: elicitationId)
-        let first = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-            await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
-        }
-        #expect(await Self.isPending(elicitationId, on: runPlane))
+        let first = await Self.ask(request, on: runPlane)
 
         let duplicate = await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
 
         #expect(duplicate == .cancel(reason: RunPlane.duplicateElicitationIdReason))
         #expect(await runPlane.pendingElicitationIds() == [elicitationId])
         #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .delivered)
-        #expect(try await first.deliveredAnswer() == .decline)
+        #expect(try await first.answer(on: runPlane) == .decline)
     }
 
     // MARK: - The sweep
@@ -511,10 +496,7 @@ struct RunPlaneActorTests {
         let tokenA = await FakeRun.start(on: runPlane, latch: latch, kind: .process, cancels: cancels)
         let tokenB = await FakeRun.start(on: runPlane, latch: latch, kind: .process, cancels: cancels)
         let elicitationId = ULID()
-        let rejected = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId) that the sweep rejects") {
-            await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
-        }
-        #expect(await Self.isPending(elicitationId, on: runPlane))
+        let rejected = await Self.ask(MountFixtures.nameRequest(elicitationId: elicitationId), on: runPlane)
 
         let terminals = await runPlane.sweep()
 
@@ -523,7 +505,7 @@ struct RunPlaneActorTests {
         #expect(terminals.allSatisfy { $0.kind == .completed && $0.outcome == .cancelled })
         #expect(await runPlane.backgroundRuns().isEmpty)
         #expect(await runPlane.pendingElicitationIds().isEmpty)
-        #expect(try await rejected.deliveredAnswer() == .cancel(reason: RunPlane.runCancelledReason))
+        #expect(try await rejected.answer(on: runPlane) == .cancel(reason: RunPlane.runCancelledReason))
         // A swept token reports its terminal event to wait().
         #expect(await runPlane.wait(completionToken: tokenA, seconds: 5).settledTerminal?.correlationID == tokenA)
         latch.open()
@@ -549,7 +531,7 @@ struct RunPlaneActorTests {
 
     // MARK: - The join of the run bodies
 
-    @Test("joinRunBodies() returns only after the body of a swept run ended", .timeLimit(.minutes(1)))
+    @Test("joinRunBodies() returns only after the body of a swept run ended")
     func joinWaitsForTheBodyOfASweptRun() async {
         let runPlane = RunPlane()
         let steps = Recorder<String>()
@@ -558,7 +540,7 @@ struct RunPlaneActorTests {
             tool: FakeRun.tool, op: FakeRun.op, kind: .swiftTask, completionToken: token, canceler: nil
         ) {
             // The body sees the cancel, and then takes some turns to unwind.
-            try? await Task.sleep(for: .seconds(3600))
+            try? await Waits.untilCancelled()
             for _ in 0..<Self.unwindTurns {
                 await Task.yield()
             }
@@ -573,7 +555,7 @@ struct RunPlaneActorTests {
         #expect(steps.values == ["body ended", "joined"])
     }
 
-    @Test("joinRunBodies() returns at once when no run body runs", .timeLimit(.minutes(1)))
+    @Test("joinRunBodies() returns at once when no run body runs")
     func joinWithNoBodyReturns() async {
         let runPlane = RunPlane()
         let latch = RunLatch()
@@ -744,12 +726,9 @@ extension RunPlaneActorTests {
         let elicitationId = ULID()
 
         try await withMetricsFactory(metrics) { () async throws in
-            let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-                await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
-            }
-            #expect(await Self.isPending(elicitationId, on: runPlane))
+            let question = await Self.ask(MountFixtures.nameRequest(elicitationId: elicitationId), on: runPlane)
             #expect(await runPlane.respond(elicitationId: elicitationId, .decline) == .delivered)
-            #expect(try await answering.deliveredAnswer() == .decline)
+            #expect(try await question.answer(on: runPlane) == .decline)
         }
 
         try QueueMetricExpectations.expectCompletedJobs(
@@ -763,24 +742,17 @@ extension RunPlaneActorTests {
         let metrics = TestMetrics()
         let runPlane = RunPlane()
         let elicitationId = ULID()
-        let request = ElicitationRequest(
-            message: "open this",
-            elicitationId: elicitationId,
-            url: try #require(URL(string: "https://example.com/flow"))
-        )
+        let request = try Self.urlRequest(elicitationId: elicitationId)
 
         try await withMetricsFactory(metrics) { () async throws in
-            let answering = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId)") {
-                await runPlane.awaitAnswer(to: request, runToken: Self.askingRunToken)
-            }
-            #expect(await Self.isPending(elicitationId, on: runPlane))
+            let question = await Self.ask(request, on: runPlane)
             #expect(
                 await runPlane.respond(elicitationId: elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
             #expect(
                 try QueueMetricExpectations.depth(in: metrics, queue: Self.elicitationQueue)
                     == Self.depthWhileOneTaskIsOpen)
             #expect(await runPlane.complete(elicitationId: elicitationId) == .completed)
-            #expect(try await answering.deliveredAnswer() == .accept(content: nil))
+            #expect(try await question.answer(on: runPlane) == .accept(content: nil))
         }
 
         try QueueMetricExpectations.expectCompletedJobs(
@@ -796,12 +768,9 @@ extension RunPlaneActorTests {
         let elicitationId = ULID()
 
         try await withMetricsFactory(metrics) { () async throws in
-            let rejected = AnswerDrivenRun(waitingFor: "the elicitation \(elicitationId) that the sweep rejects") {
-                await runPlane.awaitAnswer(to: MountFixtures.nameRequest(elicitationId: elicitationId), runToken: Self.askingRunToken)
-            }
-            #expect(await Self.isPending(elicitationId, on: runPlane))
+            let rejected = await Self.ask(MountFixtures.nameRequest(elicitationId: elicitationId), on: runPlane)
             _ = await runPlane.sweep()
-            #expect(try await rejected.deliveredAnswer() == .cancel(reason: RunPlane.runCancelledReason))
+            #expect(try await rejected.answer(on: runPlane) == .cancel(reason: RunPlane.runCancelledReason))
         }
 
         try QueueMetricExpectations.expectCompletedJobs(
@@ -837,11 +806,21 @@ extension RunPlaneActorTests {
         try await TelemetryCapture.run(forbidding: []) { context in
             let runPlane = RunPlane()
             let latch = RunLatch()
-            let token = await FakeRun.start(on: runPlane, latch: latch, kind: .process)
+            let started = RunLatch()
+            let token = RunPlane.makeCompletionToken()
+            // The run plane writes the "enter" record and opens the span
+            // before the body starts, thus the record is there when the body
+            // opens `started`.
+            await runPlane.start(
+                tool: FakeRun.tool, op: FakeRun.op, kind: .process, completionToken: token, canceler: { .stopped }
+            ) {
+                started.open()
+                await latch.waitUntilOpen()
+                return FakeRun.terminalEvent(token: token, outcome: .succeeded)
+            }
+            await started.waitUntilOpen()
 
-            #expect(await BoundedWait.conditionReached("the enter record of the run body") {
-                Self.hasRunEnterRecord(in: context)
-            })
+            #expect(Self.hasRunEnterRecord(in: context))
             #expect(context.tracer.activeSpans.map(\.operationName) == [Self.runSpanName])
             #expect(context.spans.isEmpty)
             let record = try #require(context.logRecords.first { "\($0.message)" == Self.runEnterMessage })

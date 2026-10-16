@@ -4,7 +4,7 @@ import FoundationModels
 import Testing
 
 /// ``ManualRunClock``: a clock that moves only when the test advances it.
-@Suite("ManualRunClock: a clock that a test advances", .timeLimit(.minutes(1)))
+@Suite("ManualRunClock: a clock that a test advances")
 struct ManualRunClockTests {
     @Test("an advance ends each wait that it reaches, and keeps each later wait")
     func advanceEndsTheReachedWaits() async throws {
@@ -12,7 +12,11 @@ struct ManualRunClockTests {
         let start = clock.now
         let early = Task { try await clock.sleep(until: start.advanced(by: .seconds(1))) }
         let late = Task { try await clock.sleep(until: start.advanced(by: .seconds(5))) }
-        await clock.waitForSleepers(atLeast: 2)
+        await clock.waitForSleepers(atLeast: 2) {
+            _ = await early.result
+            _ = await late.result
+        }
+        try #require(clock.sleeperCount == 2)
 
         clock.advance(by: .seconds(2))
 
@@ -49,7 +53,7 @@ struct ManualRunClockTests {
     func cancelThrowsAndRemovesTheWait() async {
         let clock = ManualRunClock()
         let sleeping = Task { try await clock.sleep(until: clock.now.advanced(by: .seconds(1))) }
-        await clock.waitForSleepers(atLeast: 1)
+        await clock.waitForSleepers(atLeast: 1) { _ = await sleeping.result }
 
         sleeping.cancel()
 
@@ -65,8 +69,9 @@ struct ManualRunClockTests {
 
 /// The timers of a run plane on a ``ManualRunClock``: the deadline of a wait,
 /// the timeout of a run, and the settle period of a background call. Each
-/// test moves the clock in a fixed order, with no real sleep.
-@Suite("RunPlane timers on a ManualRunClock", .timeLimit(.minutes(1)))
+/// test moves the clock in a fixed order, with no real sleep. Each wait for a
+/// timer also ends when the call or the wait under test ends.
+@Suite("RunPlane timers on a ManualRunClock")
 struct RunPlaneManualClockTests {
     private typealias Fixtures = MountFixtures
 
@@ -76,7 +81,10 @@ struct RunPlaneManualClockTests {
     /// The settle period, in seconds, of the site in the settle test.
     private static let graceSeconds: TimeInterval = 6
 
-    /// Waits on its gate, posts one progress event, then sleeps until it is
+    /// The detail of the progress event of ``ProgressThenSleepTool``.
+    private static let aliveDetail = "alive"
+
+    /// Waits on its gate, posts one progress event, then waits until it is
     /// cancelled.
     private struct ProgressThenSleepTool: Tool {
         let name = "progress_then_sleep_tool"
@@ -85,8 +93,8 @@ struct RunPlaneManualClockTests {
 
         func call(arguments: MountArguments) async throws -> String {
             await gate.waitUntilOpen()
-            await ToolContext.current?.progress("alive")
-            try await Task.sleep(for: .seconds(3600))
+            await ToolContext.current?.progress(RunPlaneManualClockTests.aliveDetail)
+            try await Waits.untilCancelled()
             return "never returned"
         }
     }
@@ -102,7 +110,7 @@ struct RunPlaneManualClockTests {
             return OperationEvent(tool: "t", op: "run test", correlationID: token, kind: .completed, detail: "", outcome: .succeeded)
         }
         let waiting = Task { await runPlane.wait(completionToken: token, seconds: 5) }
-        await clock.waitForSleepers(atLeast: 1)
+        await clock.waitForSleepers(atLeast: 1) { _ = await waiting.value }
 
         clock.advance(by: .seconds(4))
         #expect(clock.sleeperCount == 1)
@@ -121,7 +129,7 @@ struct RunPlaneManualClockTests {
             wrapping: Fixtures.SleepingTool(), site: Fixtures.site(runPlane: RunPlane(clock: clock), sink: sink),
             timeout: Self.timeoutSeconds)
         let calling = Task { try await mounted.call(arguments: MountArguments(value: "x")) }
-        await clock.waitForSleepers(atLeast: 1)
+        await clock.waitForSleepers(atLeast: 1) { _ = await calling.result }
 
         clock.advance(by: .seconds(Self.timeoutSeconds))
 
@@ -140,17 +148,18 @@ struct RunPlaneManualClockTests {
             wrapping: ProgressThenSleepTool(gate: gate),
             site: Fixtures.site(runPlane: RunPlane(clock: clock), sink: sink), timeout: Self.timeoutSeconds)
         let calling = Task { try await mounted.call(arguments: MountArguments(value: "x")) }
-        await clock.waitForSleepers(atLeast: 1)
+        await clock.waitForSleepers(atLeast: 1) { _ = await calling.result }
 
         // Progress in the middle of the first window.
         clock.advance(by: .seconds(Self.timeoutSeconds / 2))
         gate.open()
-        try await AwaitedCondition.wait { await sink.events.contains { $0.detail == "alive" } }
+        await Waits.untilFirstEnds(
+            { await sink.waitForAnEvent { $0.detail == Self.aliveDetail } }, { _ = await calling.result })
 
         // The end of the first window finds the progress, and starts a new
         // full window.
         clock.advance(by: .seconds(Self.timeoutSeconds / 2))
-        await clock.waitForSleepers(atLeast: 1)
+        await clock.waitForSleepers(atLeast: 1) { _ = await calling.result }
         clock.advance(by: .seconds(Self.timeoutSeconds - 1))
         #expect(clock.sleeperCount == 1)
 
@@ -173,7 +182,7 @@ struct RunPlaneManualClockTests {
             site: Fixtures.site(runPlane: runPlane, sink: Fixtures.RecordingSink(), inlineSettleGrace: Self.graceSeconds),
             timeout: nil)
         let calling = Task { try await mounted.call(arguments: MountArguments(value: "x")) }
-        await clock.waitForSleepers(atLeast: 1)
+        await clock.waitForSleepers(atLeast: 1) { _ = await calling.result }
 
         clock.advance(by: .seconds(Self.graceSeconds))
 

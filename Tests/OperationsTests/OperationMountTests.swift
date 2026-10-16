@@ -72,7 +72,7 @@ private struct DiscardingSink: OperationEventSink {
 
 /// Each operation of an `OperationTool` declares its mount, and the tool
 /// gives the mount of the called operation for each call.
-@Suite("OperationTool: each operation declares its mount", .timeLimit(.minutes(1)))
+@Suite("OperationTool: each operation declares its mount")
 struct OperationMountTests {
     /// How long a test waits for a background run to settle, in seconds.
     private static let settlementDeadline: TimeInterval = 30

@@ -7,6 +7,10 @@ import Testing
 /// call from ``BackgroundTool``, the timeout that progress starts again and a
 /// pending elicitation stops, the terminal events, and one `.completed` on the
 /// throw and timeout paths.
+///
+/// The tests of the timeout window run on a ``ManualRunClock``. Each wait for
+/// the timer also ends when the call ends, thus a wrong runner fails the test
+/// and does not hang it.
 @Suite("RunToCompletionRunner: run the body, return its value")
 struct RunToCompletionRunnerTests {
     private typealias Fixtures = MountFixtures
@@ -14,18 +18,97 @@ struct RunToCompletionRunnerTests {
     /// The number of heartbeats of the heartbeat tool.
     private static let heartbeatCount = 8
 
-    /// The pause between two heartbeats, well inside ``heartbeatTimeout``.
-    private static let heartbeatInterval: TimeInterval = 0.1
+    /// The timeout, in seconds of the manual clock, of the calls that the
+    /// clock tests make.
+    private static let clockedTimeout: TimeInterval = 10
 
-    /// The timeout that the heartbeats start again. The whole run is longer.
-    private static let heartbeatTimeout: TimeInterval = 0.5
+    /// The number of full timeout windows that an open question is held for.
+    private static let elicitationHoldWindows = 3
 
-    /// The number of ``MountFixtures/shortInterval`` windows that a call with
-    /// no timeout is held for.
-    private static let clocklessHoldWindows: Double = 3
+    /// The output of ``GatedBeatTool``.
+    private static let heartbeatOutput = "heartbeat done"
 
-    /// The number of timeout windows that an answer is held for.
-    private static let elicitationHoldWindows: Double = 3
+    /// Posts one progress event when each of its gates opens, in order, then
+    /// returns ``heartbeatOutput``.
+    private struct GatedBeatTool: Tool {
+        let name = "gated_beat_tool"
+        let description = "posts one progress event for each gate that opens"
+
+        /// The gate of each beat, in order.
+        let gates: [RunLatch]
+
+        func call(arguments: MountArguments) async throws -> String {
+            for (beat, gate) in gates.enumerated() {
+                await gate.waitUntilOpen()
+                await ToolContext.current?.progress(RunToCompletionRunnerTests.beatDetail(beat))
+            }
+            return RunToCompletionRunnerTests.heartbeatOutput
+        }
+    }
+
+    /// The detail of the progress event of beat `beat`.
+    ///
+    /// - Parameter beat: The number of the beat, from 0.
+    /// - Returns: The detail.
+    private static func beatDetail(_ beat: Int) -> String {
+        "beat \(beat)"
+    }
+
+    /// One call of a run-to-completion mount on a run plane whose timers wait
+    /// on a ``ManualRunClock``.
+    private struct ClockedCall {
+        /// The clock of the timers of the call.
+        let clock: ManualRunClock
+
+        /// The run plane of the call.
+        let runPlane: RunPlane
+
+        /// The sink of the call.
+        let sink: Fixtures.RecordingSink
+
+        /// The task of the call.
+        let calling: Task<String, any Error>
+
+        /// Starts one call of `tool` with the timeout `timeout`.
+        ///
+        /// - Parameters:
+        ///   - tool: The tool.
+        ///   - timeout: The timeout of the mount, or `nil` for none.
+        /// - Returns: The call.
+        static func start(_ tool: any Tool<MountArguments, String>, timeout: TimeInterval?) -> ClockedCall {
+            let clock = ManualRunClock()
+            let runPlane = RunPlane(clock: clock)
+            let sink = Fixtures.RecordingSink()
+            let mounted = RunToCompletionRunner(
+                wrapping: tool, site: Fixtures.site(runPlane: runPlane, sink: sink), timeout: timeout)
+            let calling = Task { try await mounted.call(arguments: MountArguments(value: "x")) }
+            return ClockedCall(clock: clock, runPlane: runPlane, sink: sink, calling: calling)
+        }
+
+        /// Waits until the timer of the call waits on the clock, or until the
+        /// call ends first.
+        func waitForTheTimer() async {
+            let clock = clock
+            let calling = calling
+            await Waits.untilFirstEnds({ await clock.waitForSleepers(atLeast: 1) }, { _ = await calling.result })
+        }
+
+        /// Moves the clock by `seconds`.
+        ///
+        /// - Parameter seconds: How far the clock moves.
+        func advance(seconds: TimeInterval) {
+            clock.advance(by: .seconds(seconds))
+        }
+
+        /// Waits until the call ends, or until the timer waits again first.
+        /// The test then reads ``ManualRunClock/sleeperCount``: a timer that
+        /// waits again tells that the timeout did not end the call.
+        func waitForTheEnd() async {
+            let clock = clock
+            let calling = calling
+            await Waits.untilFirstEnds({ _ = await calling.result }, { await clock.waitForSleepers(atLeast: 1) })
+        }
+    }
 
     // MARK: - In band
 
@@ -75,15 +158,25 @@ struct RunToCompletionRunnerTests {
 
     @Test("progress starts the timeout again: a tool that beats faster than the timeout runs past it")
     func progressResetsTimeout() async throws {
-        let harness = Fixtures.runToCompletionHarness(
-            wrapping: Fixtures.HeartbeatTool(beats: Self.heartbeatCount, interval: Self.heartbeatInterval),
-            timeout: Self.heartbeatTimeout
-        )
+        let gates = (0..<Self.heartbeatCount).map { _ in RunLatch() }
+        let call = ClockedCall.start(GatedBeatTool(gates: gates), timeout: Self.clockedTimeout)
 
-        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+        // Each beat comes in the middle of a window, and each window ends
+        // after the beat. The whole run is longer than one timeout.
+        for (beat, gate) in gates.enumerated() {
+            await call.waitForTheTimer()
+            call.advance(seconds: Self.clockedTimeout / 2)
+            gate.open()
+            let detail = Self.beatDetail(beat)
+            let calling = call.calling
+            await Waits.untilFirstEnds(
+                { await call.sink.waitForAnEvent { $0.detail == detail } }, { _ = await calling.result })
+            call.advance(seconds: Self.clockedTimeout / 2)
+        }
 
-        #expect(rendered == "heartbeat done")
-        let events = await harness.sink.events
+        let rendered = try await call.calling.value
+        #expect(rendered == Self.heartbeatOutput)
+        let events = await call.sink.events
         #expect(events.last?.kind == .completed)
         #expect(events.last?.outcome == .succeeded)
     }
@@ -105,7 +198,7 @@ struct RunToCompletionRunnerTests {
     func timeoutSetsCancellationFlag() async throws {
         let witness = Fixtures.CancellationWitness()
         let harness = Fixtures.runToCompletionHarness(
-            wrapping: Fixtures.CancellationFlagPollingTool(witness: witness),
+            wrapping: Fixtures.CancellationFlagTool(witness: witness),
             timeout: Fixtures.shortInterval
         )
 
@@ -113,10 +206,9 @@ struct RunToCompletionRunnerTests {
             _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
         }
 
-        // The race ended as timedOut. The tool polls until the flag that the
-        // timeout set reaches it.
-        let observed = try await Fixtures.poll { await witness.isObserved ? true : nil }
-        #expect(observed == true)
+        // The runner sets the flag before the timeout returns, so the flag
+        // that the tool reads is set now.
+        #expect(await witness.context.value.isCancelled)
 
         let events = await harness.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
@@ -165,44 +257,53 @@ struct RunToCompletionRunnerTests {
 
     // MARK: - An elicitation stops the timeout
 
-    @Test("a pending elicitation stops the timeout while it has no answer", .timeLimit(.minutes(1)))
+    @Test("a pending elicitation stops the timeout while it has no answer")
     func pendingElicitationSuspendsTimeout() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ElicitOnceTool(), timeout: Fixtures.shortInterval)
+        let call = ClockedCall.start(Fixtures.ElicitOnceTool(), timeout: Self.clockedTimeout)
+        let calling = call.calling
+        let elicitationId = try await Fixtures.firstQuestionId(postedTo: call.sink) { _ = await calling.result }
 
-        let calling = AnswerDrivenRun(waitingFor: "the tool call blocked on its elicitation") {
-            try await harness.mounted.call(arguments: MountArguments(value: "x"))
+        // Hold the answer across more than one full timeout window. After
+        // each window the timer waits again, so the call still runs.
+        for _ in 0..<Self.elicitationHoldWindows {
+            await call.waitForTheTimer()
+            call.advance(seconds: Self.clockedTimeout)
         }
-        let elicitationId = try await Fixtures.firstPendingElicitationId(in: harness.runPlane)
+        await call.waitForTheTimer()
+        #expect(call.clock.sleeperCount == 1)
 
-        // Hold the answer across more than one timeout window.
-        try await Task.sleep(for: .seconds(Fixtures.shortInterval * Self.elicitationHoldWindows))
-        await harness.runPlane.respond(elicitationId: elicitationId, .accept(content: ["ok": .boolean(true)]))
+        await call.runPlane.respond(elicitationId: elicitationId, .accept(content: ["ok": .boolean(true)]))
+        await OpenQuestions.endIfOpen(elicitationId, on: call.runPlane)
 
-        let rendered = try await calling.answerOnceDelivered()
+        let rendered = try await call.calling.value
         #expect(rendered == "answered: accept")
-
-        let events = await harness.sink.events
+        let events = await call.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
         #expect(events.last?.outcome == .succeeded)
     }
 
-    @Test(
-        "an answered elicitation starts a new timeout window: a run that then stalls still times out",
-        .timeLimit(.minutes(1)))
+    @Test("an answered elicitation starts a new timeout window: a run that then stalls still times out")
     func elicitationResolutionRestoresTimeout() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ElicitThenStallTool(), timeout: Fixtures.shortInterval)
+        let call = ClockedCall.start(Fixtures.ElicitThenStallTool(), timeout: Self.clockedTimeout)
+        let calling = call.calling
+        let elicitationId = try await Fixtures.firstQuestionId(postedTo: call.sink) { _ = await calling.result }
+        await call.waitForTheTimer()
 
-        let calling = AnswerDrivenRun(waitingFor: "the tool call blocked on its elicitation") {
-            try await harness.mounted.call(arguments: MountArguments(value: "x"))
-        }
-        let elicitationId = try await Fixtures.firstPendingElicitationId(in: harness.runPlane)
-        await harness.runPlane.respond(elicitationId: elicitationId, .decline)
+        await call.runPlane.respond(elicitationId: elicitationId, .decline)
+        await OpenQuestions.endIfOpen(elicitationId, on: call.runPlane)
+
+        // The window of the open question ends, and the answer starts a new
+        // full window. At the end of that window, the stalled run times out.
+        call.advance(seconds: Self.clockedTimeout)
+        await call.waitForTheTimer()
+        call.advance(seconds: Self.clockedTimeout)
+        await call.waitForTheEnd()
+        try #require(call.clock.sleeperCount == 0, "the timeout did not end the call")
 
         await #expect(throws: ToolMountError.self) {
-            _ = try await calling.answerOnceDelivered()
+            _ = try await call.calling.value
         }
-
-        let events = await harness.sink.events
+        let events = await call.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
         #expect(events.last?.outcome == .timedOut)
     }
@@ -248,24 +349,28 @@ struct RunToCompletionRunnerTests {
         #expect(ToolMount(mode: .background).timeout == nil)
     }
 
-    @Test("with no timeout, a call waits until the tool ends, never goes to the background, and reports no timeout")
+    @Test("with no timeout, a call waits until the tool ends, never goes to the background, and starts no timer")
     func clocklessCallBlocksUntilTheToolFinishes() async throws {
-        let gate = RunLatch()
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.GatedTool(gate: gate), timeout: nil)
+        let open = RunLatch()
+        open.open()
+        let started = RunLatch()
+        let finish = RunLatch()
+        let call = ClockedCall.start(
+            Fixtures.HeartbeatTool(beats: 0, gate: open, beaten: started, finish: finish), timeout: nil)
+        let calling = call.calling
+        await Waits.untilFirstEnds({ await started.waitUntilOpen() }, { _ = await calling.result })
 
-        let calling = Task {
-            try await harness.mounted.call(arguments: MountArguments(value: "discovery"))
-        }
-        // Hold the tool past the window in which a timeout would stop it.
-        try await Task.sleep(for: .seconds(Fixtures.shortInterval * Self.clocklessHoldWindows))
-        #expect(await harness.runPlane.backgroundRuns().isEmpty)
-        gate.open()
+        // The tool runs and waits on its gate. A call with no timeout starts
+        // no timer, and it does not go to the background.
+        #expect(call.clock.sleeperCount == 0)
+        #expect(await call.runPlane.backgroundRuns().isEmpty)
+        finish.open()
 
-        let rendered = try await calling.value
-        #expect(rendered == "gated: discovery")
-        #expect(await harness.runPlane.backgroundRuns().isEmpty)
+        let rendered = try await call.calling.value
+        #expect(rendered == Self.heartbeatOutput)
+        #expect(await call.runPlane.backgroundRuns().isEmpty)
         // A slow call is not a failed call: the run settles with no event.
-        #expect(await harness.sink.events.isEmpty)
+        #expect(await call.sink.events.isEmpty)
     }
 
     @Test("with no timeout, only the error of the tool reaches the model")

@@ -38,27 +38,36 @@ struct AmbientNonStringOutputTool: Tool {
 
 /// The fixtures of the mount suites that the runner suites do not use.
 extension MountFixtures {
-    /// Sleeps for `duration` seconds, posts no progress, then returns.
+    /// Opens `started`, waits on its gate with no progress, then returns.
     struct QuietTool: Tool {
         let name = "quiet_tool"
         let description = "runs for a time with no progress, then returns"
-        let duration: TimeInterval
+        let gate: RunLatch
+
+        /// Opens when the call starts.
+        var started = RunLatch()
 
         func call(arguments: MountArguments) async throws -> String {
-            try await Task.sleep(for: .seconds(duration))
+            started.open()
+            await gate.waitUntilOpen()
             return "quiet: \(arguments.value)"
         }
     }
 
-    /// Waits on its gate, and declares ``ToolMount/synchronous``.
+    /// Opens `started`, waits on its gate, and declares
+    /// ``ToolMount/synchronous``.
     struct DeclaredRunToCompletionRunner: Tool, BackgroundTool {
         let name = "declared_run_to_completion_tool"
         let description = "declares the mount it cannot work without"
         let gate: RunLatch
 
+        /// Opens when the call starts.
+        var started = RunLatch()
+
         var mount: ToolMount? { .synchronous }
 
         func call(arguments: MountArguments) async throws -> String {
+            started.open()
             await gate.waitUntilOpen()
             return "declared: \(arguments.value)"
         }

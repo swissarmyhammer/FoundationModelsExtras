@@ -6,16 +6,20 @@ import ULID
 
 /// A sink as a caller outside this package writes it: a conformance to the
 /// public ``OperationEventSink`` in a file with a plain import. It keeps each
-/// event in post order.
+/// event in post order. A test waits on ``eventLog`` for a post, with no
+/// poll.
 actor PublicSurfaceRecordingSink: OperationEventSink {
     /// Each event, in post order.
-    private(set) var events: [OperationEvent] = []
+    nonisolated let eventLog = Recorder<OperationEvent>()
+
+    /// Each event, in post order.
+    var events: [OperationEvent] { eventLog.values }
 
     /// Keeps `event`.
     ///
     /// - Parameter event: The event to keep.
     func post(event: OperationEvent) {
-        events.append(event)
+        eventLog.append(event)
     }
 }
 
@@ -26,7 +30,7 @@ actor PublicSurfaceRecordingSink: OperationEventSink {
 ///
 /// The import is plain, with no `@testable`. When a member loses `public`,
 /// this file does not compile.
-@Suite("Tool hosting over a plain import", .timeLimit(.minutes(1)))
+@Suite("Tool hosting over a plain import")
 struct ToolHostingPublicSurfaceTests {
     /// The grace of the inline tool, in seconds. The tool returns at once, so
     /// its run settles in this time.
@@ -192,12 +196,22 @@ struct ToolHostingPublicSurfaceTests {
         )
     }
 
-    /// Waits until `sink` holds the elicitation event of `request`. The run
-    /// posts that event after the run plane holds the elicitation.
-    private static func waitUntilPending(_ request: ElicitationRequest, in sink: RecordingSink) async throws {
-        try await AwaitedCondition.wait {
-            await sink.events.contains { $0.elicitation?.elicitationId == request.elicitationId }
-        }
+    /// Waits until `sink` holds the elicitation event of `request`, or until
+    /// `asking` ends first. The run posts that event after the run plane
+    /// holds the elicitation.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - sink: The sink that the question posts to.
+    ///   - asking: The task that asks the question.
+    /// - Throws: When the sink got no event of the question.
+    private static func waitUntilPending<Value: Sendable>(
+        _ request: ElicitationRequest, in sink: RecordingSink, askedBy asking: Task<Value, any Error>
+    ) async throws {
+        let isTheQuestion: @Sendable (OperationEvent) -> Bool = { $0.elicitation?.elicitationId == request.elicitationId }
+        await Waits.untilFirstEnds(
+            { _ = await sink.eventLog.waitUntil { $0.contains(where: isTheQuestion) } }, { _ = await asking.result })
+        try #require(await sink.events.contains(where: isTheQuestion), "the run asked no question")
     }
 
     /// Starts a call of a gated background tool on `runPlane`.
@@ -228,7 +242,8 @@ struct ToolHostingPublicSurfaceTests {
         #expect(await runPlane.settledRunTokens().isEmpty)
 
         gate.open()
-        try await AwaitedCondition.wait { await !observer.terminals.isEmpty }
+        // The body gives the terminal event to the observer before it ends.
+        await runPlane.joinRunBodies()
 
         let terminal = try #require(await observer.terminals.first)
         #expect(terminal.correlationID == token)
@@ -287,12 +302,13 @@ struct ToolHostingPublicSurfaceTests {
     func theRunPlaneListsOpenQuestionsAndUserWaits() async throws {
         let runPlane = RunPlane()
         let token = RunPlane.makeCompletionToken()
+        let sink = RecordingSink()
         let context = ToolContext(
-            sessionID: ULID(), runPlane: runPlane, sink: RecordingSink(), tool: "host", op: "ask user",
+            sessionID: ULID(), runPlane: runPlane, sink: sink, tool: "host", op: "ask user",
             completionToken: token, isCancelled: { false })
         let request = Self.formRequest()
         let asking = Task { try await context.elicit(request) }
-        try await AwaitedCondition.wait { await !runPlane.openElicitations().isEmpty }
+        try await Self.waitUntilPending(request, in: sink, askedBy: asking)
 
         let question = try #require(await runPlane.openElicitations().first)
         #expect(question.elicitationId == request.elicitationId)
@@ -315,7 +331,7 @@ struct ToolHostingPublicSurfaceTests {
         let mounted = try Self.mount(ElicitingTool(request: request), on: runPlane, sink: sink)
         let asking = Task { try await mounted.call(arguments: ProbeArguments(value: "ask")) }
 
-        try await Self.waitUntilPending(request, in: sink)
+        try await Self.waitUntilPending(request, in: sink, askedBy: asking)
         let delivery = await runPlane.respond(elicitationId: request.elicitationId, .decline)
 
         #expect(delivery == .delivered)
@@ -335,7 +351,7 @@ struct ToolHostingPublicSurfaceTests {
         let mounted = try Self.mount(ElicitingTool(request: request), on: runPlane, sink: sink)
         let asking = Task { try await mounted.call(arguments: ProbeArguments(value: "ask")) }
 
-        try await Self.waitUntilPending(request, in: sink)
+        try await Self.waitUntilPending(request, in: sink, askedBy: asking)
         let accepted = await runPlane.respond(elicitationId: request.elicitationId, .accept(content: nil))
         let completed = await runPlane.complete(elicitationId: request.elicitationId)
 

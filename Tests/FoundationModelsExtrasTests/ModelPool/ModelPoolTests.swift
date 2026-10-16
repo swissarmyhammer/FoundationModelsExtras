@@ -53,8 +53,19 @@ struct ModelPoolTests {
     private static let stressRounds = 200
 
     /// The executor of the tasks of the stress tests. A deadlock of those
-    /// tasks then cannot block the thread of the bounded wait.
+    /// tasks then cannot block the thread of the wait for their end.
     private static let stressExecutor = DedicatedTaskExecutor()
+
+    /// The time that the tasks of a stress test get to end.
+    ///
+    /// A lock-order deadlock blocks the threads of its tasks and gives no
+    /// event, thus only a deadline ends the wait for tasks that deadlock.
+    /// Tasks that do not deadlock end in a small part of this time.
+    private static let stressDeadline: Duration = .seconds(30)
+
+    /// The depth records of the admission queue while one job runs and no
+    /// other job came: the record of its enqueue.
+    private static let recordsOfOneRunningJob = 1
 
     /// How many times the order test releases two holds at the same time.
     private static let orderRepetitions = 100
@@ -141,42 +152,72 @@ struct ModelPoolTests {
                 log.append("job ends")
             }
         }
-        try #require(await BoundedWait.conditionReached("the admit job runs") { log.values.contains("job begins") })
+        await log.waitUntil(holds: "job begins", orUntilEndOf: task)
+        try #require(log.values.contains("job begins"))
         return BlockingJob(task: task, end: end)
     }
 
-    /// Waits until one job waits in the admission queue of `pool`.
-    ///
-    /// - Parameter pool: The pool.
-    /// - Throws: An `ExpectationFailedError` when no job waited.
-    private static func waitForOneQueuedJob(on pool: ModelPool) async throws {
-        try #require(await BoundedWait.conditionReached("a job waits in the admission queue") {
-            await pool.admissions.waitingCount == 1
-        })
-    }
-
     /// Starts an acquire of ``key`` that writes `"resident acquired"` when it
-    /// returns, and waits inside the bound for that write. A blocking job runs,
-    /// so the test must not wait for the acquire with no bound.
+    /// returns. Returns when the acquire returned, or when its admission job
+    /// waits in the queue behind the blocking job first. The acquire records
+    /// its metrics into `capture`, thus the test sees the job that it puts in
+    /// the admission queue.
     ///
     /// - Parameters:
     ///   - pool: The pool.
     ///   - loader: The loader.
     ///   - log: The log.
-    /// - Returns: The task of the acquire, and whether it returned inside the
-    ///   bound.
+    ///   - capture: The capture that gets the metrics of the acquire.
+    /// - Returns: The task of the acquire, and whether it returned with no
+    ///   job in the admission queue.
     private static func acquireWhileAJobRuns(
-        from pool: ModelPool, with loader: RecordingLoader, log: Recorder<String>
+        from pool: ModelPool, with loader: RecordingLoader, log: Recorder<String>,
+        recordingInto capture: TelemetryCapture.Context
     ) async -> (task: Task<ModelHold, any Error>, returned: Bool) {
+        let admissions = pool.admissions
+        let recordsBefore = admissions.depthRecordCount(in: capture)
+        let factory = capture.observedMetricsFactory
         let task = Task {
-            let hold = try await acquire(from: pool, with: loader)
-            log.append("resident acquired")
-            return hold
+            try await withMetricsFactory(factory) {
+                let hold = try await acquire(from: pool, with: loader)
+                log.append("resident acquired")
+                return hold
+            }
         }
-        let returned = await BoundedWait.conditionReached("the resident acquire returns") {
-            log.values.contains("resident acquired")
-        }
-        return (task, returned)
+        await Waits.untilFirstEnds(
+            { await log.waitUntil { $0.contains("resident acquired") } },
+            { await admissions.waitForDepthRecords(moreThan: recordsBefore, in: capture) })
+        return (task, log.values.contains("resident acquired"))
+    }
+
+    /// Starts an acquire with `acquire`, and returns when the admission queue
+    /// of `pool` accepted its job, or when the acquire ended first.
+    ///
+    /// - Parameters:
+    ///   - pool: The pool.
+    ///   - capture: The capture that gets the metrics of the acquire.
+    ///   - acquire: The acquire.
+    /// - Returns: The task of the acquire.
+    private static func startQueuedAcquire(
+        on pool: ModelPool, recordingInto capture: TelemetryCapture.Context,
+        _ acquire: @escaping @Sendable () async throws -> ModelHold
+    ) async -> Task<ModelHold, any Error> {
+        await pool.admissions.startQueuedCall(recordingInto: capture, acquire)
+    }
+
+    /// Waits until the loader of `log` writes `entry`, or until each job that
+    /// is in the admission queue of `pool` now ended. A load and an evict
+    /// call run in an admission job, thus that end is the fault event of a
+    /// load or an evict call that never comes.
+    ///
+    /// - Parameters:
+    ///   - log: The log of the loader.
+    ///   - entry: The entry to wait for.
+    ///   - pool: The pool.
+    private static func waitUntil(_ log: Recorder<String>, holds entry: String, orUntilTheJobsOf pool: ModelPool) async {
+        await Waits.untilFirstEnds(
+            { await log.waitUntil { $0.contains(entry) } },
+            { _ = try? await pool.waitForTheEarlierAdmissionJobs() })
     }
 
     @Test("two concurrent acquires of one new key run the loader one time and get the same container")
@@ -186,10 +227,15 @@ struct ModelPoolTests {
         let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
         let loader = RecordingLoader(name: "A", log: log, loadsMayEnd: loadsMayEnd)
 
+        defer { endLoads.finish() }
         let first = Task { try await Self.acquire(from: pool, with: loader) }
-        try #require(await BoundedWait.conditionReached("the first load runs") { log.values == [Self.loadByA] })
-        let second = Task { try await Self.acquire(from: pool, with: loader) }
-        try await Self.waitForOneQueuedJob(on: pool)
+        await log.waitUntil(holds: Self.loadByA, orUntilEndOf: first)
+        try #require(log.values == [Self.loadByA])
+        let second = try await TelemetryCapture.run(forbidding: []) { context in
+            await Self.startQueuedAcquire(on: pool, recordingInto: context) {
+                try await Self.acquire(from: pool, with: loader)
+            }
+        }
         endLoads.finish()
         let firstHold = try await first.value
         let secondHold = try await second.value
@@ -206,7 +252,9 @@ struct ModelPoolTests {
         let firstHold = try await Self.acquire(from: pool, with: loader)
         let job = try await Self.startBlockingJob(on: pool, log: log)
 
-        let second = await Self.acquireWhileAJobRuns(from: pool, with: loader, log: log)
+        let second = try await TelemetryCapture.run(forbidding: []) { context in
+            await Self.acquireWhileAJobRuns(from: pool, with: loader, log: log, recordingInto: context)
+        }
         job.end.finish()
         try await job.task.value
         let secondHold = try await second.task.value
@@ -223,8 +271,11 @@ struct ModelPoolTests {
         let loader = RecordingLoader(name: "A", log: log)
         let job = try await Self.startBlockingJob(on: pool, log: log)
 
-        let acquiring = Task { try await Self.acquire(from: pool, with: loader) }
-        try await Self.waitForOneQueuedJob(on: pool)
+        let acquiring = try await TelemetryCapture.run(forbidding: []) { context in
+            await Self.startQueuedAcquire(on: pool, recordingInto: context) {
+                try await Self.acquire(from: pool, with: loader)
+            }
+        }
         let logWhileTheJobRuns = log.values
         job.end.finish()
         try await job.task.value
@@ -241,17 +292,29 @@ struct ModelPoolTests {
         let log = Recorder<String>()
         let loader = RecordingLoader(name: "A", log: log)
 
-        let admitted = Task {
-            try await pool.admit { admission in
-                let hold = try await admission.acquire(
-                    Self.key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: loader)
-                log.append("admitted")
-                return hold
+        // A second admission job while the first one runs never starts, and
+        // the first job waits for it: a deadlock. The depth record of that
+        // second job ends the wait, and the test then fails before it waits
+        // for the deadlocked job.
+        let admitted = try await TelemetryCapture.run(forbidding: []) { context in
+            let admissions = pool.admissions
+            let factory = context.observedMetricsFactory
+            let task = Task {
+                try await withMetricsFactory(factory) {
+                    try await pool.admit { admission in
+                        let hold = try await admission.acquire(
+                            Self.key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: loader)
+                        log.append("admitted")
+                        return hold
+                    }
+                }
             }
+            await Waits.untilFirstEnds(
+                { _ = await task.result },
+                { await admissions.waitForDepthRecords(moreThan: Self.recordsOfOneRunningJob, in: context) })
+            return task
         }
-        try #require(await BoundedWait.conditionReached("the load inside the admit job ends") {
-            log.values.contains("admitted")
-        })
+        try #require(log.values.contains("admitted"))
         let hold = try await admitted.value
 
         #expect(log.values == [Self.loadByA, "admitted"])
@@ -285,8 +348,7 @@ struct ModelPoolTests {
             #expect(try Self.model(in: firstHold) === Self.model(in: secondHold))
         }
 
-        try #require(await BoundedWait.conditionReached("the eviction runs") { log.values.contains(Self.evictionOfA) })
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(log.values == [Self.loadByA, Self.evictionOfA])
         #expect(!pool.isResident(Self.key))
@@ -303,12 +365,16 @@ struct ModelPoolTests {
         #expect(firstHold?.key == Self.key)
 
         firstHold = nil
-        try await Self.waitForOneQueuedJob(on: pool)
-        let second = await Self.acquireWhileAJobRuns(from: pool, with: loader, log: log)
+        // The last release puts the eviction job in the admission queue in
+        // the same step, thus it waits there now.
+        try #require(await pool.admissions.waitingCount == 1)
+        let second = try await TelemetryCapture.run(forbidding: []) { context in
+            await Self.acquireWhileAJobRuns(from: pool, with: loader, log: log, recordingInto: context)
+        }
         job.end.finish()
         try await job.task.value
         let secondHold = try await second.task.value
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(second.returned)
         #expect(log.values == [Self.loadByA, "job begins", "resident acquired", "job ends"])
@@ -358,7 +424,8 @@ struct ModelPoolTests {
         let (evictionsMayEnd, end) = AsyncStream.makeStream(of: Void.self)
         let loader = RecordingLoader(name: "A", log: log, evictionsMayEnd: evictionsMayEnd)
         let evictedModel = try model(in: try await acquire(from: pool, with: loader))
-        try #require(await BoundedWait.conditionReached("the evict call runs") { log.values.contains(evictionOfA) })
+        await waitUntil(log, holds: evictionOfA, orUntilTheJobsOf: pool)
+        try #require(log.values.contains(evictionOfA))
         return BlockedEviction(loader: loader, model: evictedModel, end: end)
     }
 
@@ -369,7 +436,7 @@ struct ModelPoolTests {
         let weightsOnly = ModelPoolFootprint(resident: [Self.key: Self.weightsBytes], loadingBytes: 0)
 
         let footprintInTheEvictCall = pool.footprint
-        let firstValueOfANewStream = try await Self.first(1, of: pool.footprints)
+        let firstValueOfANewStream = await Self.first(1, of: pool.footprints)
         let isResidentInTheEvictCall = pool.isResident(Self.key)
         let residentCountInTheEvictCall = pool.residentModelCount
         eviction.end.finish()
@@ -389,8 +456,11 @@ struct ModelPoolTests {
         let log = Recorder<String>()
         let eviction = try await Self.startBlockedEviction(on: pool, log: log)
 
-        let acquiring = Task { try await Self.acquire(from: pool, with: eviction.loader) }
-        try await Self.waitForOneQueuedJob(on: pool)
+        let acquiring = try await TelemetryCapture.run(forbidding: []) { context in
+            await Self.startQueuedAcquire(on: pool, recordingInto: context) {
+                try await Self.acquire(from: pool, with: eviction.loader)
+            }
+        }
         let logInTheEvictCall = log.values
         eviction.end.finish()
         let hold = try await acquiring.value
@@ -418,24 +488,28 @@ struct ModelPoolTests {
         #expect(try Self.model(in: hold).loaderName == "A")
     }
 
-    /// The first `count` footprints of `stream`.
+    /// The first `count` footprints that `stream` holds now.
+    ///
+    /// The pool gives each footprint to each stream in the step that changes
+    /// it, thus a footprint of a change that ended is in the buffer of the
+    /// stream now. The read runs in a cancelled task: a cancelled stream
+    /// gives each value of its buffer, and then ends. Thus the read needs no
+    /// wait, and a stream with fewer values gives fewer values, and does not
+    /// hang.
     ///
     /// - Parameters:
     ///   - count: The number of footprints to read.
     ///   - stream: The stream.
     /// - Returns: The footprints, in order.
-    /// - Throws: An `ExpectationFailedError` when fewer footprints came.
-    private static func first(
-        _ count: Int, of stream: AsyncStream<ModelPoolFootprint>
-    ) async throws -> [ModelPoolFootprint] {
-        let seen = Recorder<ModelPoolFootprint>()
-        Task {
+    private static func first(_ count: Int, of stream: AsyncStream<ModelPoolFootprint>) async -> [ModelPoolFootprint] {
+        await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            var seen: [ModelPoolFootprint] = []
             for await footprint in stream.prefix(count) {
                 seen.append(footprint)
             }
-        }
-        try #require(await BoundedWait.conditionReached("\(count) footprints") { seen.values.count == count })
-        return seen.values
+            return seen
+        }.value
     }
 
     @Test("two footprint streams both see each change, and a stream sees the loading bytes during a load")
@@ -449,7 +523,7 @@ struct ModelPoolTests {
             let hold = try await Self.acquire(from: pool, with: loader)
             #expect(hold.key == Self.key)
         }
-        try #require(await BoundedWait.conditionReached("the eviction runs") { log.values.contains(Self.evictionOfA) })
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         let expected = [
             ModelPoolFootprint(resident: [:], loadingBytes: 0),
@@ -458,8 +532,8 @@ struct ModelPoolTests {
             ModelPoolFootprint(resident: [Self.key: Self.weightsBytes], loadingBytes: 0),
             ModelPoolFootprint(resident: [:], loadingBytes: 0),
         ]
-        #expect(try await Self.first(expected.count, of: firstStream) == expected)
-        #expect(try await Self.first(expected.count, of: secondStream) == expected)
+        #expect(await Self.first(expected.count, of: firstStream) == expected)
+        #expect(await Self.first(expected.count, of: secondStream) == expected)
     }
 
     /// Starts a footprint stream and cancels its consumer, ``stressRounds``
@@ -491,14 +565,19 @@ struct ModelPoolTests {
 
     /// Runs ``stressConsumerCount`` tasks that start and cancel footprint
     /// streams, beside ``stressHolderCount`` tasks that acquire and release
-    /// holds, all on ``stressExecutor``. Waits inside the bound for the end of
-    /// all the tasks, so a deadlock fails the test and does not stop the run.
+    /// holds, all on ``stressExecutor``. Waits for the end of all the tasks,
+    /// or for ``stressDeadline``, so a deadlock fails the test and does not
+    /// stop the run.
+    ///
+    /// This is the one wait of the suite that reads a clock. A lock-order
+    /// deadlock blocks the threads of its tasks and gives no event, thus only
+    /// a deadline can end the wait for such tasks.
     ///
     /// - Parameters:
     ///   - pool: The pool.
     ///   - loader: The loader.
-    /// - Throws: An `ExpectationFailedError` when the tasks did not end inside
-    ///   the bound, or what a load throws.
+    /// - Throws: An `ExpectationFailedError` when the tasks did not end before
+    ///   the deadline, or what a load throws.
     private static func runStress(on pool: ModelPool, with loader: RecordingLoader) async throws {
         let ended = Recorder<Bool>()
         let stress = Task(executorPreference: stressExecutor) {
@@ -513,7 +592,10 @@ struct ModelPoolTests {
                 try await group.waitForAll()
             }
         }
-        try #require(await BoundedWait.conditionReached("the end of the stress tasks") { !ended.values.isEmpty })
+        await Waits.untilFirstEnds(
+            { await ended.waitUntil { !$0.isEmpty } },
+            { try? await Task.sleep(for: stressDeadline) })
+        try #require(!ended.values.isEmpty, "the stress tasks did not end before the deadline: a deadlock")
         try await stress.value
     }
 
@@ -524,8 +606,9 @@ struct ModelPoolTests {
         let loader = RecordingLoader(name: "A", log: log)
 
         try await Self.runStress(on: pool, with: loader)
+        try await pool.waitForTheEarlierAdmissionJobs()
 
-        #expect(await BoundedWait.conditionReached("an eviction runs") { log.values.contains(Self.evictionOfA) })
+        #expect(log.values.contains(Self.evictionOfA))
     }
 
     @Test("after the stress, a footprint stream that stayed live sees the last footprint")
@@ -539,10 +622,12 @@ struct ModelPoolTests {
         try await Self.runStress(on: pool, with: loader)
         let hold = try await Self.acquire(from: pool, with: loader)
         let last = ModelPoolFootprint(resident: [Self.key: Self.footprintBytes], loadingBytes: 0)
-        let sawTheLast = await BoundedWait.conditionReached("the live stream sees the last footprint") {
-            seen.values.last == last
-        }
+        // The pool gave the last footprint to the stream before the acquire
+        // returned. A cancelled stream gives each value of its buffer, and
+        // then ends, thus the consumer ends after it read that footprint.
         consumer.cancel()
+        await consumer.value
+        let sawTheLast = seen.values.last == last
 
         #expect(sawTheLast)
         #expect(pool.footprint == last)
@@ -562,7 +647,8 @@ struct ModelPoolTests {
             async let firstRelease: Void = firstHold.release()
             async let secondRelease: Void = secondHold.release()
             _ = await (firstRelease, secondRelease)
-            let seen = try await Self.first(Self.releaseOrders[0].count, of: stream)
+            try await pool.waitForTheEarlierAdmissionJobs()
+            let seen = await Self.first(Self.releaseOrders[0].count, of: stream)
 
             #expect(Self.releaseOrders.contains(seen))
         }
@@ -586,10 +672,10 @@ struct ModelPoolTests {
             totals.append(pool.footprint.totalBytes)
             #expect(firstHold.key == Self.key)
         }
-        try #require(await BoundedWait.conditionReached("the eviction runs") { log.values.contains(Self.evictionOfA) })
         // The pool counts the model until the evict call returns. The admit
         // job runs after the eviction job, thus after that call.
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
+        #expect(log.values.contains(Self.evictionOfA))
         totals.append(pool.footprint.totalBytes)
 
         let afterTheSecondHold = Self.footprintBytes + Self.secondSessionBytes
@@ -634,8 +720,7 @@ struct ModelPoolTests {
             #expect(firstHold.queue === secondHold.queue)
         }
 
-        try #require(await BoundedWait.conditionReached("the eviction runs") { log.values.contains(Self.evictionOfA) })
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(log.values == [Self.loadByA, Self.measureOfKey, Self.evictionOfA])
         #expect(!pool.isResident(Self.key))
@@ -773,23 +858,26 @@ extension ModelPoolTests {
     ///   - pool: The pool.
     ///   - log: The log of the loader that `acquire` uses.
     ///   - endLoads: Finish this to end the load.
+    ///   - capture: The capture that gets the metrics of each acquire.
     ///   - acquire: Acquires ``key`` from `pool`.
     /// - Returns: The three holds.
     /// - Throws: What an acquire throws, or an `ExpectationFailedError` when
-    ///   the load or the wait never occurred.
+    ///   the load never occurred.
     private static func acquireThreeTimes(
         from pool: ModelPool,
         log: Recorder<String>,
         endLoads: AsyncStream<Void>.Continuation,
+        recordingInto capture: TelemetryCapture.Context,
         acquire: @escaping @Sendable () async throws -> ModelHold
     ) async throws -> [ModelHold] {
-        let first = Task { try await acquire() }
-        try #require(await BoundedWait.conditionReached("the first load runs") { log.values == [loadByA] })
-        let second = Task { try await acquire() }
-        try await waitForOneQueuedJob(on: pool)
+        let factory = capture.observedMetricsFactory
+        let first = Task { try await withMetricsFactory(factory) { try await acquire() } }
+        await log.waitUntil(holds: loadByA, orUntilEndOf: first)
+        try #require(log.values == [loadByA])
+        let second = await startQueuedAcquire(on: pool, recordingInto: capture, acquire)
         endLoads.finish()
         let loaded = try await [first.value, second.value]
-        return loaded + [try await acquire()]
+        return loaded + [try await withMetricsFactory(factory) { try await acquire() }]
     }
 
     /// Expects one acquire count of ``key`` with each cache result.
@@ -804,17 +892,17 @@ extension ModelPoolTests {
 
     @Test("an acquire with a loader records one load, one late hit and one hit")
     func anAcquireWithALoaderRecordsEachCacheResult() async throws {
-        let metrics = TestMetrics()
         let pool = ModelPool()
         let log = Recorder<String>()
         let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
         defer { endLoads.finish() }
         let loader = RecordingLoader(name: "A", log: log, loadsMayEnd: loadsMayEnd)
 
-        let holds = try await withMetricsFactory(metrics) {
-            try await Self.acquireThreeTimes(from: pool, log: log, endLoads: endLoads) {
+        let (holds, metrics) = try await TelemetryCapture.run(forbidding: []) { context in
+            let holds = try await Self.acquireThreeTimes(from: pool, log: log, endLoads: endLoads, recordingInto: context) {
                 try await Self.acquire(from: pool, with: loader)
             }
+            return (holds, context.metricsFactory)
         }
 
         try Self.expectOneAcquireOfEachResult(in: metrics)
@@ -823,16 +911,16 @@ extension ModelPoolTests {
 
     @Test("an acquire by key records one load, one late hit and one hit")
     func anAcquireByKeyRecordsEachCacheResult() async throws {
-        let metrics = TestMetrics()
         let log = Recorder<String>()
         let (loadsMayEnd, endLoads) = AsyncStream.makeStream(of: Void.self)
         defer { endLoads.finish() }
         let pool = ModelPool(loader: RecordingLoader(name: "A", log: log, loadsMayEnd: loadsMayEnd))
 
-        let holds = try await withMetricsFactory(metrics) {
-            try await Self.acquireThreeTimes(from: pool, log: log, endLoads: endLoads) {
+        let (holds, metrics) = try await TelemetryCapture.run(forbidding: []) { context in
+            let holds = try await Self.acquireThreeTimes(from: pool, log: log, endLoads: endLoads, recordingInto: context) {
                 try await pool.acquire(Self.key)
             }
+            return (holds, context.metricsFactory)
         }
 
         try Self.expectOneAcquireOfEachResult(in: metrics)
@@ -867,22 +955,25 @@ extension ModelPoolTests {
 
     @Test("an eviction job that a new hold stops records one rehold, and no eviction and no idle time")
     func aReholdRecordsASkippedEviction() async throws {
-        let metrics = TestMetrics()
         let pool = ModelPool()
         let log = Recorder<String>()
         let loader = RecordingLoader(name: "A", log: log)
 
-        let secondHold = try await withMetricsFactory(metrics) {
-            var firstHold: ModelHold? = try await Self.acquire(from: pool, with: loader)
-            let job = try await Self.startBlockingJob(on: pool, log: log)
-            #expect(firstHold?.key == Self.key)
-            firstHold = nil
-            try await Self.waitForOneQueuedJob(on: pool)
-            let second = await Self.acquireWhileAJobRuns(from: pool, with: loader, log: log)
-            job.end.finish()
-            try await job.task.value
-            try await pool.admit { _ in }
-            return try await second.task.value
+        let (secondHold, metrics) = try await TelemetryCapture.run(forbidding: []) { context in
+            try await withMetricsFactory(context.observedMetricsFactory) {
+                var firstHold: ModelHold? = try await Self.acquire(from: pool, with: loader)
+                let job = try await Self.startBlockingJob(on: pool, log: log)
+                #expect(firstHold?.key == Self.key)
+                firstHold = nil
+                // The last release puts the eviction job in the admission
+                // queue in the same step, thus it waits there now.
+                try #require(await pool.admissions.waitingCount == 1)
+                let second = await Self.acquireWhileAJobRuns(from: pool, with: loader, log: log, recordingInto: context)
+                job.end.finish()
+                try await job.task.value
+                try await pool.waitForTheEarlierAdmissionJobs()
+                return (try await second.task.value, context.metricsFactory)
+            }
         }
 
         #expect(!log.values.contains(Self.evictionOfA))
@@ -915,7 +1006,8 @@ extension ModelPoolTests {
             // The task gives a slot, not the hold: a task keeps its value, so a
             // hold that it gave would never go.
             let loading = Task { HoldSlot(try await Self.acquire(from: pool, with: loader)) }
-            try #require(await BoundedWait.conditionReached("the load runs") { log.values == [Self.loadByA] })
+            await log.waitUntil(holds: Self.loadByA, orUntilEndOf: loading)
+            try #require(log.values == [Self.loadByA])
             try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.noEvictingBytes)
             endLoads.finish()
             let firstHold = try await loading.value
@@ -927,9 +1019,8 @@ extension ModelPoolTests {
             secondHold = nil
             try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.noEvictingBytes)
             firstHold.release()
-            try #require(await BoundedWait.conditionReached("the evict call runs") {
-                log.values.contains(Self.evictionOfA)
-            })
+            await Self.waitUntil(log, holds: Self.evictionOfA, orUntilTheJobsOf: pool)
+            try #require(log.values.contains(Self.evictionOfA))
             try PoolMetricExpectations.expectGauges(in: metrics, agreeWith: pool, evictingBytes: Self.weightsBytes)
             endEvictions.finish()
             try await pool.admit { _ in }
@@ -1151,7 +1242,7 @@ extension ModelPoolTests {
 
         let context = try await TelemetryCapture.run(forbidding: forbidden) { context in
             model.prewarm(transcript: Transcript())
-            _ = try await context.waitForErrorRecords()
+            _ = await context.waitForErrorRecords()
             do {
                 let hold = try await pool.acquire(Self.key)
                 #expect(hold.key == Self.key)

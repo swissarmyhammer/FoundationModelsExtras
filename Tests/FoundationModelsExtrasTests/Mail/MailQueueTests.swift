@@ -231,19 +231,22 @@ struct MailQueueTests {
 /// mail, or when the queue is closed.
 @Suite("MailQueue: the wait for mail")
 struct MailQueueWaitTests {
-    /// Starts a task that waits for mail, and waits until the queue sees it.
+    /// Starts a task that waits for mail. The task starts with
+    /// `Task.immediate`: its body runs on the task of the caller until it
+    /// suspends in the wait. Thus the queue holds the waiter when this
+    /// function returns, and the function needs no poll.
     ///
     /// - Parameter queue: The queue.
     /// - Returns: The task of the waiter, which gives the result of the
     ///   wait, and a flag that is set when the wait returns.
     private static func startWaiter(on queue: MailQueue) async -> (task: Task<Bool, Never>, returned: ReturnFlag) {
         let returned = ReturnFlag()
-        let task = Task {
+        let task = Task.immediate {
             let open = await queue.waitForMail()
             returned.set()
             return open
         }
-        #expect(await BoundedWait.conditionReached("the waiter waits") { queue.waiterCount == 1 })
+        #expect(queue.waiterCount == 1)
         return (task, returned)
     }
 
@@ -311,8 +314,10 @@ struct MailQueueWaitTests {
 
         waiter.task.cancel()
 
+        // The cancel ends the doorbell stream, and its end removes the
+        // waiter before the wait returns.
         #expect(await waiter.task.value)
-        #expect(await BoundedWait.conditionReached("the queue forgets the waiter") { queue.waiterCount == 0 })
+        #expect(queue.waiterCount == 0)
     }
 }
 

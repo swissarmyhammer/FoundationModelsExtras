@@ -2,7 +2,6 @@ import FoundationModelsExtras
 import InMemoryTracing
 import Metrics
 import MetricsTestKit
-import Synchronization
 import TelemetryTestSupport
 import Testing
 import Tracing
@@ -47,50 +46,57 @@ struct GenerationQueueWorkerTests {
         }
     }
 
-    /// Keeps the outcome of one submitter, so a test reads it inside a bound
-    /// instead of an `await` that can hang.
+    /// Keeps the outcome of one submitter, so a test reads it while the
+    /// submitter task is still a value of the test.
     private final class OutcomeBox<Value: Sendable>: Sendable {
-        /// The outcome, or `nil` while the submitter waits.
-        private let stored = Mutex<Result<Value, any Error>?>(nil)
+        /// The outcome, when the submitter has one.
+        private let stored = Recorder<Result<Value, any Error>>()
 
         /// The outcome, or `nil` while the submitter waits.
-        var outcome: Result<Value, any Error>? { stored.withLock { $0 } }
+        var outcome: Result<Value, any Error>? { stored.values.first }
 
         /// Keeps `outcome`.
         ///
         /// - Parameter outcome: The outcome of the submitter.
         func store(_ outcome: Result<Value, any Error>) {
-            stored.withLock { $0 = outcome }
+            stored.append(outcome)
+        }
+
+        /// Waits until the box holds an outcome. The wait ends at a cancel of
+        /// the waiting task.
+        func waitForOutcome() async {
+            _ = await stored.waitUntil { !$0.isEmpty }
         }
     }
 
     /// A flag that a test or an item sets, and the number of times it was set.
     private final class Flag: Sendable {
-        /// The number of times the flag was set.
-        private let setCount = Atomic<Int>(0)
+        /// One value for each set of the flag.
+        private let sets = Recorder<Bool>()
 
         /// The number of times the flag was set.
-        var count: Int { setCount.load(ordering: .sequentiallyConsistent) }
+        var count: Int { sets.values.count }
 
         /// Whether the flag was set.
         var isSet: Bool { count > 0 }
 
         /// Sets the flag.
         func set() {
-            setCount.add(1, ordering: .sequentiallyConsistent)
+            sets.append(true)
+        }
+
+        /// Waits until the flag is set. The wait ends at a cancel of the
+        /// waiting task.
+        func waitUntilSet() async {
+            _ = await sets.waitUntil { !$0.isEmpty }
         }
     }
-
-    /// The time between two readings of a flag that an item waits for.
-    private static let flagPollNanoseconds: UInt64 = 1_000_000
 
     /// Waits until `flag` is set.
     ///
     /// - Parameter flag: The flag to wait for.
     private static func waitUntilSet(_ flag: Flag) async {
-        while !flag.isSet {
-            try? await Task.sleep(nanoseconds: flagPollNanoseconds)
-        }
+        await flag.waitUntilSet()
     }
 
     /// A result that sets a flag when its last reference goes.
@@ -136,16 +142,19 @@ struct GenerationQueueWorkerTests {
     ///
     /// - Parameters:
     ///   - queue: The queue to submit to.
+    ///   - onQueued: Called when the item must wait behind another item.
     ///   - body: The item.
     /// - Returns: The task of the submitter, and the box of its outcome.
     private static func submit<Value: Sendable>(
-        to queue: GenerationQueue, _ body: @escaping @Sendable () async throws -> Value
+        to queue: GenerationQueue,
+        onQueued: @escaping @Sendable () -> Void = {},
+        _ body: @escaping @Sendable () async throws -> Value
     ) -> (task: Task<Void, Never>, box: OutcomeBox<Value>) {
         let box = OutcomeBox<Value>()
         let task = Task {
             let outcome: Result<Value, any Error>
             do {
-                outcome = .success(try await queue.submit(body))
+                outcome = .success(try await queue.submit(onQueued: onQueued, body))
             } catch {
                 outcome = .failure(error)
             }
@@ -154,19 +163,30 @@ struct GenerationQueueWorkerTests {
         return (task, box)
     }
 
-    /// Waits inside the bound until `box` holds an outcome.
+    /// Waits until `box` holds an outcome. A queue that never resumes the
+    /// submitter gives no event, thus this wait has no other end.
     ///
     /// - Parameters:
     ///   - box: The box of one submitter.
     ///   - label: What the outcome means, named in the recorded issue.
     /// - Returns: The outcome.
-    /// - Throws: An `ExpectationFailedError` when no outcome came inside the
-    ///   bound.
+    /// - Throws: An `ExpectationFailedError` when the box holds no outcome
+    ///   after the wait, which occurs only at a cancel of the test.
     private static func outcome<Value: Sendable>(
         of box: OutcomeBox<Value>, named label: String
     ) async throws -> Result<Value, any Error> {
-        _ = await BoundedWait.conditionReached(label) { box.outcome != nil }
-        return try #require(box.outcome)
+        await box.waitForOutcome()
+        return try #require(box.outcome, "\(label)")
+    }
+
+    /// Waits until `flag` is set, or until `box` holds an outcome. An item
+    /// that ends or fails before it sets the flag thus ends the wait.
+    ///
+    /// - Parameters:
+    ///   - flag: The flag that the item, or its `onQueued`, sets.
+    ///   - box: The box of the submitter of the item.
+    private static func waitUntilSet<Value: Sendable>(_ flag: Flag, orUntilOutcomeOf box: OutcomeBox<Value>) async {
+        await Waits.untilFirstEnds({ await flag.waitUntilSet() }, { await box.waitForOutcome() })
     }
 
     /// Whether `outcome` is a `CancellationError`.
@@ -186,22 +206,28 @@ struct GenerationQueueWorkerTests {
     ///   - log: The log the item enters, as `"holder"`.
     ///   - release: The flag that ends the item.
     /// - Returns: The task of the submitter, and the box of its outcome.
-    /// - Throws: An `ExpectationFailedError` when the item never ran.
+    /// - Throws: An `ExpectationFailedError` when the item ended before it
+    ///   ran.
     private static func startHolder(
         on queue: GenerationQueue, log: ItemLog, release: Flag
     ) async throws -> (task: Task<Void, Never>, box: OutcomeBox<String>) {
+        let entered = Flag()
         let holder = submit(to: queue) {
             await log.enter("holder")
+            entered.set()
             await waitUntilSet(release)
             await log.exit()
             return "holder"
         }
-        try #require(await BoundedWait.conditionReached("the holding item runs") { await log.started == ["holder"] })
+        await waitUntilSet(entered, orUntilOutcomeOf: holder.box)
+        try #require(await log.started == ["holder"])
         return holder
     }
 
-    /// Submits the item `name` to `queue`, and waits until the list holds
-    /// `waiting` items.
+    /// Submits the item `name` to `queue`, and waits until the item is in the
+    /// list. The `onQueued` of the submission tells when the item waits. An
+    /// item that ends at once ends the wait too, and the check of the count
+    /// then fails.
     ///
     /// - Parameters:
     ///   - name: The name of the item, which it also returns.
@@ -212,12 +238,14 @@ struct GenerationQueueWorkerTests {
     private static func submitWaiting(
         _ name: String, to queue: GenerationQueue, log: ItemLog, waiting: Int
     ) async -> (task: Task<Void, Never>, box: OutcomeBox<String>) {
-        let item = submit(to: queue) {
+        let queued = Flag()
+        let item = submit(to: queue, onQueued: { queued.set() }) {
             await log.enter(name)
             await log.exit()
             return name
         }
-        _ = await BoundedWait.conditionReached("the item \(name) waits") { await queue.waitingCount == waiting }
+        await waitUntilSet(queued, orUntilOutcomeOf: item.box)
+        #expect(await queue.waitingCount == waiting)
         return item
     }
 
@@ -260,10 +288,9 @@ struct GenerationQueueWorkerTests {
 
             release.set()
             _ = try await Self.outcome(of: holder.box, named: "the holder result")
-            try #require(
-                await BoundedWait.conditionReached("every item in the line runs") {
-                    await log.started.count == names.count + 1
-                })
+            // The queue is FIFO: when an item submitted after the line ends,
+            // each item of the line ran.
+            _ = try await queue.submit {}
 
             try #require(await log.started == ["holder"] + names)
         }
@@ -332,15 +359,18 @@ struct GenerationQueueWorkerTests {
     func aCancelledRunningItemGetsTheCancel() async throws {
         let queue = GenerationQueue()
         let log = ItemLog()
+        let entered = Flag()
         let running = Self.submit(to: queue) {
             await log.enter("running")
+            entered.set()
             while !Task.isCancelled {
                 await Task.yield()
             }
             await log.exit()
             throw CancellationError()
         }
-        _ = await BoundedWait.conditionReached("the item runs") { await log.started == ["running"] }
+        await Self.waitUntilSet(entered, orUntilOutcomeOf: running.box)
+        try #require(await log.started == ["running"])
         let next = await Self.submitWaiting("next", to: queue, log: log, waiting: 1)
 
         running.task.cancel()
@@ -360,11 +390,13 @@ struct GenerationQueueWorkerTests {
             let release = Flag()
             let holder = try await Self.startHolder(on: queue, log: log, release: release)
             let ran = Flag()
-            let raced = Self.submit(to: queue) {
+            let queued = Flag()
+            let raced = Self.submit(to: queue, onQueued: { queued.set() }) {
                 ran.set()
                 return Self.racedValue
             }
-            _ = await BoundedWait.conditionReached("the raced item waits") { await queue.waitingCount == 1 }
+            await Self.waitUntilSet(queued, orUntilOutcomeOf: raced.box)
+            try #require(await queue.waitingCount == 1)
 
             release.set()
             raced.task.cancel()
@@ -411,13 +443,13 @@ struct GenerationQueueWorkerTests {
                 await Self.waitUntilSet(release)
             }
         }
-        let holderInside = await BoundedWait.conditionReached("the holding submission started") { entered.isSet }
+        await Waits.untilFirstEnds({ await entered.waitUntilSet() }, { _ = await holdingSubmission.result })
+        let holderInside = entered.isSet
         let waitingSubmission = Task {
             try await queue.submit(onQueued: { waiterWaits.set() }) {}
         }
-        let waiterQueued = await BoundedWait.conditionReached("the second submission waited for the worker") {
-            await queue.waitingCount == 1
-        }
+        await Waits.untilFirstEnds({ await waiterWaits.waitUntilSet() }, { _ = await waitingSubmission.result })
+        let waiterQueued = await queue.waitingCount == 1
         release.set()
         try await holdingSubmission.value
         try await waitingSubmission.value
@@ -451,8 +483,24 @@ struct GenerationQueueWorkerTests {
     /// The error that the body of the failing job throws.
     private struct BodyError: Error {}
 
-    /// The time that the first job of the timing test runs, in nanoseconds.
-    private static let firstRunNanoseconds: Int64 = 20_000_000
+    /// The number of times the first job of the timing test yields while it
+    /// runs.
+    private static let yieldsInsideTheFirstJob = 10
+
+    /// The number of nanoseconds in one second.
+    private static let nanosecondsPerSecond: Int64 = 1_000_000_000
+
+    /// The number of attoseconds in one nanosecond.
+    private static let attosecondsPerNanosecond: Int64 = 1_000_000_000
+
+    /// Gives `duration` in whole nanoseconds.
+    ///
+    /// - Parameter duration: The duration.
+    /// - Returns: The nanoseconds of `duration`, with the remainder dropped.
+    private static func nanoseconds(of duration: Duration) -> Int64 {
+        duration.components.seconds * nanosecondsPerSecond
+            + duration.components.attoseconds / attosecondsPerNanosecond
+    }
 
     /// The number of jobs in the depth test: a holder and two waiting jobs.
     private static let threeJobs = 3
@@ -478,25 +526,35 @@ struct GenerationQueueWorkerTests {
         let log = ItemLog()
         let release = Flag()
 
-        try await withMetricsFactory(metrics) {
+        let firstBodyTime = try await withMetricsFactory(metrics) {
             let holder = try await Self.startHolder(on: queue, log: log, release: release)
-            let first = Self.submit(to: queue) {
-                try await Task.sleep(for: .nanoseconds(Self.firstRunNanoseconds))
-                return "first"
+            // The job measures its own body on the continuous clock of the
+            // queue timers. The run timer starts before the body and stops
+            // after it, thus the run time covers this measure, and the test
+            // needs no clock wait to make the run time long.
+            let firstQueued = Flag()
+            let first = Self.submit(to: queue, onQueued: { firstQueued.set() }) {
+                let start = ContinuousClock.now
+                for _ in 0..<Self.yieldsInsideTheFirstJob {
+                    await Task.yield()
+                }
+                return Self.nanoseconds(of: ContinuousClock.now - start)
             }
-            _ = await BoundedWait.conditionReached("the first job waits") { await queue.waitingCount == 1 }
+            await Self.waitUntilSet(firstQueued, orUntilOutcomeOf: first.box)
+            try #require(await queue.waitingCount == 1)
             let second = await Self.submitWaiting("second", to: queue, log: log, waiting: Self.itemsBehindTheFirst)
             release.set()
             _ = try await Self.outcome(of: holder.box, named: "the holder result").get()
-            _ = try await Self.outcome(of: first.box, named: "the first result").get()
+            let firstBodyTime = try await Self.outcome(of: first.box, named: "the first result").get()
             _ = try await Self.outcome(of: second.box, named: "the second result").get()
+            return firstBodyTime
         }
 
         let wait = try QueueMetricExpectations.waitTimes(
             in: metrics, queue: QueueMetric.queue, outcome: QueueMetric.succeeded)
         let run = try QueueMetricExpectations.runTimes(in: metrics, queue: QueueMetric.queue, outcome: QueueMetric.succeeded)
         try #require(wait.count == Self.secondWaitingJob + 1 && run.count == Self.secondWaitingJob + 1)
-        #expect(run[Self.firstWaitingJob] >= Self.firstRunNanoseconds)
+        #expect(run[Self.firstWaitingJob] >= firstBodyTime)
         #expect(wait[Self.secondWaitingJob] >= run[Self.firstWaitingJob])
     }
 
@@ -555,14 +613,17 @@ struct GenerationQueueWorkerTests {
         let log = ItemLog()
 
         let outcome = try await withMetricsFactory(metrics) {
+            let entered = Flag()
             let running = Self.submit(to: queue) {
                 await log.enter("running")
+                entered.set()
                 while !Task.isCancelled {
                     await Task.yield()
                 }
                 throw CancellationError()
             }
-            _ = await BoundedWait.conditionReached("the job runs") { await log.started == ["running"] }
+            await Self.waitUntilSet(entered, orUntilOutcomeOf: running.box)
+            try #require(await log.started == ["running"])
             running.task.cancel()
             return try await Self.outcome(of: running.box, named: "the running result")
         }

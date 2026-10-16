@@ -23,41 +23,53 @@ struct GenerationQueueEnqueueTests {
     /// worker until the test finishes the returned continuation. Returns when
     /// the job runs.
     ///
+    /// A worker that never runs a job gives no event, thus the wait for the
+    /// holder has no fault event of its own. Each later wait of a test does.
+    ///
     /// - Parameters:
     ///   - queue: The queue.
     ///   - log: The log.
     /// - Returns: Finish this to end the job.
-    /// - Throws: An `ExpectationFailedError` when the job never ran.
     private static func enqueueHolder(
         on queue: GenerationQueue, log: Recorder<String>
-    ) async throws -> AsyncStream<Void>.Continuation {
+    ) async -> AsyncStream<Void>.Continuation {
         let (mayEnd, end) = AsyncStream.makeStream(of: Void.self)
         queue.enqueue {
             log.append("holder")
             for await _ in mayEnd {}
         }
-        try #require(await BoundedWait.conditionReached("the holder runs") { log.values == ["holder"] })
+        await log.waitUntil { $0.contains("holder") }
         return end
+    }
+
+    /// Waits until each job that entered `queue` before this call ended. The
+    /// queue runs its jobs first in first out, thus an empty job that the
+    /// call submits runs after them.
+    ///
+    /// - Parameter queue: The queue.
+    /// - Throws: The error of the submit.
+    private static func waitForTheEarlierJobs(of queue: GenerationQueue) async throws {
+        try await queue.submit {}
     }
 
     @Test("enqueued jobs and a submitted job run in the order that they enter the queue")
     func enqueuedAndSubmittedJobsRunInEntryOrder() async throws {
         let queue = GenerationQueue()
         let log = Recorder<String>()
-        let endHolder = try await Self.enqueueHolder(on: queue, log: log)
+        let endHolder = await Self.enqueueHolder(on: queue, log: log)
 
         queue.enqueue { log.append("first enqueued") }
-        let submitted = Task { try await queue.submit { log.append("submitted") } }
-        try #require(await BoundedWait.conditionReached("the submitted job waits") {
-            await queue.waitingCount == Self.waitingBeforeTheSecondEnqueue
-        })
+        let queued = RunLatch()
+        let submitted = Task {
+            try await queue.submit(onQueued: { queued.open() }) { log.append("submitted") }
+        }
+        await Waits.untilFirstEnds({ await queued.waitUntilOpen() }, { _ = await submitted.result })
+        try #require(await queue.waitingCount == Self.waitingBeforeTheSecondEnqueue)
         queue.enqueue { log.append("second enqueued") }
         let waitingBeforeTheEnd = await queue.waitingCount
         endHolder.finish()
         try await submitted.value
-        try #require(await BoundedWait.conditionReached("every job runs") {
-            log.values.count == Self.jobsInTheOrderTest
-        })
+        try await Self.waitForTheEarlierJobs(of: queue)
 
         #expect(waitingBeforeTheEnd == Self.jobsInTheOrderTest - 1)
         #expect(log.values == ["holder", "first enqueued", "submitted", "second enqueued"])
@@ -72,8 +84,9 @@ struct GenerationQueueEnqueueTests {
             withUnsafeCurrentTask { $0?.cancel() }
             queue.enqueue { log.append("ran") }
         }.value
+        try await Self.waitForTheEarlierJobs(of: queue)
 
-        #expect(await BoundedWait.conditionReached("the enqueued job runs") { log.values == ["ran"] })
+        #expect(log.values == ["ran"])
     }
 
     /// The model of the queue in the test of a model queue.
@@ -92,11 +105,9 @@ struct GenerationQueueEnqueueTests {
             queue.enqueue {}
         }
 
-        let completed = await BoundedWait.conditionReached("the enqueued job completes") {
-            (try? QueueMetricExpectations.taskCounts(
-                in: metrics, queue: dimensions, outcome: QueueOutcome.succeeded.rawValue)) != nil
-        }
-        #expect(completed)
+        // The empty job runs outside the factory, thus it records nothing in
+        // `metrics`.
+        try await Self.waitForTheEarlierJobs(of: queue)
         try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: dimensions, outcome: .succeeded, ran: true)
         #expect(try QueueMetricExpectations.depth(in: metrics, queue: dimensions) == Self.depthOfOneJob)
     }

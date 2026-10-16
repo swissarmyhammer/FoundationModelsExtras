@@ -8,7 +8,7 @@ import ULID
 /// ``ToolDisplayEvent`` with the run, the sink gets it in
 /// ``OperationEventSink/post(display:)``, and no display event goes in the
 /// lane of the model.
-@Suite("ToolDisplayEvent: the display-only event lane of a tool", .timeLimit(.minutes(1)))
+@Suite("ToolDisplayEvent: the display-only event lane of a tool")
 struct ToolDisplayEventTests {
     private typealias Fixtures = MountFixtures
 
@@ -52,8 +52,12 @@ struct ToolDisplayEventTests {
         let description = "posts one display event, then blocks until its gate opens"
         let gate: RunLatch
 
+        /// Opens when the post of the display event returned.
+        var posted = RunLatch()
+
         func call(arguments: MountArguments) async throws -> String {
             await ToolContext.current?.post(display: .contentChunk(.text(arguments.value)))
+            posted.open()
             await gate.waitUntilOpen()
             return "gated display: \(arguments.value)"
         }
@@ -121,11 +125,17 @@ struct ToolDisplayEventTests {
     @Test("a display event of a background run does not change the progress detail that the model reads")
     func backgroundDisplayLeavesTheProgressDetail() async throws {
         let gate = RunLatch()
-        let harness = Fixtures.backgroundHarness(wrapping: GatedDisplayTool(gate: gate))
+        let tool = GatedDisplayTool(gate: gate)
+        let harness = Fixtures.backgroundHarness(wrapping: tool)
 
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "chunk"))
         let envelope = try Fixtures.decodeEnvelope(rendered)
-        try await AwaitedCondition.wait { await !harness.sink.displays.isEmpty }
+        // A run that ends with no post lets the test go on, and the checks
+        // below fail.
+        let runPlane = harness.runPlane
+        await Waits.untilFirstEnds(
+            { await tool.posted.waitUntilOpen() },
+            { _ = await runPlane.wait(completionToken: envelope.completionToken, seconds: nil) })
 
         #expect(await harness.sink.displays.map(\.correlationID) == [envelope.completionToken])
         #expect(await harness.runPlane.backgroundRuns().map(\.latestProgressDetail) == [nil])

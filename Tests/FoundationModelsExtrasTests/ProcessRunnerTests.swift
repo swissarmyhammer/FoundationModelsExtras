@@ -16,7 +16,11 @@ import Testing
 ///
 /// Each test is unit-fast: a child ends on its own in a fraction of a second,
 /// or the runner kills it at a short timeout.
-@Suite(.timeLimit(.minutes(1))) struct ProcessRunnerTests {
+/// No test sleeps or polls. A test that needs the pid of a running child
+/// gets it from the child through a named pipe (``PidHandshake``). The wait
+/// for the exit of a grandchild is the one wait with a deadline, because only
+/// the OS reports that exit (``exits(_:within:)``).
+@Suite struct ProcessRunnerTests {
 
   /// A timeout that no test reaches: the child ends on its own first.
   private static let generousTimeout: Duration = .seconds(30)
@@ -36,12 +40,17 @@ import Testing
   /// The count of lines `seq` writes in the output-cap tests.
   private static let manyLines = 100_000
 
-  /// The pause between two reads of a registry, or of a pid, while a test
-  /// waits for a state change.
-  private static let pollInterval: Duration = .milliseconds(10)
+  /// The bytes that the handshake child writes before it gives its pid. The
+  /// count is larger than the buffer of a pipe, thus the write ends only
+  /// after the runner reads the pipe. The runner starts to read only after
+  /// it registered the pid, thus the pid is in the registry when the test
+  /// gets it.
+  private static let pipeFillBytes = 262_144
 
-  /// The count of polls a test makes before it gives up on a state change.
-  private static let pollAttempts = 300
+  /// The deadline of the wait for the exit of a grandchild. The grandchild
+  /// sleeps for ``longSleepSeconds``, which is longer, thus a grandchild that
+  /// the group kill did not reach is still alive at the deadline.
+  private static let grandchildExitDeadline: Duration = .seconds(30)
 
   /// Runs `/bin/sh -c script` through the runner with the given cap and
   /// registry, in a temporary directory.
@@ -55,39 +64,106 @@ import Testing
       registry: registry)
   }
 
-  /// Runs `/bin/sleep 60` through the runner with the given timeout and
-  /// registry.
-  private static func runLongSleep(timeout: Duration, registry: ProcessRegistry) async throws
-    -> ProcessRunner.Outcome
-  {
-    try await ProcessRunner.run(
-      executable: URL(fileURLWithPath: "/bin/sleep"), arguments: [longSleepSeconds],
-      workingDirectory: FileManager.default.temporaryDirectory, timeout: timeout,
-      outputCap: wideCap, registry: registry)
+  /// Tells whether `pid` is gone now: `kill(pid, 0)` fails with `ESRCH`.
+  ///
+  /// - Parameter pid: The pid.
+  /// - Returns: `true` when no process has the pid.
+  private static func isGone(_ pid: pid_t) -> Bool {
+    kill(pid, 0) == -1 && errno == ESRCH
   }
 
-  /// Polls `registry` until it holds one pid, and gives that pid, or `nil`
-  /// when the poll budget runs out first.
-  private static func registeredPid(in registry: ProcessRegistry) async throws -> pid_t? {
-    for _ in 0..<pollAttempts {
-      if let pid = registry.registeredPids.first {
-        return pid
-      }
-      try await Task.sleep(for: pollInterval)
+  /// A named pipe in a new temporary folder. A child writes its pid to it,
+  /// and the test reads the pid, with no poll.
+  private struct PidHandshake {
+    /// The named pipe.
+    let url: URL
+
+    /// Makes the folder and the named pipe.
+    ///
+    /// - Throws: When the folder or the pipe cannot be made.
+    init() throws {
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      url = directory.appendingPathComponent("pid")
+      try #require(mkfifo(url.path, S_IRUSR | S_IWUSR) == 0, "mkfifo failed with errno \(errno)")
     }
-    return nil
+
+    /// The shell line that writes the pid of the shell to the pipe.
+    var writeShellPid: String {
+      "echo $$ > '\(url.path)'"
+    }
+
+    /// Reads the pid from the pipe, or ends with `nil` when `run` ends first.
+    ///
+    /// The open of a named pipe blocks until the other end opens, thus the
+    /// read runs on a thread of its own. When `run` ends first, this function
+    /// opens the write end, so the read ends and the thread does not stay.
+    ///
+    /// - Parameter run: The task of the call that starts the child.
+    /// - Returns: The pid, or `nil` when no pid came.
+    func pid<Value: Sendable>(orUntilEndOf run: Task<Value, any Error>) async -> pid_t? {
+      let read = Promise<pid_t?>()
+      let path = url.path
+      Thread {
+        let data = FileHandle(forReadingAtPath: path)?.readDataToEndOfFile() ?? Data()
+        let text = String(decoding: data, as: UTF8.self)
+        read.fulfill(pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+      }.start()
+      await Waits.untilFirstEnds({ _ = await read.value }, { _ = await run.result })
+      if read.fulfilledValue == nil {
+        Thread { _ = close(open(path, O_WRONLY)) }.start()
+      }
+      return read.fulfilledValue ?? nil
+    }
+
+    /// Removes the folder of the pipe.
+    func remove() {
+      try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+    }
   }
 
-  /// Polls until `pid` is gone, and tells whether it went away inside the poll
-  /// budget. A pid is gone when `kill(pid, 0)` fails with `ESRCH`.
-  private static func isGone(_ pid: pid_t) async throws -> Bool {
-    for _ in 0..<pollAttempts {
-      if kill(pid, 0) == -1 && errno == ESRCH {
-        return true
-      }
-      try await Task.sleep(for: pollInterval)
+  /// Waits until `pid` exits, or until `deadline` passes.
+  ///
+  /// The group kill stops a grandchild, and launchd then owns the
+  /// grandchild. Only the OS reports its exit, as a `NOTE_EXIT` event of a
+  /// kqueue. When the kill did not reach the grandchild, no event of the
+  /// runner shows it, thus this one wait has a deadline. The wait runs on a
+  /// thread of its own, because `kevent` blocks.
+  ///
+  /// - Parameters:
+  ///   - pid: The pid of the process.
+  ///   - deadline: The longest wait.
+  /// - Returns: `true` when the process exited, or was gone already.
+  private static func exits(_ pid: pid_t, within deadline: Duration) async -> Bool {
+    await withCheckedContinuation { continuation in
+      Thread { continuation.resume(returning: waitForExit(of: pid, within: deadline)) }.start()
     }
-    return false
+  }
+
+  /// Blocks in `kevent` until `pid` exits, or until `deadline` passes.
+  ///
+  /// - Parameters:
+  ///   - pid: The pid of the process.
+  ///   - deadline: The longest wait.
+  /// - Returns: `true` when the process exited, or was gone already.
+  private static func waitForExit(of pid: pid_t, within deadline: Duration) -> Bool {
+    let queue = kqueue()
+    guard queue >= 0 else { return false }
+    defer { close(queue) }
+    var change = kevent(
+      ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT), fflags: NOTE_EXIT,
+      data: 0, udata: nil)
+    var event = kevent()
+    var timeout = timespec(tv_sec: Int(deadline.components.seconds), tv_nsec: 0)
+    let count = kevent(queue, &change, 1, &event, 1, &timeout)
+    if count < 0 {
+      return errno == ESRCH
+    }
+    guard count == 1 else { return false }
+    // A registration error comes back as an event with `EV_ERROR`. A
+    // process that is already gone gives `ESRCH`.
+    return event.flags & UInt16(EV_ERROR) == 0 || event.data == Int(ESRCH)
   }
 
   // MARK: - A command that ends on its own
@@ -131,14 +207,18 @@ import Testing
 
   @Test func aCommandThatPassesTheTimeoutGivesTheTimeoutResultAndTheGroupIsGone() async throws {
     let registry = ProcessRegistry()
-    async let run = Self.runLongSleep(timeout: Self.shortTimeout, registry: registry)
-    let pid = try #require(try await Self.registeredPid(in: registry))
 
-    let outcome = try await run
+    // The shell gives its pid, then becomes the long sleep with the same pid.
+    let outcome = try await Self.runShell(
+      "echo $$; exec sleep \(Self.longSleepSeconds)", timeout: Self.shortTimeout, registry: registry)
 
     #expect(outcome.termination == .timedOut)
     #expect(registry.registeredPids.isEmpty)
-    #expect(try await Self.isGone(pid))
+    // The runner reaped the child before it returned, thus the pid is gone
+    // now, with no wait.
+    let pidLine = try #require(outcome.output.first)
+    let pid = try #require(pid_t(pidLine))
+    #expect(Self.isGone(pid))
   }
 
   @Test func aChildOfTheChildIsAlsoKilledBecauseTheKillGoesToTheGroup() async throws {
@@ -148,7 +228,7 @@ import Testing
     #expect(outcome.termination == .timedOut)
     let grandchildText = try #require(outcome.output.first)
     let grandchild = try #require(pid_t(grandchildText))
-    #expect(try await Self.isGone(grandchild))
+    #expect(await Self.exits(grandchild, within: Self.grandchildExitDeadline))
   }
 
   // MARK: - No kill after the reap
@@ -211,12 +291,19 @@ import Testing
 
   @Test func theRegistryHoldsThePidWhileTheProcessRunsAndNothingAfterTheCall() async throws {
     let registry = ProcessRegistry()
-    async let run = Self.runLongSleep(timeout: Self.generousTimeout, registry: registry)
-    let pid = try #require(try await Self.registeredPid(in: registry))
+    let handshake = try PidHandshake()
+    defer { handshake.remove() }
+    // The fill of the pipe ends only after the runner reads it, and the
+    // runner reads only after it registered the pid.
+    let script =
+      "head -c \(Self.pipeFillBytes) /dev/zero; \(handshake.writeShellPid); exec sleep \(Self.longSleepSeconds)"
+    let run = Task { try await Self.runShell(script, registry: registry) }
+    let pid = try #require(await handshake.pid(orUntilEndOf: run))
 
+    #expect(registry.registeredPids == [pid])
     #expect(kill(pid, 0) == 0)
     #expect(killpg(pid, SIGKILL) == 0)
-    let outcome = try await run
+    let outcome = try await run.value
 
     #expect(outcome.termination == .signaled(SIGKILL))
     #expect(registry.registeredPids.isEmpty)

@@ -26,15 +26,6 @@ enum MountFixtures {
     /// The limit of each wait that a test does on the run plane.
     static let settlementDeadline: TimeInterval = 30
 
-    /// One hour in nanoseconds: the sleep of a tool that must never return.
-    static let hourInNanoseconds: UInt64 = 3_600_000_000_000
-
-    /// The pause between two polls, in nanoseconds.
-    static let pollIntervalNanoseconds: UInt64 = 5_000_000
-
-    /// The number of polls before a bounded poll stops.
-    static let pollAttempts = 1_000
-
     // MARK: - Telemetry of a background call
 
     /// The span names of one background call whose run settled, sorted: the
@@ -75,20 +66,27 @@ enum MountFixtures {
     // MARK: - Sink
 
     /// A sink that keeps each event, each display event and each report, in
-    /// order.
+    /// order. A test waits on ``eventLog`` or ``displayLog`` for a post, with
+    /// no poll.
     actor RecordingSink: OperationEventSink, ToolCallReportSink {
         /// Each event, in post order.
-        private(set) var events: [OperationEvent] = []
+        nonisolated let eventLog = Recorder<OperationEvent>()
 
         /// Each display event, in post order.
-        private(set) var displays: [ToolDisplayEvent] = []
+        nonisolated let displayLog = Recorder<ToolDisplayEvent>()
+
+        /// Each event, in post order.
+        var events: [OperationEvent] { eventLog.values }
+
+        /// Each display event, in post order.
+        var displays: [ToolDisplayEvent] { displayLog.values }
 
         /// Each report, in post order.
         private(set) var reports: [ToolCallReport] = []
 
         /// Keeps `event`.
         func post(event: OperationEvent) {
-            events.append(event)
+            eventLog.append(event)
         }
 
         /// Keeps `event`.
@@ -98,7 +96,15 @@ enum MountFixtures {
         /// that call uses the empty default of `OperationEventSink`, and the
         /// display event is lost.
         func post(display event: ToolDisplayEvent) async {
-            displays.append(event)
+            displayLog.append(event)
+        }
+
+        /// Waits until the sink got an event that `matches`, or until the
+        /// task is cancelled.
+        ///
+        /// - Parameter matches: Tells if an event is the event to wait for.
+        nonisolated func waitForAnEvent(where matches: @escaping @Sendable (OperationEvent) -> Bool) async {
+            await eventLog.waitUntil { events in events.contains(where: matches) }
         }
 
         /// Keeps `report`.
@@ -384,22 +390,39 @@ enum MountFixtures {
         return try #require(result.settledTerminal, "run \(completionToken) did not settle: \(result)")
     }
 
-    /// Waits, with no wall clock, until an elicitation is pending on
-    /// `runPlane`, and returns its id. The caller sets a `.timeLimit`.
-    static func firstPendingElicitationId(in runPlane: RunPlane) async throws -> ULID {
-        try await AwaitedCondition.wait { await !runPlane.pendingElicitationIds().isEmpty }
-        return try #require(await runPlane.pendingElicitationIds().first)
+    /// Waits until `sink` gets the elicitation event of a question, or until
+    /// `ended` ends first, and returns the id of the question.
+    ///
+    /// - Parameters:
+    ///   - sink: The sink that the question posts to.
+    ///   - ended: The wait for the event that shows that no question comes,
+    ///     for example the end of the call or the settle of the run.
+    /// - Returns: The id of the first question that the sink got.
+    /// - Throws: When the sink got no question.
+    static func firstQuestionId(
+        postedTo sink: RecordingSink, orUntil ended: @escaping @Sendable () async -> Void
+    ) async throws -> ULID {
+        await Waits.untilFirstEnds({ await sink.waitForAnEvent { $0.elicitation != nil } }, ended)
+        let question = await sink.events.compactMap(\.elicitation).first
+        return try #require(question?.elicitationId, "the sink got no question")
     }
 
-    /// Polls `fact`, with a bound, until it gives a value.
-    static func poll<Value>(_ fact: () async -> Value?) async throws -> Value? {
-        for _ in 0..<pollAttempts {
-            if let value = await fact() {
-                return value
-            }
-            try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+    /// Waits until `sink` gets the elicitation event of a question, or until
+    /// the run of `completionToken` settles first, and returns the id of the
+    /// question.
+    ///
+    /// - Parameters:
+    ///   - sink: The sink that the question posts to.
+    ///   - completionToken: The completion token of the run that asks.
+    ///   - runPlane: The run plane that tracks the run.
+    /// - Returns: The id of the first question that the sink got.
+    /// - Throws: When the sink got no question.
+    static func firstQuestionId(
+        postedTo sink: RecordingSink, byRun completionToken: String, on runPlane: RunPlane
+    ) async throws -> ULID {
+        try await firstQuestionId(postedTo: sink) {
+            _ = await runPlane.wait(completionToken: completionToken, seconds: nil)
         }
-        return nil
     }
 
     // MARK: - Tools
@@ -453,7 +476,11 @@ enum MountFixtures {
         /// The canceler of each run of this tool.
         let processCanceler: @Sendable () async -> OperationOutcome
 
+        /// Opens when the body starts, before it waits on its gate.
+        var started = RunLatch()
+
         func call(arguments: MountArguments) async throws -> String {
+            started.open()
             await gate.waitUntilOpen()
             return "process: \(arguments.value)"
         }
@@ -475,13 +502,13 @@ enum MountFixtures {
         }
     }
 
-    /// Sleeps until it is cancelled.
+    /// Waits until its task is cancelled, then throws `CancellationError`.
     struct SleepingTool: Tool {
         let name = "sleeping_tool"
         let description = "sleeps until cancelled"
 
         func call(arguments: MountArguments) async throws -> String {
-            try await Task.sleep(nanoseconds: hourInNanoseconds)
+            try await Waits.untilCancelled()
             return "never returned"
         }
     }
@@ -520,30 +547,42 @@ enum MountFixtures {
         }
     }
 
-    /// Posts progress each `interval` seconds for `beats` beats, then returns.
+    /// Waits on its gate, posts `beats` progress events, opens `beaten`, then
+    /// waits on `finish` and returns.
     struct HeartbeatTool: Tool {
         let name = "heartbeat_tool"
         let description = "posts periodic progress then returns"
         let beats: Int
-        let interval: TimeInterval
+
+        /// The gate that the first beat waits for.
+        let gate: RunLatch
+
+        /// Opens when the post of the last beat returned.
+        let beaten: RunLatch
+
+        /// The gate that the return waits for.
+        let finish: RunLatch
 
         func call(arguments: MountArguments) async throws -> String {
+            await gate.waitUntilOpen()
             for beat in 0..<beats {
-                try await Task.sleep(for: .seconds(interval))
                 await ToolContext.current?.progress("beat \(beat)")
             }
+            beaten.open()
+            await finish.waitUntilOpen()
             return "heartbeat done"
         }
     }
 
-    /// Sleeps for an hour, and declares a timeout for each call.
+    /// Waits until its task is cancelled, and declares a timeout for each
+    /// call.
     struct PerCallTimeoutTool: Tool, BackgroundTool {
         let name = "per_call_timeout_tool"
         let description = "supplies a short per-call timeout"
         let timeoutSeconds: TimeInterval
 
         func call(arguments: MountArguments) async throws -> String {
-            try await Task.sleep(nanoseconds: hourInNanoseconds)
+            try await Waits.untilCancelled()
             return "never returned"
         }
 
@@ -552,13 +591,14 @@ enum MountFixtures {
         }
     }
 
-    /// Sleeps for an hour, and declares no timeout for a call.
+    /// Waits until its task is cancelled, and declares no timeout for a
+    /// call.
     struct NilTimeoutTool: Tool, BackgroundTool {
         let name = "nil_timeout_tool"
         let description = "supplies no per-call timeout at all"
 
         func call(arguments: MountArguments) async throws -> String {
-            try await Task.sleep(nanoseconds: hourInNanoseconds)
+            try await Waits.untilCancelled()
             return "never returned"
         }
 
@@ -732,7 +772,7 @@ enum MountFixtures {
         }
     }
 
-    /// Asks one question, then sleeps for an hour.
+    /// Asks one question, then waits until its task is cancelled.
     struct ElicitThenStallTool: Tool {
         let name = "elicit_then_stall_tool"
         let description = "asks one question then stalls forever"
@@ -740,41 +780,36 @@ enum MountFixtures {
         func call(arguments: MountArguments) async throws -> String {
             let context = try #require(ToolContext.current)
             _ = try await context.elicit(proceedRequest())
-            try await Task.sleep(nanoseconds: hourInNanoseconds)
+            try await Waits.untilCancelled()
             return "never returned"
         }
     }
 
-    /// Records that a tool saw the cancellation flag of its run.
-    actor CancellationWitness {
-        /// Whether the tool saw the flag.
-        private(set) var isObserved = false
-
-        /// Records that the tool saw the flag.
-        func mark() {
-            isObserved = true
-        }
+    /// Keeps the context of the run of a ``CancellationFlagTool``, so a test
+    /// reads the cancellation flag that the tool reads.
+    struct CancellationWitness {
+        /// Gets the context of the run when the tool starts.
+        let context = Promise<ToolContext>()
     }
 
-    /// Polls ``ToolContext/isCancelled``, never the task cancellation, and
-    /// returns when the flag is set.
-    struct CancellationFlagPollingTool: Tool {
-        let name = "flag_polling_tool"
+    /// Gives its context to its witness, waits until its task is cancelled,
+    /// and then reads ``ToolContext/isCancelled``. It returns normally with
+    /// what the flag tells.
+    struct CancellationFlagTool: Tool {
+        /// The output when the flag was set at the cancel.
+        static let observedOutput = "observed cancellation"
+
+        let name = "flag_reading_tool"
         let description = "returns when the ambient cancellation flag flips"
         let witness: CancellationWitness
 
         func call(arguments: MountArguments) async throws -> String {
             let context = try #require(ToolContext.current)
-            for _ in 0..<pollAttempts {
-                if context.isCancelled {
-                    await witness.mark()
-                    return "observed cancellation"
-                }
-                // The tool ignores the cancellation error on purpose: it
-                // cooperates through the flag only.
-                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
-            }
-            return "never cancelled"
+            witness.context.fulfill(context)
+            // The tool ignores the cancellation error on purpose: it
+            // cooperates through the flag only.
+            try? await Waits.untilCancelled()
+            return context.isCancelled ? Self.observedOutput : "never cancelled"
         }
     }
 

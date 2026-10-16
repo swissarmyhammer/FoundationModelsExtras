@@ -186,13 +186,15 @@ struct ElicitationEndEventTests {
     /// while the sink held the end, and that the end reached the sink before
     /// each step.
     ///
-    /// When a step comes too early, its progress event opens the gate, so
-    /// the test fails and does not hang.
+    /// When a step comes before the end post, the test fails at once and
+    /// does not wait for the end post.
     ///
     /// - Parameter stop: Stops the run of the token on the run plane.
+    /// - Throws: When a step comes before the end post, or the stream ends
+    ///   first.
     private static func expectEndBeforeResumeAndCanceler(
         stoppedBy stop: @escaping @Sendable (RunPlane, String) async -> Void
-    ) async {
+    ) async throws {
         let runPlane = RunPlane()
         let gate = RunLatch.closed()
         let steps = Recorder<String>()
@@ -203,7 +205,9 @@ struct ElicitationEndEventTests {
         await reader.wait(for: [.asked(request.elicitationId)])
 
         let stopping = Task { await stop(runPlane, run.token) }
-        await reader.wait(for: [.endHeld(request.elicitationId)])
+        let first = await reader.waitForFirst(
+            of: [.endHeld(request.elicitationId), .progress(resumedDetail), .progress(cancelerDetail)])
+        try #require(first == .endHeld(request.elicitationId), "a step came before the end post")
         let stepsWhileHeld = steps.values
         #expect(stepsWhileHeld.isEmpty)
         if stepsWhileHeld.isEmpty {
@@ -220,15 +224,15 @@ struct ElicitationEndEventTests {
     }
 
     @Test("a cancel of the run posts the end before the run resumes and before the canceler runs")
-    func aCancelPostsTheEndBeforeTheRunResumesAndBeforeTheCanceler() async {
-        await Self.expectEndBeforeResumeAndCanceler { runPlane, token in
+    func aCancelPostsTheEndBeforeTheRunResumesAndBeforeTheCanceler() async throws {
+        try await Self.expectEndBeforeResumeAndCanceler { runPlane, token in
             _ = await runPlane.cancel(completionToken: token)
         }
     }
 
     @Test("the sweep posts the end before the run resumes and before the canceler runs")
-    func theSweepPostsTheEndBeforeTheRunResumesAndBeforeTheCanceler() async {
-        await Self.expectEndBeforeResumeAndCanceler { runPlane, _ in
+    func theSweepPostsTheEndBeforeTheRunResumesAndBeforeTheCanceler() async throws {
+        try await Self.expectEndBeforeResumeAndCanceler { runPlane, _ in
             _ = await runPlane.sweep()
         }
     }
@@ -583,7 +587,7 @@ struct ElicitationEndEventTests {
     }
 
     @Test("endElicitation ends an open form question: the end post gives the response after the question, and the run resumes after the end post")
-    func endElicitationEndsAnOpenQuestionInOrder() async {
+    func endElicitationEndsAnOpenQuestionInOrder() async throws {
         let runPlane = RunPlane()
         let gate = RunLatch.closed()
         let steps = Recorder<String>()
@@ -595,7 +599,8 @@ struct ElicitationEndEventTests {
         await reader.wait(for: [.asked(request.elicitationId)])
 
         let ending = Task { await runPlane.endElicitation(request.elicitationId, with: Self.endedInSubagent) }
-        await reader.wait(for: [.endHeld(request.elicitationId)])
+        let first = await reader.waitForFirst(of: [.endHeld(request.elicitationId), .progress(Self.resumedDetail)])
+        try #require(first == .endHeld(request.elicitationId), "the run resumed before the end post")
         let stepsWhileHeld = steps.values
         #expect(stepsWhileHeld.isEmpty)
         #expect(await runPlane.endingElicitations() == [request.elicitationId])

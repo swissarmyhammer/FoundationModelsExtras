@@ -10,16 +10,50 @@ import Testing
 /// compile if any of this API stops being `public`.
 @Suite("Doctor runner") struct DoctorRunnerTests {
 
-    // MARK: - The timings the concurrency tests spend
-
-    /// How long the first component sleeps in the ordering test. Long enough
-    /// that the second component finishes first on any machine, and short
-    /// enough that the suite stays fast.
-    private static let orderingDelay: Duration = .milliseconds(200)
+    // MARK: - The watchdog of the concurrency tests
 
     /// How long the watchdog waits before it declares the runner serial. Far
     /// longer than a concurrent runner needs, so a slow machine never fires it.
+    ///
+    /// A serial runner leaves the components in a deadlock that gives no
+    /// event, thus only this deadline can end the run of such a runner. A
+    /// concurrent runner ends the run before the deadline, and the watchdog
+    /// is then cancelled.
     private static let watchdogPatience: Duration = .seconds(5)
+
+    /// Runs `runner`, and breaks a deadlock with `breakDeadlock` when the run
+    /// does not end inside ``watchdogPatience``.
+    ///
+    /// The watchdog sets its flag before it breaks the deadlock, so the flag
+    /// already stands when the deadlocked run resumes. The function awaits
+    /// the watchdog after the run, thus the reading is deterministic in both
+    /// cases.
+    ///
+    /// - Parameters:
+    ///   - runner: The runner to run.
+    ///   - breakDeadlock: Resumes each component that waits.
+    /// - Returns: The report, and whether the watchdog had to break a
+    ///   deadlock.
+    private static func run(
+        _ runner: DoctorRunner, breakingADeadlockWith breakDeadlock: @escaping @Sendable () async -> Void
+    ) async -> (report: DoctorReport, didFire: Bool) {
+        let watchdogFlag = WatchdogFlag()
+        let watchdog = Task {
+            do {
+                try await Task.sleep(for: watchdogPatience)
+            } catch {
+                return
+            }
+            await watchdogFlag.fire()
+            await breakDeadlock()
+        }
+
+        let report = await runner.run()
+        watchdog.cancel()
+        await watchdog.value
+
+        return (report, await watchdogFlag.didFire)
+    }
 
     /// How many components the barrier test registers.
     private static let barrierPartyCount = 10
@@ -124,9 +158,6 @@ import Testing
         /// Reports at once.
         case reportsAtOnce
 
-        /// Sleeps for the given time, then reports.
-        case sleeps(Duration)
-
         /// Waits until the signal is set, then reports.
         case waitsFor(Signal)
 
@@ -141,8 +172,6 @@ import Testing
             switch self {
             case .reportsAtOnce:
                 break
-            case .sleeps(let duration):
-                try? await Task.sleep(for: duration)
             case .waitsFor(let signal):
                 await signal.wait()
             case .sets(let signal):
@@ -209,19 +238,6 @@ import Testing
         #expect(report.exitCode == DoctorTestSupport.passingExitCode)
     }
 
-    // MARK: - The order of the report
-
-    @Test func `the report keeps the registration order when the first component is slow`() async {
-        let runner = DoctorRunner(components: [
-            StandInComponent(doctorName: "slow", behavior: .sleeps(Self.orderingDelay)),
-            StandInComponent(doctorName: "fast"),
-        ])
-
-        let report = await runner.run()
-
-        #expect(report.checks.map(\.name) == ["slow", "fast"])
-    }
-
     // MARK: - One broken component does not stop the others
 
     @Test func `a component that reports only errors does not stop the other components`() async {
@@ -240,39 +256,21 @@ import Testing
     // MARK: - The components run at the same time
 
     /// The first component reports only after the second one has run, so the
-    /// run can finish at all only when the two run at the same time.
+    /// run can finish at all only when the two run at the same time. The
+    /// first component ends last, thus the test also shows that the report
+    /// keeps the registration order when the first component is slow.
     ///
-    /// The watchdog is what makes a serial runner **fail**. The
-    /// `.timeLimit(.minutes(1))` trait is a last backstop only: swift-testing
-    /// enforces a time limit by cancellation, cancellation never resumes a
-    /// pending continuation, and a test that leaned on the trait alone would
-    /// hang in place of failing. The watchdog sets its flag before it sets the
-    /// signal, so the flag already stands when the deadlocked run resumes, and
-    /// awaiting `watchdog.value` makes the reading deterministic in both cases.
-    @Test(.timeLimit(.minutes(1)))
-    func `one slow component does not hold back the others`() async {
+    /// The watchdog of ``run(_:breakingADeadlockWith:)`` is what makes a
+    /// serial runner **fail** and not hang.
+    @Test func `one slow component does not hold back the others`() async {
         let signal = Signal()
-        let watchdogFlag = WatchdogFlag()
         let runner = DoctorRunner(components: [
             StandInComponent(doctorName: "waiting", behavior: .waitsFor(signal)),
             StandInComponent(doctorName: "signalling", behavior: .sets(signal)),
         ])
 
-        let watchdog = Task {
-            do {
-                try await Task.sleep(for: Self.watchdogPatience)
-            } catch {
-                return
-            }
-            await watchdogFlag.fire()
-            await signal.signal()
-        }
+        let (report, didFire) = await Self.run(runner) { await signal.signal() }
 
-        let report = await runner.run()
-        watchdog.cancel()
-        await watchdog.value
-
-        let didFire = await watchdogFlag.didFire
         #expect(didFire == false)
         #expect(report.checks.map(\.name) == ["waiting", "signalling"])
     }
@@ -285,30 +283,14 @@ import Testing
     /// The watchdog breaks that deadlock the same way it does in ``one slow
     /// component does not hold back the others``, so a serial runner fails
     /// this test instead of hanging.
-    @Test(.timeLimit(.minutes(1)))
-    func `components that each wait for the others finish only when the runner starts them all at once`() async {
+    @Test func `components that each wait for the others finish only when the runner starts them all at once`() async {
         let barrier = Barrier(partyCount: Self.barrierPartyCount)
-        let watchdogFlag = WatchdogFlag()
         let components = (1...Self.barrierPartyCount).map { position in
             StandInComponent(doctorName: "sleeper-\(position)", behavior: .arrivesAt(barrier))
         }
-        let runner = DoctorRunner(components: components)
 
-        let watchdog = Task {
-            do {
-                try await Task.sleep(for: Self.watchdogPatience)
-            } catch {
-                return
-            }
-            await watchdogFlag.fire()
-            await barrier.release()
-        }
+        let (report, didFire) = await Self.run(DoctorRunner(components: components)) { await barrier.release() }
 
-        let report = await runner.run()
-        watchdog.cancel()
-        await watchdog.value
-
-        let didFire = await watchdogFlag.didFire
         #expect(didFire == false)
         #expect(report.checks.count == Self.barrierPartyCount)
     }

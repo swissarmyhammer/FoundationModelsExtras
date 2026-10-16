@@ -252,6 +252,21 @@ struct SignalReader {
         }
     }
 
+    /// Reads until it reads one signal of `signals`, and keeps each signal
+    /// that it read.
+    ///
+    /// - Parameter signals: The signals to wait for.
+    /// - Returns: The first signal of `signals` that the reader read, or
+    ///   `nil` when the stream ends first.
+    mutating func waitForFirst(of signals: Set<ElicitationSignal>) async -> ElicitationSignal? {
+        while let signal = await readNext() {
+            if signals.contains(signal) {
+                return signal
+            }
+        }
+        return nil
+    }
+
     /// Reads until it reads the elicitation event of a question, and keeps
     /// each signal that it read.
     ///

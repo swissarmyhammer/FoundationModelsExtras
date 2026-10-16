@@ -12,7 +12,7 @@ import Testing
 /// loses its access level, this file does not compile. That is the assertion
 /// that matters, because the caller is in another package, where `@testable`
 /// is not available.
-@Suite("RunPlane start, updateProgress and wait over the Testing SPI", .timeLimit(.minutes(1)))
+@Suite("RunPlane start, updateProgress and wait over the Testing SPI")
 struct RunPlaneTestingSPIPublicSurfaceTests {
     /// Starts a run on `runPlane` that waits on `latch`, then returns a
     /// terminal event with `detail`.

@@ -32,14 +32,11 @@ struct ToolCallSpanTests {
     /// place of the telemetry may carry it.
     private static let unknownOutcome = "unknown-outcome-3c8e"
 
-    /// The time that ``SlowReportSink`` holds each report post. A duration
-    /// that does not include the report is clearly shorter than this time.
-    private static let slowReportDelay = Duration.seconds(Fixtures.shortInterval)
-
     /// The largest difference that a test accepts between the duration on the
-    /// timer and the duration of the span. It is half of ``slowReportDelay``,
-    /// thus a timer that stops before the report is outside this limit.
-    private static let sameIntervalTolerance = slowReportDelay / 2
+    /// timer and the duration of the span. It is half of the settle period of
+    /// a call whose run continues, thus a timer that stops before the settle
+    /// wait is outside this limit.
+    private static let sameIntervalTolerance = Duration.seconds(pendingSettleGrace) / 2
 
     /// The settle period of a background call whose run must settle inside
     /// it. It is long, so a fast run always ends in it.
@@ -58,17 +55,23 @@ struct ToolCallSpanTests {
     /// The error that a failing body throws.
     private struct Boom: Error {}
 
-    /// A sink that holds each report post for ``slowReportDelay``, then
-    /// returns. It keeps no event.
-    private actor SlowReportSink: OperationEventSink, ToolCallReportSink {
+    /// A sink that holds each report post until the test opens ``release``.
+    /// It keeps no event.
+    private actor HeldReportSink: OperationEventSink, ToolCallReportSink {
+        /// Opens when a report post comes.
+        nonisolated let arrived = RunLatch()
+
+        /// The gate that each report post waits for.
+        nonisolated let release = RunLatch()
+
         /// Drops `event`. The test reads the telemetry only.
         func post(event: OperationEvent) {}
 
-        /// Holds the post of `report` for ``slowReportDelay``.
+        /// Opens ``arrived``, then holds the post of `report` until
+        /// ``release`` opens.
         func post(report: ToolCallReport) async {
-            // The test does not cancel the call. If a cancel stops the sleep
-            // early, the duration is too short and the test fails.
-            try? await Task.sleep(for: ToolCallSpanTests.slowReportDelay)
+            arrived.open()
+            await release.waitUntilOpen()
         }
     }
 
@@ -383,10 +386,12 @@ struct ToolCallSpanTests {
         let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace)
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
-            async let answer = harness.mounted.call(arguments: MountArguments(value: "x"))
-            _ = try await Fixtures.poll { await harness.runPlane.backgroundRuns().first }
+            let answer = Task { try await harness.mounted.call(arguments: MountArguments(value: "x")) }
+            // The run plane tracks the run before its body starts. A call
+            // that ends first lets the test go on, and the checks fail.
+            await Waits.untilFirstEnds({ await tool.started.waitUntilOpen() }, { _ = await answer.result })
             _ = await harness.runPlane.sweep()
-            _ = try await answer
+            _ = try await answer.value
             // The body still waits on its gate. It ends here, thus the
             // capture holds each record of the run when the test reads it.
             gate.open()
@@ -461,22 +466,29 @@ struct ToolCallSpanTests {
         try Self.expectOneCall(in: context, toolName: tool.name, outcome: .succeeded)
     }
 
-    @Test("a bound call whose report is slow records a duration that includes the report, over the same interval as the span")
+    @Test("a bound call whose report is held records its span and its duration only after the report, over the same interval")
     func aBoundCallTimesItsReport() async throws {
         let tool = Fixtures.AttachingNonStringOutputTool()
-        let bound = ContextBindingTool(
-            wrapping: tool, site: Fixtures.site(runPlane: RunPlane(), sink: SlowReportSink()))
+        let sink = HeldReportSink()
+        let bound = ContextBindingTool(wrapping: tool, site: Fixtures.site(runPlane: RunPlane(), sink: sink))
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
-            _ = try await bound.call(arguments: MountArguments(value: "x"))
+            let calling = Task { try await bound.call(arguments: MountArguments(value: "x")) }
+            // A call that ends with no report lets the test go on, and the
+            // checks below fail.
+            await Waits.untilFirstEnds({ await sink.arrived.waitUntilOpen() }, { _ = await calling.result })
+            // While the report is held, the span and the timer are still open.
+            #expect(context.spans.isEmpty)
+            #expect(!context.metricRecords.contains { $0.label == ExtrasTelemetry.MetricName.toolDuration })
+            sink.release.open()
+            _ = try await calling.value
             return context
         }
 
         try Self.expectOneCall(in: context, toolName: tool.name, outcome: .succeeded)
-        let recorded = try Self.expectSameInterval(
+        _ = try Self.expectSameInterval(
             in: context, span: try #require(context.spans.first), toolName: tool.name,
             outcomeValue: OperationOutcome.succeeded.rawValue)
-        #expect(recorded >= Self.slowReportDelay)
     }
 
     /// Expects that the duration on the timer of one call and the duration

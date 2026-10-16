@@ -16,7 +16,15 @@ import Testing
 /// `stop()` ends delivery and is safe from inside `onChange`, a stopped
 /// watcher starts again, and `init(stack:)` watches each layer root of a
 /// stack.
-@Suite(.timeLimit(.minutes(1))) struct DotfolderWatcherTests {
+///
+/// The file system events come from the OS. No event of the watcher shows an
+/// event that the OS never gives, thus each wait for an OS event has one
+/// deadline (``waitForOSEvent(within:_:)``), and no poll. A check that an
+/// event does NOT come gives the OS one quiet window
+/// (``waitOutTheQuietWindow()``). With the manual debounce timer, a callback
+/// comes only inside `endQuietPeriod()`, thus the count after that call is
+/// final and needs no window.
+@Suite struct DotfolderWatcherTests {
   /// The debounce interval of each watcher under test.
   ///
   /// A test that asserts "exactly one callback" gives the watcher a
@@ -233,9 +241,12 @@ import Testing
         // The ancestor filter must drop the noise before it starts a
         // debounce timer. With the manual timer, a callback count of zero
         // shows nothing by itself, thus the timer starts are the evidence.
-        await Self.waitUntil(timeout: Self.noFurtherSignalWindow) { signals.timer.pendingCount > 0 }
+        // The noise and the events of the root go to one source, thus no
+        // later event can show that the noise started no timer: the test
+        // gives the OS one quiet window.
+        await Self.waitOutTheQuietWindow()
         #expect(signals.timer.pendingCount == 0)
-        #expect(await signals.recorder.count == 0)
+        #expect(signals.recorder.count == 0)
 
         // Making the awaited root itself still fires.
         try Self.writeDocument(named: "arrived-entry", in: lateRoot)
@@ -304,13 +315,13 @@ import Testing
       // recursive watch of `parent` then replaces it. The replaced source
       // must be cancelled, thus its cancel handler closes the descriptor:
       // one open descriptor for each stored source, no more.
-      await Self.waitUntil(timeout: Self.expectedSignalTimeout) {
+      await Self.waitForTheCancelHandlers(timeout: Self.expectedSignalTimeout) {
         watcher.openDescriptorCountForTesting == watcher.watchedSourceCountForTesting
       }
       #expect(watcher.openDescriptorCountForTesting == watcher.watchedSourceCountForTesting)
 
       watcher.stop()
-      await Self.waitUntil(timeout: Self.expectedSignalTimeout) {
+      await Self.waitForTheCancelHandlers(timeout: Self.expectedSignalTimeout) {
         watcher.openDescriptorCountForTesting == 0
       }
       #expect(watcher.openDescriptorCountForTesting == 0)
@@ -332,18 +343,20 @@ import Testing
 
       try await Self.withWatcher(over: [root], duringOnChange: edit.run) { signals in
         try Self.writeDocument(named: "edited-in-flush", in: root, bodySuffix: "first edit")
-        await Self.waitUntil(timeout: Self.expectedSignalTimeout) { signals.timer.pendingCount >= 1 }
+        await Self.waitForOSEvent { await signals.timer.waitForPendingTimers(atLeast: 1) }
         signals.timer.endQuietPeriod()
 
         // The edit inside `onChange` must start a new timer.
         // `endQuietPeriod()` fires that timer itself when the event arrives
         // before its loop ends, and the second callback is then the
         // evidence.
-        await Self.waitUntil(timeout: Self.expectedSignalTimeout) {
-          await Self.reportedTheEditInsideOnChange(signals)
+        await Self.waitForOSEvent {
+          await Waits.untilFirstEnds(
+            { await signals.timer.waitForPendingTimers(atLeast: 1) },
+            { await signals.recorder.waitForCount(atLeast: Self.callbacksWithTheEditInsideOnChange) })
         }
         #expect(edit.failure == nil)
-        #expect(await Self.reportedTheEditInsideOnChange(signals))
+        #expect(Self.reportedTheEditInsideOnChange(signals))
       }
     }
   }
@@ -361,9 +374,8 @@ import Testing
     watcher.stop()
 
     try Self.writeDocument(named: "after-stop", in: root)
-    let countAfterWait = await Self.waitForCount(
-      recorder, atLeast: 1, timeout: Self.noFurtherSignalWindow)
-    #expect(countAfterWait == 0)
+    await Self.waitOutTheQuietWindow()
+    #expect(recorder.count == 0)
   }
 
   // MARK: - A stop from inside onChange
@@ -375,15 +387,14 @@ import Testing
     let recorder = SignalRecorder()
     let box = WatcherBox()
     box.watcher = DotfolderWatcher(roots: [root], debounceInterval: Self.testDebounceInterval) {
-      Task { await recorder.record() }
+      recorder.record()
       box.watcher?.stop()
     }
     box.watcher?.start()
 
     try Self.writeDocument(named: "self-stopping", in: root)
-    let afterFirstFlush = await Self.waitForCount(
-      recorder, atLeast: 1, timeout: Self.expectedSignalTimeout)
-    #expect(afterFirstFlush == 1)
+    await Self.waitForOSEvent { await recorder.waitForCount(atLeast: 1) }
+    #expect(recorder.count == 1)
 
     // The reentrant `stop()` must have taken each source down, and not
     // only changed a flag: the sources that `flush()` opened before
@@ -396,18 +407,16 @@ import Testing
     // root must thus give no second signal: the watcher must be stopped
     // already, and not about to stop.
     try Self.writeDocument(named: "must-not-be-seen", in: root)
-    let afterIgnoredChange = await Self.waitForCount(
-      recorder, atLeast: Self.callbacksAfterTheStartAgain, timeout: Self.noFurtherSignalWindow)
-    #expect(afterIgnoredChange == 1)
+    await Self.waitOutTheQuietWindow()
+    #expect(recorder.count == 1)
 
     // The same instance must start again after that, thus the reentrant
     // stop must not leave it unable to watch for ever.
     box.watcher?.start()
     defer { box.watcher?.stop() }
     try Self.writeDocument(named: "after-restart", in: root)
-    let afterRestart = await Self.waitForCount(
-      recorder, atLeast: Self.callbacksAfterTheStartAgain, timeout: Self.expectedSignalTimeout)
-    #expect(afterRestart == Self.callbacksAfterTheStartAgain)
+    await Self.waitForOSEvent { await recorder.waitForCount(atLeast: Self.callbacksAfterTheStartAgain) }
+    #expect(recorder.count == Self.callbacksAfterTheStartAgain)
   }
 
   // MARK: - The layer roots of a stack
@@ -469,9 +478,8 @@ import Testing
 
     try Self.writeDocument(
       named: "new-entry", in: workingDirectory.appendingPathComponent(".myagent", isDirectory: true))
-    let signalCount = await Self.waitForCount(
-      recorder, atLeast: 1, timeout: Self.expectedSignalTimeout)
-    #expect(signalCount >= 1)
+    await Self.waitForOSEvent { await recorder.waitForCount(atLeast: 1) }
+    #expect(recorder.count >= 1)
   }
 
   // MARK: - Test helpers
@@ -544,19 +552,27 @@ import Testing
 
   /// Counts each callback of the watcher that a test receives.
   ///
-  /// An actor and not an `AsyncStream`: a stream supports one long
-  /// consumer only. An iterator that a test leaves in the middle, for an
-  /// early return or for a cancelled timeout, ends the stream for good, and
-  /// a second wait on the same stream then sees it as finished and not as a
-  /// stream that still delivers. A counter that a test polls has no such
-  /// limit.
-  private actor SignalRecorder {
+  /// The callback counts in its own call, with no task hop, thus the count
+  /// is up to date when the callback returns. A wait for a count needs no
+  /// poll: each callback ends the waits that its count meets.
+  private final class SignalRecorder: Sendable {
+    /// One value for each callback.
+    private let callbacks = Recorder<Void>()
+
     /// How many callbacks arrived.
-    private(set) var count = 0
+    var count: Int { callbacks.values.count }
 
     /// Counts one callback.
     func record() {
-      count += 1
+      callbacks.append(())
+    }
+
+    /// Waits until at least `target` callbacks arrived, or until the task
+    /// is cancelled.
+    ///
+    /// - Parameter target: The count to wait for.
+    func waitForCount(atLeast target: Int) async {
+      await callbacks.waitUntil { $0.count >= target }
     }
   }
 
@@ -581,16 +597,31 @@ import Testing
     /// fire yet, in start order.
     private let startedTimers = Mutex<[StartedTimer]>([])
 
+    /// The count of the timers that are not fired yet, after each change, in
+    /// the order of the changes. A test waits on it for a timer start.
+    private let pendingCounts = Recorder<Int>()
+
     /// The closure to give to `DotfolderWatcher` as its debounce timer.
     var start: DotfolderWatcher.DebounceTimer {
       { [self] _, queue, fire in
-        startedTimers.withLock { $0.append(StartedTimer(queue: queue, fire: fire)) }
+        startedTimers.withLock { timers in
+          timers.append(StartedTimer(queue: queue, fire: fire))
+          pendingCounts.append(timers.count)
+        }
       }
     }
 
     /// How many timers the watcher started that are not fired yet.
     var pendingCount: Int {
       startedTimers.withLock { $0.count }
+    }
+
+    /// Waits until at least `count` timers are not fired yet, or until the
+    /// task is cancelled.
+    ///
+    /// - Parameter count: The count of timers to wait for.
+    func waitForPendingTimers(atLeast count: Int) async {
+      await pendingCounts.waitUntil { ($0.last ?? 0) >= count }
     }
 
     /// Fires each started timer on its queue, in start order, until none is
@@ -616,7 +647,10 @@ import Testing
     /// - Returns: The timers, in start order.
     private func takeStartedTimers() -> [StartedTimer] {
       startedTimers.withLock { timers in
-        defer { timers.removeAll() }
+        defer {
+          timers.removeAll()
+          pendingCounts.append(0)
+        }
         return timers
       }
     }
@@ -783,11 +817,8 @@ import Testing
   ///
   /// - Parameter signals: The signals of the watcher under test.
   /// - Returns: `true` when the watcher reported the edit.
-  private static func reportedTheEditInsideOnChange(_ signals: WatchedSignals) async -> Bool {
-    if signals.timer.pendingCount >= 1 {
-      return true
-    }
-    return await signals.recorder.count >= Self.callbacksWithTheEditInsideOnChange
+  private static func reportedTheEditInsideOnChange(_ signals: WatchedSignals) -> Bool {
+    signals.timer.pendingCount >= 1 || signals.recorder.count >= Self.callbacksWithTheEditInsideOnChange
   }
 
   /// Makes an `onChange` closure together with the `SignalRecorder` that it
@@ -799,9 +830,7 @@ import Testing
     onChange: @Sendable () -> Void, recorder: SignalRecorder
   ) {
     let recorder = SignalRecorder()
-    let onChange: @Sendable () -> Void = {
-      Task { await recorder.record() }
-    }
+    let onChange: @Sendable () -> Void = { recorder.record() }
     return (onChange, recorder)
   }
 
@@ -810,8 +839,10 @@ import Testing
   ///
   /// The steps: wait until the watcher started `minimumTimerStarts`
   /// debounce timers, confirm that the events made no callback by
-  /// themselves, end the quiet period, then confirm that the count reaches
-  /// `baseline + 1` and stays there through `noFurtherSignalWindow`.
+  /// themselves, end the quiet period, then confirm that the count is
+  /// `baseline + 1`. The manual timer fires only in `endQuietPeriod()`, and
+  /// that call returns after each callback that it made, thus the count is
+  /// final then and needs no wait.
   ///
   /// - Parameters:
   ///   - signals: The signals of the watcher under test.
@@ -825,51 +856,55 @@ import Testing
   private static func expectExactlyOneSignal(
     _ signals: WatchedSignals, since baseline: Int, afterTimerStarts minimumTimerStarts: Int = 1
   ) async -> Int {
-    await Self.waitUntil(timeout: Self.expectedSignalTimeout) {
-      signals.timer.pendingCount >= minimumTimerStarts
-    }
+    await Self.waitForOSEvent { await signals.timer.waitForPendingTimers(atLeast: minimumTimerStarts) }
     #expect(signals.timer.pendingCount >= minimumTimerStarts)
-    #expect(await signals.recorder.count == baseline)
+    #expect(signals.recorder.count == baseline)
 
     signals.timer.endQuietPeriod()
-    let afterFirst = await Self.waitForCount(
-      signals.recorder, atLeast: baseline + 1, timeout: Self.expectedSignalTimeout)
-    #expect(afterFirst == baseline + 1)
-
-    let afterSettling = await Self.waitForCount(
-      signals.recorder, atLeast: baseline + 2, timeout: Self.noFurtherSignalWindow)
-    #expect(afterSettling == baseline + 1)
-    return afterSettling
+    let settled = signals.recorder.count
+    #expect(settled == baseline + 1)
+    return settled
   }
 
-  /// Polls the count of `recorder` until it reaches `target` or `timeout`
-  /// is complete.
+  /// Waits until `event` ends, or until `deadline` passes.
+  ///
+  /// The OS gives each file system event. When the OS gives no event, no
+  /// other event shows it, thus this wait has one deadline and no poll. A
+  /// test then reads the state, and an expectation fails.
   ///
   /// - Parameters:
-  ///   - recorder: The recorder to poll.
-  ///   - target: The count to wait for.
-  ///   - timeout: How long to poll before the wait ends.
-  /// - Returns: The count of `recorder` at the moment that the poll
-  ///   stopped, whether or not it reached `target`.
-  private static func waitForCount(
-    _ recorder: SignalRecorder, atLeast target: Int, timeout: Duration
-  ) async -> Int {
-    await Self.waitUntil(timeout: timeout) { await recorder.count >= target }
-    return await recorder.count
+  ///   - deadline: The longest wait. The default is
+  ///     ``expectedSignalTimeout``.
+  ///   - event: The wait for the event that the OS starts.
+  private static func waitForOSEvent(
+    within deadline: Duration = expectedSignalTimeout, _ event: @escaping @Sendable () async -> Void
+  ) async {
+    await Waits.untilFirstEnds(event, { try? await Task.sleep(for: deadline) })
   }
 
-  /// How long the wait sleeps between two evaluations of its condition.
-  private static let pollInterval: Duration = .milliseconds(10)
+  /// Gives the OS ``noFurtherSignalWindow`` to show an event that must not
+  /// come. No event shows an event that does not come, thus a check of an
+  /// absence needs this one window.
+  private static func waitOutTheQuietWindow() async {
+    try? await Task.sleep(for: noFurtherSignalWindow)
+  }
 
-  /// Polls `condition` until it holds or `timeout` is complete.
+  /// How long the descriptor wait sleeps between two reads of its condition.
+  private static let descriptorPollInterval: Duration = .milliseconds(10)
+
+  /// Reads `condition` until it holds or `timeout` is complete.
+  ///
+  /// Only the descriptor test uses this poll. A cancel handler of a
+  /// `DispatchSource` closes its descriptor later on the queue of the
+  /// watcher, and no event tells when.
   ///
   /// - Parameters:
-  ///   - timeout: How long to poll before the wait ends.
+  ///   - timeout: How long to read before the wait ends.
   ///   - condition: The condition to wait for.
-  private static func waitUntil(timeout: Duration, _ condition: () async -> Bool) async {
+  private static func waitForTheCancelHandlers(timeout: Duration, _ condition: () -> Bool) async {
     let deadline = ContinuousClock.now.advanced(by: timeout)
-    while await !condition(), ContinuousClock.now < deadline {
-      try? await Task.sleep(for: Self.pollInterval)
+    while !condition(), ContinuousClock.now < deadline {
+      try? await Task.sleep(for: Self.descriptorPollInterval)
     }
   }
 }

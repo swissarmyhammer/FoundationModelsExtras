@@ -1,20 +1,87 @@
 import Dispatch
 @testable import FoundationModelsExtras
 import InMemoryTracing
+import Metrics
 import MetricsTestKit
 import Synchronization
 import TelemetryTestSupport
 import Testing
 
 extension GenerationQueue {
-    /// Waits until `count` jobs wait in this queue.
+    /// Starts `call` in a new task that records its metrics into `capture`,
+    /// and returns when this queue accepted the job of the call, or when the
+    /// call ended first.
     ///
-    /// - Parameter count: The number of waiting jobs.
-    /// - Throws: An `ExpectationFailedError` when the jobs did not wait.
-    func waitForWaitingJobs(count: Int) async throws {
-        try #require(await BoundedWait.conditionReached("\(count) calls wait in the queue") {
-            await self.waitingCount == count
-        })
+    /// The queue records its depth when it accepts a job, in the metrics
+    /// factory of the task that submits the job. Thus the wait for that
+    /// record needs no poll. A call that ends before its job reaches the
+    /// queue also ends the wait, and the test then fails on its own checks.
+    ///
+    /// - Parameters:
+    ///   - capture: The capture that gets the metrics of the call.
+    ///   - call: The call that submits one job to this queue.
+    /// - Returns: The task of the call.
+    func startQueuedCall<Value: Sendable>(
+        recordingInto capture: TelemetryCapture.Context,
+        _ call: @escaping @Sendable () async throws -> Value
+    ) async -> Task<Value, any Error> {
+        let recordsBefore = depthRecordCount(in: capture)
+        let factory = capture.observedMetricsFactory
+        let task = Task { try await withMetricsFactory(factory) { try await call() } }
+        await Waits.untilFirstEnds(
+            { await self.waitForDepthRecords(moreThan: recordsBefore, in: capture) },
+            { _ = await task.result })
+        return task
+    }
+
+    /// The number of depth records of this queue in `capture`. The queue
+    /// records its depth each time it accepts a job and each time a job
+    /// ends.
+    ///
+    /// - Parameter capture: The capture.
+    /// - Returns: The number of records.
+    func depthRecordCount(in capture: TelemetryCapture.Context) -> Int {
+        (try? QueueMetricExpectations.depth(in: capture.metricsFactory, queue: QueueMetricDimensions.queue(of: telemetry)))?
+            .count ?? 0
+    }
+
+    /// Waits until `capture` holds more depth records of this queue than
+    /// `count`, or until the task is cancelled. Each record that the capture
+    /// gets tests the condition, thus the wait needs no poll.
+    ///
+    /// - Parameters:
+    ///   - count: The number of records to pass.
+    ///   - capture: The capture.
+    func waitForDepthRecords(moreThan count: Int, in capture: TelemetryCapture.Context) async {
+        await capture.wait { self.depthRecordCount(in: $0) > count }
+    }
+}
+
+extension ModelPool {
+    /// Waits until each job that is in the admission queue now ended.
+    ///
+    /// The admission queue runs its jobs first in first out. The last
+    /// release of a model puts its eviction job there in the same step, thus
+    /// each eviction that a release started ends before this call returns.
+    /// A test then reads the state of the pool once, with no poll.
+    ///
+    /// - Throws: The error of the admission job.
+    func waitForTheEarlierAdmissionJobs() async throws {
+        try await admit { _ in }
+    }
+}
+
+extension Recorder where Value: Equatable {
+    /// Waits until the values hold `value`, or until `task` ends first.
+    ///
+    /// The task is the work that must append `value`. When it ends with no
+    /// such append, the wait ends too, and the test fails on its own check.
+    ///
+    /// - Parameters:
+    ///   - value: The value to wait for.
+    ///   - task: The task whose end also ends the wait.
+    func waitUntil<Success: Sendable>(holds value: Value, orUntilEndOf task: Task<Success, any Error>) async {
+        await Waits.untilFirstEnds({ await self.waitUntil { $0.contains(value) } }, { _ = await task.result })
     }
 }
 
@@ -42,18 +109,102 @@ struct FakeMeasureError: Error {}
 struct FakeModelRunError: Error {}
 
 /// Keeps the values that tasks append, in the order of the appends.
+///
+/// A task can wait until the values meet a condition. Each append reads the
+/// condition of each waiting task, thus the wait needs no poll.
 final class Recorder<Value: Sendable>: Sendable {
-    /// The values, in order.
-    private let stored = Mutex<[Value]>([])
+    /// One task that waits until the values meet its condition.
+    private struct Waiter {
+        /// The condition that ends the wait.
+        let condition: @Sendable ([Value]) -> Bool
+
+        /// Resumes the task.
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    /// The values and the waiting tasks.
+    private struct State {
+        /// The values, in order.
+        var values: [Value] = []
+
+        /// Each waiting task, by the id of its wait.
+        var waiters: [Int: Waiter] = [:]
+
+        /// The id of each wait whose task was cancelled before the wait was
+        /// recorded.
+        var cancelled: Set<Int> = []
+
+        /// The id that the next wait gets.
+        var nextID = 0
+    }
+
+    /// The values and the waiting tasks.
+    private let state = Mutex(State())
 
     /// The values, in order.
-    var values: [Value] { stored.withLock { $0 } }
+    var values: [Value] { state.withLock { $0.values } }
 
-    /// Appends `value`.
+    /// Appends `value`, and resumes each task whose condition the values now
+    /// meet.
     ///
     /// - Parameter value: The value to keep.
     func append(_ value: Value) {
-        stored.withLock { $0.append(value) }
+        let ready = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            state.values.append(value)
+            let values = state.values
+            let met = state.waiters.filter { $0.value.condition(values) }
+            for id in met.keys {
+                state.waiters.removeValue(forKey: id)
+            }
+            return met.values.map(\.continuation)
+        }
+        for continuation in ready {
+            continuation.resume()
+        }
+    }
+
+    /// Waits until the values meet `condition`, or until the task is
+    /// cancelled. Returns at once when the values meet it now.
+    ///
+    /// - Parameter condition: The condition on the values, in append order.
+    /// - Returns: The values when the wait ended. The caller reads them to
+    ///   know which end came.
+    @discardableResult
+    func waitUntil(_ condition: @escaping @Sendable ([Value]) -> Bool) async -> [Value] {
+        let id = state.withLock { state -> Int in
+            defer { state.nextID += 1 }
+            return state.nextID
+        }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let isWaiting = state.withLock { state -> Bool in
+                    guard state.cancelled.remove(id) == nil, !condition(state.values) else { return false }
+                    state.waiters[id] = Waiter(condition: condition, continuation: continuation)
+                    return true
+                }
+                if !isWaiting {
+                    continuation.resume()
+                }
+            }
+        } onCancel: {
+            endWait(id: id)
+        }
+        return values
+    }
+
+    /// Ends the wait `id` at a cancel, or records the cancel when the wait is
+    /// not recorded yet.
+    ///
+    /// - Parameter id: The id of the wait.
+    private func endWait(id: Int) {
+        let waiter = state.withLock { state -> Waiter? in
+            if let found = state.waiters.removeValue(forKey: id) {
+                return found
+            }
+            state.cancelled.insert(id)
+            return nil
+        }
+        waiter?.continuation.resume()
     }
 }
 
@@ -251,9 +402,10 @@ struct FakeEmbedding: PooledEmbedding {
 ///
 /// A deadlock blocks the threads of the tasks that it stops. When those tasks
 /// run on the cooperative pool, the deadlock can block all its threads, and
-/// then a ``BoundedWait`` never runs again and the test hangs. A task with a
-/// preference for this executor blocks a thread of this queue, so a bounded
-/// wait on the cooperative pool still ends and fails the test.
+/// then the deadline wait of the stress test never runs again and the test
+/// hangs. A task with a preference for this executor blocks a thread of this
+/// queue, so the deadline wait on the cooperative pool still ends and fails
+/// the test.
 final class DedicatedTaskExecutor: TaskExecutor {
     /// The queue that runs the jobs.
     private let queue = DispatchQueue(label: "DedicatedTaskExecutor", attributes: .concurrent)
@@ -1083,10 +1235,13 @@ extension TelemetryCapture.Context {
     /// under test starts, for example the task of a prewarm, writes its
     /// record later than the call that started it returns.
     ///
+    /// The wait reads no clock: each record that the capture gets tests the
+    /// condition. The task of a prewarm gives the caller no handle, thus a
+    /// prewarm that ends with no record gives no event to end this wait.
+    ///
     /// - Returns: The error records of the capture, in order.
-    /// - Throws: An `ExpectationFailedError` when no error record came.
-    func waitForErrorRecords() async throws -> [TelemetryCapture.LogRecord] {
-        try #require(await BoundedWait.conditionReached("an error record comes") { !self.errorRecords.isEmpty })
+    func waitForErrorRecords() async -> [TelemetryCapture.LogRecord] {
+        await wait { !$0.errorRecords.isEmpty }
         return errorRecords
     }
 }

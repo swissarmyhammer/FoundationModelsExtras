@@ -14,10 +14,6 @@ import Testing
 /// document under the layer root, as a consumer does.
 @Suite("Marketplace store")
 struct MarketplaceStoreTests {
-  /// How long a test waits, after the expected layer updates arrived, to
-  /// confirm that no further value follows them.
-  private static let noFurtherSignalWindow: Duration = .milliseconds(500)
-
   /// The display id of a fixture marketplace, which is its repository name.
   private static let fixtureID = "fixture"
 
@@ -93,7 +89,6 @@ struct MarketplaceStoreTests {
     let cache = try MarketplaceStoreFixture(sources: [MarketplaceSource(fixture.url)])
     let tally = LayerUpdateTally()
     let subscription = tally.follow(cache.store.layerUpdates)
-    defer { subscription.cancel() }
 
     await cache.store.start()
     _ = await cache.store.check()
@@ -101,7 +96,7 @@ struct MarketplaceStoreTests {
     try fixture.commit(files: Self.skillTree(body: "alpha body v2"))
     await cache.store.update()
 
-    let count = await tally.settledCount(atLeast: Self.updatesAfterTwoSwaps, window: Self.noFurtherSignalWindow)
+    let count = await tally.finalCount(endingFollowOf: subscription)
     #expect(count == Self.updatesAfterTwoSwaps)
   }
 
@@ -563,7 +558,7 @@ struct MarketplaceStoreTests {
   }
 
   /// Counts the values of a ``MarketplaceLayerProviding/layerUpdates``
-  /// stream, and lets a test wait for a count.
+  /// stream, and gives the count when the test ends the stream.
   private actor LayerUpdateTally {
     /// How many values arrived so far.
     private var count = 0
@@ -580,22 +575,20 @@ struct MarketplaceStoreTests {
       }
     }
 
-    /// Waits until at least `expected` values arrived, then waits one more
-    /// window so that a value that follows them has time to arrive.
+    /// Cancels `subscription`, waits until it ends, and gives the count.
     ///
     /// The store publishes each value before the call that swaps returns,
-    /// thus the window only gives the counting task time to read the
-    /// buffered values.
+    /// thus each value of the calls is in the buffer of the stream before
+    /// this function starts. A cancelled `for await` still reads each value
+    /// in the buffer before it ends. Thus the count holds each value, and
+    /// the test needs no wait window. A value that is lost makes the count
+    /// too low, and the test fails.
     ///
-    /// - Parameters:
-    ///   - expected: The count that the test waits for.
-    ///   - window: How long the wait after the expected count is.
-    /// - Returns: The count after the window.
-    func settledCount(atLeast expected: Int, window: Duration) async -> Int {
-      while count < expected {
-        await Task.yield()
-      }
-      try? await Task.sleep(for: window)
+    /// - Parameter subscription: The task that ``follow(_:)`` started.
+    /// - Returns: The count of the values that the stream gave.
+    func finalCount(endingFollowOf subscription: Task<Void, Never>) async -> Int {
+      subscription.cancel()
+      await subscription.value
       return count
     }
 

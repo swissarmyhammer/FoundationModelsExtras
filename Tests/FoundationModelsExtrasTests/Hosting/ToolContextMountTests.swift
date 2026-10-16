@@ -9,7 +9,7 @@ import ULID
 ///
 /// Each test calls the returned tool directly, with no conditional cast, and
 /// reads the events of the mounted run from the sink of the mounting context.
-@Suite("ToolContext.mount: mount a tool on the running context", .timeLimit(.minutes(1)))
+@Suite("ToolContext.mount: mount a tool on the running context")
 struct ToolContextMountTests {
     private typealias Fixtures = MountFixtures
 

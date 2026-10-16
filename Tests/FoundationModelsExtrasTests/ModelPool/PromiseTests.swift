@@ -2,8 +2,15 @@
 import Testing
 
 /// A ``Promise`` keeps the first value it gets, and gives it to each waiter.
+///
+/// A waiter starts with `Task.immediate`: its body runs on the task of the
+/// test until it suspends in the wait. Thus the wait is recorded when the
+/// start returns, and the test needs no poll.
 @Suite("Promise: one value, any number of waiters")
 struct PromiseTests {
+    /// The number of waiters of the test with two waiters.
+    private static let twoWaiters = 2
+
     @Test("a value that comes before the wait is the value of the wait")
     func valueBeforeTheWait() async {
         let promise = Promise<String>()
@@ -14,10 +21,10 @@ struct PromiseTests {
     }
 
     @Test("a value that comes after the wait ends the wait")
-    func valueAfterTheWait() async {
+    func valueAfterTheWait() async throws {
         let promise = Promise<String>()
-        let waiter = Task { await promise.value }
-        #expect(await BoundedWait.conditionReached("the waiter waits") { promise.waiterCount == 1 })
+        let waiter = Task.immediate { await promise.value }
+        try #require(promise.waiterCount == 1)
 
         promise.fulfill("late")
 
@@ -25,11 +32,11 @@ struct PromiseTests {
     }
 
     @Test("two waiters get the same value")
-    func twoWaitersGetTheSameValue() async {
+    func twoWaitersGetTheSameValue() async throws {
         let promise = Promise<String>()
-        let first = Task { await promise.value }
-        let second = Task { await promise.value }
-        #expect(await BoundedWait.conditionReached("both waiters wait") { promise.waiterCount == 2 })
+        let first = Task.immediate { await promise.value }
+        let second = Task.immediate { await promise.value }
+        try #require(promise.waiterCount == Self.twoWaiters)
 
         promise.fulfill("shared")
 

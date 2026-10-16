@@ -16,9 +16,6 @@ import ULID
 struct DeclaredRunKindTests {
     // MARK: - Intervals
 
-    /// A sleep that only a cancel ends.
-    private static let unendingSleepNanoseconds: UInt64 = 3_600_000_000_000
-
     /// The limit of each wait on the run plane, so a broken handshake ends the
     /// test and does not stop the suite.
     private static let settlementDeadline: TimeInterval = 30
@@ -114,13 +111,13 @@ struct DeclaredRunKindTests {
         }
     }
 
-    /// Sleeps until it is cancelled and declares nothing.
+    /// Waits until it is cancelled and declares nothing.
     private struct UndeclaredKindTool: Tool {
         let name = "undeclared_kind_tool"
         let description = "sleeps until cancelled and declares no mount parameters"
 
         func call(arguments: DeclaredRunKindArguments) async throws -> String {
-            try await Task.sleep(nanoseconds: DeclaredRunKindTests.unendingSleepNanoseconds)
+            try await Waits.untilCancelled()
             return "never returned"
         }
     }

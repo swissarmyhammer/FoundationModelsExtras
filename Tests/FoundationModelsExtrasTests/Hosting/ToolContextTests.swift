@@ -14,7 +14,7 @@ import ULID
 /// real ``RunPlane``, the run-plane capabilities `backgroundRuns()`, `wait`
 /// and `cancel` against a fake background run, and the tracer of each tool
 /// that the context mounts.
-@Suite("ToolContext: ambient task-local capability surface", .timeLimit(.minutes(1)))
+@Suite("ToolContext: ambient task-local capability surface")
 struct ToolContextTests {
     // MARK: - Fixtures
 
@@ -78,12 +78,56 @@ struct ToolContextTests {
         )
     }
 
-    /// Waits until each id in `elicitationIds` is pending on `runPlane`. The
-    /// time limit of the suite ends a wait for an id that never comes.
-    private static func waitUntilPending(_ elicitationIds: [ULID], in runPlane: RunPlane) async throws {
-        try await AwaitedCondition.wait {
-            let pending = await runPlane.pendingElicitationIds()
-            return elicitationIds.allSatisfy(pending.contains)
+    /// Asks `request` through `context` in a task of its own. Returns when
+    /// `sink` got the elicitation event of the question, or when the task
+    /// ended first.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - sink: The sink of `context`.
+    ///   - body: Asks the question.
+    /// - Returns: The task that waits for the answer.
+    private static func ask(
+        _ request: ElicitationRequest, postingTo sink: RecordingSink,
+        running body: @escaping @Sendable () async throws -> ElicitationResponse
+    ) async -> QuestionTask<ElicitationResponse> {
+        let question = QuestionTask(asking: request.elicitationId, running: body)
+        let elicitationId = request.elicitationId
+        await question.waitUntilAsked {
+            await sink.waitForAnEvent { $0.elicitation?.elicitationId == elicitationId }
+        }
+        return question
+    }
+
+    /// Asks `request` through `context`. Returns when `sink` got the
+    /// elicitation event of the question, or when the ask ended first.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - context: The context of the run. It posts to `sink`.
+    ///   - sink: The sink of `context`.
+    /// - Returns: The task that waits for the answer.
+    private static func ask(
+        _ request: ElicitationRequest, through context: ToolContext, postingTo sink: RecordingSink
+    ) async -> QuestionTask<ElicitationResponse> {
+        await ask(request, postingTo: sink) { try await context.elicit(request) }
+    }
+
+    /// A sink that gives each event to `inner`, then opens `posted`. A test
+    /// waits on `posted` for the end of a post.
+    private struct PostSignallingSink: OperationEventSink {
+        /// The sink that gets each event.
+        let inner: any OperationEventSink
+
+        /// Opens when a post to `inner` returned.
+        let posted: RunLatch
+
+        /// Gives `event` to ``inner``, then opens ``posted``.
+        ///
+        /// - Parameter event: The event.
+        func post(event: OperationEvent) async {
+            await inner.post(event: event)
+            posted.open()
         }
     }
 
@@ -327,17 +371,16 @@ struct ToolContextTests {
         let context = Self.makeContext(sink: sink, runPlane: runPlane, completionToken: completionToken)
         let request = MountFixtures.nameRequest()
 
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
+        let question = await Self.ask(request, postingTo: sink) {
             try await ToolContext.$current.withValue(context) {
                 let current = try #require(ToolContext.current)
                 return try await current.elicit(request)
             }
         }
 
-        try await Self.waitUntilPending([request.elicitationId], in: runPlane)
         await runPlane.respond(elicitationId: request.elicitationId, .accept(content: ["name": .string("Ada")]))
 
-        let answer = try await answering.deliveredAnswer()
+        let answer = try await question.answer(on: runPlane)
         #expect(answer.action == .accept)
         #expect(answer.content == ["name": .string("Ada")])
 
@@ -354,36 +397,16 @@ struct ToolContextTests {
 
     @Test("elicit resumes on decline, with no content")
     func elicitDeclineRoundTrip() async throws {
-        let runPlane = RunPlane()
-        let context = Self.makeContext(sink: RecordingSink(), runPlane: runPlane)
-        let request = MountFixtures.nameRequest()
+        let answer = try await Self.elicitAnswer(.decline)
 
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
-            try await context.elicit(request)
-        }
-
-        try await Self.waitUntilPending([request.elicitationId], in: runPlane)
-        await runPlane.respond(elicitationId: request.elicitationId, .decline)
-
-        let answer = try await answering.deliveredAnswer()
         #expect(answer.action == .decline)
         #expect(answer.content == nil)
     }
 
     @Test("elicit resumes on cancel, with no content")
     func elicitCancelRoundTrip() async throws {
-        let runPlane = RunPlane()
-        let context = Self.makeContext(sink: RecordingSink(), runPlane: runPlane)
-        let request = MountFixtures.nameRequest()
+        let answer = try await Self.elicitAnswer(.cancel)
 
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
-            try await context.elicit(request)
-        }
-
-        try await Self.waitUntilPending([request.elicitationId], in: runPlane)
-        await runPlane.respond(elicitationId: request.elicitationId, .cancel)
-
-        let answer = try await answering.deliveredAnswer()
         #expect(answer.action == .cancel)
         #expect(answer.content == nil)
     }
@@ -399,13 +422,11 @@ struct ToolContextTests {
         to request: ElicitationRequest = MountFixtures.nameRequest()
     ) async throws -> ElicitationResponse {
         let runPlane = RunPlane()
-        let context = makeContext(sink: RecordingSink(), runPlane: runPlane)
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
-            try await context.elicit(request)
-        }
-        try await waitUntilPending([request.elicitationId], in: runPlane)
+        let sink = RecordingSink()
+        let context = makeContext(sink: sink, runPlane: runPlane)
+        let question = await ask(request, through: context, postingTo: sink)
         await runPlane.respond(elicitationId: request.elicitationId, response)
-        return try await answering.deliveredAnswer()
+        return try await question.answer(on: runPlane)
     }
 
     @Test("elicit gives the reason of a decline to the run")
@@ -447,21 +468,15 @@ struct ToolContextTests {
         let first = MountFixtures.nameRequest()
         let second = MountFixtures.nameRequest()
 
-        let firstAnswering = AnswerDrivenRun(waitingFor: "the elicitation \(first.elicitationId)") {
-            try await context.elicit(first)
-        }
-        let secondAnswering = AnswerDrivenRun(waitingFor: "the elicitation \(second.elicitationId)") {
-            try await context.elicit(second)
-        }
-
-        try await Self.waitUntilPending([first.elicitationId, second.elicitationId], in: runPlane)
+        let firstAnswering = await Self.ask(first, through: context, postingTo: sink)
+        let secondAnswering = await Self.ask(second, through: context, postingTo: sink)
 
         // Answer out of order, each by its own id.
         await runPlane.respond(elicitationId: second.elicitationId, .accept(content: ["name": .string("Grace")]))
         await runPlane.respond(elicitationId: first.elicitationId, .decline)
 
-        let firstAnswer = try await firstAnswering.deliveredAnswer()
-        let secondAnswer = try await secondAnswering.deliveredAnswer()
+        let firstAnswer = try await firstAnswering.answer(on: runPlane)
+        let secondAnswer = try await secondAnswering.answer(on: runPlane)
         #expect(firstAnswer.action == .decline)
         #expect(firstAnswer.content == nil)
         #expect(secondAnswer.action == .accept)
@@ -481,14 +496,17 @@ struct ToolContextTests {
         // The sink answers from inside `post(event:)`. When the elicitation
         // were not pending before the post, the answer would do nothing and
         // the elicit would never end.
-        let sink = ImmediatelyRespondingSink(runPlane: runPlane, response: .decline)
+        // The wait for the answer starts after the post returned. Then a
+        // question that is still open did not get the answer of the sink.
+        let posted = RunLatch()
+        let sink = PostSignallingSink(
+            inner: ImmediatelyRespondingSink(runPlane: runPlane, response: .decline), posted: posted)
         let context = Self.makeContext(sink: sink, runPlane: runPlane)
 
         let request = MountFixtures.nameRequest()
-        let answering = AnswerDrivenRun(waitingFor: "the elicitation \(request.elicitationId)") {
-            try await context.elicit(request)
-        }
-        let answer = try await answering.deliveredAnswer()
+        let question = QuestionTask(asking: request.elicitationId) { try await context.elicit(request) }
+        await question.waitUntilAsked { await posted.waitUntilOpen() }
+        let answer = try await question.answer(on: runPlane)
 
         #expect(answer.action == .decline)
         #expect(answer.content == nil)

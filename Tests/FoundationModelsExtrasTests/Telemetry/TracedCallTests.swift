@@ -8,7 +8,7 @@ import Tracing
 /// ``TracedCall`` opens one span and writes one "enter" log record before the
 /// body starts. It writes nothing more when the body ends, returns or throws.
 /// Thus a body that never returns still leaves its "enter" record.
-@Suite("TracedCall: one span and one enter log record for each call", .timeLimit(.minutes(1)))
+@Suite("TracedCall: one span and one enter log record for each call")
 struct TracedCallTests {
     /// The name of the span that each call opens.
     private static let spanName = "probe.call"
@@ -78,15 +78,22 @@ struct TracedCallTests {
             // The test never yields to this stream and never finishes it. Only
             // the cancel of the call stops the wait of the body.
             let (neverResumed, neverResumedContinuation) = AsyncStream<Void>.makeStream()
+            let (bodyStarted, bodyStartedSignal) = AsyncStream<Void>.makeStream()
             let call = Task {
                 try await Self.run(logger: logger) { _ in
+                    bodyStartedSignal.finish()
                     for await _ in neverResumed {}
                     try Task.checkCancellation()
                 }
             }
 
-            var signals = entered.makeAsyncIterator()
-            _ = await signals.next()
+            // The enter record comes before the body starts. A call that
+            // writes no enter record thus ends this wait at the start of the
+            // body, or at its own end, and the check below fails.
+            await Waits.untilFirstEnds(
+                { for await _ in entered { return } },
+                { for await _ in bodyStarted {} },
+                { _ = await call.result })
             #expect(context.logRecords.map(\.message) == ["\(Self.enterMessage)"])
             #expect(context.spans.isEmpty)
 

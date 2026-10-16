@@ -5,9 +5,11 @@ import Testing
 /// download and the load that the loader reports, and then `ready` or
 /// `failed` from the pool. The stream then ends.
 ///
-/// The suite has a time limit, because a stream that does not end makes its
-/// test wait forever.
-@Suite("Model pool: the load progress stream", .timeLimit(.minutes(1)))
+/// Each test reads a stream after the load ended, in a cancelled task. A
+/// cancelled stream gives each value of its buffer, and then ends. Thus a
+/// stream that the pool does not end gives its values and ends, and the
+/// test does not wait forever.
+@Suite("Model pool: the load progress stream")
 struct ModelLoadProgressTests {
     /// The key that each test acquires.
     private static let key = ModelPoolKey(ref: "org/a", role: .llm)
@@ -72,7 +74,8 @@ struct ModelLoadProgressTests {
         let loader = ReportingLoader(loadMayEnd: loadMayEnd)
         let pool = ModelPool(loader: loader)
         let acquire = Task { try await pool.acquire(Self.key) }
-        try #require(await BoundedWait.conditionReached("the loader reports") { loader.hasReported })
+        await Waits.untilFirstEnds({ await loader.waitUntilItReports() }, { _ = await acquire.result })
+        try #require(loader.hasReported)
 
         let progress = pool.progress(for: Self.key.ref)
         endLoad.finish()
@@ -241,7 +244,8 @@ struct ModelLoadProgressTests {
             try await pool.acquire(
                 Self.key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: laterLoader)
         }
-        try #require(await BoundedWait.conditionReached("the later load starts") { !log.values.isEmpty })
+        await Waits.untilFirstEnds({ await log.waitUntil { !$0.isEmpty } }, { _ = await acquire.result })
+        try #require(!log.values.isEmpty)
 
         earlierLoader.reportAgain(progress: Self.droppedDownload)
         endLoad.finish()
@@ -277,16 +281,25 @@ struct ModelLoadProgressTests {
     /// - Throws: What the load throws.
     private static func loadAndEvict(in pool: ModelPool) async throws {
         _ = try await pool.acquire(key)
-        try #require(await BoundedWait.conditionReached("the eviction ends") { !pool.isResident(key) })
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
+        try #require(!pool.isResident(key))
     }
 
-    /// Reads each value of `progress` until the stream ends.
+    /// Reads each value that `progress` holds now, in a cancelled task.
+    ///
+    /// The pool gives each value of a load to each stream in the step that
+    /// makes it, and ends the stream after `ready` or `failed`. A cancelled
+    /// stream gives each value of its buffer, and then ends. Thus the read
+    /// needs no wait, and a stream that the pool did not end gives its values
+    /// and does not hang.
     ///
     /// - Parameter progress: A stream of ``ModelPool/progress(for:)``.
     /// - Returns: The values, in order.
     private static func values(of progress: AsyncStream<ModelLoadProgress>) async -> [ModelLoadProgress] {
-        await progress.reduce(into: []) { $0.append($1) }
+        await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await progress.reduce(into: []) { $0.append($1) }
+        }.value
     }
 }
 
@@ -353,6 +366,12 @@ private struct ReportingLoader: PooledModelLoader {
 
     /// Whether a load reported its progress.
     var hasReported: Bool { !handlers.values.isEmpty }
+
+    /// Waits until a load reported its progress, or until the task is
+    /// cancelled.
+    func waitUntilItReports() async {
+        await handlers.waitUntil { !$0.isEmpty }
+    }
 
     /// Reports each value of ``reports``, keeps the handler, and waits until
     /// ``loadMayEnd`` finishes.

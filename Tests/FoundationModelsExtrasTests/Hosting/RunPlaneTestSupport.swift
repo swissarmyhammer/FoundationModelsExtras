@@ -1,6 +1,7 @@
 @_spi(Testing) @testable import FoundationModelsExtras
 import Foundation
 import Testing
+import ULID
 
 /// A latch that the body of a test run waits on until the test opens it.
 typealias RunLatch = Promise<Void>
@@ -160,105 +161,102 @@ extension OperationEvent {
     }
 }
 
-/// Thrown by ``AnswerDrivenRun/deliveredAnswer()`` when no answer reached the
-/// run inside the bound.
-struct AnswerNeverDelivered: Error {}
-
-/// Records that an ``AnswerDrivenRun`` ended, so a test can ask without a wait.
-private actor RunCompletion {
-    /// Whether the run ended.
-    private(set) var isFinished = false
-
-    /// Records that the run ended.
-    func finish() {
-        isFinished = true
-    }
-}
-
-/// Work that ends only when an answer reaches it, for example a suspended
-/// elicitation. The test reads the result with a bound, so a broken answer
-/// route fails one test and does not stop the whole test run.
-///
-/// The bound does not await the run when no answer came: a run that waits for
-/// an answer ignores cancellation, so a wait for it can never end.
-struct AnswerDrivenRun<Value: Sendable> {
-    /// What the run waits for, named in the issue when no answer comes.
-    private let label: String
-
-    /// Tells if the run ended.
-    private let completion: RunCompletion
-
-    /// The run.
-    private let task: Task<Value, any Error>
-
-    /// Starts `body`.
+extension ManualRunClock {
+    /// Waits until at least `count` waits are open on this clock, or until
+    /// `ended` ends first. A clock that never gets the waits then does not
+    /// hang the test: the test reads ``sleeperCount`` and fails.
     ///
     /// - Parameters:
-    ///   - label: What the run waits for.
-    ///   - body: The work that ends when an answer reaches it.
-    init(waitingFor label: String, running body: @escaping @Sendable () async throws -> Value) {
-        let completion = RunCompletion()
-        self.label = label
-        self.completion = completion
-        self.task = Task {
-            do {
-                let value = try await body()
-                await completion.finish()
-                return value
-            } catch {
-                await completion.finish()
-                throw error
-            }
+    ///   - count: The number of waits.
+    ///   - ended: The wait for the event that shows that no wait comes, for
+    ///     example the end of a call.
+    func waitForSleepers(atLeast count: Int, orUntil ended: @escaping @Sendable () async -> Void) async {
+        await Waits.untilFirstEnds({ await self.waitForSleepers(atLeast: count) }, ended)
+    }
+}
+
+/// The end of each question that a test finds still open.
+enum OpenQuestions {
+    /// The answer that ends a question that a test finds still open.
+    static let endedByTheTest = ElicitationResponse.cancel(reason: "the test ended a question that is still open")
+
+    /// Ends the question `elicitationId` when it is still open on `runPlane`,
+    /// and then records an issue.
+    ///
+    /// A run plane that did not give the answer to the asker leaves the
+    /// question open. The end gives the asker an answer, thus a wait for the
+    /// asker ends, and the test fails and does not hang.
+    ///
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - runPlane: The run plane.
+    static func endIfOpen(_ elicitationId: ULID, on runPlane: RunPlane) async {
+        let open = await runPlane.openElicitations().map(\.elicitationId)
+        if open.contains(elicitationId) {
+            Issue.record("the question \(elicitationId) is still open, so its answer did not reach the asker")
+            _ = await runPlane.endElicitation(elicitationId, with: endedByTheTest)
         }
     }
+}
 
-    /// The value of the run, when an answer reached it before the bound of
-    /// ``BoundedWait``.
+/// The task of a test that asks one question and waits for its answer.
+///
+/// No wait of it hangs when the run plane is wrong.
+/// ``waitUntilAsked(_:)`` also ends when the task ends. ``answer(on:)`` ends
+/// the question when it is still open, and only then waits for the task.
+struct QuestionTask<Value: Sendable> {
+    /// The id of the question.
+    let elicitationId: ULID
+
+    /// The task that asks the question and gives the answer.
+    let task: Task<Value, any Error>
+
+    /// Starts `body`, which asks the question `elicitationId`.
     ///
-    /// - Returns: The value of the run.
-    /// - Throws: ``AnswerNeverDelivered`` when no answer came, or the error of
-    ///   the run.
-    func deliveredAnswer() async throws -> Value {
-        let completion = completion
-        guard await BoundedWait.conditionReached("an answer to \(label)", when: { await completion.isFinished }) else {
-            task.cancel()
-            throw AnswerNeverDelivered()
-        }
-        return try await task.value
+    /// - Parameters:
+    ///   - elicitationId: The id of the question that `body` asks.
+    ///   - body: The work that ends when the question gets its answer.
+    init(asking elicitationId: ULID, running body: @escaping @Sendable () async throws -> Value) {
+        self.elicitationId = elicitationId
+        task = Task { try await body() }
     }
 
-    /// The value of the run, with no wall clock. A test that calls this sets
-    /// a `.timeLimit`, which ends the wait when no answer comes.
+    /// Waits until `asked` ends, or until the task ends first.
     ///
-    /// - Returns: The value of the run.
-    /// - Throws: `CancellationError` when the time limit ended the wait, or
-    ///   the error of the run.
-    func answerOnceDelivered() async throws -> Value {
-        let completion = completion
-        do {
-            try await AwaitedCondition.wait { await completion.isFinished }
-        } catch {
-            task.cancel()
-            throw error
-        }
+    /// - Parameter asked: The wait for the event that tells that the question
+    ///   is open, for example the post of its elicitation event.
+    func waitUntilAsked(_ asked: @escaping @Sendable () async -> Void) async {
+        let task = task
+        await Waits.untilFirstEnds(asked, { _ = await task.result })
+    }
+
+    /// The answer that the task got.
+    ///
+    /// - Parameter runPlane: The run plane that holds the question.
+    /// - Returns: The value of the task.
+    /// - Throws: The error of the task.
+    func answer(on runPlane: RunPlane) async throws -> Value {
+        await OpenQuestions.endIfOpen(elicitationId, on: runPlane)
         return try await task.value
     }
 }
 
-/// A wait for a state that no event names, with no wall clock. A loaded
-/// machine makes the wait longer, never wrong. The `.timeLimit` of the test
-/// ends a wait for a state that never comes.
-enum AwaitedCondition {
-    /// The pause between two reads of the condition.
-    private static let pollIntervalNanoseconds: UInt64 = 5_000_000
-
-    /// Reads `condition` until it is true.
+extension QuestionTask where Value == ElicitationResponse {
+    /// Asks `request` on `runPlane` for the run of `runToken`. Returns when
+    /// the run plane posted the question, or when the asker got an answer
+    /// first.
     ///
-    /// - Parameter condition: The state to wait for.
-    /// - Throws: `CancellationError` when the test was cancelled first.
-    static func wait(until condition: @Sendable () async -> Bool) async throws {
-        while await !condition() {
-            try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - runToken: The completion token of the run that asks.
+    ///   - runPlane: The run plane.
+    /// - Returns: The task that waits for the answer.
+    static func ask(_ request: ElicitationRequest, runToken: String, on runPlane: RunPlane) async -> QuestionTask {
+        let posted = RunLatch()
+        let question = QuestionTask(asking: request.elicitationId) {
+            await runPlane.awaitAnswer(to: request, runToken: runToken) { posted.open() }
         }
+        await question.waitUntilAsked { await posted.waitUntilOpen() }
+        return question
     }
 }

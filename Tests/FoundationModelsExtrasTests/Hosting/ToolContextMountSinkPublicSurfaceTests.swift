@@ -21,12 +21,9 @@ private let unboundToolOutput = "unbound"
 /// the context that the tool reads from ``ToolContext/current``. The test
 /// mounts that tool on a new session with ``ToolMounting``, as a host does.
 ///
-/// Two tests wait until a mounted run arrives. When a change stops such a run,
-/// the time limit fails the test and does not stop the whole test run.
-@Suite(
-    "ToolContext.mount(postingTo:): a sink of the caller over the public surface",
-    .timeLimit(.minutes(1))
-)
+/// Two tests wait until a mounted run arrives. A run that ends early also
+/// opens its latch, thus such a wait ends when the run ends.
+@Suite("ToolContext.mount(postingTo:): a sink of the caller over the public surface")
 struct ToolContextMountSinkPublicSurfaceTests {
     // MARK: - Labels
 
@@ -128,6 +125,9 @@ struct ToolContextMountSinkPublicSurfaceTests {
         var release: RunLatch?
 
         func call(arguments: LabelArguments) async throws -> String {
+            // A run that ends early also opens `arrived`, so a test that waits
+            // on it does not hang.
+            defer { arrived?.open() }
             guard let context = ToolContext.current else { return unboundToolOutput }
             await log.record(label, token: context.completionToken)
             await context.progress(label)
@@ -288,8 +288,16 @@ struct ToolContextMountSinkPublicSurfaceTests {
                     label: Self.secondConcurrentLabel, log: log, arrived: secondArrived, release: firstArrived),
                 postingTo: sink)
 
-            async let firstRun = first.call(arguments: LabelArguments(value: Self.firstConcurrentLabel))
-            async let secondRun = second.call(arguments: LabelArguments(value: Self.secondConcurrentLabel))
+            // A call that ends before its tool runs also opens its latch, so
+            // the other run does not wait for ever.
+            async let firstRun: String = {
+                defer { firstArrived.open() }
+                return try await first.call(arguments: LabelArguments(value: Self.firstConcurrentLabel))
+            }()
+            async let secondRun: String = {
+                defer { secondArrived.open() }
+                return try await second.call(arguments: LabelArguments(value: Self.secondConcurrentLabel))
+            }()
             _ = try await (firstRun, secondRun)
         }
 

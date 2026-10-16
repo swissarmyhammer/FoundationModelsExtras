@@ -36,9 +36,6 @@ struct PooledModelTests {
     /// The third prompt of a test.
     private static let thirdPrompt = "three"
 
-    /// The number of calls that wait in the queue behind the first call.
-    private static let oneWaitingCall = 1
-
     /// The number in the answer of the typed respond test.
     private static let typedAnswerNumber = 7
 
@@ -94,9 +91,41 @@ struct PooledModelTests {
         let session = try await model.session()
         let queue = try await pool.acquire(key).queue
         let firstCall = Task { try await session.respond(to: firstPrompt) }
-        try #require(await BoundedWait.conditionReached("the first call runs") { log.values == ["begin \(firstPrompt)"] })
+        try await waitUntilTheFirstCallRuns(firstCall, log: log)
         return BlockedCall(
             model: model, session: session, queue: queue, log: log, endFirstCall: endFirstCall, firstCall: firstCall)
+    }
+
+    /// Waits until the stub model begins the call of ``firstPrompt``, or until
+    /// `call` ends first.
+    ///
+    /// - Parameters:
+    ///   - call: The task of the first call.
+    ///   - log: The log of the generation calls of the stub model.
+    /// - Throws: An `ExpectationFailedError` when the call never began.
+    private static func waitUntilTheFirstCallRuns(
+        _ call: Task<String, any Error>, log: Recorder<String>
+    ) async throws {
+        let begin = "begin \(firstPrompt)"
+        await Waits.untilFirstEnds({ await log.waitUntil { $0.contains(begin) } }, { _ = await call.result })
+        try #require(log.values == [begin])
+    }
+
+    /// Waits until the loader of `log` starts the load of ``key``, or until
+    /// `callers` end first.
+    ///
+    /// - Parameters:
+    ///   - log: The log of a loader that ``stubLoader(script:log:loadsMayEnd:)``
+    ///     made.
+    ///   - callers: The tasks that need the load.
+    /// - Throws: An `ExpectationFailedError` when the load did not start.
+    private static func waitUntilTheLoadRuns<Value: Sendable>(
+        in log: Recorder<String>, for callers: [Task<Value, any Error>]
+    ) async throws {
+        await Waits.untilFirstEnds(
+            { await log.waitUntil { $0.contains(loadEntry) } },
+            { for caller in callers { _ = await caller.result } })
+        try #require(loads(in: log) == [loadEntry])
     }
 
     /// The loads in `log`.
@@ -130,7 +159,7 @@ struct PooledModelTests {
 
         let records = try await TelemetryCapture.run(forbidding: []) { context in
             model.prewarm(transcript: Transcript())
-            return try await context.waitForErrorRecords()
+            return await context.waitForErrorRecords()
         }
 
         let expected = TelemetryCapture.LogRecord(
@@ -168,11 +197,15 @@ struct PooledModelTests {
         let first = PooledModel(ref: Self.key.ref, pool: pool)
         let second = PooledModel(ref: Self.key.ref, pool: pool)
 
-        async let firstSession = first.session()
-        async let secondSession = second.session()
-        try #require(await BoundedWait.conditionReached("the load runs") { Self.loads(in: log) == [Self.loadEntry] })
+        // Each session starts in a task of its own, not in an `async let`. A
+        // failed wait then leaves the scope at once, and the deferred finish
+        // ends the load.
+        defer { endLoads.finish() }
+        let firstSession = Task { try await first.session() }
+        let secondSession = Task { try await second.session() }
+        try await Self.waitUntilTheLoadRuns(in: log, for: [firstSession, secondSession])
         endLoads.finish()
-        let sessions = try await [firstSession, secondSession]
+        let sessions = try await [firstSession.value, secondSession.value]
 
         #expect(sessions.map(\.model) == [Self.key.ref, Self.key.ref])
         #expect(pool.residentModelCount == 1)
@@ -188,7 +221,6 @@ struct PooledModelTests {
 
     @Test("a second caller of one resident hold that waits for the running load adds one load join, the first adds none")
     func aCallerThatJoinsTheRunningLoadAddsOneLoadJoin() async throws {
-        let metrics = TestMetrics()
         let log = Recorder<String>()
         let (loadMayEnd, endLoad) = AsyncStream.makeStream(of: Void.self)
         defer { endLoad.finish() }
@@ -200,16 +232,22 @@ struct PooledModelTests {
 
         // Each caller starts in a task of its own, not in an `async let`. A
         // failed wait then leaves the scope at once, and the deferred finish
-        // ends the load.
-        let values = try await withMetricsFactory(metrics) {
-            let first = Task { try await hold.loaded() }
-            try #require(await BoundedWait.conditionReached("the load runs") { log.values == [Self.loadEntry] })
-            let second = Task { try await hold.loaded() }
-            try #require(await BoundedWait.conditionReached("the second caller joins the load") {
-                (try? PoolMetricExpectations.loadJoins(in: metrics)) == Self.oneLoadJoin
-            })
-            endLoad.finish()
-            return try await [first.value, second.value]
+        // ends the load. The capture tests each metric record, thus the wait
+        // for the load join needs no poll.
+        let (values, metrics) = try await TelemetryCapture.run(forbidding: []) { context in
+            try await withMetricsFactory(context.observedMetricsFactory) {
+                let first = Task { try await hold.loaded() }
+                await Waits.untilFirstEnds(
+                    { await log.waitUntil { $0.contains(Self.loadEntry) } }, { _ = await first.result })
+                try #require(log.values == [Self.loadEntry])
+                let second = Task { try await hold.loaded() }
+                await Waits.untilFirstEnds(
+                    { await context.wait { (try? PoolMetricExpectations.loadJoins(in: $0.metricsFactory)) != nil } },
+                    { _ = await second.result })
+                try #require(try PoolMetricExpectations.loadJoins(in: context.metricsFactory) == Self.oneLoadJoin)
+                endLoad.finish()
+                return (try await [first.value, second.value], context.metricsFactory)
+            }
         }
 
         #expect(values == [Self.residentValue, Self.residentValue])
@@ -222,8 +260,11 @@ struct PooledModelTests {
         let blocked = try await Self.startBlockedCall()
         let secondSession = try await blocked.model.session()
 
-        let secondCall = Task { try await secondSession.respond(to: Self.secondPrompt) }
-        try await blocked.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
+        let secondCall = try await TelemetryCapture.run(forbidding: []) { context in
+            await blocked.queue.startQueuedCall(recordingInto: context) {
+                try await secondSession.respond(to: Self.secondPrompt)
+            }
+        }
         blocked.endFirstCall.finish()
         let answers = try await [blocked.firstCall.value, secondCall.value]
 
@@ -252,8 +293,9 @@ struct PooledModelTests {
     func aForkWaitsForTheRunningRespond() async throws {
         let blocked = try await Self.startBlockedCall()
 
-        let fork = Task { try await blocked.session.fork() }
-        try await blocked.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
+        let fork = try await TelemetryCapture.run(forbidding: []) { context in
+            await blocked.queue.startQueuedCall(recordingInto: context) { try await blocked.session.fork() }
+        }
         blocked.endFirstCall.finish()
         _ = try await blocked.firstCall.value
         let childAnswer = try await fork.value.respond(to: Self.secondPrompt)
@@ -269,16 +311,16 @@ struct PooledModelTests {
         var child: PooledSession? = try await session?.fork()
 
         session = nil
-        // An admission job ends after each eviction job that is in the admission queue now.
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
         let residentWhileTheForkExists = pool.isResident(Self.key)
         let childAnswer = try await child?.respond(to: Self.firstPrompt)
         child = nil
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(residentWhileTheForkExists)
         #expect(childAnswer == Self.firstPrompt)
         #expect(Self.loads(in: log) == [Self.loadEntry])
-        #expect(await BoundedWait.conditionReached("the eviction after the last session goes") { !pool.isResident(Self.key) })
+        #expect(!pool.isResident(Self.key))
     }
 
     @Test("respond(to:generating:) decodes the answer of the model as a Generable type")
@@ -339,11 +381,15 @@ struct PooledModelTests {
         let first = LanguageModelSession(model: model)
         let second = LanguageModelSession(model: model)
 
-        async let firstAnswer = first.respond(to: Self.firstPrompt).content
-        async let secondAnswer = second.respond(to: Self.secondPrompt).content
-        try #require(await BoundedWait.conditionReached("the load runs") { Self.loads(in: log) == [Self.loadEntry] })
+        // Each respond starts in a task of its own, not in an `async let`. A
+        // failed wait then leaves the scope at once, and the deferred finish
+        // ends the load.
+        defer { endLoads.finish() }
+        let firstAnswer = Task { try await first.respond(to: Self.firstPrompt).content }
+        let secondAnswer = Task { try await second.respond(to: Self.secondPrompt).content }
+        try await Self.waitUntilTheLoadRuns(in: log, for: [firstAnswer, secondAnswer])
         endLoads.finish()
-        let answers = try await Set([firstAnswer, secondAnswer])
+        let answers = try await Set([firstAnswer.value, secondAnswer.value])
 
         #expect(answers == [Self.firstPrompt, Self.secondPrompt])
         #expect(Self.loads(in: log) == [Self.loadEntry])
@@ -361,9 +407,12 @@ struct PooledModelTests {
         let hold = try await pool.acquire(Self.key)
 
         let firstCall = Task { try await LanguageModelSession(model: model).respond(to: Self.firstPrompt).content }
-        try #require(await BoundedWait.conditionReached("the first call runs") { log.values == ["begin \(Self.firstPrompt)"] })
-        let secondCall = Task { try await LanguageModelSession(model: model).respond(to: Self.secondPrompt).content }
-        try await hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
+        try await Self.waitUntilTheFirstCallRuns(firstCall, log: log)
+        let secondCall = try await TelemetryCapture.run(forbidding: []) { context in
+            await hold.queue.startQueuedCall(recordingInto: context) {
+                try await LanguageModelSession(model: model).respond(to: Self.secondPrompt).content
+            }
+        }
         endFirstCall.finish()
         let answers = try await [firstCall.value, secondCall.value]
 
@@ -396,13 +445,13 @@ struct PooledModelTests {
         var session: LanguageModelSession? = LanguageModelSession(model: PooledModel(ref: Self.key.ref, pool: pool))
         _ = try await session?.respond(to: Self.firstPrompt)
 
-        // An admission job ends after each eviction job that is in the admission queue now.
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
         let residentWhileTheSessionExists = pool.isResident(Self.key)
         session = nil
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(residentWhileTheSessionExists)
-        #expect(await BoundedWait.conditionReached("the eviction after the session goes") { !pool.isResident(Self.key) })
+        #expect(!pool.isResident(Self.key))
     }
 
     @Test("a respond over a pooled model whose container is not a LanguageModel gives a clear error, and keeps no hold")
@@ -412,7 +461,8 @@ struct PooledModelTests {
         let expected = PooledSessionError.notALanguageModel(key: Self.key, containerType: "FakeModel")
 
         await #expect(throws: expected) { try await session.respond(to: Self.firstPrompt) }
-        #expect(await BoundedWait.conditionReached("the eviction of the model") { !pool.isResident(Self.key) })
+        try await pool.waitForTheEarlierAdmissionJobs()
+        #expect(!pool.isResident(Self.key))
     }
 
     @Test("a session on a container that is not a LanguageModel gives a clear error, and keeps no hold")
@@ -423,7 +473,8 @@ struct PooledModelTests {
 
         await #expect(throws: expected) { try await model.session() }
         #expect(expected.errorDescription?.contains("LanguageModel") == true)
-        #expect(await BoundedWait.conditionReached("the eviction of the model") { !pool.isResident(Self.key) })
+        try await pool.waitForTheEarlierAdmissionJobs()
+        #expect(!pool.isResident(Self.key))
     }
 }
 

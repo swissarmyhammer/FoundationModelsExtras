@@ -22,12 +22,6 @@ struct PooledEmbedderTests {
     /// The vector of each text for the model of loader B.
     private static let vectorB: [Float] = [0, 1]
 
-    /// One call that waits in the queue.
-    private static let oneWaitingCall = 1
-
-    /// Two calls that wait in the queue.
-    private static let twoWaitingCalls = 2
-
     /// The name of the loader that ``embeddingLoader(log:loadsMayEnd:failingLoads:)`` makes.
     private static let loaderName = "A"
 
@@ -110,7 +104,8 @@ struct PooledEmbedderTests {
         let hold = try await acquire(from: pool, with: FixedLoader(container: embedding))
         let embedder = try PooledEmbedder(hold: hold)
         let firstCall = Task { try await embedder.embed(texts: ["one"]) }
-        try #require(await BoundedWait.conditionReached("the first call runs") { log.values == ["begin one"] })
+        await log.waitUntil(holds: "begin one", orUntilEndOf: firstCall)
+        try #require(log.values == ["begin one"])
         return BlockedModel(hold: hold, embedder: embedder, log: log, endFirstCall: endFirstCall, firstCall: firstCall)
     }
 
@@ -130,10 +125,16 @@ struct PooledEmbedderTests {
         let pool = ModelPool()
         let model = try await Self.startBlockedCall(on: pool)
 
-        let second = Task { try await model.embedder.embed(texts: ["two"]) }
-        try await model.hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
-        let third = Task { try await model.embedder.embed(texts: ["three"]) }
-        try await model.hold.queue.waitForWaitingJobs(count: Self.twoWaitingCalls)
+        let (second, third) = try await TelemetryCapture.run(forbidding: []) { context in
+            let queue = model.hold.queue
+            let second = await queue.startQueuedCall(recordingInto: context) {
+                try await model.embedder.embed(texts: ["two"])
+            }
+            let third = await queue.startQueuedCall(recordingInto: context) {
+                try await model.embedder.embed(texts: ["three"])
+            }
+            return (second, third)
+        }
         model.endFirstCall.finish()
         _ = try await (model.firstCall.value, second.value, third.value)
 
@@ -163,9 +164,10 @@ struct PooledEmbedderTests {
         let footprintWithTheHandle = pool.footprint
         #expect(try await embedder?.embed(texts: ["one"]) == [Self.vectorA])
         embedder = nil
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(footprintWithTheHandle == ModelPoolFootprint(resident: [Self.key: Self.footprintBytes], loadingBytes: 0))
-        #expect(await BoundedWait.conditionReached("the eviction after the handle goes") { !pool.isResident(Self.key) })
+        #expect(!pool.isResident(Self.key))
     }
 
     @Test("a cancelled embed call that waits in the queue does not block the next call")
@@ -173,11 +175,19 @@ struct PooledEmbedderTests {
         let pool = ModelPool()
         let model = try await Self.startBlockedCall(on: pool)
 
-        let cancelled = Task { try await model.embedder.embed(texts: ["two"]) }
-        try await model.hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
-        cancelled.cancel()
-        let next = Task { try await model.embedder.embed(texts: ["three"]) }
-        try await model.hold.queue.waitForWaitingJobs(count: Self.oneWaitingCall)
+        let (cancelled, next) = try await TelemetryCapture.run(forbidding: []) { context in
+            let queue = model.hold.queue
+            let cancelled = await queue.startQueuedCall(recordingInto: context) {
+                try await model.embedder.embed(texts: ["two"])
+            }
+            // A waiting job that is cancelled leaves the queue in the cancel
+            // call, thus the next job waits behind the first call only.
+            cancelled.cancel()
+            let next = await queue.startQueuedCall(recordingInto: context) {
+                try await model.embedder.embed(texts: ["three"])
+            }
+            return (cancelled, next)
+        }
         model.endFirstCall.finish()
         let vectors = try await next.value
 
@@ -193,9 +203,8 @@ struct PooledEmbedderTests {
 
         model.firstCall.cancel()
         let next = Task { try await model.embedder.embed(texts: ["two"]) }
-        let nextEnded = await BoundedWait.conditionReached("the next call ends") {
-            model.log.values.contains("end two")
-        }
+        await model.log.waitUntil(holds: "end two", orUntilEndOf: next)
+        let nextEnded = model.log.values.contains("end two")
         model.endFirstCall.finish()
 
         #expect(nextEnded)
@@ -248,9 +257,11 @@ struct PooledEmbedderTests {
         let pool = ModelPool(loader: Self.embeddingLoader(log: log, loadsMayEnd: loadsMayEnd))
         let embedder = PooledEmbedder(ref: Self.key.ref, pool: pool)
 
+        defer { endLoads.finish() }
         let first = Task { try await embedder.embed(texts: ["one"]) }
         let second = Task { try await embedder.embed(texts: ["two"]) }
-        try #require(await BoundedWait.conditionReached("the load runs") { Self.loads(in: log) == [Self.loadEntry] })
+        await log.waitUntil(holds: Self.loadEntry, orUntilEndOf: first)
+        try #require(Self.loads(in: log) == [Self.loadEntry])
         endLoads.finish()
         let vectors = try await [first.value, second.value]
 
@@ -284,16 +295,16 @@ struct PooledEmbedderTests {
         _ = try await second?.embed(texts: ["two"])
         first = nil
         second = nil
-        // An admission job ends after each eviction job that is in the admission queue now.
-        try await pool.admit { _ in }
+        try await pool.waitForTheEarlierAdmissionJobs()
         let residentWhileACopyExists = pool.isResident(Self.key)
         let copyVectors = try await copy?.embed(texts: ["three"])
         copy = nil
+        try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(residentWhileACopyExists)
         #expect(copyVectors == [Self.vectorA])
         #expect(Self.loads(in: log) == [Self.loadEntry])
-        #expect(await BoundedWait.conditionReached("the eviction after the last copy goes") { !pool.isResident(Self.key) })
+        #expect(!pool.isResident(Self.key))
     }
 
     @Test("after a failed load, the next embed call loads the model again")
@@ -316,7 +327,8 @@ struct PooledEmbedderTests {
         let expected = PooledEmbedderError.notAnEmbedding(key: Self.key, containerType: "FakeModel")
 
         await #expect(throws: expected) { try await embedder.embed(texts: ["one"]) }
-        #expect(await BoundedWait.conditionReached("the eviction of the model") { !pool.isResident(Self.key) })
+        try await pool.waitForTheEarlierAdmissionJobs()
+        #expect(!pool.isResident(Self.key))
     }
 
     @Test("an embed call through the pool and the queue carries no embed text in its spans, log records or metrics")

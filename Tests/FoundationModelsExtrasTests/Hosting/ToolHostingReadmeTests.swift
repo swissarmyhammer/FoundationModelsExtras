@@ -33,7 +33,7 @@ private struct RunTests: Tool, BackgroundTool {
 /// mount code are the same as in the README. The test calls the mounted tool
 /// as the model does, then collects the result from the run plane as the host
 /// does.
-@Suite("Tool hosting: the README example", .timeLimit(.minutes(1)))
+@Suite("Tool hosting: the README example")
 struct ToolHostingReadmeTests {
     /// How long the host waits on the run plane for the result, in seconds.
     private static let collectSeconds: Double = 30

@@ -7,18 +7,28 @@ import ULID
 /// ``ToolMounting``: the decorator of a tool, from the mount that the tool
 /// declares or from the mount of the site, and the binding-only decorator of
 /// a tool whose output is not `String`.
-@Suite("ToolMounting: mount a tool in the layer it declares", .timeLimit(.minutes(1)))
+@Suite("ToolMounting: mount a tool in the layer it declares")
 struct ToolMountingTests {
     private typealias Fixtures = MountFixtures
 
-    /// How many ``MountFixtures/shortInterval`` windows a declared
-    /// run-to-completion call is held: longer than the timeout of the site,
-    /// so only the declaration explains a call that is neither in the
-    /// background nor timed out.
+    /// How many ``MountFixtures/shortInterval`` windows the manual clock
+    /// moves while a declared run-to-completion call is held: longer than the
+    /// timeout of the site, so only the declaration explains a call that is
+    /// neither in the background nor timed out.
     private static let declaredMountHoldWindows: Double = 3
 
-    /// How long, in seconds, the tool with no timeout runs with no progress.
+    /// How long, in seconds of the manual clock, the tool with no timeout
+    /// runs with no progress.
     private static let quietRunSeconds: TimeInterval = 3
+
+    /// Waits until `started` opens, or until `calling` ends first.
+    ///
+    /// - Parameters:
+    ///   - started: Opens when the tool starts its call.
+    ///   - calling: The task of the call.
+    private static func waitUntilStarted(_ started: RunLatch, orUntilEndOf calling: Task<String, any Error>) async {
+        await Waits.untilFirstEnds({ await started.waitUntilOpen() }, { _ = await calling.result })
+    }
 
     /// The timeout, in seconds, of the mount in the timeout test.
     private static let statedTimeoutSeconds: TimeInterval = 1
@@ -216,10 +226,11 @@ struct ToolMountingTests {
     @Test("a tool that declares nothing mounts run-to-completion with no timeout, and its slow call stays in band")
     func undeclaredToolMountsRunToCompletion() async throws {
         let gate = RunLatch()
+        let tool = Fixtures.QuietTool(gate: gate)
         let runPlane = RunPlane()
         let site = Fixtures.site(runPlane: runPlane, sink: Fixtures.RecordingSink())
         let mounted = try #require(
-            Self.makeSessionMounted(Fixtures.GatedTool(gate: gate), site: site) as? RunToCompletionRunner<MountArguments>
+            Self.makeSessionMounted(tool, site: site) as? RunToCompletionRunner<MountArguments>
         )
 
         #expect(mounted.timeout == nil)
@@ -227,23 +238,32 @@ struct ToolMountingTests {
         let calling = Task {
             try await mounted.call(arguments: MountArguments(value: "edit"))
         }
-        try await Task.sleep(for: .seconds(Fixtures.shortInterval))
-        // No token came back: the call is still in band.
+        await Self.waitUntilStarted(tool.started, orUntilEndOf: calling)
+        // The tool runs, and no token came back: the call is still in band.
         #expect(await runPlane.backgroundRuns().isEmpty)
         gate.open()
 
         let rendered = try await calling.value
-        #expect(rendered == "gated: edit")
+        #expect(rendered == "quiet: edit")
         #expect(await runPlane.backgroundRuns().isEmpty)
     }
 
     @Test("a tool with no timeout that runs with no progress completes")
     func unstatedTimeoutLetsAQuietRunComplete() async throws {
-        let site = Fixtures.site(runPlane: RunPlane(), sink: Fixtures.RecordingSink())
-        let mounted = Self.makeSessionMounted(Fixtures.QuietTool(duration: Self.quietRunSeconds), site: site)
+        let clock = ManualRunClock()
+        let gate = RunLatch()
+        let tool = Fixtures.QuietTool(gate: gate)
+        let site = Fixtures.site(runPlane: RunPlane(clock: clock), sink: Fixtures.RecordingSink())
+        let mounted = Self.makeSessionMounted(tool, site: site)
         let quiet = try #require(mounted as? RunToCompletionRunner<MountArguments>)
 
-        let rendered = try await quiet.call(arguments: MountArguments(value: "slow"))
+        let calling = Task { try await quiet.call(arguments: MountArguments(value: "slow")) }
+        await Self.waitUntilStarted(tool.started, orUntilEndOf: calling)
+        // The run has no timer, so the time with no progress stops nothing.
+        #expect(clock.sleeperCount == 0)
+        clock.advance(by: .seconds(Self.quietRunSeconds))
+        gate.open()
+        let rendered = try await calling.value
 
         #expect(rendered == "quiet: slow")
     }
@@ -290,11 +310,13 @@ struct ToolMountingTests {
 
     @Test("the mount that a tool declares wins over the mount of the site, the timeout also")
     func declaredMountOverridesTheSiteConfiguration() async throws {
+        let clock = ManualRunClock()
         let gate = RunLatch()
-        let runPlane = RunPlane()
+        let tool = Fixtures.DeclaredRunToCompletionRunner(gate: gate)
+        let runPlane = RunPlane(clock: clock)
         let sink = Fixtures.RecordingSink()
         let wrapped = ToolMounting.makeWrapped(
-            tool: Fixtures.DeclaredRunToCompletionRunner(gate: gate),
+            tool: tool,
             site: Fixtures.site(runPlane: runPlane, sink: sink),
             configuration: ToolMount(mode: .background, timeout: Fixtures.shortInterval)
         )
@@ -305,9 +327,12 @@ struct ToolMountingTests {
         let calling = Task {
             try await mounted.call(arguments: MountArguments(value: "catalogue"))
         }
+        await Self.waitUntilStarted(tool.started, orUntilEndOf: calling)
         // Held longer than the timeout of the site: with the mount of the
-        // site, the call would go to the background at once, and then time out.
-        try await Task.sleep(for: .seconds(Fixtures.shortInterval * Self.declaredMountHoldWindows))
+        // site, the call would wait on a timer, go to the background, and then
+        // time out. The declared mount starts no timer.
+        #expect(clock.sleeperCount == 0)
+        clock.advance(by: .seconds(Fixtures.shortInterval * Self.declaredMountHoldWindows))
         #expect(await runPlane.backgroundRuns().isEmpty)
         gate.open()
 
@@ -324,10 +349,10 @@ struct ToolMountingTests {
         let site = Fixtures.site(runPlane: runPlane, sink: Fixtures.RecordingSink())
         let blockingGate = RunLatch()
         let backgroundingGate = RunLatch()
+        let blockingTool = Fixtures.DeclaredRunToCompletionRunner(gate: blockingGate)
         // Both tools are mounted as a session mounts them, on one site.
         let blocking = try #require(
-            Self.makeSessionMounted(Fixtures.DeclaredRunToCompletionRunner(gate: blockingGate), site: site)
-                as? RunToCompletionRunner<MountArguments>
+            Self.makeSessionMounted(blockingTool, site: site) as? RunToCompletionRunner<MountArguments>
         )
         let backgrounding = try #require(
             Self.makeSessionMounted(Fixtures.DeclaredBackgroundToolRunner(gate: backgroundingGate), site: site)
@@ -343,7 +368,7 @@ struct ToolMountingTests {
         let discovering = Task {
             try await blocking.call(arguments: MountArguments(value: "catalogue"))
         }
-        try await Task.sleep(for: .seconds(Fixtures.shortInterval))
+        await Self.waitUntilStarted(blockingTool.started, orUntilEndOf: discovering)
 
         // The run plane tracks one run: the run of the background tool.
         let runs = await runPlane.backgroundRuns()

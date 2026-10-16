@@ -18,8 +18,8 @@ struct BackgroundToolRunnerTests {
     /// The number of heartbeats of the tool of the run-plane list test.
     private static let snapshotRunBeats = 40
 
-    /// The pause between two heartbeats.
-    private static let heartbeatInterval: TimeInterval = 0.05
+    /// The detail of the last beat of the tool of the run-plane list test.
+    private static let lastSnapshotBeat = "beat \(snapshotRunBeats - 1)"
 
     /// A settle period that a test configures on a site, and that a run
     /// that stays on its gate passes.
@@ -360,8 +360,10 @@ struct BackgroundToolRunnerTests {
 
     @Test("a background run that beats after it returns settles one time, with one terminal event")
     func beatingBackgroundRunSettlesOnce() async throws {
+        let gate = RunLatch()
+        let finish = RunLatch()
         let harness = Fixtures.backgroundHarness(
-            wrapping: Fixtures.HeartbeatTool(beats: Self.beatingRunBeats, interval: Self.heartbeatInterval)
+            wrapping: Fixtures.HeartbeatTool(beats: Self.beatingRunBeats, gate: gate, beaten: RunLatch(), finish: finish)
         )
 
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
@@ -371,6 +373,8 @@ struct BackgroundToolRunnerTests {
 
         // The run posts its own progress after it returns, and still gets one
         // terminal event when it settles.
+        gate.open()
+        finish.open()
         let terminal = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
         #expect(terminal.outcome == .succeeded)
         #expect(terminal.detail == "heartbeat done")
@@ -415,7 +419,7 @@ struct BackgroundToolRunnerTests {
     @Test("the cooperative flag of a cancelled run reaches the tool through ToolContext.isCancelled")
     func cancellationFlagReachesTool() async throws {
         let witness = Fixtures.CancellationWitness()
-        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.CancellationFlagPollingTool(witness: witness))
+        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.CancellationFlagTool(witness: witness))
 
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
         let envelope = try Fixtures.decodeEnvelope(rendered)
@@ -426,9 +430,9 @@ struct BackgroundToolRunnerTests {
         // The tool reads only the flag, and returns normally when it is set:
         // an honest success.
         let terminal = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
-        #expect(terminal.detail == "observed cancellation")
+        #expect(terminal.detail == Fixtures.CancellationFlagTool.observedOutput)
         #expect(terminal.outcome == .succeeded)
-        #expect(await witness.isObserved)
+        #expect(await witness.context.value.isCancelled)
 
         let events = await harness.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
@@ -476,19 +480,26 @@ struct BackgroundToolRunnerTests {
 
     @Test("the progress of a background run goes into the run-plane list")
     func backgroundRunProgressFeedsStatus() async throws {
+        let gate = RunLatch()
+        let beaten = RunLatch()
+        let finish = RunLatch()
         let harness = Fixtures.backgroundHarness(
-            wrapping: Fixtures.HeartbeatTool(beats: Self.snapshotRunBeats, interval: Self.heartbeatInterval)
+            wrapping: Fixtures.HeartbeatTool(beats: Self.snapshotRunBeats, gate: gate, beaten: beaten, finish: finish)
         )
 
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
         let envelope = try Fixtures.decodeEnvelope(rendered)
+        gate.open()
 
-        // Poll, with a bound, until a beat is in the row of the run.
-        let observedDetail = try await Fixtures.poll {
-            await harness.runPlane.backgroundRuns().first?.latestProgressDetail
-        }
-        #expect(observedDetail?.hasPrefix("beat ") == true)
+        // The run holds on `finish` after its last beat, so it is still in
+        // the list. The wait also ends when the run settles first.
+        let runPlane = harness.runPlane
+        await Waits.untilFirstEnds(
+            { await beaten.waitUntilOpen() },
+            { _ = await runPlane.wait(completionToken: envelope.completionToken, seconds: nil) })
+        #expect(await harness.runPlane.backgroundRuns().first?.latestProgressDetail == Self.lastSnapshotBeat)
 
+        finish.open()
         _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
     }
 }

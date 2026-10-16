@@ -5,7 +5,7 @@ import Testing
 
 /// ``BackgroundTool/mount(for:)``: one tool runs some calls in the background
 /// and other calls to completion, and the tool chooses for each call.
-@Suite("Per-call mount: a tool chooses background or synchronous for each call", .timeLimit(.minutes(1)))
+@Suite("Per-call mount: a tool chooses background or synchronous for each call")
 struct PerCallMountTests {
     private typealias Fixtures = MountFixtures
 
@@ -18,18 +18,22 @@ struct PerCallMountTests {
     /// The value of the synchronous call that starts a nested run.
     private static let nestedValue = "nested"
 
-    /// How many ``MountFixtures/shortInterval`` windows the slow synchronous
-    /// call works: longer than the grace of the tool.
+    /// How many grace periods of the tool the clock moves while the slow
+    /// synchronous call works.
     private static let slowWorkWindows: Double = 3
 
     /// Runs a call in the background when its `value` is ``backgroundValue``,
     /// and to completion for each other value. It declares no tool mount.
+    /// Each call opens `started`, then works until `work` opens.
     private struct PerCallMountTool: Tool, BackgroundTool {
         let name = "per_call_mount_tool"
         let description = "starts a run for one value, and answers in band for each other value"
 
-        /// How long each call works, in seconds.
-        let workSeconds: TimeInterval
+        /// The gate that the work of each call waits for.
+        let work: RunLatch
+
+        /// Opens when a call starts its work.
+        let started: RunLatch
 
         /// The grace of the tool. `0` answers with the pending envelope at
         /// once.
@@ -37,13 +41,23 @@ struct PerCallMountTests {
 
         var inlineSettleGrace: TimeInterval { grace }
 
+        /// A tool whose work ends at once, with grace `0`.
+        ///
+        /// - Returns: The tool.
+        static func instant() -> PerCallMountTool {
+            let work = RunLatch()
+            work.open()
+            return PerCallMountTool(work: work, started: RunLatch(), grace: 0)
+        }
+
         func mount(for arguments: GeneratedContent) -> ToolMount? {
             let value = try? arguments.value(String.self, forProperty: "value")
             return value == PerCallMountTests.backgroundValue ? ToolMount(mode: .background) : .synchronous
         }
 
         func call(arguments: MountArguments) async throws -> String {
-            try await Task.sleep(for: .seconds(workSeconds))
+            started.open()
+            await work.waitUntilOpen()
             return Self.output(for: arguments.value)
         }
 
@@ -73,12 +87,14 @@ struct PerCallMountTests {
     /// - Parameters:
     ///   - tool: The tool to mount.
     ///   - configuration: The mount of the host.
+    ///   - runPlane: The run plane of the session. The default is a new run
+    ///     plane on the real clock.
     /// - Returns: The mounted tool, the run plane and the sink of the session.
     private static func mountOnNewSession(
         _ tool: any Tool<MountArguments, String>,
-        as configuration: ToolMount
+        as configuration: ToolMount,
+        runPlane: RunPlane = RunPlane()
     ) throws -> (mounted: any Tool<MountArguments, String>, runPlane: RunPlane, sink: Fixtures.RecordingSink) {
-        let runPlane = RunPlane()
         let sink = Fixtures.RecordingSink()
         let wrapped = ToolMounting.makeWrapped(
             tool: tool, site: Fixtures.site(runPlane: runPlane, sink: sink), configuration: configuration)
@@ -88,7 +104,7 @@ struct PerCallMountTests {
 
     @Test("under a synchronous host mount, the tool starts a background run for one value and answers in band for another")
     func eachCallGetsTheMountOfItsArguments() async throws {
-        let session = try Self.mountOnNewSession(PerCallMountTool(workSeconds: 0, grace: 0), as: .synchronous)
+        let session = try Self.mountOnNewSession(PerCallMountTool.instant(), as: .synchronous)
 
         let started = try await session.mounted.call(arguments: MountArguments(value: Self.backgroundValue))
         let envelope = try Fixtures.decodeEnvelope(started)
@@ -104,11 +120,22 @@ struct PerCallMountTests {
 
     @Test("under a background host mount, a synchronous call returns its real output also when it works longer than the grace")
     func synchronousCallReturnsItsOutputPastTheGrace() async throws {
-        let tool = PerCallMountTool(
-            workSeconds: Fixtures.shortInterval * Self.slowWorkWindows, grace: Fixtures.shortInterval)
-        let session = try Self.mountOnNewSession(tool, as: ToolMount(mode: .background))
+        let clock = ManualRunClock()
+        let work = RunLatch()
+        let started = RunLatch()
+        let tool = PerCallMountTool(work: work, started: started, grace: Fixtures.shortInterval)
+        let session = try Self.mountOnNewSession(tool, as: ToolMount(mode: .background), runPlane: RunPlane(clock: clock))
+        let mounted = session.mounted
 
-        let listed = try await session.mounted.call(arguments: MountArguments(value: Self.synchronousValue))
+        let calling = Task { try await mounted.call(arguments: MountArguments(value: Self.synchronousValue)) }
+        await Waits.untilFirstEnds({ await started.waitUntilOpen() }, { _ = await calling.result })
+
+        // The call works for longer than the grace of the tool: a
+        // synchronous call waits on no settle period.
+        #expect(clock.sleeperCount == 0)
+        clock.advance(by: .seconds(Fixtures.shortInterval * Self.slowWorkWindows))
+        work.open()
+        let listed = try await calling.value
 
         #expect(listed == PerCallMountTool.output(for: Self.synchronousValue))
         #expect(await session.runPlane.backgroundRuns().isEmpty)
@@ -117,7 +144,7 @@ struct PerCallMountTests {
 
     @Test("a background call with grace 0 returns a pending token also when its work ends at once")
     func backgroundCallReturnsATokenForInstantWork() async throws {
-        let session = try Self.mountOnNewSession(PerCallMountTool(workSeconds: 0, grace: 0), as: .synchronous)
+        let session = try Self.mountOnNewSession(PerCallMountTool.instant(), as: .synchronous)
 
         let started = try await session.mounted.call(arguments: MountArguments(value: Self.backgroundValue))
 
