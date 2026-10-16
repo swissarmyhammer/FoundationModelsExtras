@@ -423,7 +423,7 @@ public actor RunPlane {
     ///
     /// This call waits for the end posts, and they wait on the sink chain of
     /// the run. Thus a sink must not await this call inside a post: the call
-    /// then never returns. A debug build stops at such a call.
+    /// then never returns. The run plane writes an error log at such a call.
     ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: ``CancelOutcome/reported(_:)``, or
@@ -1045,16 +1045,16 @@ public actor RunPlane {
         return .open(canceler: runs[index].canceler)
     }
 
-    /// Stops a debug build when the current task is in a post to a sink of
-    /// the session, and records it in each build.
+    /// Writes an error log when the current task is in a post to a sink of
+    /// the session.
     ///
     /// A cancel of the run plane waits for the end posts, and they wait on
     /// the sink chain of the run. A sink that awaits such a cancel inside a
     /// post thus waits for itself, and neither the post nor the cancel
-    /// returns.
+    /// returns. The check only logs and does not stop a debug build: see
+    /// ``SinkPost`` for why the mark can be set with no deadlock.
     private static func checkNotInSinkPost() {
         guard SinkPost.isInProgress else { return }
-        assertionFailure(cancelInsideSinkPostMessage)
         ExtrasTelemetry.makeLogger().error("\(cancelInsideSinkPostMessage)")
     }
 

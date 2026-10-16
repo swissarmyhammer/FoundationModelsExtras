@@ -260,8 +260,14 @@ final class ToolCallState: Sendable {
 /// ``RunEventFunnel`` sets the mark around each post to the sink of the
 /// session. A cancel of the run plane reads it: such a cancel waits for the
 /// end posts of the questions, and they wait on the same chain of posts, so
-/// a cancel inside a post never returns. A task that a post starts with
-/// `Task {}` inherits the mark; `Task.detached` does not.
+/// a cancel inside a post never returns.
+///
+/// Swift copies a task-local value into each task that `Task {}` starts, but
+/// not into a task that `Task.detached` starts. A task that a post starts
+/// with `Task {}` thus has the mark also after the post returned. A cancel
+/// in that task does not cause a deadlock, but it reads the mark. For this
+/// reason the check of the mark writes an error log only, and does not stop
+/// a debug build.
 enum SinkPost {
     /// Whether the current task is in a post to a sink of the session.
     @TaskLocal static var isInProgress = false

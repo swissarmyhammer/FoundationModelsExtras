@@ -432,29 +432,125 @@ struct ElicitationEndEventTests {
 
     // MARK: - The mark of a sink post
 
-    /// A sink that records, for each event, whether the post of the event
-    /// runs in a sink post of the run plane.
-    private actor MarkRecordingSink: OperationEventSink {
-        /// The mark of each post, in post order.
-        private(set) var marks: [Bool] = []
+    /// One post that a ``MarkRecordingSink`` got, with the sink post mark of
+    /// the task that ran the post.
+    private enum MarkedPost: Equatable {
+        /// A post of an event.
+        case event(isMarked: Bool)
 
-        /// Records the mark of the current task.
+        /// A post of the completion of a URL flow.
+        case completion(isMarked: Bool)
+
+        /// A post of the end of a question.
+        case end(isMarked: Bool)
+    }
+
+    /// A sink that records, for each post, whether the post runs in a sink
+    /// post of the run plane, and then gives the post to a
+    /// ``SignallingSink``.
+    private struct MarkRecordingSink: OperationEventSink {
+        /// Gets each post, with its mark, in post order.
+        let marks: Recorder<MarkedPost>
+
+        /// The sink that gets each post after its mark is recorded.
+        let signalling: SignallingSink
+
+        /// Records the mark of the current task, then gives `event` to
+        /// ``signalling``.
         ///
         /// - Parameter event: The event.
-        func post(event: OperationEvent) {
-            marks.append(SinkPost.isInProgress)
+        func post(event: OperationEvent) async {
+            marks.append(.event(isMarked: SinkPost.isInProgress))
+            await signalling.post(event: event)
         }
+
+        /// Records the mark of the current task, then gives the completion
+        /// to ``signalling``.
+        ///
+        /// - Parameter elicitationId: The id of the question.
+        func post(elicitationCompleted elicitationId: ULID) async {
+            marks.append(.completion(isMarked: SinkPost.isInProgress))
+            await signalling.post(elicitationCompleted: elicitationId)
+        }
+
+        /// Records the mark of the current task, then gives the end to
+        /// ``signalling``.
+        ///
+        /// - Parameters:
+        ///   - elicitationId: The id of the question.
+        ///   - response: The answer that the run of the question gets.
+        func post(elicitationEnded elicitationId: ULID, response: ElicitationResponse) async {
+            marks.append(.end(isMarked: SinkPost.isInProgress))
+            await signalling.post(elicitationEnded: elicitationId, response: response)
+        }
+    }
+
+    /// Asks `request` through a host context on `runPlane` whose sink is the
+    /// funnel of a run. The funnel posts to a ``MarkRecordingSink`` that
+    /// records in `marks`. Only the task that asks holds the sink.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - runPlane: The run plane of the session.
+    ///   - marks: Gets each post of the funnel, with its mark.
+    /// - Returns: The stream of the sink, and the answer of `request`.
+    private static func askThroughFunnel(
+        _ request: ElicitationRequest, on runPlane: RunPlane, marks: Recorder<MarkedPost>
+    ) -> Asking {
+        let signalling = SignallingSink()
+        let token = RunPlane.makeCompletionToken()
+        let funnel = RunEventFunnel(
+            upstream: MarkRecordingSink(marks: marks, signalling: signalling), runPlane: runPlane,
+            completionToken: token)
+        let answer = Task {
+            try await Fixtures.hostContext(on: runPlane, sink: funnel, completionToken: token).elicit(request)
+        }
+        return Asking(signals: signalling.signals, answers: [answer])
     }
 
     @Test("a post through the funnel of a run runs with the sink post mark, and its caller runs without it")
     func aFunnelPostRunsWithTheMark() async {
-        let sink = MarkRecordingSink()
+        let marks = Recorder<MarkedPost>()
         let funnel = RunEventFunnel(
-            upstream: sink, runPlane: RunPlane(), completionToken: RunPlane.makeCompletionToken())
+            upstream: MarkRecordingSink(marks: marks, signalling: SignallingSink()), runPlane: RunPlane(),
+            completionToken: RunPlane.makeCompletionToken())
 
         await funnel.post(event: OperationEvent.terminal(outcome: .failed))
 
         #expect(!SinkPost.isInProgress)
-        #expect(await sink.marks == [true])
+        #expect(marks.values == [.event(isMarked: true)])
+    }
+
+    @Test("the end post of a question that cancelOpenElicitations() cancels runs with the sink post mark")
+    func anEndPostRunsWithTheMark() async throws {
+        let runPlane = RunPlane()
+        let marks = Recorder<MarkedPost>()
+        let request = Fixtures.nameRequest()
+        let asking = Self.askThroughFunnel(request, on: runPlane, marks: marks)
+        var reader = SignalReader(asking.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+
+        #expect(await runPlane.cancelOpenElicitations() == [request.elicitationId])
+        #expect(try await asking.answers[0].value == Self.cancelled)
+
+        #expect(!SinkPost.isInProgress)
+        #expect(marks.values == [.event(isMarked: true), .end(isMarked: true)])
+    }
+
+    @Test("the completion post of an accepted URL flow runs with the sink post mark")
+    func aCompletionPostRunsWithTheMark() async throws {
+        let runPlane = RunPlane()
+        let marks = Recorder<MarkedPost>()
+        let request = try Fixtures.urlRequest()
+        let asking = Self.askThroughFunnel(request, on: runPlane, marks: marks)
+        var reader = SignalReader(asking.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+        #expect(await runPlane.respond(elicitationId: request.elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
+
+        #expect(await runPlane.complete(elicitationId: request.elicitationId) == .completed)
+        #expect(try await asking.answers[0].value == .accept(content: nil))
+
+        #expect(!SinkPost.isInProgress)
+        #expect(marks.values == [.event(isMarked: true), .completion(isMarked: true)])
     }
 }

@@ -100,11 +100,7 @@ actor SignallingSink: OperationEventSink {
     ///   - elicitationId: The id of the question.
     ///   - response: The answer that the run of the question gets.
     func post(elicitationEnded elicitationId: ULID, response: ElicitationResponse) async {
-        if let endGate {
-            continuation.yield(.endHeld(elicitationId))
-            await endGate.waitUntilOpen()
-        }
-        continuation.yield(.ended(elicitationId, reason: response.reason))
+        await send(.ended(elicitationId, reason: response.reason), heldAs: .endHeld(elicitationId), until: endGate)
     }
 
     /// Sends the id of the question whose URL flow completed. With a
@@ -113,11 +109,22 @@ actor SignallingSink: OperationEventSink {
     ///
     /// - Parameter elicitationId: The id of the question.
     func post(elicitationCompleted elicitationId: ULID) async {
-        if let completionGate {
-            continuation.yield(.completionHeld(elicitationId))
-            await completionGate.waitUntilOpen()
+        await send(.completed(elicitationId), heldAs: .completionHeld(elicitationId), until: completionGate)
+    }
+
+    /// Sends `signal`. With a gate, sends `held` first, then waits for the
+    /// gate before it sends `signal`.
+    ///
+    /// - Parameters:
+    ///   - signal: The signal to send.
+    ///   - held: The signal that tells that the sink holds `signal`.
+    ///   - gate: The gate that `signal` waits for, or `nil` for no wait.
+    private func send(_ signal: ElicitationSignal, heldAs held: ElicitationSignal, until gate: RunLatch?) async {
+        if let gate {
+            continuation.yield(held)
+            await gate.waitUntilOpen()
         }
-        continuation.yield(.completed(elicitationId))
+        continuation.yield(signal)
     }
 }
 
@@ -188,18 +195,22 @@ struct SignalReader {
 
     /// The id of each completion that the reader read, in order.
     var completions: [ULID] {
-        history.compactMap { signal in
-            guard case .completed(let elicitationId) = signal else { return nil }
-            return elicitationId
-        }
+        ids { if case .completed(let elicitationId) = $0 { elicitationId } else { nil } }
     }
 
     /// The id of each end of a question that the reader read, in order.
     var ends: [ULID] {
-        history.compactMap { signal in
-            guard case .ended(let elicitationId, _) = signal else { return nil }
-            return elicitationId
-        }
+        ids { if case .ended(let elicitationId, _) = $0 { elicitationId } else { nil } }
+    }
+
+    /// The id that `match` gives for each signal that the reader read, in
+    /// order. A signal that `match` gives `nil` for adds no id.
+    ///
+    /// - Parameter match: Gives the id of a signal of one kind, or `nil` for
+    ///   a signal of a different kind.
+    /// - Returns: The ids, in the order of ``history``.
+    private func ids(of match: (ElicitationSignal) -> ULID?) -> [ULID] {
+        history.compactMap(match)
     }
 
     /// Tells if the reader read `earlier`, and read it before `later`.
@@ -228,8 +239,7 @@ struct SignalReader {
     /// - Parameter expected: The signals to wait for.
     mutating func wait(for expected: Set<ElicitationSignal>) async {
         while !expected.isSubset(of: history) {
-            guard let signal = await iterator.next() else { return }
-            history.append(signal)
+            guard await readNext() != nil else { return }
         }
     }
 
@@ -239,12 +249,20 @@ struct SignalReader {
     /// - Returns: The id of the question, or `nil` when the stream ends
     ///   first.
     mutating func nextAskedId() async -> ULID? {
-        while let signal = await iterator.next() {
-            history.append(signal)
+        while let signal = await readNext() {
             if case .asked(let elicitationId) = signal {
                 return elicitationId
             }
         }
         return nil
+    }
+
+    /// Reads the next signal of the stream, and adds it to ``history``.
+    ///
+    /// - Returns: The signal, or `nil` when the stream ended.
+    private mutating func readNext() async -> ElicitationSignal? {
+        guard let signal = await iterator.next() else { return nil }
+        history.append(signal)
+        return signal
     }
 }

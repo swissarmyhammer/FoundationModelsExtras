@@ -73,7 +73,7 @@ public protocol OperationEventSink: Sendable {
     /// await a cancel of the run plane (`cancel(completionToken:)`,
     /// ``RunPlane/sweep()`` or ``RunPlane/cancelOpenElicitations()``) inside
     /// a post: that cancel waits for this post, and the post waits for the
-    /// cancel. A debug build stops at such a call.
+    /// cancel. The run plane writes an error log at such a call.
     ///
     /// - Parameters:
     ///   - elicitationId: The id of the question that ended.

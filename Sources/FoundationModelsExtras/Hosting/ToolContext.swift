@@ -431,7 +431,7 @@ public struct ToolContext: Sendable {
     ///
     /// This call waits for the end posts, and they wait on the sink chain of
     /// the run. Thus a sink must not await this call inside a post: the call
-    /// then never returns. A debug build stops at such a call.
+    /// then never returns. The run plane writes an error log at such a call.
     ///
     /// - Parameter completionToken: The completion token of the run.
     /// - Returns: The ``CancelOutcome``.
