@@ -564,4 +564,184 @@ struct ElicitationEndEventTests {
         #expect(!SinkPost.isInProgress)
         #expect(marks.values == [.event(isMarked: true), .completion(isMarked: true)])
     }
+
+    // MARK: - endElicitation(_:with:)
+
+    /// The answer that ends a question in the tests of
+    /// ``RunPlane/endElicitation(_:with:)``. Its reason is not
+    /// ``RunPlane/runCancelledReason``, thus an end with the fixed cancel
+    /// reason fails the test.
+    private static let endedInSubagent = ElicitationResponse.decline(reason: "the subagent ended the question")
+
+    /// The end signal of the question of `elicitationId`, with the reason of
+    /// ``endedInSubagent``.
+    ///
+    /// - Parameter elicitationId: The id of the question.
+    /// - Returns: The signal.
+    private static func endedInSubagent(_ elicitationId: ULID) -> ElicitationSignal {
+        .ended(elicitationId, reason: endedInSubagent.reason)
+    }
+
+    @Test("endElicitation ends an open form question: the end post gives the response after the question, and the run resumes after the end post")
+    func endElicitationEndsAnOpenQuestionInOrder() async {
+        let runPlane = RunPlane()
+        let gate = RunLatch.closed()
+        let steps = Recorder<String>()
+        let answers = Recorder<ElicitationResponse>()
+        let request = Fixtures.nameRequest()
+        let run = await Self.startStoppableAskingRun(
+            request, on: runPlane, endGate: gate, steps: steps, answers: answers)
+        var reader = SignalReader(run.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+
+        let ending = Task { await runPlane.endElicitation(request.elicitationId, with: Self.endedInSubagent) }
+        await reader.wait(for: [.endHeld(request.elicitationId)])
+        let stepsWhileHeld = steps.values
+        #expect(stepsWhileHeld.isEmpty)
+        #expect(await runPlane.endingElicitations() == [request.elicitationId])
+        #expect(await runPlane.openElicitations().isEmpty)
+        if stepsWhileHeld.isEmpty {
+            gate.open()
+        }
+        let ended = Self.endedInSubagent(request.elicitationId)
+        await reader.wait(for: [ended, .progress(Self.resumedDetail)])
+        #expect(await ending.value)
+        await runPlane.joinRunBodies()
+
+        #expect(reader.read(.asked(request.elicitationId), before: ended))
+        #expect(reader.read(ended, before: .progress(Self.resumedDetail)))
+        #expect(answers.values == [Self.endedInSubagent])
+        #expect(steps.values == [Self.resumedDetail])
+        #expect(await runPlane.endingElicitations().isEmpty)
+    }
+
+    @Test("endElicitation ends an accepted URL question, and a later completion finds no question")
+    func endElicitationEndsAnAcceptedURLQuestion() async throws {
+        let runPlane = RunPlane()
+        let request = try Fixtures.urlRequest()
+        let asking = Asking.start([request], on: runPlane)
+        var reader = SignalReader(asking.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+        #expect(await runPlane.respond(elicitationId: request.elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
+
+        #expect(await runPlane.endElicitation(request.elicitationId, with: Self.endedInSubagent))
+        #expect(try await asking.answers[0].value == Self.endedInSubagent)
+        #expect(await runPlane.complete(elicitationId: request.elicitationId) == .noPendingElicitation)
+        await reader.wait(for: [Self.endedInSubagent(request.elicitationId)])
+
+        #expect(reader.ends == [request.elicitationId])
+        #expect(reader.completions.isEmpty)
+    }
+
+    /// Asks `later` on the sink of `asking` after `askLater` opens, ends it
+    /// with ``endedInSubagent``, and reads until its end.
+    ///
+    /// An end call returns only after its end post returned, thus each end
+    /// that a call before this one posted is in the stream before the
+    /// question `later`. The reader thus holds each end of the test after
+    /// this call.
+    ///
+    /// - Parameters:
+    ///   - later: The question that `asking` asks after `askLater` opens.
+    ///   - askLater: The gate of `later`.
+    ///   - runPlane: The run plane of the session.
+    ///   - reader: The reader of the stream of `asking`.
+    private static func endLater(
+        _ later: ElicitationRequest, askedAfter askLater: RunLatch, on runPlane: RunPlane,
+        reading reader: inout SignalReader
+    ) async {
+        askLater.open()
+        await reader.wait(for: [.asked(later.elicitationId)])
+        #expect(await runPlane.endElicitation(later.elicitationId, with: endedInSubagent))
+        await reader.wait(for: [endedInSubagent(later.elicitationId)])
+    }
+
+    @Test("endElicitation of an unknown id gives false, posts no end, and leaves the open question open")
+    func endElicitationOfAnUnknownIdGivesFalse() async throws {
+        let runPlane = RunPlane()
+        let askLater = RunLatch.closed()
+        let request = Fixtures.nameRequest()
+        let later = Fixtures.nameRequest()
+        let asking = Asking.start([request], on: runPlane, gatedRequests: [later], gate: askLater)
+        var reader = SignalReader(asking.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+
+        #expect(await !runPlane.endElicitation(ULID(), with: Self.endedInSubagent))
+        #expect(await runPlane.openElicitations().map(\.elicitationId) == [request.elicitationId])
+        #expect(await runPlane.endingElicitations().isEmpty)
+        await Self.endLater(later, askedAfter: askLater, on: runPlane, reading: &reader)
+
+        #expect(reader.ends == [later.elicitationId])
+        #expect(await runPlane.respond(elicitationId: request.elicitationId, .decline) == .delivered)
+        #expect(try await asking.answers[0].value == .decline)
+    }
+
+    @Test("a second endElicitation of the same id gives false and posts no second end")
+    func aSecondEndElicitationGivesFalse() async throws {
+        let runPlane = RunPlane()
+        let askLater = RunLatch.closed()
+        let request = Fixtures.nameRequest()
+        let later = Fixtures.nameRequest()
+        let asking = Asking.start([request], on: runPlane, gatedRequests: [later], gate: askLater)
+        var reader = SignalReader(asking.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+
+        #expect(await runPlane.endElicitation(request.elicitationId, with: Self.endedInSubagent))
+        #expect(await !runPlane.endElicitation(request.elicitationId, with: .cancel))
+        await Self.endLater(later, askedAfter: askLater, on: runPlane, reading: &reader)
+
+        #expect(reader.ends == [request.elicitationId, later.elicitationId])
+        #expect(reader.history.contains(Self.endedInSubagent(request.elicitationId)))
+        #expect(try await asking.answers[0].value == Self.endedInSubagent)
+    }
+
+    @Test("endElicitation after an answer gives false and posts no end, and the run keeps the answer")
+    func endElicitationAfterAnAnswerGivesFalse() async throws {
+        let runPlane = RunPlane()
+        let askLater = RunLatch.closed()
+        let request = Fixtures.nameRequest()
+        let later = Fixtures.nameRequest()
+        let asking = Asking.start([request], on: runPlane, gatedRequests: [later], gate: askLater)
+        var reader = SignalReader(asking.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+        #expect(await runPlane.respond(elicitationId: request.elicitationId, .decline) == .delivered)
+
+        #expect(await !runPlane.endElicitation(request.elicitationId, with: Self.endedInSubagent))
+        await Self.endLater(later, askedAfter: askLater, on: runPlane, reading: &reader)
+
+        #expect(reader.ends == [later.elicitationId])
+        #expect(try await asking.answers[0].value == .decline)
+    }
+
+    @Test("endElicitation while the completion post is in progress gives false, and the run gets the accept")
+    func endElicitationOfACompletingQuestionGivesFalse() async throws {
+        let runPlane = RunPlane()
+        let completionGate = RunLatch.closed()
+        let askLater = RunLatch.closed()
+        let request = try Fixtures.urlRequest()
+        let later = Fixtures.nameRequest()
+        let asking = Asking.start(
+            [request], on: runPlane, gatedRequests: [later], gate: askLater, completionGate: completionGate)
+        var reader = SignalReader(asking.signals)
+        await reader.wait(for: [.asked(request.elicitationId)])
+        #expect(await runPlane.respond(elicitationId: request.elicitationId, .accept(content: nil)) == .acceptedAwaitingCompletion)
+        #expect(await runPlane.complete(elicitationId: request.elicitationId) == .completed)
+        await reader.wait(for: [.completionHeld(request.elicitationId)])
+
+        #expect(await !runPlane.endElicitation(request.elicitationId, with: Self.endedInSubagent))
+        #expect(await runPlane.completingElicitations() == [request.elicitationId])
+        completionGate.open()
+        #expect(try await asking.answers[0].value == .accept(content: nil))
+        await Self.endLater(later, askedAfter: askLater, on: runPlane, reading: &reader)
+
+        #expect(reader.completions == [request.elicitationId])
+        #expect(reader.ends == [later.elicitationId])
+    }
+
+    @Test("endElicitation with an accept stops the process")
+    func endElicitationWithAnAcceptStops() async {
+        await #expect(processExitsWith: .failure) {
+            _ = await RunPlane().endElicitation(ULID(), with: .accept(content: nil))
+        }
+    }
 }

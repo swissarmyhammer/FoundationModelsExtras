@@ -281,7 +281,7 @@ public struct ToolContext: Sendable {
         await sink.post(elicitationCompleted: elicitationId)
     }
 
-    /// Tells the sink of this context that a cancel of the run plane ended
+    /// Tells the sink of this context that an end of the run plane ended
     /// the question of `elicitationId`. A synchronous call that this context
     /// mounted sends the end of its question through here, so the end takes
     /// the same sink path as the question.
@@ -314,10 +314,15 @@ public struct ToolContext: Sendable {
     /// ``RunPlane/cancelOpenElicitations()`` give a cancel with
     /// ``RunPlane/runCancelledReason``. This function never throws now.
     ///
-    /// When a cancel of the run plane ends the question, the sink of this
-    /// context gets ``OperationEventSink/post(elicitationEnded:response:)``,
-    /// in order with the events of the run: after the elicitation event of
-    /// the question, and before the run gets the cancel.
+    /// A host can also end the question with
+    /// ``RunPlane/endElicitation(_:with:)``. Then the run gets the decline or
+    /// the cancel of that call.
+    ///
+    /// When the run plane ends the question (a cancel, or
+    /// ``RunPlane/endElicitation(_:with:)``), the sink of this context gets
+    /// ``OperationEventSink/post(elicitationEnded:response:)``, in order with
+    /// the events of the run: after the elicitation event of the question,
+    /// and before the run gets the answer of the end.
     ///
     /// The answer has the shape `{ action, content, reason }`. A decline and
     /// a cancel have no content, and they can carry a
@@ -570,8 +575,8 @@ extension ToolInvocationRecord {
 /// The sink of a synchronous call that ``ToolContext/mount(_:op:as:)``
 /// mounted. It posts each event and each display event through the mounting
 /// context, so the event gets the correlation of the mounting run. It sends
-/// each completion of a URL flow and each end of a question that a cancel of
-/// the run plane ended to the sink of the mounting context. It also
+/// each completion of a URL flow and each end of a question that the run
+/// plane ended to the sink of the mounting context. It also
 /// gives each record of a mounted call to the mounting context, so the
 /// records go on the report of the mounting run.
 ///

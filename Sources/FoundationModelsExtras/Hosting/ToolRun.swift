@@ -258,9 +258,10 @@ final class ToolCallState: Sendable {
 /// Marks the task of a post to a sink of the session.
 ///
 /// ``RunEventFunnel`` sets the mark around each post to the sink of the
-/// session. A cancel of the run plane reads it: such a cancel waits for the
+/// session. An end of the run plane (a cancel, or
+/// ``RunPlane/endElicitation(_:with:)``) reads it: such an end waits for the
 /// end posts of the questions, and they wait on the same chain of posts, so
-/// a cancel inside a post never returns.
+/// an end inside a post never returns.
 ///
 /// Swift copies a task-local value into each task that `Task {}` starts, but
 /// not into a task that `Task.detached` starts. A task that a post starts

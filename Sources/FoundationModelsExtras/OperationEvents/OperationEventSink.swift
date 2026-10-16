@@ -45,13 +45,14 @@ public protocol OperationEventSink: Sendable {
     /// - Parameter elicitationId: The id of the elicitation that completed.
     func post(elicitationCompleted elicitationId: ULID) async
 
-    /// Receives the end of an open question that the run plane cancelled.
+    /// Receives the end of an open question that the run plane ended.
     ///
-    /// The run plane calls this when it cancels an open question: a call of
+    /// The run plane calls this when it ends an open question: a call of
     /// ``RunPlane/cancelOpenElicitations()``, a cancel of the run that asked
-    /// (`cancel(completionToken:)`), or ``RunPlane/sweep()``. `response` is
-    /// the answer that the run gets: a cancel with
-    /// ``RunPlane/runCancelledReason``. A host reports it, for example as the
+    /// (`cancel(completionToken:)`), ``RunPlane/sweep()``, or
+    /// ``RunPlane/endElicitation(_:with:)``. `response` is the answer that
+    /// the run gets: a cancel with ``RunPlane/runCancelledReason``, or the
+    /// response of ``RunPlane/endElicitation(_:with:)``. A host reports it, for example as the
     /// end of the question to the client, so a tool does not complete a
     /// question that already ended. No other end of a question sends it: an
     /// answer of the user, a completion of a URL flow, and a cancel of a
@@ -69,11 +70,12 @@ public protocol OperationEventSink: Sendable {
     /// When this call returns, the id leaves that list before the run
     /// resumes.
     ///
-    /// The cancel of the run plane waits for this call. Thus a sink must not
-    /// await a cancel of the run plane (`cancel(completionToken:)`,
-    /// ``RunPlane/sweep()`` or ``RunPlane/cancelOpenElicitations()``) inside
-    /// a post: that cancel waits for this post, and the post waits for the
-    /// cancel. The run plane writes an error log at such a call.
+    /// The end of the run plane waits for this call. Thus a sink must not
+    /// await an end of the run plane (`cancel(completionToken:)`,
+    /// ``RunPlane/sweep()``, ``RunPlane/cancelOpenElicitations()`` or
+    /// ``RunPlane/endElicitation(_:with:)``) inside a post: that end waits
+    /// for this post, and the post waits for the end. The run plane writes an
+    /// error log at such a call.
     ///
     /// - Parameters:
     ///   - elicitationId: The id of the question that ended.

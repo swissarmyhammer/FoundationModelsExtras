@@ -102,9 +102,11 @@ public actor RunPlane {
         /// completed. Only the completion of an accepted URL flow starts it.
         let completing: @Sendable () async -> Void
 
-        /// Tells the sink of the question that a cancel of the run plane
-        /// ended the question, with the answer that the run gets. Only a
-        /// cancel of the run plane starts it, after ``posting`` returned.
+        /// Tells the sink of the question that the run plane ended the
+        /// question, with the answer that the run gets. Only an end of the
+        /// run plane starts it: a cancel, or
+        /// ``RunPlane/endElicitation(_:with:)``. It starts after ``posting``
+        /// returned.
         let ending: @Sendable (ElicitationResponse) async -> Void
 
         /// The task that posts the elicitation event of the question. The
@@ -133,10 +135,10 @@ public actor RunPlane {
     /// from a cancel of the user.
     public static let runCancelledReason = "run cancelled"
 
-    /// The text of the record when a sink awaits a cancel of the run plane
+    /// The text of the record when a sink awaits an end of the run plane
     /// inside a post.
-    private static let cancelInsideSinkPostMessage =
-        "a sink awaited a cancel of the run plane inside a post; the cancel waits for the end posts, and they wait for that post"
+    private static let endInsideSinkPostMessage =
+        "a sink awaited an end of the run plane inside a post; the end waits for the end posts, and they wait for that post"
 
     /// The reason of the cancel that each question of a headless session
     /// gets at once. A host can tell this cancel from a cancel of the user.
@@ -161,7 +163,7 @@ public actor RunPlane {
     private var completingElicitationIds: [ULID] = []
 
     /// The id of each question whose end post is in progress, in the order
-    /// that the cancels of the run plane ended them. A question is here from
+    /// that the ends of the run plane ended them. A question is here from
     /// the step that takes it off ``elicitations`` until its end post
     /// returns, and it leaves before its run resumes.
     private var endingElicitationIds: [ULID] = []
@@ -473,13 +475,13 @@ public actor RunPlane {
     ///     completes an accepted URL flow. No other end of the question
     ///     starts it. The run gets the accept only after `completing`
     ///     returns, thus the completion is posted before the run resumes.
-    ///   - ending: Tells the host that a cancel of the run plane ended the
-    ///     question, with the answer that the run gets. The run plane starts
-    ///     it only when ``cancel(completionToken:)``, ``sweep()`` or
-    ///     ``cancelOpenElicitations()`` ends the open question, and only
-    ///     after `posting` returned. The run gets the cancel only after
-    ///     `ending` returns, thus the end is posted after the question and
-    ///     before the run resumes.
+    ///   - ending: Tells the host that the run plane ended the question, with
+    ///     the answer that the run gets. The run plane starts it only when
+    ///     ``cancel(completionToken:)``, ``sweep()``,
+    ///     ``cancelOpenElicitations()`` or ``endElicitation(_:with:)`` ends
+    ///     the open question, and only after `posting` returned. The run gets
+    ///     that answer only after `ending` returns, thus the end is posted
+    ///     after the question and before the run resumes.
     /// - Returns: The answer of the user.
     func awaitAnswer(
         to request: ElicitationRequest,
@@ -519,8 +521,9 @@ public actor RunPlane {
     /// question leaves this list and goes into ``completingElicitations()``
     /// in the same step. Thus, while its completion post is in progress, each
     /// read finds the question in one of the two lists. In the same way, when
-    /// a cancel of the run plane ends an open question, the question leaves
-    /// this list and goes into ``endingElicitations()`` in the same step.
+    /// an end of the run plane (a cancel or ``endElicitation(_:with:)``) ends
+    /// an open question, the question leaves this list and goes into
+    /// ``endingElicitations()`` in the same step.
     ///
     /// - Returns: The open elicitations.
     public func openElicitations() -> [OpenElicitation] {
@@ -546,14 +549,14 @@ public actor RunPlane {
     }
 
     /// The id of each question whose end post is in progress, in the order
-    /// that the cancels of the run plane ended them.
+    /// that the ends of the run plane ended them.
     ///
-    /// A question goes into this list in the same step as a cancel of the
-    /// run plane (``cancel(completionToken:)``, ``sweep()`` or
-    /// ``cancelOpenElicitations()``) takes it off ``openElicitations()``. It
-    /// leaves this list when its post of
+    /// A question goes into this list in the same step as an end of the run
+    /// plane (``cancel(completionToken:)``, ``sweep()``,
+    /// ``cancelOpenElicitations()`` or ``endElicitation(_:with:)``) takes it
+    /// off ``openElicitations()``. It leaves this list when its post of
     /// ``OperationEventSink/post(elicitationEnded:response:)`` returns,
-    /// before its run resumes with the cancel. Thus, while the end post is in
+    /// before its run resumes with the answer of the end. Thus, while the end post is in
     /// progress, each read finds the question in this list and not in
     /// ``openElicitations()``. A read after the run resumed finds the
     /// question in neither list.
@@ -588,13 +591,49 @@ public actor RunPlane {
     ///
     /// This call waits for the end posts, and they wait on the sink chain of
     /// each run. Thus a sink must not await this call inside a post: the call
-    /// then never returns. A debug build stops at such a call.
+    /// then never returns. The run plane writes an error log at such a call.
     ///
     /// - Returns: The ids of the questions that ended, in the order they
     ///   came. The call returns only after each end post returned.
     public func cancelOpenElicitations() async -> [ULID] {
         Self.checkNotInSinkPost()
         return await cancelQuestions { _ in true }
+    }
+
+    /// Ends one open question with `response`, and resumes its run with that
+    /// response.
+    ///
+    /// A host calls this when the question ended in a different place, for
+    /// example in a subagent whose question this run plane relays. The end
+    /// uses the same path as the cancels of the run plane, so each question
+    /// gets exactly one outcome. The question leaves ``openElicitations()``
+    /// and goes into ``endingElicitations()`` in one step, with no
+    /// suspension. The sink of the question gets
+    /// ``OperationEventSink/post(elicitationEnded:response:)`` with
+    /// `response`, after the post of its elicitation event returned. The run
+    /// gets `response` only after the end post returned.
+    ///
+    /// An accepted URL question that waits for its completion is still open,
+    /// so this call ends it. A question whose completion post is in progress
+    /// (``completingElicitations()``) is not open.
+    ///
+    /// This call waits for the end post, and it waits on the sink chain of
+    /// the run. Thus a sink must not await this call inside a post: the call
+    /// then never returns. The run plane writes an error log at such a call.
+    ///
+    /// - Precondition: `response` is not an accept. Only the user accepts a
+    ///   question.
+    /// - Parameters:
+    ///   - elicitationId: The id of the question.
+    ///   - response: The decline or cancel that ends the question.
+    /// - Returns: `true` when the question was open and this call ended it.
+    ///   `false` when no open question has this id: the id is unknown, or an
+    ///   answer, a completion or a different end came first. Then the call
+    ///   posts nothing.
+    public func endElicitation(_ elicitationId: ULID, with response: ElicitationResponse) async -> Bool {
+        precondition(response.action != .accept, "only the user accepts a question; an end is a decline or a cancel")
+        Self.checkNotInSinkPost()
+        return await !endQuestions(with: response) { $0.id == elicitationId }.isEmpty
     }
 
     /// Gives the answer of the user to a pending elicitation.
@@ -697,7 +736,7 @@ public actor RunPlane {
     ///
     /// This call waits for the end posts, and they wait on the sink chain of
     /// each run. Thus a sink must not await this call inside a post: the call
-    /// then never returns. A debug build stops at such a call.
+    /// then never returns. The run plane writes an error log at such a call.
     ///
     /// - Returns: One terminal event for each run that was open when the
     ///   sweep started. A sweep while another sweep runs returns nothing.
@@ -950,7 +989,7 @@ public actor RunPlane {
         /// ``completingElicitationIds``.
         case completion
 
-        /// The end post of a question that a cancel of the run plane ended,
+        /// The end post of a question that an end of the run plane ended,
         /// tracked in ``endingElicitationIds``.
         case end
 
@@ -992,26 +1031,39 @@ public actor RunPlane {
     }
 
     /// Ends each open question that `isEnded` selects with a cancel that
-    /// gives ``runCancelledReason``, in the order they came. The other
-    /// questions stay open.
-    ///
-    /// In one step with no suspension, the selected questions leave
-    /// ``elicitations`` and go into ``endingElicitationIds``. Thus an answer
-    /// or a completion after this step finds no question. Then, one question
-    /// at a time: the end waits until the post of the elicitation event of
-    /// the question returned, so the end comes after that event. It posts the
-    /// end, and only after that post returned it removes the id and resumes
-    /// the run with the cancel, with no suspension between the two.
+    /// gives ``runCancelledReason``, as ``endQuestions(with:where:)`` does.
     ///
     /// - Parameter isEnded: Selects each question to end.
     /// - Returns: The ids of the questions that ended, in the order they
     ///   came, after each end post returned.
     @discardableResult
     private func cancelQuestions(where isEnded: (Elicitation) -> Bool) async -> [ULID] {
+        await endQuestions(with: .cancel(reason: Self.runCancelledReason), where: isEnded)
+    }
+
+    /// Ends each open question that `isEnded` selects with `response`, in
+    /// the order they came. The other questions stay open. Each end of a
+    /// question that the run plane makes comes through here.
+    ///
+    /// In one step with no suspension, the selected questions leave
+    /// ``elicitations`` and go into ``endingElicitationIds``. Thus an answer,
+    /// a completion or a different end after this step finds no question.
+    /// Then, one question at a time: the end waits until the post of the
+    /// elicitation event of the question returned, so the end comes after
+    /// that event. It posts the end, and only after that post returned it
+    /// removes the id and resumes the run with `response`, with no suspension
+    /// between the two.
+    ///
+    /// - Parameters:
+    ///   - response: The answer that the run of each question gets, and that
+    ///     the end post gives.
+    ///   - isEnded: Selects each question to end.
+    /// - Returns: The ids of the questions that ended, in the order they
+    ///   came, after each end post returned.
+    private func endQuestions(with response: ElicitationResponse, where isEnded: (Elicitation) -> Bool) async -> [ULID] {
         let ended = elicitations.filter(isEnded)
         elicitations.removeAll(where: isEnded)
         endingElicitationIds.append(contentsOf: ended.map(\.id))
-        let response = ElicitationResponse.cancel(reason: Self.runCancelledReason)
         for elicitation in ended {
             await elicitation.posting.value
             await elicitation.ending(response)
@@ -1048,14 +1100,14 @@ public actor RunPlane {
     /// Writes an error log when the current task is in a post to a sink of
     /// the session.
     ///
-    /// A cancel of the run plane waits for the end posts, and they wait on
-    /// the sink chain of the run. A sink that awaits such a cancel inside a
+    /// An end of the run plane waits for the end posts, and they wait on
+    /// the sink chain of the run. A sink that awaits such an end inside a
     /// post thus waits for itself, and neither the post nor the cancel
     /// returns. The check only logs and does not stop a debug build: see
     /// ``SinkPost`` for why the mark can be set with no deadlock.
     private static func checkNotInSinkPost() {
         guard SinkPost.isInProgress else { return }
-        ExtrasTelemetry.makeLogger().error("\(cancelInsideSinkPostMessage)")
+        ExtrasTelemetry.makeLogger().error("\(endInsideSinkPostMessage)")
     }
 
     /// Gives the bounded queue outcome of the answer to an elicitation.
