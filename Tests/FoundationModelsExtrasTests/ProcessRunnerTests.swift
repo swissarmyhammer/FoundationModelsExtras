@@ -15,19 +15,21 @@ import Testing
 /// belong to a different suite.
 ///
 /// Each test is unit-fast: a child ends on its own in a fraction of a second,
-/// or the runner kills it at a short timeout.
+/// or the runner kills it when a stand-in timer fires (``StandInTimer``).
 /// No test sleeps or polls. A test that needs the pid of a running child
 /// gets it from the child through a named pipe (``PidHandshake``). The wait
 /// for the exit of a grandchild has no deadline: the grandchild ends at the
 /// group kill, or by itself after its sleep, and only the second end writes a
 /// marker file (``exits(_:)``).
+///
+/// A timeout test fires its timer only after the child gave its pid. When
+/// the timer or the kill is wrong, the only other end of the run is the end
+/// of the child sleep. The start of the timer and the pid handshake have no
+/// fixed order, thus no earlier event can show that the timer is wrong.
 @Suite struct ProcessRunnerTests {
 
   /// A timeout that no test reaches: the child ends on its own first.
   private static let generousTimeout: Duration = .seconds(30)
-
-  /// A timeout that a `sleep 60` child always passes.
-  private static let shortTimeout: Duration = .milliseconds(500)
 
   /// The sleep that keeps a child alive until the runner kills it, in seconds.
   private static let longSleepSeconds = "60"
@@ -48,16 +50,78 @@ import Testing
   /// gets it.
   private static let pipeFillBytes = 262_144
 
-  /// Runs `/bin/sh -c script` through the runner with the given cap and
-  /// registry, in a temporary directory.
+  /// Runs `/bin/sh -c script` through the runner with the given cap,
+  /// registry and control, in a temporary directory.
   private static func runShell(
     _ script: String, timeout: Duration = generousTimeout, cap: ProcessRunner.OutputCap = wideCap,
-    registry: ProcessRegistry = ProcessRegistry()
+    registry: ProcessRegistry = ProcessRegistry(), control: ProcessRunner.ChildControl = .system
   ) async throws -> ProcessRunner.Outcome {
     try await ProcessRunner.run(
       executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", script],
       workingDirectory: FileManager.default.temporaryDirectory, timeout: timeout, outputCap: cap,
-      registry: registry)
+      registry: registry, control: control)
+  }
+
+  /// A timer of the timeout that fires only when the test fires it. It
+  /// stands in for the real sleep of `ChildControl.system`, and each other
+  /// step of the runner stays real.
+  private struct StandInTimer {
+    /// Opens when the test fires the timer.
+    private let fired = RunLatch()
+
+    /// `ChildControl.system` with this timer in place of the real sleep.
+    /// The timer also ends at a cancel of its task, as the real sleep does,
+    /// so the runner does not wait for it after the reap.
+    var control: ProcessRunner.ChildControl {
+      var control = ProcessRunner.ChildControl.system
+      let fired = fired
+      control.sleep = { _ in
+        await withTaskCancellationHandler {
+          await fired.waitUntilOpen()
+        } onCancel: {
+          fired.open()
+        }
+      }
+      return control
+    }
+
+    /// Fires the timer. A second fire does nothing.
+    func fire() {
+      fired.open()
+    }
+  }
+
+  /// Runs `/bin/sh -c` with the script that `makeScript` makes, on a
+  /// stand-in timer, and fires the timer when the child gave its pid.
+  ///
+  /// The script must write the pid of the shell to the handshake while the
+  /// shell still runs. On each throw, the timer fires, and the call waits
+  /// for the run: the runner then kills the group and reaps the child, so
+  /// no child and no wait stay.
+  ///
+  /// - Parameters:
+  ///   - registry: The registry of the run.
+  ///   - makeScript: Makes the script from the handshake.
+  /// - Returns: The pid of the shell, and the outcome of the run.
+  /// - Throws: When the child gave no pid, or the error of the run.
+  private static func runShellPastItsTimer(
+    registry: ProcessRegistry = ProcessRegistry(), _ makeScript: (PidHandshake) -> String
+  ) async throws -> (pid: pid_t, outcome: ProcessRunner.Outcome) {
+    let handshake = try PidHandshake()
+    defer { handshake.remove() }
+    let timer = StandInTimer()
+    let script = makeScript(handshake)
+    let control = timer.control
+    let run = Task { try await runShell(script, registry: registry, control: control) }
+    do {
+      let pid = try #require(await handshake.pid(orUntilEndOf: run), "the child gave no pid")
+      timer.fire()
+      return (pid, try await run.value)
+    } catch {
+      timer.fire()
+      _ = await run.result
+      throw error
+    }
   }
 
   /// Tells whether `pid` is gone now: `kill(pid, 0)` fails with `ESRCH`.
@@ -200,15 +264,14 @@ import Testing
     let registry = ProcessRegistry()
 
     // The shell gives its pid, then becomes the long sleep with the same pid.
-    let outcome = try await Self.runShell(
-      "echo $$; exec sleep \(Self.longSleepSeconds)", timeout: Self.shortTimeout, registry: registry)
+    let (pid, outcome) = try await Self.runShellPastItsTimer(registry: registry) { handshake in
+      "\(handshake.writeShellPid); exec sleep \(Self.longSleepSeconds)"
+    }
 
-    #expect(outcome.termination == .timedOut)
+    #expect(outcome.termination == .timedOut, "the child ended with \(outcome.termination), not at the timeout")
     #expect(registry.registeredPids.isEmpty)
     // The runner reaped the child before it returned, thus the pid is gone
     // now, with no wait.
-    let pidLine = try #require(outcome.output.first)
-    let pid = try #require(pid_t(pidLine))
     #expect(Self.isGone(pid))
   }
 
@@ -216,10 +279,12 @@ import Testing
     let marker = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: marker) }
     // The grandchild writes the marker only when its sleep ends by itself.
-    let outcome = try await Self.runShell(
-      "(sleep \(Self.longSleepSeconds); touch '\(marker.path)') & echo $!; wait", timeout: Self.shortTimeout)
+    // The shell gives its pid only after it started the grandchild.
+    let (_, outcome) = try await Self.runShellPastItsTimer { handshake in
+      "(sleep \(Self.longSleepSeconds); touch '\(marker.path)') & echo $!; \(handshake.writeShellPid); wait"
+    }
 
-    #expect(outcome.termination == .timedOut)
+    #expect(outcome.termination == .timedOut, "the child ended with \(outcome.termination), not at the timeout")
     let grandchildText = try #require(outcome.output.first)
     let grandchild = try #require(pid_t(grandchildText))
     #expect(await Self.exits(grandchild))
