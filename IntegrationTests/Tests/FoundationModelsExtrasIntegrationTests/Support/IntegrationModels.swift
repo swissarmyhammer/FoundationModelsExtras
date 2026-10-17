@@ -56,10 +56,11 @@ enum IntegrationModels {
     /// of `key` ended. The release of the last hold starts the eviction job,
     /// which runs after the release returns.
     ///
-    /// Each test waits for the eviction of each model that it loaded. The
-    /// weights of an `MLXLanguageModel` are in one model cache for each
-    /// process, thus a late eviction job of one test removes the weights under
-    /// the hold of the next test.
+    /// Each test waits for the eviction of each model that it loaded, and
+    /// ``SharedLoadsTrait`` waits for each model of its suite after the last
+    /// test of the suite. The weights of an `MLXLanguageModel` are in one
+    /// model cache for each process, thus a late eviction job of one test
+    /// removes the weights under the hold of the next test.
     ///
     /// The memory of a model is free only after the evict call of its loader
     /// returns. `MLXLanguageModel.evict()` frees the prompt cache of the model

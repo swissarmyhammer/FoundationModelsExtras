@@ -14,6 +14,13 @@ import Testing
 ///   A pool of a different test that evicts the same model removes the weights
 ///   under the hold of this test.
 ///
+/// A suite whose tests only use a model declares the ``SharedLoadsTrait``:
+/// the trait loads each model of the suite one time, and evicts it after the
+/// last test of the suite. A suite whose tests examine a load of their own has
+/// no trait, and each of its tests loads and evicts its model. One suite runs
+/// at a time, thus a test never loads a model that a shared hold of a
+/// different suite keeps.
+///
 /// No suite sets a time limit. Each wait of a test ends on the event that it
 /// expects, or on an event that shows the fault: the model call returns or
 /// throws, a stream ends, a run settles, a task ends. A hang of MLX or a

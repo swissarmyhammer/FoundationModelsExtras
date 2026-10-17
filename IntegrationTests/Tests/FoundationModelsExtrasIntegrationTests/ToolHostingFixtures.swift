@@ -96,47 +96,6 @@ struct ArchiveScanTool: Tool, BackgroundTool {
     static let report = "The scan report code is \(code)."
 }
 
-/// A background tool that states no grace: each scan ends at once, far inside
-/// the default settle period of the host. Thus the call answers with the
-/// report itself, the same as a synchronous call, and with no envelope.
-struct QuickScanTool: Tool, BackgroundTool {
-    /// The code of the report of each scan.
-    static let code = "SILVER-OTTER-26"
-
-    /// The report of each scan.
-    static let report = "The quick scan report code is \(code)."
-
-    let name = "scan_small_archive"
-    let description = "Scans a small archive by the name of the archive, and gives the report."
-    let mount: ToolMount? = ToolMount(mode: .background)
-
-    /// Returns the report at once.
-    ///
-    /// - Parameter arguments: The archive.
-    /// - Returns: The report of the scan.
-    func call(arguments: NamedThingArguments) async throws -> String {
-        Self.report
-    }
-}
-
-/// A background tool whose scan works until a cancel stops it. Its pending
-/// envelope has the default `next` text, which ends with
-/// ``PendingRunEnvelope/pendingWorkInstruction``.
-struct EndlessScanTool: Tool, BackgroundTool {
-    let name = "start_full_scan"
-    let description = "Starts a full scan of an archive by the name of the archive."
-    let mount: ToolMount? = ToolMount(mode: .background)
-
-    /// Works until a cancel stops the run.
-    ///
-    /// - Parameter arguments: The archive.
-    /// - Returns: Never.
-    /// - Throws: `CancellationError` at the cancel.
-    func call(arguments: NamedThingArguments) async throws -> String {
-        try await Waits.untilCancelled()
-    }
-}
-
 // MARK: - Timeout and failure
 
 /// A tool that works past its timeout and ignores the cancel.
@@ -190,59 +149,6 @@ struct LockedArchiveTool: Tool {
 }
 
 // MARK: - Per-call mounts
-
-/// The arguments of ``JobTool``.
-@Generable
-struct JobArguments {
-    /// The job to run.
-    @Guide(description: "The job to run", .anyOf([JobTool.scanJob, JobTool.countJob]))
-    var job: String
-}
-
-/// A tool that runs the scan job in the background and the count job in band.
-struct JobTool: Tool, BackgroundTool {
-    /// The job that runs in the background.
-    static let scanJob = "scan"
-
-    /// The job that runs in band.
-    static let countJob = "count"
-
-    /// The name of the argument that names the job.
-    private static let jobProperty = "job"
-
-    /// The code that the result of the scan job holds.
-    static let scanCode = "TEAL-BADGER-91"
-
-    /// The code that the result of the count job holds.
-    static let countCode = "PLUM-WALRUS-35"
-
-    /// The result of the scan job.
-    static let scanResult = "The scan job result is \(scanCode)."
-
-    /// The result of the count job.
-    static let countResult = "The count job result is \(countCode)."
-
-    let name = "run_job"
-    let description = "Runs one job: scan or count."
-
-    /// The mount of one call: background for the scan job, synchronous for
-    /// each other job.
-    ///
-    /// - Parameter arguments: The arguments of the call.
-    /// - Returns: The mount of the call.
-    func mount(for arguments: GeneratedContent) -> ToolMount? {
-        let job = try? arguments.value(String.self, forProperty: Self.jobProperty)
-        return job == Self.scanJob ? ToolMount(mode: .background) : .synchronous
-    }
-
-    /// Returns the result of the job.
-    ///
-    /// - Parameter arguments: The job.
-    /// - Returns: The result.
-    func call(arguments: JobArguments) async throws -> String {
-        arguments.job == Self.scanJob ? Self.scanResult : Self.countResult
-    }
-}
 
 /// The shared context of the archive operations. It holds no state.
 struct ArchiveOperationsContext: Sendable {}

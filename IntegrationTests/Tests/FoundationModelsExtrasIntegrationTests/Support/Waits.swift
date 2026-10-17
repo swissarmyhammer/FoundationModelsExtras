@@ -27,21 +27,4 @@ enum Waits {
             task.cancel()
         }
     }
-
-    /// Waits until the current task is cancelled. The wait reads no clock.
-    ///
-    /// A fixture tool whose work must not end by itself calls this in place
-    /// of a long sleep.
-    ///
-    /// - Throws: `CancellationError` at the cancel. The function never
-    ///   returns.
-    static func untilCancelled() async throws -> Never {
-        let cancelled = Latch()
-        await withTaskCancellationHandler {
-            await cancelled.waitUntilOpen()
-        } onCancel: {
-            cancelled.open()
-        }
-        throw CancellationError()
-    }
 }

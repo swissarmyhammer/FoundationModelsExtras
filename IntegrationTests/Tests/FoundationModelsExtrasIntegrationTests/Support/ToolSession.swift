@@ -20,20 +20,20 @@ enum ToolSession {
         let toolOutputs: [String]
     }
 
-    /// Loads the tool-calling LLM in `pool`, and asks it `prompt` in a new
-    /// session with `tools` and `instructions`. Releases the hold on return.
+    /// Asks the tool-calling LLM of `hold` `prompt` in a new session with
+    /// `tools` and `instructions`.
     ///
     /// - Parameters:
     ///   - prompt: The request of the user.
     ///   - instructions: The instructions of the session.
     ///   - tools: The mounted tools of the session.
-    ///   - pool: The pool of the test.
+    ///   - hold: A hold of ``IntegrationModels/toolCallingLLM``.
     /// - Returns: The answer and the tool outputs of the session.
-    /// - Throws: The error of the load or of the generation.
+    /// - Throws: The error of the generation.
     static func answer(
-        to prompt: String, instructions: String, tools: [any Tool], in pool: ModelPool
+        to prompt: String, instructions: String, tools: [any Tool], with hold: ModelHold
     ) async throws -> Answer {
-        try await run(instructions: instructions, tools: tools, in: pool) { session in
+        try await run(instructions: instructions, tools: tools, with: hold) { session in
             try await answer(to: prompt, in: session)
         }
     }
@@ -51,25 +51,24 @@ enum ToolSession {
         return Answer(text: text, toolOutputs: session.transcript.toolOutputTexts)
     }
 
-    /// Loads the tool-calling LLM in `pool`, makes one session with `tools`
-    /// and `instructions`, and runs `body` with it in the queue of the hold.
-    /// Releases the hold on return.
+    /// Makes one session on the tool-calling LLM of `hold` with `tools` and
+    /// `instructions`, and runs `body` with it in the queue of the hold. The
+    /// job of `body` ends before this function returns.
     ///
     /// - Parameters:
     ///   - instructions: The instructions of the session.
     ///   - tools: The mounted tools of the session.
-    ///   - pool: The pool of the test.
+    ///   - hold: A hold of ``IntegrationModels/toolCallingLLM``.
     ///   - body: The work with the session.
     /// - Returns: What `body` returns.
-    /// - Throws: The error of the load, or what `body` throws.
+    /// - Throws: A failed expectation when the container of `hold` is not a
+    ///   `LanguageModel`, or what `body` throws.
     static func run<T: Sendable>(
         instructions: String,
         tools: [any Tool],
-        in pool: ModelPool,
+        with hold: ModelHold,
         _ body: @escaping @Sendable (LanguageModelSession) async throws -> T
     ) async throws -> T {
-        let hold = try await IntegrationModels.acquire(
-            key: IntegrationModels.toolCallingLLM, in: pool, footprint: IntegrationModels.toolCallingFootprintBytes)
         let model = try Generation.languageModel(of: hold)
         return try await hold.queue.submit {
             let session = LanguageModelSession(

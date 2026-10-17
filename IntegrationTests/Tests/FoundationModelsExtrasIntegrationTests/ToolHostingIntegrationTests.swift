@@ -56,20 +56,24 @@ private enum HostMessage {
 extension RealModelSuites {
     /// Tool hosting under a real FoundationModels session: the model calls
     /// mounted tools, and the run plane runs and settles the background runs.
-    @Suite("Tool hosting with a real model")
+    ///
+    /// The unit tests of the mount prove the settle grace of a fast run, the
+    /// cancel of a background run, and the per-call mount of a hand-written
+    /// tool. These need no real model.
+    @Suite(
+        "Tool hosting with a real model",
+        .sharedLoads(
+            SharedModel(IntegrationModels.toolCallingLLM, footprint: IntegrationModels.toolCallingFootprintBytes)))
     struct ToolHostingIntegrationTests {
         @Test("an in-band tool reads its context, posts progress, and the answer of the model holds its result")
         func inBandToolRunsToCompletion() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
             let host = ToolHost()
             let readings = EventLog<ContextReading>()
             let tool = VaultCodeTool(readings: readings)
 
             let answer = try await ToolSession.answer(
                 to: "What is the code of the vault named north?", instructions: SessionInstructions.callingOnce(tool.name),
-                tools: [host.mount(tool)], in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+                tools: [host.mount(tool)], with: try Self.sharedHold())
 
             #expect(answer.text.contains(VaultCodeTool.code), "answer: \(answer.text)")
             let reading = try #require(await readings.events.first)
@@ -83,19 +87,20 @@ extension RealModelSuites {
 
         @Test("a background tool gives the model a pending envelope, the run settles later, and the observer gets the terminal")
         func backgroundToolSettlesAfterItsEnvelope() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
+            let hold = try Self.sharedHold()
             // Grace 0: the call answers with the pending envelope at once.
             let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
             let settlements = EventLog<OperationEvent>()
             await host.runPlane.attach(settlementObserver: settlements)
             let gate = Latch()
+            // The scan ends also when the test throws.
+            defer { gate.open() }
             let tool = ArchiveScanTool(gate: gate)
 
             let answering = Task {
                 try await ToolSession.answer(
                     to: "Start a scan of the archive named west.",
-                    instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], in: pool)
+                    instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], with: hold)
             }
             // The scan works until the call gave its pending envelope. A
             // model call that ends with no envelope also opens the gate.
@@ -104,7 +109,6 @@ extension RealModelSuites {
                 { _ = await answering.result })
             gate.open()
             let answer = try await answering.value
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
             #expect(envelope.pending)
@@ -118,90 +122,45 @@ extension RealModelSuites {
             #expect(await settlements.waitUntil { !$0.isEmpty } == [terminal])
         }
 
-        @Test("a background run that ends inside the default settle period gives the model its own output, with no envelope")
-        func fastBackgroundRunAnswersInsideTheGrace() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            // The host takes the default settle period.
-            let host = ToolHost()
-            let tool = QuickScanTool()
-
-            let answer = try await ToolSession.answer(
-                to: "Scan the small archive named east, and tell me its report code.",
-                instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
-
-            #expect(answer.toolOutputs.contains(QuickScanTool.report), "tool outputs: \(answer.toolOutputs)")
-            #expect(Self.envelopes(in: answer).isEmpty, "tool outputs: \(answer.toolOutputs)")
-            #expect(answer.text.contains(QuickScanTool.code), "answer: \(answer.text)")
-        }
-
-        @Test("a cancel of a running background run gives the outcome of the canceler, and the run settles with that outcome")
-        func cancelSettlesTheRunWithTheCancelerOutcome() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            // Grace 0: the call answers at once, and the test does not wait
-            // for the settle period of a run that never ends by itself.
-            let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
-            let tool = EndlessScanTool()
-
-            let answer = try await ToolSession.answer(
-                to: "Start a full scan of the archive named south.", instructions: SessionInstructions.callingOnce(tool.name),
-                tools: [host.mount(tool)], in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
-
-            let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
-            #expect(envelope.pending)
-            #expect(envelope.next.contains(PendingRunEnvelope.pendingWorkInstruction), "next: \(envelope.next)")
-            #expect(await host.runPlane.backgroundRuns().contains { $0.completionToken == envelope.completionToken })
-            #expect(await host.cancel(completionToken: envelope.completionToken) == .reported(.cancelled))
-            let terminal = try await Self.terminal(of: envelope.completionToken, in: host)
-            #expect(terminal.outcome == .cancelled)
-        }
-
         @Test("a tool that ignores the cancel past its timeout gives the model the timeout failure, and the model call returns")
         func timeoutReachesTheModelAndTheCallReturns() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
             let host = ToolHost()
             let gate = Latch()
+            // The detached work of the tool ends also when the test throws.
+            defer { gate.open() }
             let tool = StuckRecordTool(gate: gate)
             let mounted = host.mount(tool, as: ToolMount(mode: .runToCompletion, timeout: stuckToolTimeoutSeconds))
 
             let answer = try await ToolSession.run(
-                instructions: SessionInstructions.callingOnce(tool.name), tools: [mounted], in: pool
+                instructions: SessionInstructions.callingOnce(tool.name), tools: [mounted], with: try Self.sharedHold()
             ) { session in
                 try await ToolSession.answer(to: "Look up the record named alpha.", in: session)
             }
             // The tool works until the gate opens, thus a closed gate shows
             // that the model call did not wait for the tool.
             let returnedWhileTheToolWorked = !gate.isOpen
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let timedOut = ToolMountError.timedOut(tool: tool.name, timeoutSeconds: stuckToolTimeoutSeconds).description
             #expect(answer.toolOutputs.contains(timedOut), "tool outputs: \(answer.toolOutputs)")
             #expect(returnedWhileTheToolWorked)
             #expect(await host.events.events.contains { $0.kind == .completed && $0.outcome == .timedOut })
-            gate.open()
         }
 
         @Test("a tool that throws gives the model a failure result, not a thrown error, and the session continues")
         func failureReachesTheModelAsAResult() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
             let host = ToolHost()
             let tool = LockedArchiveTool()
             let archive = "north"
 
             let (first, followUp) = try await ToolSession.run(
-                instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], in: pool
+                instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)],
+                with: try Self.sharedHold()
             ) { session in
                 let first = try await ToolSession.answer(to: "Open the archive named \(archive).", in: session)
                 let followUp = try await ToolSession.answer(
                     to: "What error code did the tool give? Reply with the error code only.", in: session)
                 return (first, followUp.text)
             }
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let failureText = ArchiveLockedError(archive: archive).description
             #expect(first.toolOutputs.contains(failureText), "tool outputs: \(first.toolOutputs)")
@@ -209,31 +168,8 @@ extension RealModelSuites {
             #expect(await host.events.events.contains { $0.kind == .completed && $0.outcome == .failed })
         }
 
-        @Test("one tool gives the model a pending token for its background call and the real result in band for its synchronous call, and the model answers from the injected background result")
-        func perCallMountOfOneTool() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            // The scan job ends at once, so the host states grace 0: the
-            // background call answers with the pending envelope at once.
-            let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
-            let tool = JobTool()
-            let instructions = SessionInstructions.callingBoth(
-                backgroundCall: "call the \(tool.name) tool with job \"\(JobTool.scanJob)\"",
-                synchronousCall: "call the \(tool.name) tool with job \"\(JobTool.countJob)\"")
-
-            let answer = try await Self.answerInjectingSettledRuns(
-                to: "Run the scan job and the count job, and tell me both results.", instructions: instructions,
-                tools: [host.mount(tool)], host: host, in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
-
-            try await Self.expectPerCallMounts(
-                of: answer, in: host, backgroundCode: JobTool.scanCode, synchronousCode: JobTool.countCode)
-        }
-
         @Test("an operation tool gives the model a pending token for its background operation and the real result in band for its synchronous operation, and the model answers from the injected background result")
         func perCallMountOfAnOperationTool() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
             // The scan operation ends at once, so the host states grace 0:
             // the background call answers with the pending envelope at once.
             let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
@@ -244,11 +180,19 @@ extension RealModelSuites {
 
             let answer = try await Self.answerInjectingSettledRuns(
                 to: "Start a scan of the archive and count its files, and tell me both report codes.",
-                instructions: instructions, tools: [host.mount(tool)], host: host, in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
+                instructions: instructions, tools: [host.mount(tool)], host: host, with: try Self.sharedHold())
 
             try await Self.expectPerCallMounts(
                 of: answer, in: host, backgroundCode: StartScanOperation.code, synchronousCode: CountFilesOperation.code)
+        }
+
+        /// The shared hold of the tool-calling LLM of this suite.
+        ///
+        /// - Returns: The hold.
+        /// - Throws: A failed expectation when the suite has no shared
+        ///   tool-calling LLM.
+        private static func sharedHold() throws -> ModelHold {
+            try SharedModels.required().hold(of: IntegrationModels.toolCallingLLM)
         }
 
         /// Asks `prompt` in a new session, and then injects the result of each
@@ -262,15 +206,15 @@ extension RealModelSuites {
         ///   - instructions: The instructions of the session.
         ///   - tools: The mounted tools of the session.
         ///   - host: The host of the session.
-        ///   - pool: The pool of the test.
+        ///   - hold: The hold of the tool-calling LLM.
         /// - Returns: The answer to the last message, with each tool output of
         ///   the session.
-        /// - Throws: The error of the load or of a generation, or a failed
-        ///   expectation when a run of an envelope does not settle.
+        /// - Throws: The error of a generation, or a failed expectation when a
+        ///   run of an envelope does not settle.
         private static func answerInjectingSettledRuns(
-            to prompt: String, instructions: String, tools: [any Tool], host: ToolHost, in pool: ModelPool
+            to prompt: String, instructions: String, tools: [any Tool], host: ToolHost, with hold: ModelHold
         ) async throws -> ToolSession.Answer {
-            try await ToolSession.run(instructions: instructions, tools: tools, in: pool) { session in
+            try await ToolSession.run(instructions: instructions, tools: tools, with: hold) { session in
                 var answer = try await ToolSession.answer(to: prompt, in: session)
                 var injected: Set<String> = []
                 while let token = pendingTokens(in: answer).first(where: { !injected.contains($0) }) {
