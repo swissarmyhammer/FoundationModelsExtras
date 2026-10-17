@@ -42,15 +42,26 @@ struct QueueTelemetry: Sendable {
     /// belong to one model.
     let model: ModelRef?
 
+    /// Gives the current instant: the enqueue, the start and the end of each
+    /// task.
+    private let now: @Sendable () -> ContinuousClock.Instant
+
     /// Makes the recorder of one queue.
     ///
     /// - Parameters:
     ///   - name: The queue that the recorder records.
     ///   - model: The model that the queue belongs to, or `nil` when the
     ///     queue does not belong to one model.
-    init(name: QueueName, model: ModelRef? = nil) {
+    ///   - now: Gives the current instant. The default reads
+    ///     `ContinuousClock`. A test gives the instant of a manual clock, and
+    ///     then each wait time and each run time is the move of that clock.
+    init(
+        name: QueueName, model: ModelRef? = nil,
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
+    ) {
         self.name = name
         self.model = model
+        self.now = now
     }
 
     /// Records that the queue accepted one task: the depth goes up by one.
@@ -69,7 +80,7 @@ struct QueueTelemetry: Sendable {
     /// - Returns: The ticket of the task. It keeps the instant now and the
     ///   metrics factory that is bound now.
     func makeTicket() -> QueueTicket {
-        QueueTicket(factory: MetricsSystem.factory, enqueuedAt: .now)
+        QueueTicket(factory: MetricsSystem.factory, enqueuedAt: now())
     }
 
     /// Records that the queue accepted the task of `ticket`: the depth goes
@@ -89,7 +100,7 @@ struct QueueTelemetry: Sendable {
     /// - Parameter ticket: The ticket of the task. It keeps the start
     ///   instant.
     func started(_ ticket: inout QueueTicket) {
-        ticket.startedAt = .now
+        ticket.startedAt = now()
     }
 
     /// Records that the task of `ticket` ended: the depth goes down by one,
@@ -125,7 +136,7 @@ struct QueueTelemetry: Sendable {
     ///   - ticket: The ticket of the task.
     ///   - outcome: How the task ended.
     private func recordEnd(of ticket: QueueTicket, outcome: QueueOutcome) {
-        let end = ContinuousClock.now
+        let end = now()
         let factory = ticket.factory
         let dimensions = queueDimensions + [(ExtrasTelemetry.DimensionKey.queueOutcome, outcome.rawValue)]
         Metrics.Timer(label: ExtrasTelemetry.MetricName.queueWait, dimensions: dimensions, factory: factory)
