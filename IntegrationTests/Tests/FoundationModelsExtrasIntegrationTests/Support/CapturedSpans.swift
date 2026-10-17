@@ -1,5 +1,6 @@
 import InMemoryTracing
 import Testing
+import Tracing
 
 /// The queries that a test makes on the spans of one `TelemetryCapture`.
 ///
@@ -48,5 +49,14 @@ enum CapturedSpans {
         named name: String, of parent: FinishedInMemorySpan, in spans: [FinishedInMemorySpan]
     ) -> [FinishedInMemorySpan] {
         Self.spans(named: name, in: spans).filter { $0.parentSpanID == parent.spanID }
+    }
+}
+
+extension SpanAttribute {
+    /// The value of a 64-bit integer attribute, or `nil` for each other kind
+    /// of attribute.
+    var integerValue: Int64? {
+        guard case .int64(let value) = self else { return nil }
+        return value
     }
 }

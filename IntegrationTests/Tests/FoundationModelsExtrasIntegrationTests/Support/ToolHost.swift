@@ -67,7 +67,7 @@ extension EventLog: OperationEventSink where Event == OperationEvent {
     ///
     /// - Parameter event: The event that a tool posted.
     func post(event: OperationEvent) async {
-        append(event)
+        record(event)
     }
 }
 
@@ -77,6 +77,6 @@ extension EventLog: BackgroundRunSettlementObserver where Event == OperationEven
     ///
     /// - Parameter terminal: The terminal event of the run.
     func deliver(settledTerminal terminal: OperationEvent) async {
-        append(terminal)
+        record(terminal)
     }
 }
