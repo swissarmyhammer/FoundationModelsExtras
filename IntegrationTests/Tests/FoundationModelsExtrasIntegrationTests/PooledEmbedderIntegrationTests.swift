@@ -6,10 +6,11 @@ import TelemetryTestSupport
 import Testing
 import Tracing
 
-/// The most tokens of the long generation that runs while an embed call runs.
-/// The model cannot finish the prompt early, thus the generation runs for some
-/// seconds, and one embed call takes much less time.
-private let longGenerationTokens = 1024
+/// The most tokens of the generation that runs while an embed call runs. The
+/// generation waits at a latch after its first snapshot until the embed call
+/// returned, thus this count changes only the time of the test, not its
+/// result.
+private let longGenerationTokens = 256
 
 /// A question that the model answers until its token limit.
 private let endlessPrompt = "Count upward from 1, one number per line, without stopping."
@@ -99,12 +100,9 @@ private let batchCosineFloor: Float = 0.999
 /// division.
 private let oneSubBatch = 1
 
-/// The depth of the queue of the embedding model when the first job runs and
-/// no call waits.
-private let depthOfTheFirstJob = 1
-
-/// The texts that the two users of one embedding model embed.
-private let sharedTexts = ["Route this question to the best model.", "Find the tool that reads a file."]
+/// The depth of the queue of the LLM when a second job waits behind the held
+/// generation.
+private let depthWithAJobBehindTheGeneration: Double = 2
 
 /// The step that the overlap test writes when the embed call returned.
 private let embedEnded = "the embed call ended"
@@ -112,47 +110,27 @@ private let embedEnded = "the embed call ended"
 /// The step that the overlap test writes when the generation ended.
 private let generationEnded = "the generation ended"
 
-/// A user of the shared embedding model.
-private enum EmbedderUser {
-    /// The router, which embeds the prompts.
-    case router
-    /// The metadata registry, which embeds the descriptions of the tools.
-    case registry
-}
-
-/// One embed call of the FIFO test: the user that makes it and its one text.
-private struct EmbedCall {
-    /// The user that calls `embed(texts:)`.
-    let user: EmbedderUser
-    /// The text of the call.
-    let text: String
-}
-
-/// The concurrent embed calls of the FIFO test, in the order in which they go
-/// into the queue. The two users take turns.
-private let concurrentCalls = [
-    EmbedCall(user: .router, text: "Summarize the open pull requests."),
-    EmbedCall(user: .registry, text: "A tool that lists the files of a folder."),
-    EmbedCall(user: .router, text: "Write a unit test for the parser."),
-    EmbedCall(user: .registry, text: "A tool that runs a shell command."),
-    EmbedCall(user: .router, text: "Explain the last build failure."),
-    EmbedCall(user: .registry, text: "A tool that searches the code for a symbol."),
-]
+/// The tokenizer loader of the shared load of the embedding model. The span
+/// test tokenizes its texts with the tokenizer that this loader gave.
+private let sharedTokenizerLoader = RecordingTokenizerLoader()
 
 extension RealModelSuites {
-    /// `PooledEmbedder` with the real MLX embedding model: real vectors, one
-    /// model that two users share, one embed call at a time on the queue of the
-    /// model, the residency that the embedder handles keep, and the span tree
-    /// of an embed call with real tokens and real sub-batches.
-    @Suite("Pooled embedder with a real model")
+    /// `PooledEmbedder` with the real MLX embedding model: real vectors, an
+    /// embed call that does not wait behind a generation of the LLM, and the
+    /// span tree of an embed call with real tokens and real sub-batches.
+    ///
+    /// The unit tests of `PooledEmbedder` prove the share of one model by two
+    /// users, the order of concurrent calls and the residency that the
+    /// handles keep. These need no real model.
+    @Suite(
+        "Pooled embedder with a real model",
+        .sharedLoads(
+            SharedModel(IntegrationModels.embedding, loader: MLXModelLoader(tokenizerLoader: sharedTokenizerLoader)),
+            SharedModel(IntegrationModels.llm)))
     struct PooledEmbedderIntegrationTests {
         @Test("a real embed by name gives one vector for each text, and a paraphrase has a higher cosine than an unrelated text")
         func realEmbedByNamePlacesSimilarTextsCloser() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let outcome = try await Self.embedSimilarityTextsByName(in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            let outcome = try await Self.embedSimilarityTextsByName(in: try SharedModels.required().pool)
 
             let dimension = try #require(outcome.batch.first).count
             let similar = VectorMath.cosineSimilarity(of: outcome.anchor, to: outcome.paraphrase)
@@ -167,11 +145,7 @@ extension RealModelSuites {
             "each text of a batch of texts of different lengths has the vector of the same text embedded alone",
             arguments: [BatchLengthTexts.all, MixedLengthTexts.all])
         func batchVectorEqualsVectorOfTextAlone(texts: [String]) async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let outcome = try await Self.embedInBatchAndAlone(texts: texts, in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            let outcome = try await Self.embedInBatchAndAlone(texts: texts, with: try Self.sharedEmbedder())
 
             let cosines = zip(outcome.batch, outcome.alone).map { VectorMath.cosineSimilarity(of: $0, to: $1) }
             #expect(outcome.batch.count == texts.count)
@@ -179,88 +153,9 @@ extension RealModelSuites {
             #expect(cosines.allSatisfy { $0 >= batchCosineFloor }, "cosines: \(cosines)")
         }
 
-        @Test("a call of short texts and one long text pads far fewer tokens than one padded batch of the same texts")
-        func mixedLengthCallPadsFarFewerTokensThanOnePaddedBatch() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let context = try await Self.captureMixedLengthEmbed(in: pool, tokenizerLoader: RecordingTokenizerLoader())
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
-
-            let embedSpan = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.embed, in: context.spans)
-            let subBatchSpans = CapturedSpans.children(
-                named: ExtrasTelemetry.SpanName.embedSubBatch, of: embedSpan, in: context.spans)
-            let textCount = try EmbedSpanExpectations.countAttribute(ExtrasTelemetry.AttributeKey.embedTextCount, of: embedSpan)
-            let maxTokens = try EmbedSpanExpectations.countAttribute(ExtrasTelemetry.AttributeKey.embedMaxTokens, of: embedSpan)
-            let paddedTokens = try subBatchSpans.reduce(0) { total, span in
-                total + (try EmbedSpanExpectations.countAttribute(ExtrasTelemetry.AttributeKey.subBatchPaddedTokens, of: span))
-            }
-            let onePaddedBatch = textCount * maxTokens
-            #expect(textCount == MixedLengthTexts.all.count)
-            #expect(subBatchSpans.count > oneSubBatch)
-            #expect(
-                onePaddedBatch >= minimumPaddingReduction * paddedTokens,
-                "the sub-batches padded \(paddedTokens) tokens; one padded batch has \(onePaddedBatch) tokens")
-        }
-
-        @Test("a router and a registry acquire one embedding key, the model loads one time, and the registry embeds with the router container")
-        func twoUsersShareOneLoadOfTheModel() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            let routerLoader = RecordingLoader()
-            let registryLoader = RecordingLoader()
-
-            let outcome = try await Self.shareOneModel(in: pool, routerLoader: routerLoader, registryLoader: registryLoader)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
-
-            #expect(await routerLoader.loadedKeys == [IntegrationModels.embedding])
-            #expect(await registryLoader.loadedKeys.isEmpty)
-            #expect(outcome.shareOneQueue)
-            let dimension = try #require(outcome.routerVectors.first).count
-            #expect(dimension > 0)
-            #expect(outcome.registryVectors.map(\.count) == Array(repeating: dimension, count: sharedTexts.count))
-            #expect(outcome.registryVectors == outcome.routerVectors)
-        }
-
-        @Test("concurrent embed calls of two users run one at a time, first in first out, and each gives the vectors of a serial run")
-        func concurrentEmbedsRunOneAtATimeInOrder() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            let loader = RecordingEmbeddingLoader()
-
-            let outcome = try await Self.embedConcurrently(in: pool, loader: loader)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
-
-            // The serial run made the first steps, and the concurrent calls made the rest.
-            let steps = await Array(loader.steps.events.dropFirst(EmbedStep.steps(of: concurrentCalls).count))
-            #expect(steps == EmbedStep.steps(of: concurrentCalls), "calls: \(steps)")
-            #expect(outcome.concurrentVectors == outcome.serialVectors)
-        }
-
-        @Test("an embedder handle keeps the real model resident, and the release of the last handle evicts it")
-        func embedderHandleKeepsTheModelResident() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let outcome = try await Self.releaseOneOfTwoHandles(in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
-
-            #expect(outcome.isResidentAfterFirstRelease)
-            let dimension = try #require(outcome.releasedHandleVectors.first).count
-            #expect(dimension > 0)
-            #expect(outcome.releasedHandleVectors.map(\.count) == [dimension])
-            #expect(outcome.remainingHandleVectors.map(\.count) == [dimension])
-            #expect(!pool.isResident(IntegrationModels.embedding))
-        }
-
-        @Test("with the real LLM and the real embedding model resident, an embed call does not wait behind a long generation")
+        @Test("with the real LLM and the real embedding model resident, an embed call does not wait behind a generation")
         func embedDoesNotWaitBehindAGeneration() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let outcome = try await Self.embedDuringGeneration(in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
+            let outcome = try await Self.embedDuringGeneration(with: try SharedModels.required())
 
             #expect(!outcome.shareOneQueue)
             let dimension = try #require(outcome.vectors.first).count
@@ -272,17 +167,13 @@ extension RealModelSuites {
         @Test(
             """
             a real embed of texts of mixed length opens one embed span with one tokenize child span and one \
-            sub-batch child span for each sub-batch, with the counts of the real tokens and no text
+            sub-batch child span for each sub-batch, with the counts of the real tokens and no text, and the \
+            sub-batches pad far fewer tokens than one padded batch of the same texts
             """)
         func anEmbedCallOpensItsSpanTreeWithTheRealCounts() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            let tokenizerLoader = RecordingTokenizerLoader()
+            let context = try await Self.captureMixedLengthEmbed(with: try Self.sharedEmbedder())
 
-            let context = try await Self.captureMixedLengthEmbed(in: pool, tokenizerLoader: tokenizerLoader)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
-
-            let tokenizer = try #require(await tokenizerLoader.tokenizers.events.first)
+            let tokenizer = try #require(await sharedTokenizerLoader.tokenizers.events.first)
             let statistics = EmbedSpanExpectations.statistics(of: MixedLengthTexts.all, tokenizedBy: tokenizer)
             try #require(statistics.subBatchCount > oneSubBatch, "the texts divide into more than one sub-batch")
             let embedSpan = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.embed, in: context.spans)
@@ -297,20 +188,23 @@ extension RealModelSuites {
             for (span, subBatch) in zip(subBatchSpans, statistics.subBatches) {
                 EmbedSpanExpectations.expectSubBatchAttributes(of: span, subBatch)
             }
+            try EmbedSpanExpectations.expectFarFewerPaddedTokens(on: embedSpan, subBatches: subBatchSpans)
             #expect(!context.logRecords.isEmpty, "the capture holds the log records of the call")
             #expect(!context.metricRecords.isEmpty, "the capture holds the metrics of the call")
         }
 
-        /// Makes an embedder that keeps a new hold of the embedding model.
-        private static func makeEmbedder(
-            in pool: ModelPool, loader: any PooledModelLoader = MLXModelLoader()
-        ) async throws -> PooledEmbedder {
-            try PooledEmbedder(hold: try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader))
+        /// An embedder that keeps a new hold of the shared embedding model.
+        ///
+        /// - Returns: The embedder.
+        /// - Throws: A failed expectation when the suite has no shared
+        ///   embedding model, or when its container does not embed.
+        private static func sharedEmbedder() throws -> PooledEmbedder {
+            try PooledEmbedder(hold: try SharedModels.required().hold(of: IntegrationModels.embedding))
         }
 
         /// Embeds the similarity texts one at a time and in one batch, through
-        /// an embedder made from the name of the embedding model. The first
-        /// call loads the model with the loader of `pool`. The embedder goes on
+        /// an embedder made from the name of the embedding model. The embedder
+        /// finds the shared model resident in `pool`. The embedder goes on
         /// return.
         private static func embedSimilarityTextsByName(in pool: ModelPool) async throws -> SimilarityOutcome {
             let embedder = PooledEmbedder(ref: IntegrationModels.embedding.ref, pool: pool)
@@ -321,11 +215,10 @@ extension RealModelSuites {
                 unrelated: try await vector(of: SimilarityTexts.unrelated, with: embedder))
         }
 
-        /// Embeds `texts` in one batch, and then each text alone, through one
-        /// embedder. The embedder goes on return.
-        private static func embedInBatchAndAlone(texts: [String], in pool: ModelPool) async throws -> BatchOutcome {
-            let embedder = try await makeEmbedder(in: pool)
-            return BatchOutcome(
+        /// Embeds `texts` in one batch, and then each text alone, through
+        /// `embedder`.
+        private static func embedInBatchAndAlone(texts: [String], with embedder: PooledEmbedder) async throws -> BatchOutcome {
+            BatchOutcome(
                 batch: try await embedder.embed(texts: texts),
                 alone: try await embedSerially(texts, with: embedder))
         }
@@ -333,54 +226,6 @@ extension RealModelSuites {
         /// Embeds `text` alone, and gives its one vector.
         private static func vector(of text: String, with embedder: PooledEmbedder) async throws -> [Float] {
             try #require(try await embedder.embed(texts: [text]).first)
-        }
-
-        /// Acquires the embedding model first for the router and then for the
-        /// registry, each with its own loader, and embeds the shared texts
-        /// through the embedder of each. The holds go on return.
-        private static func shareOneModel(
-            in pool: ModelPool, routerLoader: RecordingLoader, registryLoader: RecordingLoader
-        ) async throws -> SharedModelOutcome {
-            let routerHold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: routerLoader)
-            let registryHold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: registryLoader)
-            let router = try PooledEmbedder(hold: routerHold)
-            let registry = try PooledEmbedder(hold: registryHold)
-            return SharedModelOutcome(
-                shareOneQueue: routerHold.queue === registryHold.queue,
-                routerVectors: try await router.embed(texts: sharedTexts),
-                registryVectors: try await registry.embed(texts: sharedTexts))
-        }
-
-        /// Embeds the text of each concurrent call first in a serial run, and
-        /// then in concurrent calls of the two users. A first job holds the
-        /// queue until all the concurrent calls wait in it. The holds go on
-        /// return.
-        private static func embedConcurrently(in pool: ModelPool, loader: RecordingEmbeddingLoader) async throws -> ConcurrentOutcome {
-            let routerHold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader)
-            let queue = routerHold.queue
-            let users = EmbedderUsers(
-                router: try PooledEmbedder(hold: routerHold), registry: try await makeEmbedder(in: pool, loader: loader))
-            let serialVectors = try await embedSerially(concurrentCalls.map(\.text), with: users.router)
-            let concurrentVectors = try await TelemetryCapture.run(forbidding: []) { context in
-                let firstJobRuns = Latch()
-                let allCallsWait = Latch()
-                let firstJob = Task {
-                    try await queue.submit {
-                        firstJobRuns.open()
-                        await allCallsWait.waitUntilOpen()
-                    }
-                }
-                await Waits.untilFirstEnds({ await firstJobRuns.waitUntilOpen() }, { _ = await firstJob.result })
-                let calls = await startInTurns(concurrentCalls, with: users, recordingInto: context)
-                allCallsWait.open()
-                try await firstJob.value
-                var vectors: [[Float]] = []
-                for call in calls {
-                    vectors.append(try await call.value)
-                }
-                return vectors
-            }
-            return ConcurrentOutcome(serialVectors: serialVectors, concurrentVectors: concurrentVectors)
         }
 
         /// Embeds each text in its own call, one call after the other.
@@ -395,97 +240,64 @@ extension RealModelSuites {
             }
         }
 
-        /// Starts `calls` on new tasks, one after the other, while a first job
-        /// runs in the queue of the embedding model. Each call starts when the
-        /// call before it waits in the queue, thus the calls go into the queue
-        /// in the order of `calls`.
-        ///
-        /// The queue records its depth in `context` in the step that accepts a
-        /// call. A call that ends before it waits in the queue also ends its
-        /// wait, and the order check of the test then fails.
-        ///
-        /// - Parameters:
-        ///   - calls: The calls, in order.
-        ///   - users: The embedder of each user.
-        ///   - context: The capture that gets the depth of the queue.
-        /// - Returns: The task of each call, in the order of `calls`.
-        private static func startInTurns(
-            _ calls: [EmbedCall], with users: EmbedderUsers, recordingInto context: TelemetryCapture.Context
-        ) async -> [Task<[Float], any Error>] {
-            var tasks: [Task<[Float], any Error>] = []
-            for (index, call) in calls.enumerated() {
-                let task = Task { try await vector(of: call.text, with: users.embedder(for: call.user)) }
-                let depth = Double(depthOfTheFirstJob + index + 1)
-                await Waits.untilFirstEnds(
-                    { await context.wait { QueueDepth.model(IntegrationModels.embedding, in: $0) == depth } },
-                    { _ = await task.result })
-                tasks.append(task)
-            }
-            return tasks
-        }
-
-        /// Makes two embedder handles, embeds with each, and releases one of
-        /// them. The other handle goes on return.
-        private static func releaseOneOfTwoHandles(in pool: ModelPool) async throws -> ResidencyOutcome {
-            let remainingHold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool)
-            let remaining = try PooledEmbedder(hold: remainingHold)
-            let releasedHandleVectors = try await embedWithShortLivedHandle(in: pool)
-            // An eviction job runs in the admission queue. This empty job ends
-            // after each eviction job that is in the admission queue now.
-            try await pool.admit { _ in }
-            return ResidencyOutcome(
-                isResidentAfterFirstRelease: pool.isResident(IntegrationModels.embedding),
-                releasedHandleVectors: releasedHandleVectors,
-                remainingHandleVectors: try await remaining.embed(texts: [probeText]))
-        }
-
-        /// Embeds with a new embedder handle. The handle goes on return.
-        private static func embedWithShortLivedHandle(in pool: ModelPool) async throws -> [[Float]] {
-            try await makeEmbedder(in: pool).embed(texts: [probeText])
-        }
-
-        /// Starts a long generation on the queue of the LLM, and embeds while
-        /// it runs. The test writes the end of the embed call and the end of
-        /// the generation into one log. The holds go on return.
-        private static func embedDuringGeneration(in pool: ModelPool) async throws -> GenerationOverlapOutcome {
-            let llmHold = try await IntegrationModels.acquire(key: IntegrationModels.llm, in: pool)
+        /// Starts a generation on the queue of the shared LLM, holds it after
+        /// its first snapshot, and embeds while it is held. The generation
+        /// continues when the embed call returned, or when a second job waits
+        /// in the queue of the LLM: an embed call that waits behind the
+        /// generation puts that job there, and the test then fails and does
+        /// not hang. The test writes the end of the embed call and the end of
+        /// the generation into one log. The generation ends before this
+        /// function returns, also when the embed call throws.
+        private static func embedDuringGeneration(with shared: SharedModels) async throws -> GenerationOverlapOutcome {
+            let llmHold = try shared.hold(of: IntegrationModels.llm)
             let model = try Generation.languageModel(of: llmHold)
-            let embeddingHold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool)
+            let embeddingHold = try shared.hold(of: IntegrationModels.embedding)
             let embedder = try PooledEmbedder(hold: embeddingHold)
             let steps = EventLog<String>()
-            let generationRuns = Latch()
-            let generation = Task {
-                try await llmHold.queue.submit {
-                    generationRuns.open()
-                    _ = try await Generation.respond(to: endlessPrompt, with: model, maximumResponseTokens: longGenerationTokens)
-                    await steps.append(generationEnded)
+            let generationIsHeld = Latch()
+            let generationMayContinue = Latch()
+            let ends = try await TelemetryCapture.run(forbidding: []) { context in
+                let generation = Task {
+                    try await llmHold.queue.submit {
+                        _ = try await Generation.stream(
+                            endlessPrompt, with: model, maximumResponseTokens: longGenerationTokens,
+                            into: EventLog<String>()
+                        ) {
+                            generationIsHeld.open()
+                            await generationMayContinue.waitUntilOpen()
+                        }
+                        await steps.append(generationEnded)
+                    }
                 }
+                // A generation that ends before its first snapshot also ends
+                // the wait, and the order check of the test then fails.
+                await Waits.untilFirstEnds({ await generationIsHeld.waitUntilOpen() }, { _ = await generation.result })
+                let embedding = Task {
+                    let vectors = try await embedder.embed(texts: [probeText])
+                    await steps.append(embedEnded)
+                    return vectors
+                }
+                await Waits.untilFirstEnds(
+                    { _ = await embedding.result },
+                    { await context.wait { QueueDepth.model(IntegrationModels.llm, in: $0) == depthWithAJobBehindTheGeneration } })
+                generationMayContinue.open()
+                return (generation: await generation.result, embedding: await embedding.result)
             }
-            // A generation that ends before it opens the latch also ends the
-            // wait, and the order check of the test then fails.
-            await Waits.untilFirstEnds({ await generationRuns.waitUntilOpen() }, { _ = await generation.result })
-            let vectors = try await embedder.embed(texts: [probeText])
-            await steps.append(embedEnded)
-            try await generation.value
+            try ends.generation.get()
             return GenerationOverlapOutcome(
-                shareOneQueue: llmHold.queue === embeddingHold.queue, vectors: vectors, steps: await steps.events)
+                shareOneQueue: llmHold.queue === embeddingHold.queue, vectors: try ends.embedding.get(),
+                steps: await steps.events)
         }
 
-        /// Makes an embedder whose model loads with `tokenizerLoader`, and
-        /// embeds ``MixedLengthTexts/all`` in one call in a telemetry capture.
-        /// The capture forbids each of the texts in each span, log record and
-        /// metric. The embedder goes on return.
+        /// Embeds ``MixedLengthTexts/all`` in one call through `embedder`, in a
+        /// telemetry capture. The capture forbids each of the texts in each
+        /// span, log record and metric.
         ///
-        /// - Parameters:
-        ///   - pool: The pool of the test.
-        ///   - tokenizerLoader: The tokenizer loader of the load of the model.
+        /// - Parameter embedder: An embedder of the shared embedding model.
         /// - Returns: The capture of the embed call.
-        /// - Throws: The error of the load or of the embed call.
-        private static func captureMixedLengthEmbed(
-            in pool: ModelPool, tokenizerLoader: RecordingTokenizerLoader
-        ) async throws -> TelemetryCapture.Context {
-            let embedder = try await makeEmbedder(in: pool, loader: MLXModelLoader(tokenizerLoader: tokenizerLoader))
-            return try await TelemetryCapture.run(forbidding: MixedLengthTexts.all) { context in
+        /// - Throws: The error of the embed call.
+        private static func captureMixedLengthEmbed(with embedder: PooledEmbedder) async throws -> TelemetryCapture.Context {
+            try await TelemetryCapture.run(forbidding: MixedLengthTexts.all) { context in
                 _ = try await embedder.embed(texts: MixedLengthTexts.all)
                 return context
             }
@@ -548,6 +360,27 @@ private enum EmbedSpanExpectations {
             ], on: span)
     }
 
+    /// Expects that the sub-batches of the call of ``MixedLengthTexts/all``
+    /// padded far fewer tokens than one padded batch of its texts.
+    ///
+    /// - Parameters:
+    ///   - embedSpan: The embed span of the call.
+    ///   - subBatches: The sub-batch spans of the call.
+    /// - Throws: A failed expectation when a span has no count that the check
+    ///   reads.
+    static func expectFarFewerPaddedTokens(on embedSpan: FinishedInMemorySpan, subBatches: [FinishedInMemorySpan]) throws {
+        let textCount = try countAttribute(ExtrasTelemetry.AttributeKey.embedTextCount, of: embedSpan)
+        let maxTokens = try countAttribute(ExtrasTelemetry.AttributeKey.embedMaxTokens, of: embedSpan)
+        let paddedTokens = try subBatches.reduce(0) { total, span in
+            total + (try countAttribute(ExtrasTelemetry.AttributeKey.subBatchPaddedTokens, of: span))
+        }
+        let onePaddedBatch = textCount * maxTokens
+        #expect(textCount == MixedLengthTexts.all.count)
+        #expect(
+            onePaddedBatch >= minimumPaddingReduction * paddedTokens,
+            "the sub-batches padded \(paddedTokens) tokens; one padded batch has \(onePaddedBatch) tokens")
+    }
+
     /// Gives the count that `span` carries as the attribute `key`.
     ///
     /// - Parameters:
@@ -555,7 +388,7 @@ private enum EmbedSpanExpectations {
     ///   - span: The span.
     /// - Returns: The count.
     /// - Throws: A failed expectation when the span has no count with `key`.
-    static func countAttribute(_ key: String, of span: FinishedInMemorySpan) throws -> Int {
+    private static func countAttribute(_ key: String, of span: FinishedInMemorySpan) throws -> Int {
         Int(try #require(span.attributes.get(key)?.integerValue, "the span \(span.operationName) has no count \(key)"))
     }
 
@@ -594,22 +427,6 @@ private enum VectorMath {
     }
 }
 
-/// The embedder of each user in the FIFO test.
-private struct EmbedderUsers: Sendable {
-    /// The embedder of the router.
-    let router: PooledEmbedder
-    /// The embedder of the registry.
-    let registry: PooledEmbedder
-
-    /// The embedder of `user`.
-    func embedder(for user: EmbedderUser) -> PooledEmbedder {
-        switch user {
-        case .router: router
-        case .registry: registry
-        }
-    }
-}
-
 /// The vectors of the similarity test.
 private struct SimilarityOutcome {
     /// The vectors of one call with all the similarity texts.
@@ -630,34 +447,6 @@ private struct BatchOutcome {
     let alone: [[Float]]
 }
 
-/// What the two users of one embedding model observed.
-private struct SharedModelOutcome {
-    /// Whether the holds of the two users share one queue, thus one pool entry.
-    let shareOneQueue: Bool
-    /// The vectors of the shared texts through the embedder of the router.
-    let routerVectors: [[Float]]
-    /// The vectors of the shared texts through the embedder of the registry.
-    let registryVectors: [[Float]]
-}
-
-/// The vectors of the FIFO test.
-private struct ConcurrentOutcome {
-    /// The vector of each call text, from one call after the other.
-    let serialVectors: [[Float]]
-    /// The vector of each concurrent call, in the order of the calls.
-    let concurrentVectors: [[Float]]
-}
-
-/// What the residency test observed.
-private struct ResidencyOutcome {
-    /// Whether the model was resident after the release of the first handle.
-    let isResidentAfterFirstRelease: Bool
-    /// The vectors of the handle that the test released first.
-    let releasedHandleVectors: [[Float]]
-    /// The vectors of the remaining handle, after the release of the first handle.
-    let remainingHandleVectors: [[Float]]
-}
-
 /// What the test of an embed call during a generation observed.
 private struct GenerationOverlapOutcome {
     /// Whether the LLM and the embedding model share one queue.
@@ -666,67 +455,4 @@ private struct GenerationOverlapOutcome {
     let vectors: [[Float]]
     /// The end of the embed call and the end of the generation, in order.
     let steps: [String]
-}
-
-/// One step of an embed call that a ``RecordingEmbedding`` ran.
-private enum EmbedStep: Equatable, Sendable {
-    /// The call with these texts started.
-    case started([String])
-    /// The call with these texts ended.
-    case ended([String])
-
-    /// The steps of `calls` when they run one at a time, in order: the start
-    /// and the end of each call with its one text.
-    ///
-    /// - Parameter calls: The calls, in order.
-    /// - Returns: The steps.
-    static func steps(of calls: [EmbedCall]) -> [EmbedStep] {
-        calls.flatMap { [.started([$0.text]), .ended([$0.text])] }
-    }
-}
-
-/// A ``PooledEmbedding`` that records the start and the end of each call of
-/// the embedding it wraps.
-private struct RecordingEmbedding: PooledEmbedding {
-    /// The embedding that does the real work.
-    let embedding: any PooledEmbedding
-    /// The steps of the calls, in order.
-    let steps: EventLog<EmbedStep>
-
-    /// Embeds `texts` with the wrapped embedding, and records the call.
-    func embed(texts: [String]) async throws -> [[Float]] {
-        await steps.append(.started(texts))
-        let vectors = try await embedding.embed(texts: texts)
-        await steps.append(.ended(texts))
-        return vectors
-    }
-}
-
-/// A loader that loads the MLX embedding model with `MLXModelLoader`, and
-/// gives it wrapped in a ``RecordingEmbedding``. The first loader of a key gives
-/// the container of all holds, thus each user of the key records its calls here.
-private struct RecordingEmbeddingLoader: PooledModelLoader {
-    /// The steps of the embed calls of each user of the loaded model.
-    let steps = EventLog<EmbedStep>()
-
-    /// The loader that does the real work.
-    private let loader = MLXModelLoader()
-
-    /// Loads the model of `key`, and wraps it.
-    ///
-    /// - Parameter key: An embedding model.
-    /// - Returns: A ``RecordingEmbedding``.
-    /// - Throws: The error of the load, or a failed expectation when the
-    ///   container is not a ``PooledEmbedding``.
-    func load(_ key: ModelPoolKey) async throws -> any Sendable {
-        let embedding = try #require(try await loader.load(key) as? any PooledEmbedding)
-        return RecordingEmbedding(embedding: embedding, steps: steps)
-    }
-
-    /// Evicts the container with `MLXModelLoader`.
-    ///
-    /// - Parameter container: A container that ``load(_:)`` returned.
-    func evict(_ container: any Sendable) async {
-        await loader.evict(container)
-    }
 }

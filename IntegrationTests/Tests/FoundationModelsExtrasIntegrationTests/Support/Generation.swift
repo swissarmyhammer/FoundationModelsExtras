@@ -54,20 +54,29 @@ enum Generation {
     ///   - model: The LLM.
     ///   - maximumResponseTokens: The most tokens of the answer.
     ///   - snapshots: Gets the text of each snapshot, in order.
+    ///   - afterFirstSnapshot: Runs one time, after the first snapshot went to
+    ///     `snapshots`. The stream continues when it returns. A test holds the
+    ///     generation at that point with a latch. The default does nothing.
     /// - Returns: The text of the last snapshot.
     /// - Throws: The error of the generation, or `CancellationError` when the
     ///   task is cancelled. A cancel ends the stream of the MLX model with no
     ///   error, thus this function then throws `CancellationError`, as
     ///   ``respond(to:with:maximumResponseTokens:)`` does.
     static func stream(
-        _ prompt: String, with model: any LanguageModel, maximumResponseTokens: Int, into snapshots: EventLog<String>
+        _ prompt: String, with model: any LanguageModel, maximumResponseTokens: Int, into snapshots: EventLog<String>,
+        afterFirstSnapshot: @Sendable () async -> Void = {}
     ) async throws -> String {
         let stream = LanguageModelSession(model: model)
             .streamResponse(to: prompt, options: greedyOptions(maximumResponseTokens))
         var text = ""
+        var isFirst = true
         for try await snapshot in stream {
             text = snapshot.content
             snapshots.record(text)
+            if isFirst {
+                isFirst = false
+                await afterFirstSnapshot()
+            }
         }
         try Task.checkCancellation()
         return text
