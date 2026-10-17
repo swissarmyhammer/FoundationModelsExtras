@@ -41,12 +41,18 @@ struct ToolContextMountTests {
     /// The wiring of the mounting run, stamped with ``hostTool``, ``hostOp``
     /// and ``hostToken``.
     ///
-    /// - Parameter inlineSettleGrace: The settle period of the context. The
-    ///   default is ``MountFixtures/pendingAtOnceGrace``, so each background
-    ///   call answers with its pending envelope at once.
-    /// - Returns: A new context over a new run plane, sink and record store.
-    private static func makeHost(inlineSettleGrace: TimeInterval = Fixtures.pendingAtOnceGrace) -> Host {
-        let runPlane = RunPlane()
+    /// - Parameters:
+    ///   - inlineSettleGrace: The settle period of the context. The default
+    ///     is ``MountFixtures/pendingAtOnceGrace``, so each background call
+    ///     answers with its pending envelope at once.
+    ///   - runPlane: The run plane of the context. The default is a new run
+    ///     plane on the real clock. A test of the settle period gives a run
+    ///     plane on a ``ManualRunClock``.
+    /// - Returns: A new context over the run plane, a new sink and a new
+    ///   record store.
+    private static func makeHost(
+        inlineSettleGrace: TimeInterval = Fixtures.pendingAtOnceGrace, runPlane: RunPlane = RunPlane()
+    ) -> Host {
         let sink = Fixtures.RecordingSink()
         let attachments = ToolCallState()
         let context = ToolContext(
@@ -359,7 +365,8 @@ struct ToolContextMountTests {
 
     @Test("settling(within:) changes the grace that inner mounts use, and a negative value acts as 0")
     func settlingWithinChangesTheGraceOfInnerMounts() async throws {
-        let host = Self.makeHost(inlineSettleGrace: Fixtures.pendingAtOnceGrace)
+        let plane = await ManualSettlePlane.make()
+        let host = Self.makeHost(inlineSettleGrace: Fixtures.pendingAtOnceGrace, runPlane: plane.runPlane)
         let waiting = host.context.settling(within: Fixtures.generousInterval)
         let atOnce = waiting.settling(within: -1)
 
@@ -368,8 +375,10 @@ struct ToolContextMountTests {
         // The original context keeps its own value.
         #expect(host.context.inlineSettleGrace == Fixtures.pendingAtOnceGrace)
 
-        let inline = try await waiting.mount(Fixtures.FastTool(), as: ToolMount(mode: .background))
-            .call(arguments: MountArguments(value: "inline"))
+        let inline = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await waiting.mount(Fixtures.FastTool(), as: ToolMount(mode: .background))
+                .call(arguments: MountArguments(value: "inline"))
+        }
         let pending = try await atOnce.mount(Fixtures.FastTool(), as: ToolMount(mode: .background))
             .call(arguments: MountArguments(value: "pending"))
 

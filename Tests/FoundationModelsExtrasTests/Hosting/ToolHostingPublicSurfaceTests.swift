@@ -420,9 +420,12 @@ struct ToolHostingPublicSurfaceTests {
 
     @Test("a background call that ends inside its grace answers with the output of the tool, not an envelope")
     func aRunInsideTheGraceAnswersWithItsOwnOutput() async throws {
-        let mounted = try Self.mount(InlineTool(), on: RunPlane())
+        let plane = await ManualSettlePlane.make()
+        let mounted = try Self.mount(InlineTool(), on: plane.runPlane)
 
-        let output = try await mounted.call(arguments: ProbeArguments(value: "x"))
+        let output = try await plane.answer(settlingWithin: Self.inlineGraceSeconds) {
+            try await mounted.call(arguments: ProbeArguments(value: "x"))
+        }
 
         #expect(output == "inline: x")
         #expect(PendingRunEnvelope.makeDecoded(fromRendered: output) == nil)

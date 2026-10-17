@@ -16,7 +16,8 @@ import ULID
 struct HoldingRunTokenTests {
     /// The settle period of the background inner call, in seconds. The call
     /// returns at once, so its run settles in this time and the call gives
-    /// its output.
+    /// its output. The run plane waits on a manual clock, and the test moves
+    /// the clock by this period only after the inner run settled.
     private static let backgroundGraceSeconds: TimeInterval = 3600
 
     /// The arguments of each tool of this suite.
@@ -161,25 +162,43 @@ struct HoldingRunTokenTests {
         return try #require(mounted as? any Tool<ProbeArguments, String>)
     }
 
-    /// Calls a mounted ``RunTool`` one time.
+    /// Calls a mounted ``RunTool`` one time. The background inner call waits
+    /// on `plane` for its run, and `plane` moves its clock past the settle
+    /// period only after that run settled.
     ///
-    /// - Parameter run: The mounted tool.
+    /// - Parameters:
+    ///   - run: The mounted tool.
+    ///   - plane: The run plane that `run` is mounted on.
     /// - Returns: The tokens of the run and of its inner calls.
     /// - Throws: The error of the call, or a failed expectation.
-    private static func report(of run: any Tool<ProbeArguments, String>) async throws -> RunReport {
-        try RunReport(output: await run.call(arguments: ProbeArguments(value: "run")))
+    private static func report(
+        of run: any Tool<ProbeArguments, String>, on plane: ManualSettlePlane
+    ) async throws -> RunReport {
+        try RunReport(
+            output: await plane.answer(settlingWithin: backgroundGraceSeconds) {
+                try await run.call(arguments: ProbeArguments(value: "run"))
+            })
+    }
+
+    /// Calls a ``RunTool`` one time, on a new run plane on a manual clock.
+    ///
+    /// - Returns: The tokens of the run and of its inner calls.
+    /// - Throws: The error of the call, or a failed expectation.
+    private static func reportOfOneRun() async throws -> RunReport {
+        let plane = await ManualSettlePlane.make()
+        return try await report(of: mountedRun(on: plane.runPlane), on: plane)
     }
 
     @Test("the context of a run gives its own completion token")
     func aRunGivesItsOwnToken() async throws {
-        let report = try await Self.report(of: Self.mountedRun(on: RunPlane()))
+        let report = try await Self.reportOfOneRun()
 
         #expect(report.run.holding == report.run.completion)
     }
 
     @Test("two synchronous inner calls of one run give the token of that run, and each has its own completion token")
     func synchronousInnerCallsGiveTheRunToken() async throws {
-        let report = try await Self.report(of: Self.mountedRun(on: RunPlane()))
+        let report = try await Self.reportOfOneRun()
 
         #expect(report.firstInner.holding == report.run.completion)
         #expect(report.secondInner.holding == report.run.completion)
@@ -189,7 +208,7 @@ struct HoldingRunTokenTests {
 
     @Test("a synchronous call that a synchronous inner call mounts gives the token of the run")
     func aNestedSynchronousCallGivesTheRunToken() async throws {
-        let report = try await Self.report(of: Self.mountedRun(on: RunPlane()))
+        let report = try await Self.reportOfOneRun()
 
         #expect(report.nested.holding == report.run.completion)
         #expect(report.nested.completion != report.run.completion)
@@ -197,7 +216,7 @@ struct HoldingRunTokenTests {
 
     @Test("a background inner call is a run of its own and gives its own completion token")
     func aBackgroundInnerCallGivesItsOwnToken() async throws {
-        let report = try await Self.report(of: Self.mountedRun(on: RunPlane()))
+        let report = try await Self.reportOfOneRun()
 
         #expect(report.background.holding == report.background.completion)
         #expect(report.background.holding != report.run.completion)
@@ -205,10 +224,11 @@ struct HoldingRunTokenTests {
 
     @Test("two runs on one session give different values, and the inner calls of each run give the value of that run")
     func twoRunsGiveDifferentValues() async throws {
-        let run = try Self.mountedRun(on: RunPlane())
+        let plane = await ManualSettlePlane.make()
+        let run = try Self.mountedRun(on: plane.runPlane)
 
-        let first = try await Self.report(of: run)
-        let second = try await Self.report(of: run)
+        let first = try await Self.report(of: run, on: plane)
+        let second = try await Self.report(of: run, on: plane)
 
         #expect(first.run.holding != second.run.holding)
         #expect(first.firstInner.holding == first.run.holding)
