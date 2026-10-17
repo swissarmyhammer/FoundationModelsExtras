@@ -79,8 +79,12 @@ comments:
     - evidence: commits 880a830, 0416187, 5a749f1, 960877a, 5f4b8c2, 7d52fd1 (local, not pushed). 1 Sources file (Telemetry/QueueTelemetry.swift, internal init parameter only) and 19 test files. Root `swift test`: 1223 tests in 120 suites passed, plus the runs of 410, 131, 44, 40 and 26 tests; 0 failures; only the known Cmlx warning.
     - next: /review. B and C (real mount timeouts and real settle graces in Tests/) go to the card that the coordinator adds.
   timestamp: 2026-10-17T11:19:46.412311+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m54smcaxc6ndjpqm7zgpsmrb
+  text: 'What stays: ProcessRunnerTests theDurationCoversTheWholeRun (ProcessRunnerTests.swift:190-195). The child sleep is real time, thus a manual clock cannot replace it. The test has only a lower bound (duration >= the child sleep). A lower bound cannot fail on a slow runner. It has no upper bound and no ratio. No change is necessary.'
+  timestamp: 2026-10-17T11:23:24.381036+00:00
+position_column: done
+position_ordinal: ffa580
 title: 'Tests: remove the clock reads, sleeps and time limits that stay in Tests/ and IntegrationTests/'
 ---
 Found during ^k2k3b03. These places still read a clock, sleep, poll or set a time limit in a test. Each must end on the event that it expects, or on a failure event.
