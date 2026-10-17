@@ -49,11 +49,19 @@ comments:
     - open: the card needs the CI integration time before and after. That needs a push and a CI run, and this step does not push.
     - next: the coordinator pushes when the runner is free, and records the CI times; then review.
   timestamp: 2026-10-17T14:08:10.346031+00:00
+- actor: claude-code
+  id: 01m553hh9kdv7hxkcgdy1n6a60
+  text: |-
+    CI integration time (the "Integration (opt-in, real dependencies)" job).
+    Before: 3 min 57 s (f9b5496, run 39025881701), 4 min 3 s (be0655e, run 39028348568), 5 min 0 s (0e8eb54, run 39034315839).
+    After: 2 min 49 s (ba0380d, run 39039496933, 14:12:53-14:15:42). The run passed.
+    The time includes the build of the integration package, thus the decrease of the test time is larger than the decrease of the job time.
+  timestamp: 2026-10-17T14:16:36.915770+00:00
 depends_on:
 - 01M53BTZ0M0DH3HXBD47N7BNKZ
 - 01M54QGXNTCEDD848YPNBB4PPJ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffa780
 title: 'IntegrationTests: share the model loads and remove redundant tests'
 ---
 ## Goal

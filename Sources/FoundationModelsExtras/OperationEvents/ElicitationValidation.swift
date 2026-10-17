@@ -85,11 +85,28 @@ extension ElicitationRequestedSchema {
     ///
     /// - Parameter content: The content of an accepted form answer.
     /// - Returns: `nil` when the content is valid, or one sentence that names
-    ///   the first field that failed and the rule that it broke.
+    ///   the first field that failed and the rule that it broke. The sentence
+    ///   is the ``ElicitationValidationIssue/failureText`` of
+    ///   ``validationIssue(of:)``.
     public func validationFailure(of content: [String: ElicitationValue]?) -> String? {
+        validationIssue(of: content)?.failureText
+    }
+
+    /// Tells why `content` is not a valid answer to this schema, as data that
+    /// a UI can localize.
+    ///
+    /// The function applies the rules of ``validationFailure(of:)`` in the
+    /// same order, and gives the same first failure.
+    ///
+    /// - Parameter content: The content of an accepted form answer.
+    /// - Returns: `nil` when the content is valid, or the issue of the first
+    ///   field that failed.
+    public func validationIssue(of content: [String: ElicitationValue]?) -> ElicitationValidationIssue? {
         let content = content ?? [:]
         let names = Set(required ?? []).union(content.keys).sorted()
-        return names.lazy.compactMap { failure(ofField: $0, in: content) }.first
+        return names.lazy.compactMap { name in
+            issueKind(ofField: name, in: content).map { ElicitationValidationIssue(field: name, kind: $0) }
+        }.first
     }
 
     /// Tells why the field `name` of `content` is not valid.
@@ -97,107 +114,101 @@ extension ElicitationRequestedSchema {
     /// - Parameters:
     ///   - name: The name of a required field, or a key of `content`.
     ///   - content: The content of the answer.
-    /// - Returns: `nil` when the field is valid, or the sentence of its failure.
-    private func failure(ofField name: String, in content: [String: ElicitationValue]) -> String? {
-        guard let value = content[name] else {
-            return "\(FailureText.field(name)) is required, and the answer does not give it"
-        }
+    /// - Returns: `nil` when the field is valid, or the kind of its issue.
+    private func issueKind(
+        ofField name: String, in content: [String: ElicitationValue]
+    ) -> ElicitationValidationIssue.Kind? {
+        guard let value = content[name] else { return .requiredFieldMissing }
         guard let property = properties[name] else {
             // A schema with no properties asks for a free answer, so each key
             // of the answer is valid.
-            return properties.isEmpty ? nil : "\(FailureText.field(name)) is not in the requested schema"
+            return properties.isEmpty ? nil : .fieldNotInSchema
         }
-        return property.failure(of: value, field: name)
+        return property.issueKind(of: value)
     }
 }
 
 extension ElicitationPrimitiveSchema {
     /// Tells why `value` is not a valid value of this property.
     ///
-    /// - Parameters:
-    ///   - value: The value in the answer.
-    ///   - name: The name of the field.
-    /// - Returns: `nil` when the value is valid, or the sentence of its failure.
-    fileprivate func failure(of value: ElicitationValue, field name: String) -> String? {
+    /// - Parameter value: The value in the answer.
+    /// - Returns: `nil` when the value is valid, or the kind of its issue.
+    fileprivate func issueKind(of value: ElicitationValue) -> ElicitationValidationIssue.Kind? {
+        let wrongType = ElicitationValidationIssue.Kind.wrongType(expected: expectedValue)
         switch self {
         case .string(let schema):
-            guard case .string(let text) = value else { return typeFailure(field: name) }
-            return schema.failure(of: text, field: name)
+            guard case .string(let text) = value else { return wrongType }
+            return schema.issueKind(of: text)
         case .number(let schema):
-            guard case .number(let number) = value, schema.admits(number) else { return typeFailure(field: name) }
-            return schema.boundFailure(of: number, field: name)
+            guard case .number(let number) = value, schema.admits(number) else { return wrongType }
+            return schema.boundIssueKind(of: number)
         case .boolean:
-            guard case .boolean = value else { return typeFailure(field: name) }
+            guard case .boolean = value else { return wrongType }
             return nil
         case .singleSelect(let schema):
-            guard case .string(let choice) = value else { return typeFailure(field: name) }
-            return schema.failure(of: choice, field: name)
+            guard case .string(let choice) = value else { return wrongType }
+            return schema.issueKind(of: choice)
         case .multiSelect(let schema):
-            guard case .stringArray(let choices) = value else { return typeFailure(field: name) }
-            return schema.failure(of: choices, field: name)
+            guard case .stringArray(let choices) = value else { return wrongType }
+            return schema.issueKind(of: choices)
         }
     }
 
-    /// The words for the type of value that this property takes.
-    private var expectedValue: String {
+    /// The type of value that this property takes.
+    private var expectedValue: ElicitationValidationIssue.ExpectedValue {
         switch self {
-        case .string, .singleSelect: "a string"
-        case .number(let schema): schema.type == .integer ? "a whole number" : "a number"
-        case .boolean: "true or false"
-        case .multiSelect: "a list of strings"
+        case .string, .singleSelect: .string
+        case .number(let schema): schema.type == .integer ? .wholeNumber : .number
+        case .boolean: .boolean
+        case .multiSelect: .stringList
         }
-    }
-
-    /// The failure of a value of the wrong type.
-    ///
-    /// - Parameter name: The name of the field.
-    /// - Returns: The sentence of the failure.
-    private func typeFailure(field name: String) -> String {
-        "\(FailureText.field(name)) must be \(expectedValue)"
     }
 }
 
 extension ElicitationStringSchema {
     /// Tells why `text` is not a valid value of this property.
     ///
-    /// - Parameters:
-    ///   - text: The value in the answer.
-    ///   - name: The name of the field.
-    /// - Returns: `nil` when the value is valid, or the sentence of its failure.
-    fileprivate func failure(of text: String, field name: String) -> String? {
-        FailureText.countFailure(
-            field: name, count: ElicitationValidation.codePointLength(text), minimum: minLength, maximum: maxLength,
-            unit: "characters")
-            ?? patternFailure(of: text, field: name)
-            ?? formatFailure(of: text, field: name)
+    /// - Parameter text: The value in the answer.
+    /// - Returns: `nil` when the value is valid, or the kind of its issue.
+    fileprivate func issueKind(of text: String) -> ElicitationValidationIssue.Kind? {
+        lengthIssueKind(of: text) ?? patternIssueKind(of: text) ?? formatIssueKind(of: text)
+    }
+
+    /// Tells why the length of `text` is less than ``minLength`` or more than
+    /// ``maxLength``. The length is the count of Unicode code points.
+    ///
+    /// - Parameter text: The value in the answer.
+    /// - Returns: `nil` when the length is in its limits, or the kind of the
+    ///   issue.
+    private func lengthIssueKind(of text: String) -> ElicitationValidationIssue.Kind? {
+        switch Bound.check(ElicitationValidation.codePointLength(text), minimum: minLength, maximum: maxLength) {
+        case .within: nil
+        case .below(let minimum): .tooShort(minLength: minimum)
+        case .above(let maximum): .tooLong(maxLength: maximum)
+        }
     }
 
     /// Tells why `text` does not match ``pattern``.
     ///
-    /// - Parameters:
-    ///   - text: The value in the answer.
-    ///   - name: The name of the field.
+    /// - Parameter text: The value in the answer.
     /// - Returns: `nil` when there is no pattern or the pattern matches a part
-    ///   of the value, or the sentence of the failure.
-    private func patternFailure(of text: String, field name: String) -> String? {
+    ///   of the value, or the kind of the issue.
+    private func patternIssueKind(of text: String) -> ElicitationValidationIssue.Kind? {
         guard let pattern else { return nil }
         guard let matches = ElicitationValidation.patternMatches(text, pattern: pattern) else {
-            return "the pattern \(FailureText.quoted(pattern)) of \(FailureText.field(name)) "
-                + "is not a valid regular expression"
+            return .invalidPattern(pattern: pattern)
         }
-        return matches ? nil : "\(FailureText.field(name)) does not match the pattern \(FailureText.quoted(pattern))"
+        return matches ? nil : .patternMismatch(pattern: pattern)
     }
 
     /// Tells why `text` does not have ``format``.
     ///
-    /// - Parameters:
-    ///   - text: The value in the answer.
-    ///   - name: The name of the field.
+    /// - Parameter text: The value in the answer.
     /// - Returns: `nil` when there is no format or the value has it, or the
-    ///   sentence of the failure.
-    private func formatFailure(of text: String, field name: String) -> String? {
+    ///   kind of the issue.
+    private func formatIssueKind(of text: String) -> ElicitationValidationIssue.Kind? {
         guard let format, !format.accepts(text) else { return nil }
-        return "\(FailureText.field(name)) is not a valid \(format.valueName)"
+        return .invalidFormat(format)
     }
 }
 
@@ -375,16 +386,6 @@ private enum ECMAPattern {
 }
 
 extension ElicitationStringFormat {
-    /// The words for a value of this format.
-    fileprivate var valueName: String {
-        switch self {
-        case .email: "email address"
-        case .uri: "URI"
-        case .date: "date (yyyy-MM-dd)"
-        case .dateTime: "date and time (ISO 8601)"
-        }
-    }
-
     /// Tells if `text` has this format.
     ///
     /// - Parameter text: The value in the answer.
@@ -439,16 +440,14 @@ extension ElicitationNumberSchema {
 
     /// Tells why `number` is less than ``minimum`` or more than ``maximum``.
     ///
-    /// - Parameters:
-    ///   - number: The value in the answer.
-    ///   - name: The name of the field.
-    /// - Returns: `nil` when the value is in its limits, or the sentence of
-    ///   the failure.
-    fileprivate func boundFailure(of number: Double, field name: String) -> String? {
+    /// - Parameter number: The value in the answer.
+    /// - Returns: `nil` when the value is in its limits, or the kind of the
+    ///   issue.
+    fileprivate func boundIssueKind(of number: Double) -> ElicitationValidationIssue.Kind? {
         switch Bound.check(number, minimum: minimum, maximum: maximum) {
         case .within: nil
-        case .below(let minimum): "\(FailureText.field(name)) must be \(FailureText.number(minimum)) or more"
-        case .above(let maximum): "\(FailureText.field(name)) must be \(FailureText.number(maximum)) or less"
+        case .below(let minimum): .belowMinimum(minimum)
+        case .above(let maximum): .aboveMaximum(maximum)
         }
     }
 }
@@ -456,14 +455,11 @@ extension ElicitationNumberSchema {
 extension ElicitationSingleSelectSchema {
     /// Tells why `choice` is not one of ``values``.
     ///
-    /// - Parameters:
-    ///   - choice: The value in the answer.
-    ///   - name: The name of the field.
-    /// - Returns: `nil` when `choice` is one of the values, or the sentence of
-    ///   the failure.
-    fileprivate func failure(of choice: String, field name: String) -> String? {
-        guard !values.contains(choice) else { return nil }
-        return "\(FailureText.field(name)) must be one of these values: \(FailureText.quotedList(values))"
+    /// - Parameter choice: The value in the answer.
+    /// - Returns: `nil` when `choice` is one of the values, or the kind of the
+    ///   issue.
+    fileprivate func issueKind(of choice: String) -> ElicitationValidationIssue.Kind? {
+        values.contains(choice) ? nil : .valueNotAllowed(allowed: values)
     }
 }
 
@@ -472,74 +468,16 @@ extension ElicitationMultiSelectSchema {
     /// of ``values``, fewer items than ``minItems``, or more items than
     /// ``maxItems``.
     ///
-    /// - Parameters:
-    ///   - choices: The value in the answer.
-    ///   - name: The name of the field.
-    /// - Returns: `nil` when the selection is valid, or the sentence of its
-    ///   failure.
-    fileprivate func failure(of choices: [String], field name: String) -> String? {
+    /// - Parameter choices: The value in the answer.
+    /// - Returns: `nil` when the selection is valid, or the kind of its issue.
+    fileprivate func issueKind(of choices: [String]) -> ElicitationValidationIssue.Kind? {
         if let unknown = choices.first(where: { !values.contains($0) }) {
-            return "\(FailureText.field(name)) has the value \(FailureText.quoted(unknown)), "
-                + "which is not one of these values: \(FailureText.quotedList(values))"
+            return .itemNotAllowed(value: unknown, allowed: values)
         }
-        return FailureText.countFailure(
-            field: name, count: choices.count, minimum: minItems, maximum: maxItems, unit: "values")
-    }
-}
-
-/// The parts of the sentences that the validation gives.
-private enum FailureText {
-    /// The end of the text of a `Double` that is a whole number.
-    private static let wholeNumberSuffix = ".0"
-
-    /// The words that name the field `name`.
-    ///
-    /// - Parameter name: The name of the field.
-    /// - Returns: The words, for example `the field "zip"`.
-    static func field(_ name: String) -> String {
-        "the field \(quoted(name))"
-    }
-
-    /// `text` in double quotation marks.
-    ///
-    /// - Parameter text: The text.
-    /// - Returns: The quoted text.
-    static func quoted(_ text: String) -> String {
-        "\"\(text)\""
-    }
-
-    /// Each of `values` in double quotation marks, with commas between them.
-    ///
-    /// - Parameter values: The values.
-    /// - Returns: The list, for example `"red", "green"`.
-    static func quotedList(_ values: [String]) -> String {
-        values.map(quoted).joined(separator: ", ")
-    }
-
-    /// The text of `value`, with no `.0` at the end of a whole number.
-    ///
-    /// - Parameter value: The number.
-    /// - Returns: The text, for example `150` or `0.5`.
-    static func number(_ value: Double) -> String {
-        let text = String(value)
-        return text.hasSuffix(wholeNumberSuffix) ? String(text.dropLast(wholeNumberSuffix.count)) : text
-    }
-
-    /// Tells why `count` is less than `minimum` or more than `maximum`.
-    ///
-    /// - Parameters:
-    ///   - name: The name of the field.
-    ///   - count: The number of characters or items in the value.
-    ///   - minimum: The smallest count that the field takes, or `nil`.
-    ///   - maximum: The largest count that the field takes, or `nil`.
-    ///   - unit: The word for what `count` counts, for example `characters`.
-    /// - Returns: `nil` when the count is in its limits, or the sentence of
-    ///   the failure.
-    static func countFailure(field name: String, count: Int, minimum: Int?, maximum: Int?, unit: String) -> String? {
-        switch Bound.check(count, minimum: minimum, maximum: maximum) {
-        case .within: nil
-        case .below(let minimum): "\(field(name)) must have \(minimum) or more \(unit)"
-        case .above(let maximum): "\(field(name)) must have \(maximum) or fewer \(unit)"
+        switch Bound.check(choices.count, minimum: minItems, maximum: maxItems) {
+        case .within: return nil
+        case .below(let minimum): return .tooFewItems(minItems: minimum)
+        case .above(let maximum): return .tooManyItems(maxItems: maximum)
         }
     }
 }

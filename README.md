@@ -896,7 +896,12 @@ questions that those runs ask the user.
   (`"the answer is not valid: "`) followed by the failure. A host that also
   sends the accepted answer to a different place (for example, a router that
   posts it as mail to the model), or a UI that keeps a form open for a
-  correction, calls `validationFailure(of:)` before it sends the answer.
+  correction, calls `validationFailure(of:)` before it sends the answer. A UI
+  that shows the failure in the language of the user calls
+  `validationIssue(of:)` in its place: an `ElicitationValidationIssue` gives
+  the field and the rule with its limit as data (for example
+  `.tooShort(minLength: 2)`), and its `failureText` is the same English
+  sentence.
 
 ```swift
 /// Runs the tests in the background. A call waits for the settle period of
