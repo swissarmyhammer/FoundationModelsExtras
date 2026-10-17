@@ -35,12 +35,6 @@ struct BackgroundToolRunnerTests {
         }
     }
 
-    /// The seconds from `start` to now.
-    private static func seconds(since start: ContinuousClock.Instant) -> TimeInterval {
-        let parts = (ContinuousClock.now - start).components
-        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
-    }
-
     // MARK: - The handle of each call
 
     @Test("a background tool whose body ends at once still returns a PendingRunEnvelope at grace 0: the run is tracked before the body runs")
@@ -334,14 +328,15 @@ struct BackgroundToolRunnerTests {
     @Test("a run that continues past the configured grace answers with the pending envelope, and later settles with exactly one terminal event")
     func runStillGoingWhenTheGraceElapsesAnswersPending() async throws {
         let gate = RunLatch()
+        let clock = ManualRunClock()
         let harness = Fixtures.backgroundHarness(
-            wrapping: Fixtures.SiteGraceTool(gate: gate), inlineSettleGrace: Self.configuredSiteGrace)
-        let start = ContinuousClock.now
+            wrapping: Fixtures.SiteGraceTool(gate: gate), inlineSettleGrace: Self.configuredSiteGrace,
+            runPlane: RunPlane(clock: clock))
+        let calling = Task { try await harness.mounted.call(arguments: MountArguments(value: "later")) }
 
-        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "later"))
-
-        // The call waited for the grace of the site before it answered.
-        #expect(Self.seconds(since: start) >= Self.configuredSiteGrace * 0.9)
+        // The call waits on the clock for the full grace of the site, and
+        // answers only when the clock reaches it.
+        let rendered = try await clock.elapse(Self.configuredSiteGrace, endingWait: calling)
         let envelope = try Fixtures.decodeEnvelope(rendered)
         #expect(envelope.isPending)
         #expect(envelope.next == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: envelope.completionToken))

@@ -33,18 +33,17 @@ struct ToolCallSpanTests {
     private static let unknownOutcome = "unknown-outcome-3c8e"
 
     /// The largest difference that a test accepts between the duration on the
-    /// timer and the duration of the span. It is half of the settle period of
-    /// a call whose run continues, thus a timer that stops before the settle
-    /// wait is outside this limit.
-    private static let sameIntervalTolerance = Duration.seconds(pendingSettleGrace) / 2
+    /// timer and the duration of the span of one call. The two come from the
+    /// same call, thus they differ only by the few steps between the two
+    /// records.
+    private static let sameIntervalTolerance = Duration.milliseconds(100)
 
     /// The settle period of a background call whose run must settle inside
     /// it. It is long, so a fast run always ends in it.
     private static let inlineSettleGrace = Fixtures.generousInterval
 
     /// The settle period of a background call whose run continues after it.
-    /// The call waits for this full period, thus the duration of the call is
-    /// longer than it.
+    /// The test moves the manual clock of the run plane by this full period.
     private static let pendingSettleGrace = Fixtures.shortInterval
 
     /// The argument of a background call in the content-safety test. The tool
@@ -362,10 +361,20 @@ struct ToolCallSpanTests {
     func aBackgroundRunThatContinuesTimesTheStartAndTheSettleWait() async throws {
         let gate = RunLatch()
         let tool = Fixtures.GatedTool(gate: gate)
-        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.pendingSettleGrace)
+        let clock = ManualRunClock()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: tool, inlineSettleGrace: Self.pendingSettleGrace, runPlane: RunPlane(clock: clock))
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
-            let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            let calling = Task { try await harness.mounted.call(arguments: MountArguments(value: "x")) }
+            // A call that sets no settle timer lets the test go on, and the
+            // checks below fail.
+            await clock.waitForSleepers(atLeast: 1) { _ = await calling.result }
+            // While the call waits for the settle period, the tool span and
+            // the timer are still open.
+            #expect(!context.spans.contains { $0.operationName == ExtrasTelemetry.SpanName.tool })
+            #expect(!context.metricRecords.contains { $0.label == ExtrasTelemetry.MetricName.toolDuration })
+            let rendered = try await clock.elapse(Self.pendingSettleGrace, endingWait: calling)
             #expect(try Fixtures.decodeEnvelope(rendered).isPending)
             gate.open()
             await harness.runPlane.joinRunBodies()
@@ -374,9 +383,8 @@ struct ToolCallSpanTests {
 
         let span = try Self.expectBackgroundCall(
             in: context, toolName: tool.name, outcomeValue: QueueOutcome.succeeded.rawValue, isSettledInline: false)
-        let recorded = try Self.expectSameInterval(
+        _ = try Self.expectSameInterval(
             in: context, span: span, toolName: tool.name, outcomeValue: QueueOutcome.succeeded.rawValue)
-        #expect(recorded >= .seconds(Self.pendingSettleGrace))
     }
 
     @Test("a background run that the sweep settles while its body still runs records the outcome of the run plane, not succeeded")
