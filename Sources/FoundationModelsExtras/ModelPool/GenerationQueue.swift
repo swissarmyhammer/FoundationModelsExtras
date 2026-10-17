@@ -281,6 +281,7 @@ private final class Job<T: Sendable>: QueuedJob {
         }
         switch previous {
         case .waiting(let resume):
+            // Release the count before completed: its lock keeps the decrement after recordAccepted().
             queue.releaseJobCount()
             finishCancelledWhileWaiting(resume)
         case .running(let task):
@@ -343,6 +344,7 @@ private final class Job<T: Sendable>: QueuedJob {
     ///   - started: The ticket of the job, with the start instant.
     private func finish(result: Result<T, any Error>, ticket started: QueueTicket) {
         state.withLock { $0 = .finished }
+        // Release the count before completed: its lock keeps the decrement after recordAccepted().
         queue.releaseJobCount()
         queue.telemetry.completed(started, outcome: QueueOutcome(of: result))
     }
