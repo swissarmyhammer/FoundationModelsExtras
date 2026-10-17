@@ -3,6 +3,7 @@ assignees:
 - claude-code
 depends_on:
 - 01M53BTZ0M0DH3HXBD47N7BNKZ
+- 01M54QGXNTCEDD848YPNBB4PPJ
 position_column: todo
 position_ordinal: '80'
 title: 'IntegrationTests: share the model loads and remove redundant tests'
