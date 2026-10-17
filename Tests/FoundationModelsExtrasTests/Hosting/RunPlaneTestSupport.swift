@@ -173,6 +173,38 @@ extension ManualRunClock {
     func waitForSleepers(atLeast count: Int, orUntil ended: @escaping @Sendable () async -> Void) async {
         await Waits.untilFirstEnds({ await self.waitForSleepers(atLeast: count) }, ended)
     }
+
+    /// The last step of ``elapse(_:endingWait:)``: the move that must end the
+    /// timer, and that the move before it must not reach.
+    static let lastStepOfATimer = Duration.nanoseconds(1)
+
+    /// Moves this clock to the end of the one timer that `waiting` waits on,
+    /// and returns the result of `waiting`.
+    ///
+    /// The clock must hold no other wait. First the timer of `waiting` must
+    /// wait on this clock. Then the clock moves to one step before `seconds`,
+    /// and the timer must still wait. Then the clock moves the last step, and
+    /// the timer must end. A task that sets no timer, or a timer that ends
+    /// before or after `seconds`, makes the test fail, and the test does not
+    /// hang.
+    ///
+    /// - Parameters:
+    ///   - seconds: The length of the timer, in seconds.
+    ///   - waiting: The task that waits on the timer.
+    /// - Returns: The value of `waiting`.
+    /// - Throws: When the timer did not wait on this clock, when it did not
+    ///   end at `seconds`, or the error of `waiting`.
+    func elapse<Value: Sendable, Failure: Error>(
+        _ seconds: Double, endingWait waiting: Task<Value, Failure>
+    ) async throws -> Value {
+        await waitForSleepers(atLeast: 1) { _ = await waiting.result }
+        try #require(sleeperCount == 1, "the task set no timer on the clock")
+        advance(by: .seconds(seconds) - Self.lastStepOfATimer)
+        try #require(sleeperCount == 1, "the timer ended before \(seconds) seconds")
+        advance(by: Self.lastStepOfATimer)
+        try #require(sleeperCount == 0, "the timer did not end at \(seconds) seconds")
+        return try await waiting.result.get()
+    }
 }
 
 /// The end of each question that a test finds still open.

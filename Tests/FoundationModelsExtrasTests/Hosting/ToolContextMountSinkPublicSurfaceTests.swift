@@ -50,9 +50,6 @@ struct ToolContextMountSinkPublicSurfaceTests {
     /// The label of the run that the background test mounts.
     private static let backgroundLabel = "background"
 
-    /// The limit of the wait for the background run to settle, in seconds.
-    private static let settlementDeadlineSeconds: Double = 30
-
     // MARK: - Fixtures
 
     /// The arguments of the fixture tools.
@@ -340,7 +337,7 @@ struct ToolContextMountSinkPublicSurfaceTests {
             // Let the run go, and wait until it settles.
             release.open()
             for run in tracked {
-                _ = await context.wait(completionToken: run.completionToken, seconds: Self.settlementDeadlineSeconds)
+                _ = await context.wait(completionToken: run.completionToken, seconds: nil)
             }
         }
 

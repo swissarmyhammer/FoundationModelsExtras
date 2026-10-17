@@ -48,7 +48,7 @@ struct RunPlaneTests {
         #expect(await runPlane.cancel(completionToken: token) == .reported(.stopped))
 
         latch.open()
-        _ = await runPlane.wait(completionToken: token, seconds: 5)
+        _ = await runPlane.wait(completionToken: token, seconds: nil)
     }
 
     @Test("sweep() runs the canceler of a process run and gives the .stopped that the canceler reports")

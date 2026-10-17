@@ -26,12 +26,8 @@ struct ToolContextTests {
     /// The number of characters of a ULID string.
     private static let ulidStringLength = 26
 
-    /// The limit of each wait that a test does on the run plane. A settled
-    /// run never waits this long.
-    private static let settlementDeadline: Double = 30
-
-    /// A deadline that a run that never settles elapses, while the suite
-    /// stays fast.
+    /// A deadline that the test elapses when it moves the manual clock of
+    /// the run plane.
     private static let elapsingDeadline: Double = 0.05
 
     /// The arguments of the fixture tools.
@@ -589,7 +585,7 @@ struct ToolContextTests {
         #expect(await context.backgroundRuns().first?.latestProgressDetail == "50%")
 
         latch.open()
-        _ = await context.wait(completionToken: token, seconds: Self.settlementDeadline)
+        _ = await context.wait(completionToken: token, seconds: nil)
         #expect(await context.backgroundRuns().isEmpty)
     }
 
@@ -601,7 +597,7 @@ struct ToolContextTests {
         let token = await FakeRun.start(on: runPlane, latch: latch, detailOnSettle: "exit 0")
 
         latch.open()
-        let outcome = await context.wait(completionToken: token, seconds: Self.settlementDeadline)
+        let outcome = await context.wait(completionToken: token, seconds: nil)
 
         let terminal = try #require(outcome.settledTerminal)
         #expect(terminal.correlationID == token)
@@ -611,17 +607,19 @@ struct ToolContextTests {
 
     @Test("wait() reports that its deadline elapsed, and the run stays tracked")
     func waitReportsTheDeadlineElapsing() async throws {
-        let runPlane = RunPlane()
+        let clock = ManualRunClock()
+        let runPlane = RunPlane(clock: clock)
         let latch = RunLatch()
         let context = Self.makeContext(sink: RecordingSink(), runPlane: runPlane)
         let token = await FakeRun.start(on: runPlane, latch: latch)
+        let waiting = Task { await context.wait(completionToken: token, seconds: Self.elapsingDeadline) }
 
-        #expect(await context.wait(completionToken: token, seconds: Self.elapsingDeadline) == .deadlineElapsed)
+        #expect(try await clock.elapse(Self.elapsingDeadline, endingWait: waiting) == .deadlineElapsed)
         #expect(await context.backgroundRuns().count == 1)
 
         // Settle the fake run, so no wait stays after the test.
         latch.open()
-        _ = await context.wait(completionToken: token, seconds: Self.settlementDeadline)
+        _ = await context.wait(completionToken: token, seconds: nil)
     }
 
     @Test("wait() on a token that names no run reports it and does nothing")
@@ -629,7 +627,7 @@ struct ToolContextTests {
         let context = Self.makeContext(sink: RecordingSink())
 
         let outcome = await context.wait(
-            completionToken: RunPlane.makeCompletionToken(), seconds: Self.settlementDeadline)
+            completionToken: RunPlane.makeCompletionToken(), seconds: nil)
 
         #expect(outcome == .unknownToken)
     }
@@ -645,7 +643,7 @@ struct ToolContextTests {
 
         // The cancelled run settles later; collect it, so nothing waits after
         // the test.
-        _ = await context.wait(completionToken: token, seconds: Self.settlementDeadline)
+        _ = await context.wait(completionToken: token, seconds: nil)
     }
 
     @Test("cancel() on a run that already settled reports its kept terminal event")
@@ -656,7 +654,7 @@ struct ToolContextTests {
         let token = await FakeRun.start(on: runPlane, latch: latch, detailOnSettle: "exit 0")
 
         latch.open()
-        _ = await context.wait(completionToken: token, seconds: Self.settlementDeadline)
+        _ = await context.wait(completionToken: token, seconds: nil)
         let outcome = await context.cancel(completionToken: token)
 
         let terminal = try #require(outcome.alreadySettledTerminal)

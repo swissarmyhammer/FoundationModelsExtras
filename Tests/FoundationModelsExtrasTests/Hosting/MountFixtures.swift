@@ -23,9 +23,6 @@ enum MountFixtures {
     /// A deadline that a test treats as "never elapses".
     static let generousInterval: TimeInterval = 30
 
-    /// The limit of each wait that a test does on the run plane.
-    static let settlementDeadline: TimeInterval = 30
-
     // MARK: - Telemetry of a background call
 
     /// The span names of one background call whose run settled, sorted: the
@@ -387,9 +384,10 @@ enum MountFixtures {
     }
 
     /// Waits for the run of `completionToken` to settle, and returns its
-    /// terminal event.
+    /// terminal event. The wait sets no deadline, thus it reads no clock and
+    /// ends only at the settlement.
     static func settledTerminal(of completionToken: String, in runPlane: RunPlane) async throws -> OperationEvent {
-        let result = await runPlane.wait(completionToken: completionToken, seconds: settlementDeadline)
+        let result = await runPlane.wait(completionToken: completionToken, seconds: nil)
         return try #require(result.settledTerminal, "run \(completionToken) did not settle: \(result)")
     }
 

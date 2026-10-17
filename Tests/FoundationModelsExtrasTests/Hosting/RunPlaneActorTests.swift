@@ -12,11 +12,29 @@ import ULID
 /// wait, cancel), the pending elicitations, and the sweep.
 @Suite("Run plane actor: background runs, elicitations and the sweep")
 struct RunPlaneActorTests {
+    // MARK: - The clock of the deadlines
+
+    /// A deadline that no test reaches: no test moves the manual clock of
+    /// its run plane this far. A wait with this deadline ends at the
+    /// settlement of the run, and never at a real time limit.
+    private static let unreachedDeadlineSeconds: Double = 5
+
+    /// A deadline that a test elapses when it moves the manual clock.
+    private static let elapsingDeadlineSeconds: Double = 0.05
+
+    /// A run plane on a ``ManualRunClock`` that no test moves. Its deadlines
+    /// read no real clock.
+    ///
+    /// - Returns: The run plane.
+    private static func makePlaneOnAStoppedClock() -> RunPlane {
+        RunPlane(clock: ManualRunClock())
+    }
+
     // MARK: - start / backgroundRuns / wait
 
     @Test("start lists the run in backgroundRuns(), wait() returns its terminal event, and a settled run leaves backgroundRuns()")
     func startListingAndWaitLifecycle() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch, detailOnSettle: "exit 0")
 
@@ -32,7 +50,7 @@ struct RunPlaneActorTests {
         #expect(await runPlane.backgroundRuns().first?.latestProgressDetail == "50%")
 
         latch.open()
-        let result = await runPlane.wait(completionToken: token, seconds: 5)
+        let result = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
         let terminal = try #require(result.settledTerminal, "expected .settled, got \(result)")
         #expect(terminal.correlationID == token)
         #expect(terminal.kind == .completed)
@@ -43,22 +61,24 @@ struct RunPlaneActorTests {
     }
 
     @Test("wait() on a run that never settles elapses its deadline and leaves the run tracked")
-    func waitDeadlineElapses() async {
-        let runPlane = RunPlane()
+    func waitDeadlineElapses() async throws {
+        let clock = ManualRunClock()
+        let runPlane = RunPlane(clock: clock)
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch)
+        let waiting = Task { await runPlane.wait(completionToken: token, seconds: Self.elapsingDeadlineSeconds) }
 
-        let result = await runPlane.wait(completionToken: token, seconds: 0.05)
+        let result = try await clock.elapse(Self.elapsingDeadlineSeconds, endingWait: waiting)
         #expect(result == .deadlineElapsed)
         #expect(await runPlane.backgroundRuns().count == 1)
 
         latch.open()
-        _ = await runPlane.wait(completionToken: token, seconds: 5)
+        _ = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
     }
 
     @Test("wait() clamps a deadline from outside and does not trap", arguments: [-1.0, 0.0, Double.nan])
     func waitClampsUntrustedSeconds(seconds: Double) async {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch)
 
@@ -69,7 +89,7 @@ struct RunPlaneActorTests {
         #expect(await runPlane.backgroundRuns().count == 1)
 
         latch.open()
-        _ = await runPlane.wait(completionToken: token, seconds: 5)
+        _ = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
     }
 
     // MARK: - Deadlines as given
@@ -144,7 +164,7 @@ struct RunPlaneActorTests {
 
     @Test("many waits that end at their deadline leave no waiter on the open run, and a later wait still gets the settlement")
     func deadlineWaitsLeaveNoWaiters() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch)
 
@@ -178,11 +198,11 @@ struct RunPlaneActorTests {
 
     @Test("a settled run answers wait() at once, also with a deadline clamped to zero")
     func settledRunResolvesWaitDespiteZeroDeadline() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch)
         latch.open()
-        _ = await runPlane.wait(completionToken: token, seconds: 5)
+        _ = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
 
         let result = await runPlane.wait(completionToken: token, seconds: -1)
         let terminal = try #require(result.settledTerminal, "expected .settled, got \(result)")
@@ -193,11 +213,11 @@ struct RunPlaneActorTests {
 
     @Test("cancel() runs the canceler, reports its outcome, and a wait() at the same time gets the cancelled terminal event")
     func cancelWhileWaiting() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch)
 
-        let waiting = Task { await runPlane.wait(completionToken: token, seconds: 5) }
+        let waiting = Task { await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds) }
         let cancelResult = await runPlane.cancel(completionToken: token)
         #expect(cancelResult == .reported(.cancelled))
 
@@ -209,23 +229,23 @@ struct RunPlaneActorTests {
 
     @Test("cancel() reports the outcome of the canceler, and does not guess")
     func cancelReportsCancelerOutcomeVerbatim() async {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch, cancelerOutcome: .stopped)
 
         let cancelResult = await runPlane.cancel(completionToken: token)
         #expect(cancelResult == .reported(.stopped))
 
-        _ = await runPlane.wait(completionToken: token, seconds: 5)
+        _ = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
     }
 
     @Test("cancel() on a settled run reports .alreadySettled with its terminal event, never .unknownToken")
     func cancelOnSettledRunReportsAlreadySettled() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch, detailOnSettle: "exit 0")
         latch.open()
-        _ = await runPlane.wait(completionToken: token, seconds: 5)
+        _ = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
 
         let cancelResult = await runPlane.cancel(completionToken: token)
         let terminal = try #require(cancelResult.alreadySettledTerminal, "expected .alreadySettled, got \(cancelResult)")
@@ -237,7 +257,7 @@ struct RunPlaneActorTests {
 
     @Test("start() with a token in use refuses the new run and leaves the first run as it is")
     func startRefusesDuplicateToken() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch)
 
@@ -256,7 +276,7 @@ struct RunPlaneActorTests {
         #expect(await runPlane.backgroundRuns().count == 1)
 
         latch.open()
-        let result = await runPlane.wait(completionToken: token, seconds: 5)
+        let result = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
         let terminal = try #require(result.settledTerminal, "expected .settled, got \(result)")
         // The terminal event of the first run won, not the refused run.
         #expect(terminal.detail == "done")
@@ -269,11 +289,11 @@ struct RunPlaneActorTests {
 
     @Test("the run plane keeps each settled terminal event: wait() and cancel() on the first token answer with its terminal after many settlements")
     func settledTerminalEventsAreKeptForTheSessionLifetime() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let firstLatch = RunLatch()
         let firstToken = await FakeRun.start(on: runPlane, latch: firstLatch, detailOnSettle: "first")
         firstLatch.open()
-        let firstSettlement = await runPlane.wait(completionToken: firstToken, seconds: 5)
+        let firstSettlement = await runPlane.wait(completionToken: firstToken, seconds: Self.unreachedDeadlineSeconds)
         let firstTerminal = try #require(firstSettlement.settledTerminal, "expected .settled for the first run, got \(firstSettlement)")
         #expect(firstTerminal.correlationID == firstToken)
         #expect(firstTerminal.detail == "first")
@@ -281,10 +301,10 @@ struct RunPlaneActorTests {
             let latch = RunLatch()
             let token = await FakeRun.start(on: runPlane, latch: latch)
             latch.open()
-            _ = await runPlane.wait(completionToken: token, seconds: 5)
+            _ = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
         }
 
-        #expect(await runPlane.wait(completionToken: firstToken, seconds: 5) == .settled(firstTerminal))
+        #expect(await runPlane.wait(completionToken: firstToken, seconds: Self.unreachedDeadlineSeconds) == .settled(firstTerminal))
         #expect(await runPlane.cancel(completionToken: firstToken) == .alreadySettled(firstTerminal))
     }
 
@@ -305,14 +325,14 @@ struct RunPlaneActorTests {
 
     @Test("the run plane gives the terminal event of a run that settled by itself to the observer one time")
     func startForwardsTheSettledTerminalOnce() async {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let observer = RecordingSettlementObserver()
         await runPlane.attach(settlementObserver: observer)
         let latch = RunLatch()
         let token = await FakeRun.start(on: runPlane, latch: latch, detailOnSettle: "exit 0")
 
         latch.open()
-        let waited = await runPlane.wait(completionToken: token, seconds: 5)
+        let waited = await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds)
         // The task of the body gives the terminal event to the observer
         // before it ends, thus the join returns after the delivery.
         await runPlane.joinRunBodies()
@@ -327,7 +347,7 @@ struct RunPlaneActorTests {
 
     @Test("the run plane gives nothing to the observer for a run that the sweep removed")
     func startForwardsNothingForASweptRun() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let observer = RecordingSettlementObserver()
         await runPlane.attach(settlementObserver: observer)
         let latch = RunLatch()
@@ -358,7 +378,7 @@ struct RunPlaneActorTests {
         #expect(await observer.settledTerminals.isEmpty)
 
         // wait still reports the swept terminal event.
-        let terminal = try #require(await runPlane.wait(completionToken: token, seconds: 5).settledTerminal)
+        let terminal = try #require(await runPlane.wait(completionToken: token, seconds: Self.unreachedDeadlineSeconds).settledTerminal)
         #expect(terminal.outcome == .cancelled)
     }
 
@@ -366,11 +386,11 @@ struct RunPlaneActorTests {
 
     @Test("an operation on an unknown completionToken does nothing, and tells so")
     func unknownCompletionTokenIsNoOp() async {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let unknown = RunPlane.makeCompletionToken()
 
         #expect(await runPlane.cancel(completionToken: unknown) == .unknownToken)
-        #expect(await runPlane.wait(completionToken: unknown, seconds: 5) == .unknownToken)
+        #expect(await runPlane.wait(completionToken: unknown, seconds: Self.unreachedDeadlineSeconds) == .unknownToken)
         await runPlane.updateProgress(completionToken: unknown, detail: "ignored")
         #expect(await runPlane.backgroundRuns().isEmpty)
     }
@@ -490,7 +510,7 @@ struct RunPlaneActorTests {
 
     @Test("sweep() runs each canceler, gives one terminal event for each run, and rejects each pending elicitation")
     func sweepCancelsRunsAndRejectsElicitations() async throws {
-        let runPlane = RunPlane()
+        let runPlane = Self.makePlaneOnAStoppedClock()
         let cancels = Recorder<String>()
         let latch = RunLatch()
         let tokenA = await FakeRun.start(on: runPlane, latch: latch, kind: .process, cancels: cancels)
@@ -507,7 +527,7 @@ struct RunPlaneActorTests {
         #expect(await runPlane.pendingElicitationIds().isEmpty)
         #expect(try await rejected.answer(on: runPlane) == .cancel(reason: RunPlane.runCancelledReason))
         // A swept token reports its terminal event to wait().
-        #expect(await runPlane.wait(completionToken: tokenA, seconds: 5).settledTerminal?.correlationID == tokenA)
+        #expect(await runPlane.wait(completionToken: tokenA, seconds: Self.unreachedDeadlineSeconds).settledTerminal?.correlationID == tokenA)
         latch.open()
     }
 

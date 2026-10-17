@@ -16,10 +16,6 @@ import ULID
 struct DeclaredRunKindTests {
     // MARK: - Intervals
 
-    /// The limit of each wait on the run plane, so a broken handshake ends the
-    /// test and does not stop the suite.
-    private static let settlementDeadline: TimeInterval = 30
-
     // MARK: - Arguments
 
     /// The arguments of each fixture tool of this suite.
@@ -193,7 +189,7 @@ struct DeclaredRunKindTests {
         #expect(run.kind == .process)
 
         gate.open()
-        _ = await harness.context.wait(completionToken: run.completionToken, seconds: Self.settlementDeadline)
+        _ = await harness.context.wait(completionToken: run.completionToken, seconds: nil)
     }
 
     @Test("a cancel of a run whose tool gave its own canceler reports the .stopped of that canceler")
@@ -211,14 +207,14 @@ struct DeclaredRunKindTests {
         #expect(await witness.killedTokens == [run.completionToken])
 
         gate.open()
-        _ = await harness.context.wait(completionToken: run.completionToken, seconds: Self.settlementDeadline)
+        _ = await harness.context.wait(completionToken: run.completionToken, seconds: nil)
     }
 
     // MARK: - The terminal event of a stopped process run
 
     /// Waits on `run` through the host context and returns its terminal event.
     private static func settledTerminal(of run: BackgroundRun, through harness: Harness) async throws -> OperationEvent {
-        let outcome = await harness.context.wait(completionToken: run.completionToken, seconds: Self.settlementDeadline)
+        let outcome = await harness.context.wait(completionToken: run.completionToken, seconds: nil)
         return try #require(outcome.settledTerminal, "run \(run.completionToken) did not settle: \(outcome)")
     }
 

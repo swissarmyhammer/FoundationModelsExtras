@@ -74,9 +74,6 @@ private struct DiscardingSink: OperationEventSink {
 /// gives the mount of the called operation for each call.
 @Suite("OperationTool: each operation declares its mount")
 struct OperationMountTests {
-    /// How long a test waits for a background run to settle, in seconds.
-    private static let settlementDeadline: TimeInterval = 30
-
     /// An op string that no fixture operation has.
     private static let unknownOp = "fly kite"
 
@@ -161,7 +158,7 @@ struct OperationMountTests {
         let envelope = try JSONDecoder().decode(PendingRunEnvelope.self, from: Data(started.utf8))
         #expect(envelope.pending)
         let outcome = await session.runPlane.wait(
-            completionToken: envelope.completionToken, seconds: Self.settlementDeadline)
+            completionToken: envelope.completionToken, seconds: nil)
         let terminal = try #require(Self.terminal(of: outcome), "the run did not settle: \(outcome)")
         #expect(terminal.detail == Self.output(StartJobFixture.opString))
 

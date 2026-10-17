@@ -35,9 +35,6 @@ private struct RunTests: Tool, BackgroundTool {
 /// does.
 @Suite("Tool hosting: the README example")
 struct ToolHostingReadmeTests {
-    /// How long the host waits on the run plane for the result, in seconds.
-    private static let collectSeconds: Double = 30
-
     /// A sink that drops each event.
     private struct DroppingSink: OperationEventSink {
         func post(event: OperationEvent) async {}
@@ -73,7 +70,7 @@ struct ToolHostingReadmeTests {
         let rendered = try await runTests.call(arguments: RunTests.Arguments(filter: "Hosting"))
         // The run plane still holds the result, and the host collects it.
         let token = try #require(await runPlane.settledRunTokens().first)
-        let outcome = await runPlane.wait(completionToken: token, seconds: Self.collectSeconds)
+        let outcome = await runPlane.wait(completionToken: token, seconds: nil)
 
         // README example: begin (the end of the session)
         // At the end of the session, the sweep stops each run that is still open.
