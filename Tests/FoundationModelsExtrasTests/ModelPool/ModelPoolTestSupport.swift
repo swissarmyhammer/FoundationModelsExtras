@@ -12,10 +12,12 @@ extension GenerationQueue {
     /// and returns when this queue accepted the job of the call, or when the
     /// call ended first.
     ///
-    /// The queue records its depth when it accepts a job, in the metrics
-    /// factory of the task that submits the job. Thus the wait for that
-    /// record needs no poll. A call that ends before its job reaches the
-    /// queue also ends the wait, and the test then fails on its own checks.
+    /// The queue records its depth in the step that accepts a job, under the
+    /// lock that puts the job in the worker input, in the metrics factory of
+    /// the task that submits the job. Thus when the record comes, the job is
+    /// in the queue, and the wait for that record needs no poll. A call that
+    /// ends before its job reaches the queue also ends the wait, and the test
+    /// then fails on its own checks.
     ///
     /// - Parameters:
     ///   - capture: The capture that gets the metrics of the call.

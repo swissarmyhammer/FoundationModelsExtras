@@ -14,14 +14,21 @@ import Metrics
 /// completion records the wait time, no run time, and
 /// ``QueueOutcome/cancelled``.
 ///
+/// A queue that makes the ticket of a task before it accepts the task calls
+/// ``makeTicket()`` first, and ``accepted(_:)`` in the step that accepts the
+/// task. A task that ends before that step calls ``refused(_:)`` in place of
+/// ``completed(_:outcome:)``. Thus the depth goes up only for a task that the
+/// queue accepted, and down only for a task that went up.
+///
 /// - ``ExtrasTelemetry/MetricName/queueDepth`` goes up by one at
-///   ``enqueued()`` and down by one at ``completed(_:outcome:)``. Its
-///   dimensions are the queue name and, when set, the model ref.
+///   ``enqueued()`` or ``accepted(_:)``, and down by one at
+///   ``completed(_:outcome:)``. Its dimensions are the queue name and, when
+///   set, the model ref.
 /// - ``ExtrasTelemetry/MetricName/queueWait``,
 ///   ``ExtrasTelemetry/MetricName/queueRun`` and
 ///   ``ExtrasTelemetry/MetricName/queueTasks`` are recorded together at
-///   ``completed(_:outcome:)``. Their dimensions are the queue name, the
-///   model ref when set, and the outcome.
+///   ``completed(_:outcome:)`` or ``refused(_:)``. Their dimensions are the
+///   queue name, the model ref when set, and the outcome.
 ///
 /// Each metric is made at call time with the factory that the
 /// ``QueueTicket`` keeps from ``enqueued()``, not with the factory of the
@@ -51,10 +58,30 @@ struct QueueTelemetry: Sendable {
     /// - Returns: The ticket of the task. It keeps the enqueue instant and
     ///   the metrics factory that is bound now.
     func enqueued() -> QueueTicket {
-        let ticket = QueueTicket(factory: MetricsSystem.factory, enqueuedAt: .now)
-        Meter(label: ExtrasTelemetry.MetricName.queueDepth, dimensions: queueDimensions, factory: ticket.factory)
-            .increment()
+        let ticket = makeTicket()
+        accepted(ticket)
         return ticket
+    }
+
+    /// Makes the ticket of one task, and records nothing. Call
+    /// ``accepted(_:)`` when the queue accepts the task.
+    ///
+    /// - Returns: The ticket of the task. It keeps the instant now and the
+    ///   metrics factory that is bound now.
+    func makeTicket() -> QueueTicket {
+        QueueTicket(factory: MetricsSystem.factory, enqueuedAt: .now)
+    }
+
+    /// Records that the queue accepted the task of `ticket`: the depth goes
+    /// up by one.
+    ///
+    /// The metrics factory of the ticket records the change on the calling
+    /// thread. A queue can thus call this function under its own lock, in
+    /// the step that accepts the task.
+    ///
+    /// - Parameter ticket: The ticket that ``makeTicket()`` made.
+    func accepted(_ ticket: QueueTicket) {
+        depthMeter(factory: ticket.factory).increment()
     }
 
     /// Records that the task of `ticket` started.
@@ -77,11 +104,30 @@ struct QueueTelemetry: Sendable {
     ///   - ticket: The ticket of the task.
     ///   - outcome: How the task ended.
     func completed(_ ticket: QueueTicket, outcome: QueueOutcome) {
+        depthMeter(factory: ticket.factory).decrement()
+        recordEnd(of: ticket, outcome: outcome)
+    }
+
+    /// Records that the task of `ticket` was cancelled before the queue
+    /// accepted it: the wait time and one count, with
+    /// ``QueueOutcome/cancelled``. The depth does not change, because
+    /// ``accepted(_:)`` never counted the task.
+    ///
+    /// - Parameter ticket: The ticket that ``makeTicket()`` made.
+    func refused(_ ticket: QueueTicket) {
+        recordEnd(of: ticket, outcome: .cancelled)
+    }
+
+    /// Records the wait time, the run time when the task started, and one
+    /// count, with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - ticket: The ticket of the task.
+    ///   - outcome: How the task ended.
+    private func recordEnd(of ticket: QueueTicket, outcome: QueueOutcome) {
         let end = ContinuousClock.now
         let factory = ticket.factory
         let dimensions = queueDimensions + [(ExtrasTelemetry.DimensionKey.queueOutcome, outcome.rawValue)]
-        Meter(label: ExtrasTelemetry.MetricName.queueDepth, dimensions: queueDimensions, factory: factory)
-            .decrement()
         Metrics.Timer(label: ExtrasTelemetry.MetricName.queueWait, dimensions: dimensions, factory: factory)
             .record(duration: (ticket.startedAt ?? end) - ticket.enqueuedAt)
         if let startedAt = ticket.startedAt {
@@ -90,6 +136,14 @@ struct QueueTelemetry: Sendable {
         }
         Counter(label: ExtrasTelemetry.MetricName.queueTasks, dimensions: dimensions, factory: factory)
             .increment()
+    }
+
+    /// The depth meter of the queue, made with `factory`.
+    ///
+    /// - Parameter factory: The metrics factory of a ticket.
+    /// - Returns: The meter.
+    private func depthMeter(factory: any MetricsFactory) -> Meter {
+        Meter(label: ExtrasTelemetry.MetricName.queueDepth, dimensions: queueDimensions, factory: factory)
     }
 
     /// The dimensions of the queue: the queue name, then the model ref when
@@ -119,7 +173,8 @@ extension QueueOutcome {
 /// The record of one queue task between its enqueue and its completion.
 ///
 /// The ticket keeps the metrics factory that was bound when
-/// ``QueueTelemetry/enqueued()`` ran, so that the start and the completion
+/// ``QueueTelemetry/enqueued()`` or ``QueueTelemetry/makeTicket()`` made it,
+/// so that the acceptance, the start and the completion
 /// record with the factory of the submitter, also from another task.
 struct QueueTicket: Sendable {
     /// The metrics factory that was bound at the enqueue.

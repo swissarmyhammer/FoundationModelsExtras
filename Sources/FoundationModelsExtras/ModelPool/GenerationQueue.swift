@@ -22,10 +22,12 @@ public final class GenerationQueue: Sendable {
     /// The number of jobs that are not finished: the running job and the
     /// waiting jobs.
     ///
-    /// `submit` and `enqueue` count a job and put it in the worker input under
-    /// this one lock. Thus when ``waitingCount`` shows a job, each job that is
+    /// `submit` and `enqueue` count a job, put it in the worker input, and
+    /// record the depth increment of the job under this one lock. Thus when
+    /// ``waitingCount`` or the depth metric shows a job, each job that is
     /// submitted after that runs after it. Lock order: this lock, then the
-    /// lock of a job. No code takes this lock while it holds the lock of a job.
+    /// lock of a job, then the lock of the metrics backend. No code takes this
+    /// lock while it holds the lock of a job.
     private let unfinished = Mutex<Int>(0)
 
     /// The recorder of the metrics of this queue: the depth, and the wait
@@ -114,8 +116,9 @@ public final class GenerationQueue: Sendable {
         _ = enqueue(Job(queue: self, priority: Task.currentPriority, body: body)) { _ in }
     }
 
-    /// Counts `job` and puts it in the worker input, in one step under the
-    /// lock of the count.
+    /// Counts `job`, puts it in the worker input, and records its depth
+    /// increment, in one step under the lock of the count. A job that was
+    /// cancelled first gets none of the three.
     ///
     /// - Parameters:
     ///   - job: The new job.
@@ -126,6 +129,7 @@ public final class GenerationQueue: Sendable {
         let jobsAhead = unfinished.withLock { count -> Int? in
             guard job.wait(resume) else { return nil }
             jobs.yield(job)
+            job.recordAccepted()
             count += 1
             return count - 1
         }
@@ -204,23 +208,29 @@ private final class Job<T: Sendable>: QueuedJob {
     /// The state of the job.
     private let state = Mutex(State.new)
 
-    /// The queue ticket of the job, from the enqueue. The job gets it when
-    /// it is made, before the queue counts it, thus ``run()`` never sees a
-    /// job with no ticket.
+    /// The queue ticket of the job. The job gets it when it is made, before
+    /// the queue counts it, thus ``run()`` never sees a job with no ticket.
+    /// The depth goes up only at ``recordAccepted()``.
     private let ticket: QueueTicket
 
     /// The trace context and the tracer of the submitter, from the enqueue.
     private let submitter: SubmitterTelemetry
 
-    /// Makes a new job, and records that the queue accepted it. Make the job
-    /// on the task of the submitter: the ticket keeps the metrics factory of
-    /// that task, and ``submitter`` keeps its trace context and its tracer.
+    /// Makes a new job, and records nothing. Make the job on the task of the
+    /// submitter: the ticket keeps the metrics factory of that task, and
+    /// ``submitter`` keeps its trace context and its tracer.
     init(queue: GenerationQueue, priority: TaskPriority, body: @escaping @Sendable () async throws -> T) {
         self.queue = queue
         self.priority = priority
         self.body = body
-        self.ticket = queue.telemetry.enqueued()
+        self.ticket = queue.telemetry.makeTicket()
         self.submitter = SubmitterTelemetry()
+    }
+
+    /// Records that the queue accepted the job: the depth goes up by one.
+    /// The queue calls this one time, in the step that counts the job.
+    func recordAccepted() {
+        queue.telemetry.accepted(ticket)
     }
 
     /// Keeps the resume of the submitter. The caller counts the job.
@@ -237,22 +247,24 @@ private final class Job<T: Sendable>: QueuedJob {
         }
     }
 
-    /// Records a job that was cancelled before it waited as cancelled, and
-    /// gives `CancellationError` to its submitter. Call this only when
-    /// ``wait(_:)`` returned `false`: then ``cancel()`` finished the job and
-    /// recorded nothing.
+    /// Records a job that was cancelled before it waited as cancelled, with
+    /// no depth change, and gives `CancellationError` to its submitter. Call
+    /// this only when ``wait(_:)`` returned `false`: then ``cancel()``
+    /// finished the job and recorded nothing, and the queue never accepted
+    /// the job.
     ///
     /// - Parameter resume: Gives the result of the job to its submitter.
     func refuse(_ resume: Resume) {
-        finishCancelledBeforeRun(resume)
+        queue.telemetry.refused(ticket)
+        resume(.failure(CancellationError()))
     }
 
-    /// Records a job that was cancelled before it started as cancelled, with
-    /// no run time, and gives `CancellationError` to its submitter. This is
-    /// the one place that sets the outcome of a job that never ran.
+    /// Records a waiting job that was cancelled as cancelled, with no run
+    /// time, and gives `CancellationError` to its submitter. The queue
+    /// accepted the job, thus the depth goes down.
     ///
     /// - Parameter resume: Gives the result of the job to its submitter.
-    private func finishCancelledBeforeRun(_ resume: Resume) {
+    private func finishCancelledWhileWaiting(_ resume: Resume) {
         queue.telemetry.completed(ticket, outcome: .cancelled)
         resume(.failure(CancellationError()))
     }
@@ -270,7 +282,7 @@ private final class Job<T: Sendable>: QueuedJob {
         switch previous {
         case .waiting(let resume):
             queue.releaseJobCount()
-            finishCancelledBeforeRun(resume)
+            finishCancelledWhileWaiting(resume)
         case .running(let task):
             task.cancel()
         case .new, .finished:

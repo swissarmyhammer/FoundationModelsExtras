@@ -649,7 +649,7 @@ struct GenerationQueueWorkerTests {
         #expect(try QueueMetricExpectations.depth(in: metrics, queue: QueueMetric.queue) == Self.depthOfOneJob)
     }
 
-    @Test("a job of a submitter that is cancelled before it submits records cancelled and no run time")
+    @Test("a job of a submitter that is cancelled before it submits records cancelled, no run time and no depth")
     func aJobOfAnAlreadyCancelledSubmitterRecordsCancelled() async throws {
         let metrics = TestMetrics()
         let queue = GenerationQueue()
@@ -664,7 +664,10 @@ struct GenerationQueueWorkerTests {
         #expect(Self.isCancellation(outcome))
         try QueueMetricExpectations.expectCompletedJobs(
             in: metrics, queue: QueueMetric.queue, outcome: QueueMetric.cancelled, ran: false)
-        #expect(try QueueMetricExpectations.depth(in: metrics, queue: QueueMetric.queue) == Self.depthOfOneJob)
+        // The queue never accepted the job, thus the depth never went up.
+        #expect(throws: TestMetricsError.self) {
+            try QueueMetricExpectations.depth(in: metrics, queue: QueueMetric.queue)
+        }
     }
 
     /// The model the marks of the refusal tests name.
