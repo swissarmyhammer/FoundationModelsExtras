@@ -97,28 +97,30 @@ extension SerialAsyncChainTests {
             + duration.components.attoseconds / attosecondsPerNanosecond
     }
 
+    /// The time that the held delivery runs on the manual clock of the
+    /// chain. The held delivery moves that clock by this time.
+    private static let heldRunTime = Duration.milliseconds(250)
+
     /// Enqueues one delivery that waits until the test releases it, and
-    /// ``laterDeliveryCount`` deliveries behind it. Then runs `whileHeld`,
-    /// releases the held delivery, and waits until each delivery ends.
+    /// ``laterDeliveryCount`` deliveries behind it, on a chain whose
+    /// telemetry reads a manual clock. The held delivery moves that clock by
+    /// ``heldRunTime``. Then runs `whileHeld`, releases the held delivery,
+    /// and waits until each delivery ends.
     ///
     /// - Parameters:
     ///   - metrics: The factory that the chain records into.
     ///   - whileHeld: Runs while the held delivery blocks the later ones.
-    /// - Returns: The run time of the held delivery, in nanoseconds, from
-    ///   its start to its end. The chain uses the same continuous clock.
     /// - Throws: The error of `whileHeld`.
-    @discardableResult
     private static func deliverBehindAHeldDelivery(
         into metrics: TestMetrics, whileHeld: () async throws -> Void
-    ) async throws -> Int64 {
+    ) async throws {
         let (mayEnd, release) = AsyncStream.makeStream(of: Void.self)
-        let heldRunTime = Recorder<Duration>()
-        var chain = SerialAsyncChain(telemetry: telemetry)
+        let clock = ManualRunClock()
+        var chain = SerialAsyncChain(telemetry: QueueTelemetry(name: telemetry.name, now: { clock.now }))
         let deliveries = withMetricsFactory(metrics) {
             let held = chain.enqueue {
-                let start = ContinuousClock.now
+                clock.advance(by: heldRunTime)
                 for await _ in mayEnd {}
-                heldRunTime.append(ContinuousClock.now - start)
             }
             return [held] + (0..<laterDeliveryCount).map { _ in chain.enqueue {} }
         }
@@ -127,7 +129,6 @@ extension SerialAsyncChainTests {
         for delivery in deliveries {
             await delivery.value
         }
-        return heldRunTime.values.map(nanoseconds(of:)).first ?? 0
     }
 
     @Test("the depth counts each delivery that did not end, and goes back to 0")
@@ -147,10 +148,10 @@ extension SerialAsyncChainTests {
         let metrics = TestMetrics()
 
         // The later deliveries wait from their enqueue, before the held
-        // delivery starts, until the held delivery ends. Thus each wait time
-        // covers the run time of the held delivery, and the test needs no
-        // clock wait to make that run time long.
-        let heldRunTime = try await Self.deliverBehindAHeldDelivery(into: metrics) { await Task.yield() }
+        // delivery starts, until the held delivery ends. The held delivery
+        // moves the manual clock of the chain by ``heldRunTime``, thus each
+        // later wait time covers that time.
+        try await Self.deliverBehindAHeldDelivery(into: metrics) {}
 
         let waitTimes = try QueueMetricExpectations.waitTimes(
             in: metrics, queue: Self.queue, outcome: QueueOutcome.succeeded.rawValue)
@@ -158,7 +159,7 @@ extension SerialAsyncChainTests {
         // the wait time of the held delivery.
         let laterWaitTimes = waitTimes.dropFirst()
         #expect(laterWaitTimes.count == Self.laterDeliveryCount)
-        #expect(laterWaitTimes.allSatisfy { $0 >= heldRunTime })
+        #expect(laterWaitTimes.allSatisfy { $0 >= Self.nanoseconds(of: Self.heldRunTime) })
     }
 
     @Test("each delivery records one count, one wait time and one run time with the outcome succeeded")

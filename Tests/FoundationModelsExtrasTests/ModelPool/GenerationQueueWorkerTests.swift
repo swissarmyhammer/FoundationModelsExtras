@@ -1,4 +1,4 @@
-import FoundationModelsExtras
+@testable import FoundationModelsExtras
 import InMemoryTracing
 import Metrics
 import MetricsTestKit
@@ -483,9 +483,9 @@ struct GenerationQueueWorkerTests {
     /// The error that the body of the failing job throws.
     private struct BodyError: Error {}
 
-    /// The number of times the first job of the timing test yields while it
-    /// runs.
-    private static let yieldsInsideTheFirstJob = 10
+    /// The time that the first job of the timing test runs on the manual
+    /// clock of the queue. The job moves that clock by this time.
+    private static let firstJobRunTime = Duration.milliseconds(250)
 
     /// The number of nanoseconds in one second.
     private static let nanosecondsPerSecond: Int64 = 1_000_000_000
@@ -522,39 +522,34 @@ struct GenerationQueueWorkerTests {
     @Test("the second of two jobs in sequence waits at least the run time of the first job")
     func theSecondJobWaitsAtLeastTheRunTimeOfTheFirst() async throws {
         let metrics = TestMetrics()
-        let queue = GenerationQueue()
+        let clock = ManualRunClock()
+        let queue = GenerationQueue(telemetry: QueueTelemetry(name: .generation, now: { clock.now }))
         let log = ItemLog()
         let release = Flag()
 
-        let firstBodyTime = try await withMetricsFactory(metrics) {
+        try await withMetricsFactory(metrics) {
             let holder = try await Self.startHolder(on: queue, log: log, release: release)
-            // The job measures its own body on the continuous clock of the
-            // queue timers. The run timer starts before the body and stops
-            // after it, thus the run time covers this measure, and the test
-            // needs no clock wait to make the run time long.
+            // The job moves the manual clock that the queue timers read. The
+            // run timer starts before the body and stops after it, thus the
+            // run time is the move of the body.
             let firstQueued = Flag()
             let first = Self.submit(to: queue, onQueued: { firstQueued.set() }) {
-                let start = ContinuousClock.now
-                for _ in 0..<Self.yieldsInsideTheFirstJob {
-                    await Task.yield()
-                }
-                return Self.nanoseconds(of: ContinuousClock.now - start)
+                clock.advance(by: Self.firstJobRunTime)
             }
             await Self.waitUntilSet(firstQueued, orUntilOutcomeOf: first.box)
             try #require(await queue.waitingCount == 1)
             let second = await Self.submitWaiting("second", to: queue, log: log, waiting: Self.itemsBehindTheFirst)
             release.set()
             _ = try await Self.outcome(of: holder.box, named: "the holder result").get()
-            let firstBodyTime = try await Self.outcome(of: first.box, named: "the first result").get()
+            _ = try await Self.outcome(of: first.box, named: "the first result").get()
             _ = try await Self.outcome(of: second.box, named: "the second result").get()
-            return firstBodyTime
         }
 
         let wait = try QueueMetricExpectations.waitTimes(
             in: metrics, queue: QueueMetric.queue, outcome: QueueMetric.succeeded)
         let run = try QueueMetricExpectations.runTimes(in: metrics, queue: QueueMetric.queue, outcome: QueueMetric.succeeded)
         try #require(wait.count == Self.secondWaitingJob + 1 && run.count == Self.secondWaitingJob + 1)
-        #expect(run[Self.firstWaitingJob] >= firstBodyTime)
+        #expect(run[Self.firstWaitingJob] == Self.nanoseconds(of: Self.firstJobRunTime))
         #expect(wait[Self.secondWaitingJob] >= run[Self.firstWaitingJob])
     }
 
