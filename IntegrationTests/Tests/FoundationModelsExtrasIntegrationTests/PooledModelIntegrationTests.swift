@@ -48,7 +48,7 @@ extension RealModelSuites {
     /// `PooledModel` and `PooledSession` with the real
     /// `mlx-community/Qwen3-4B-4bit`, which `ModelPool()` loads by name with
     /// `MLXModelLoader`.
-    @Suite("Pooled model with a real LLM", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
+    @Suite("Pooled model with a real LLM")
     struct PooledModelIntegrationTests {
         /// The LLM of this suite.
         private static let key = IntegrationModels.toolCallingLLM

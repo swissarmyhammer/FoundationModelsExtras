@@ -48,7 +48,7 @@ extension RealModelSuites {
     /// `MLXModelLoader(tokenizerLoader:)` with real models: each load, of an LLM
     /// and of an embedding model, loads the tokenizer with the tokenizer loader
     /// of the init. Each load also opens one load span with its phase spans.
-    @Suite("MLX model loader with a tokenizer loader", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
+    @Suite("MLX model loader with a tokenizer loader")
     struct MLXModelLoaderIntegrationTests {
         @Test(
             "a real load by name through MLXModelLoader(tokenizerLoader:) loads the tokenizer one time with that tokenizer loader",

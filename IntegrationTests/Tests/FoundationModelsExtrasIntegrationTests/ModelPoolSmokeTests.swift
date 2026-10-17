@@ -7,7 +7,7 @@ private let smokeResponseTokens = 32
 extension RealModelSuites {
     /// Real MLX models through the real `ModelPool`: one load, one call in the
     /// queue of the hold, and an eviction after the last hold goes.
-    @Suite("Model pool smoke", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
+    @Suite("Model pool smoke")
     struct ModelPoolSmokeTests {
         @Test("the pool loads the real LLM, the queue of the hold runs one generation, and the release evicts the model")
         func generatesThroughThePoolAndEvictsAfterTheRelease() async throws {

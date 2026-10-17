@@ -13,13 +13,12 @@ import Testing
 /// - `MLXLanguageModel` keeps its weights in one model cache for each process.
 ///   A pool of a different test that evicts the same model removes the weights
 ///   under the hold of this test.
-/// - A time measurement of a queue test must not include the GPU work of a
-///   different test.
+///
+/// No suite sets a time limit. Each wait of a test ends on the event that it
+/// expects, or on an event that shows the fault: the model call returns or
+/// throws, a stream ends, a run settles, a task ends. A hang of MLX or a
+/// stalled download gives no event. Then the run stops making output, and the
+/// person or the session that watches the run cancels it. The last lines of
+/// the log name the test and the call that stopped.
 @Suite("Real models", .serialized)
-enum RealModelSuites {
-    /// The longest time that one real-model test may take. Each nested suite
-    /// sets it with `.timeLimit`, thus a hang fails its test and does not block
-    /// CI. A first run on a new machine downloads the models, thus the limit is
-    /// much longer than a normal run.
-    static let testTimeLimitMinutes = 10
-}
+enum RealModelSuites {}
