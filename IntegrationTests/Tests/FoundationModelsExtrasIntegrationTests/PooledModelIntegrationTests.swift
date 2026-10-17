@@ -44,70 +44,104 @@ private struct LegCount {
     let legs: Int
 }
 
+/// The LLM of the two pooled model suites.
+private let pooledModelKey = IntegrationModels.toolCallingLLM
+
 extension RealModelSuites {
     /// `PooledModel` and `PooledSession` with the real
-    /// `mlx-community/Qwen3-4B-4bit`, which `ModelPool()` loads by name with
-    /// `MLXModelLoader`.
-    @Suite("Pooled model with a real LLM")
+    /// `mlx-community/Qwen3-4B-4bit`. The suite loads the model one time, and
+    /// each `PooledModel` of a test finds it resident in the pool of the suite.
+    @Suite(
+        "Pooled model with a real LLM",
+        .sharedLoads(SharedModel(pooledModelKey, footprint: IntegrationModels.toolCallingFootprintBytes)))
     struct PooledModelIntegrationTests {
-        /// The LLM of this suite.
-        private static let key = IntegrationModels.toolCallingLLM
-
         @Test("a session of the real model answers a question")
         func aSessionAnswers() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let answer = try await Self.respond(to: CapitalQuestion.prompt, in: pool)
-            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+            let answer = try await Self.respond(to: CapitalQuestion.prompt, in: try SharedModels.required().pool)
 
             #expect(answer.lowercased().contains(CapitalQuestion.answer), "answer: \(answer)")
         }
 
         @Test("respond(to:generating:) decodes the answer of the real model as a Generable type")
         func aTypedRespondDecodesTheAnswer() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let answer = try await Self.respondWithLegCount(in: pool)
-            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+            let answer = try await Self.respondWithLegCount(in: try SharedModels.required().pool)
 
             #expect(answer.legs == LegCountQuestion.legCount)
         }
 
         @Test("a fork of a real session remembers a fact that its parent heard")
         func aForkRemembersAFactOfItsParent() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let answer = try await Self.askTheForkForTheFact(in: pool)
-            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+            let answer = try await Self.askTheForkForTheFact(in: try SharedModels.required().pool)
 
             #expect(answer.lowercased().contains(RememberedFact.color), "answer: \(answer)")
         }
 
-        @Test("a LanguageModelSession over a pooled real model answers a question")
-        func aLanguageModelSessionAnswers() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let answer = try await Self.respondInLanguageModelSession(to: CapitalQuestion.prompt, in: pool)
-            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
-
-            #expect(answer.lowercased().contains(CapitalQuestion.answer), "answer: \(answer)")
-        }
-
         @Test("a LanguageModelSession over a pooled real model decodes a Generable answer")
         func aLanguageModelSessionDecodesAGenerableAnswer() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-
-            let answer = try await Self.respondWithLegCountInLanguageModelSession(in: pool)
-            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+            let answer = try await Self.respondWithLegCountInLanguageModelSession(in: try SharedModels.required().pool)
 
             #expect(answer.legs == LegCountQuestion.legCount)
         }
 
+        /// Asks the leg count question as a ``LegCount`` in a new
+        /// `LanguageModelSession` over a new `PooledModel` of the model of this
+        /// suite. The session and the model go when the call returns.
+        ///
+        /// - Parameter pool: The pool of the suite.
+        /// - Returns: The typed answer.
+        /// - Throws: The error of the generation or of the decode.
+        private static func respondWithLegCountInLanguageModelSession(in pool: ModelPool) async throws -> LegCount {
+            let session = LanguageModelSession(
+                model: PooledModel(ref: pooledModelKey.ref, pool: pool), instructions: shortAnswers)
+            return try await session.respond(to: LegCountQuestion.prompt, generating: LegCount.self).content
+        }
+
+        /// Asks `prompt` in a new session of the model of this suite. The
+        /// session goes when the call returns.
+        ///
+        /// - Parameters:
+        ///   - prompt: The question.
+        ///   - pool: The pool of the suite.
+        /// - Returns: The text of the answer.
+        /// - Throws: The error of the generation.
+        private static func respond(to prompt: String, in pool: ModelPool) async throws -> String {
+            let session = try await PooledModel(ref: pooledModelKey.ref, pool: pool).session(instructions: shortAnswers)
+            return try await session.respond(to: prompt)
+        }
+
+        /// Asks the leg count question as a ``LegCount`` in a new session of
+        /// the model of this suite. The session goes when the call returns.
+        ///
+        /// - Parameter pool: The pool of the suite.
+        /// - Returns: The typed answer.
+        /// - Throws: The error of the generation or of the decode.
+        private static func respondWithLegCount(in pool: ModelPool) async throws -> LegCount {
+            let session = try await PooledModel(ref: pooledModelKey.ref, pool: pool).session(instructions: shortAnswers)
+            return try await session.respond(to: LegCountQuestion.prompt, generating: LegCount.self)
+        }
+
+        /// Tells the fact to a new session, forks the session, and asks the
+        /// fork for the fact. The sessions go when the call returns.
+        ///
+        /// - Parameter pool: The pool of the suite.
+        /// - Returns: The text of the answer of the fork.
+        /// - Throws: The error of a generation.
+        private static func askTheForkForTheFact(in pool: ModelPool) async throws -> String {
+            let parent = try await PooledModel(ref: pooledModelKey.ref, pool: pool).session(instructions: shortAnswers)
+            _ = try await parent.respond(to: RememberedFact.statement)
+            let fork = try await parent.fork()
+            return try await fork.respond(to: RememberedFact.question)
+        }
+    }
+
+    /// The generate telemetry of `PooledModel` with the real
+    /// `mlx-community/Qwen3-4B-4bit`. The test examines the cold call that
+    /// loads the model, thus it loads the model in a pool of its own. It is
+    /// not in the suite of the shared load: its eviction would remove the
+    /// weights under the shared hold, because `MLXLanguageModel` keeps the
+    /// weights in one model cache for each process.
+    @Suite("Pooled model generate telemetry with a real LLM")
+    struct PooledModelTelemetryIntegrationTests {
         @Test(
             """
             two calls of a LanguageModelSession over a pooled real model open a cold and then a warm generate \
@@ -118,16 +152,16 @@ extension RealModelSuites {
             let pool = ModelPool()
 
             let outcome = try await Self.captureColdAndWarmCalls(in: pool)
-            try await IntegrationModels.waitForEviction(of: Self.key, in: pool)
+            try await IntegrationModels.waitForEviction(of: pooledModelKey, in: pool)
 
             let context = outcome.context
             let generateSpans = CapturedSpans.spans(named: ExtrasTelemetry.SpanName.generate, in: context.spans)
             let load = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.modelLoad, in: context.spans)
             try #require(generateSpans.count == outcome.answers.count, "one generate span for each call")
-            GenerateTelemetryExpectations.expectColdThenWarm(generateSpans, ref: Self.key.ref)
+            GenerateTelemetryExpectations.expectColdThenWarm(generateSpans, ref: pooledModelKey.ref)
             #expect(load.parentSpanID == generateSpans.first?.spanID, "the load span is a child of the cold span")
             try GenerateTelemetryExpectations.expectFirstTokenBeforeEnd(
-                in: context.metricsFactory, ref: Self.key.ref, callCount: outcome.answers.count)
+                in: context.metricsFactory, ref: pooledModelKey.ref, callCount: outcome.answers.count)
             // A short answer, for example one digit, can occur in a span id.
             // An answer with the word of the question is a text that no
             // telemetry place holds by chance.
@@ -152,74 +186,12 @@ extension RealModelSuites {
         /// - Throws: The error of the load or of a generation.
         private static func captureColdAndWarmCalls(in pool: ModelPool) async throws -> GenerateTelemetryOutcome {
             try await TelemetryCapture.run(forbidding: [CapitalQuestion.prompt, shortAnswers]) { context in
-                let session = LanguageModelSession(model: PooledModel(ref: key.ref, pool: pool), instructions: shortAnswers)
+                let session = LanguageModelSession(
+                    model: PooledModel(ref: pooledModelKey.ref, pool: pool), instructions: shortAnswers)
                 let coldAnswer = try await session.respond(to: CapitalQuestion.prompt).content
                 let warmAnswer = try await session.respond(to: CapitalQuestion.prompt).content
                 return GenerateTelemetryOutcome(context: context, answers: [coldAnswer, warmAnswer])
             }
-        }
-
-        /// Asks `prompt` in a new `LanguageModelSession` over a new
-        /// `PooledModel` of the model of this suite. The session and the model
-        /// go when the call returns.
-        ///
-        /// - Parameters:
-        ///   - prompt: The question.
-        ///   - pool: The pool of the test.
-        /// - Returns: The text of the answer.
-        /// - Throws: The error of the load or of the generation.
-        private static func respondInLanguageModelSession(to prompt: String, in pool: ModelPool) async throws -> String {
-            let session = LanguageModelSession(model: PooledModel(ref: key.ref, pool: pool), instructions: shortAnswers)
-            return try await session.respond(to: prompt).content
-        }
-
-        /// Asks the leg count question as a ``LegCount`` in a new
-        /// `LanguageModelSession` over a new `PooledModel` of the model of this
-        /// suite. The session and the model go when the call returns.
-        ///
-        /// - Parameter pool: The pool of the test.
-        /// - Returns: The typed answer.
-        /// - Throws: The error of the load, of the generation or of the decode.
-        private static func respondWithLegCountInLanguageModelSession(in pool: ModelPool) async throws -> LegCount {
-            let session = LanguageModelSession(model: PooledModel(ref: key.ref, pool: pool), instructions: shortAnswers)
-            return try await session.respond(to: LegCountQuestion.prompt, generating: LegCount.self).content
-        }
-
-        /// Asks `prompt` in a new session of the model of this suite. The
-        /// session goes when the call returns.
-        ///
-        /// - Parameters:
-        ///   - prompt: The question.
-        ///   - pool: The pool of the test.
-        /// - Returns: The text of the answer.
-        /// - Throws: The error of the load or of the generation.
-        private static func respond(to prompt: String, in pool: ModelPool) async throws -> String {
-            let session = try await PooledModel(ref: key.ref, pool: pool).session(instructions: shortAnswers)
-            return try await session.respond(to: prompt)
-        }
-
-        /// Asks the leg count question as a ``LegCount`` in a new session of
-        /// the model of this suite. The session goes when the call returns.
-        ///
-        /// - Parameter pool: The pool of the test.
-        /// - Returns: The typed answer.
-        /// - Throws: The error of the load, of the generation or of the decode.
-        private static func respondWithLegCount(in pool: ModelPool) async throws -> LegCount {
-            let session = try await PooledModel(ref: key.ref, pool: pool).session(instructions: shortAnswers)
-            return try await session.respond(to: LegCountQuestion.prompt, generating: LegCount.self)
-        }
-
-        /// Tells the fact to a new session, forks the session, and asks the
-        /// fork for the fact. The sessions go when the call returns.
-        ///
-        /// - Parameter pool: The pool of the test.
-        /// - Returns: The text of the answer of the fork.
-        /// - Throws: The error of the load or of a generation.
-        private static func askTheForkForTheFact(in pool: ModelPool) async throws -> String {
-            let parent = try await PooledModel(ref: key.ref, pool: pool).session(instructions: shortAnswers)
-            _ = try await parent.respond(to: RememberedFact.statement)
-            let fork = try await parent.fork()
-            return try await fork.respond(to: RememberedFact.question)
         }
     }
 }
