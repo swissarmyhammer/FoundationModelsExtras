@@ -110,6 +110,33 @@ public enum ProcessRunner {
     executable: URL, arguments: [String], workingDirectory: URL, timeout: Duration,
     outputCap: OutputCap, registry: ProcessRegistry = .global
   ) async throws -> Outcome {
+    try await run(
+      executable: executable, arguments: arguments, workingDirectory: workingDirectory, timeout: timeout,
+      outputCap: outputCap, registry: registry, control: .system)
+  }
+
+  /// Runs `executable` directly, in its own process group, and waits for,
+  /// reaps and kills the child through `control`.
+  ///
+  /// The public `run` gives ``ChildControl/system``. A test gives a copy of
+  /// it with a stand-in timer, so the timeout fires at a point that the test
+  /// chooses, and the spawn, the wait, the reap and the kill stay real.
+  ///
+  /// - Parameters:
+  ///   - executable: The file to exec.
+  ///   - arguments: The positional arguments after the executable path.
+  ///   - workingDirectory: The working directory of the child.
+  ///   - timeout: How long the child can run before the group kill.
+  ///   - outputCap: The count of lines and the byte limit of the kept output.
+  ///   - registry: The registry that holds the pid while the child runs.
+  ///   - control: The steps that wait for, reap, and kill the child.
+  /// - Returns: How the run ended, how long it took, and the kept output.
+  /// - Throws: `Failure.spawnFailed` when the spawn did not reach exec, and
+  ///   `Failure.waitFailed` when the reap failed.
+  static func run(
+    executable: URL, arguments: [String], workingDirectory: URL, timeout: Duration,
+    outputCap: OutputCap, registry: ProcessRegistry, control: ChildControl
+  ) async throws -> Outcome {
     let pipe = Pipe()
     defer { try? pipe.fileHandleForReading.close() }
     let pid: pid_t
@@ -128,7 +155,7 @@ public enum ProcessRunner {
     let start = ContinuousClock.now
     async let capture = Self.readToEnd(
       descriptor: pipe.fileHandleForReading.fileDescriptor, cap: outputCap)
-    let termination = try await Self.waitOrKill(pid: pid, timeout: timeout)
+    let termination = try await Self.waitOrKill(pid: pid, timeout: timeout, control: control)
     let captured = try await capture
     return Outcome(
       termination: termination, duration: start.duration(to: .now), lineCount: captured.lineCount,
