@@ -39,7 +39,9 @@ public final class MarketplaceStoreFixture {
   ///   - transport: The git transport, or `nil` for the real
   ///     ``LibGit2Transport``. The default is `nil`.
   ///   - clock: The clock of the periodic check and of the fetch timeout,
-  ///     or `nil` for the `ContinuousClock` of the store. The default is
+  ///     or `nil` for a new ``ManualClock`` that no test moves. Thus the
+  ///     store reads no real clock. A test that sets a check interval or a
+  ///     fetch timeout gives its own clock and moves it. The default is
   ///     `nil`.
   ///   - environment: The environment of the store, which names the
   ///     read-only seed folder. The default is no variable at all.
@@ -54,7 +56,7 @@ public final class MarketplaceStoreFixture {
     localRoot = try TemporaryDirectory.make()
     store = MarketplaceStore(
       sources: sources, layout: layout, cacheDirectory: self.cacheDirectory, policy: policy,
-      transport: transport ?? LibGit2Transport(), clock: clock ?? ContinuousClock(),
+      transport: transport ?? LibGit2Transport(), clock: clock ?? ManualClock(),
       environment: environment)
   }
 
