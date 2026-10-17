@@ -66,16 +66,10 @@ struct VaultCodeTool: Tool {
 
 // MARK: - Background runs
 
-/// A background tool: each call starts a scan that ends after a short time.
-/// Its pending envelope has the default `next` text, which ends with
+/// A background tool: each call starts a scan that works until the test opens
+/// a gate. Its pending envelope has the default `next` text, which ends with
 /// ``PendingRunEnvelope/pendingWorkInstruction``.
 struct ArchiveScanTool: Tool, BackgroundTool {
-    /// The milliseconds of ``workDuration``.
-    private static let workMilliseconds = 500
-
-    /// How long each scan works.
-    private static let workDuration = Duration.milliseconds(workMilliseconds)
-
     /// The code of the report of each scan.
     static let code = "COPPER-HERON-58"
 
@@ -83,12 +77,18 @@ struct ArchiveScanTool: Tool, BackgroundTool {
     let description = "Starts a scan of an archive by the name of the archive."
     let mount: ToolMount? = ToolMount(mode: .background)
 
-    /// Works for a short time, and returns the report.
+    /// The gate that holds each scan. The test opens it after the call gave
+    /// its pending envelope, thus the run continues after the call.
+    let gate: Latch
+
+    /// Works until the gate opens, and returns the report.
     ///
     /// - Parameter arguments: The archive.
     /// - Returns: The report of the scan.
+    /// - Throws: `CancellationError` when the run is cancelled first.
     func call(arguments: NamedThingArguments) async throws -> String {
-        try await Task.sleep(for: Self.workDuration)
+        await gate.waitUntilOpen()
+        try Task.checkCancellation()
         return Self.report
     }
 
@@ -123,48 +123,39 @@ struct QuickScanTool: Tool, BackgroundTool {
 /// envelope has the default `next` text, which ends with
 /// ``PendingRunEnvelope/pendingWorkInstruction``.
 struct EndlessScanTool: Tool, BackgroundTool {
-    /// How long each scan works when nothing cancels it: longer than a test
-    /// can run.
-    private static let workDuration = Duration.seconds(RealModelSuites.testTimeLimitMinutes * secondsPerMinute)
-
     let name = "start_full_scan"
     let description = "Starts a full scan of an archive by the name of the archive."
     let mount: ToolMount? = ToolMount(mode: .background)
 
-    /// Sleeps until a cancel stops the sleep.
+    /// Works until a cancel stops the run.
     ///
     /// - Parameter arguments: The archive.
-    /// - Returns: Never before a cancel.
+    /// - Returns: Never.
     /// - Throws: `CancellationError` at the cancel.
     func call(arguments: NamedThingArguments) async throws -> String {
-        try await Task.sleep(for: Self.workDuration)
-        return "The full scan of \(arguments.name) ended."
+        try await Waits.untilCancelled()
     }
 }
 
-/// The seconds in one minute.
-private let secondsPerMinute = 60
-
 // MARK: - Timeout and failure
 
-/// A tool that works much longer than its timeout and ignores the cancel.
+/// A tool that works past its timeout and ignores the cancel.
 struct StuckRecordTool: Tool {
-    /// The seconds of ``workDuration``.
-    static let workSeconds = 120
-
-    /// How long each call works. The cancel does not stop it.
-    private static let workDuration = Duration.seconds(workSeconds)
-
     let name = "look_up_record"
     let description = "Looks up a record by the name of the record."
 
-    /// Works for ``workDuration`` in a detached task, which does not get the
-    /// cancel of the call, and returns after it.
+    /// The gate that holds each call. The test opens it only after its
+    /// expectations, thus a model call that returned did not wait for the
+    /// tool.
+    let gate: Latch
+
+    /// Works in a detached task until the gate opens. The detached task does
+    /// not get the cancel of the call.
     ///
     /// - Parameter arguments: The record.
-    /// - Returns: A sentence, after ``workDuration``.
+    /// - Returns: A sentence, after the gate opens.
     func call(arguments: NamedThingArguments) async throws -> String {
-        await Task.detached { try? await Task.sleep(for: Self.workDuration) }.value
+        await Task.detached { [gate] in await gate.waitUntilOpen() }.value
         return "The record \(arguments.name) is ready."
     }
 }

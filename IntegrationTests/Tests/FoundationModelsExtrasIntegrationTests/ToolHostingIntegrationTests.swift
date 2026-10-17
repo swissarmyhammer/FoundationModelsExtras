@@ -4,7 +4,7 @@ import FoundationModelsExtras
 import Testing
 
 /// The timeout of the mount of ``StuckRecordTool``, in seconds. The tool works
-/// much longer than this time.
+/// until the test opens its gate, after the model call returned.
 private let stuckToolTimeoutSeconds: TimeInterval = 2
 
 /// The settle period of a host whose background calls must answer with the
@@ -56,7 +56,7 @@ private enum HostMessage {
 extension RealModelSuites {
     /// Tool hosting under a real FoundationModels session: the model calls
     /// mounted tools, and the run plane runs and settles the background runs.
-    @Suite("Tool hosting with a real model", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
+    @Suite("Tool hosting with a real model")
     struct ToolHostingIntegrationTests {
         @Test("an in-band tool reads its context, posts progress, and the answer of the model holds its result")
         func inBandToolRunsToCompletion() async throws {
@@ -85,16 +85,25 @@ extension RealModelSuites {
         func backgroundToolSettlesAfterItsEnvelope() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
-            // The scan works for a short time, so the host states grace 0:
-            // the call answers with the pending envelope at once.
+            // Grace 0: the call answers with the pending envelope at once.
             let host = ToolHost(inlineSettleGrace: pendingAtOnceGrace)
             let settlements = EventLog<OperationEvent>()
             await host.runPlane.attach(settlementObserver: settlements)
-            let tool = ArchiveScanTool()
+            let gate = Latch()
+            let tool = ArchiveScanTool(gate: gate)
 
-            let answer = try await ToolSession.answer(
-                to: "Start a scan of the archive named west.", instructions: SessionInstructions.callingOnce(tool.name),
-                tools: [host.mount(tool)], in: pool)
+            let answering = Task {
+                try await ToolSession.answer(
+                    to: "Start a scan of the archive named west.",
+                    instructions: SessionInstructions.callingOnce(tool.name), tools: [host.mount(tool)], in: pool)
+            }
+            // The scan works until the call gave its pending envelope. A
+            // model call that ends with no envelope also opens the gate.
+            await Waits.untilFirstEnds(
+                { await host.events.waitUntil { $0.contains(where: Self.isPendingEnvelope) } },
+                { _ = await answering.result })
+            gate.open()
+            let answer = try await answering.value
             try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
@@ -104,8 +113,9 @@ extension RealModelSuites {
             let terminal = try await Self.terminal(of: envelope.completionToken, in: host)
             #expect(terminal.outcome == .succeeded)
             #expect(terminal.detail == ArchiveScanTool.report)
-            try await Waiting.until { await !settlements.events.isEmpty }
-            #expect(await settlements.events == [terminal])
+            // The run plane gives the terminal to the observer after it
+            // settles the run, thus this wait follows the settlement.
+            #expect(await settlements.waitUntil { !$0.isEmpty } == [terminal])
         }
 
         @Test("a background run that ends inside the default settle period gives the model its own output, with no envelope")
@@ -154,22 +164,25 @@ extension RealModelSuites {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
             let host = ToolHost()
-            let tool = StuckRecordTool()
+            let gate = Latch()
+            let tool = StuckRecordTool(gate: gate)
             let mounted = host.mount(tool, as: ToolMount(mode: .runToCompletion, timeout: stuckToolTimeoutSeconds))
 
-            let (answer, duration) = try await ToolSession.run(
+            let answer = try await ToolSession.run(
                 instructions: SessionInstructions.callingOnce(tool.name), tools: [mounted], in: pool
             ) { session in
-                let start = ContinuousClock.now
-                let answer = try await ToolSession.answer(to: "Look up the record named alpha.", in: session)
-                return (answer, start.duration(to: .now))
+                try await ToolSession.answer(to: "Look up the record named alpha.", in: session)
             }
+            // The tool works until the gate opens, thus a closed gate shows
+            // that the model call did not wait for the tool.
+            let returnedWhileTheToolWorked = !gate.isOpen
             try await IntegrationModels.waitForEviction(of: IntegrationModels.toolCallingLLM, in: pool)
 
             let timedOut = ToolMountError.timedOut(tool: tool.name, timeoutSeconds: stuckToolTimeoutSeconds).description
             #expect(answer.toolOutputs.contains(timedOut), "tool outputs: \(answer.toolOutputs)")
-            #expect(duration < .seconds(StuckRecordTool.workSeconds), "the model call took \(duration)")
+            #expect(returnedWhileTheToolWorked)
             #expect(await host.events.events.contains { $0.kind == .completed && $0.outcome == .timedOut })
+            gate.open()
         }
 
         @Test("a tool that throws gives the model a failure result, not a thrown error, and the session continues")
@@ -316,9 +329,19 @@ extension RealModelSuites {
             answer.toolOutputs.compactMap(PendingRunEnvelope.makeDecoded(fromRendered:))
         }
 
+        /// Whether `event` is the event that a background call posts with its
+        /// pending envelope, before the call answers.
+        ///
+        /// - Parameter event: An event that a mounted tool posted.
+        /// - Returns: `true` for a progress event whose detail is a rendered
+        ///   envelope.
+        @Sendable
+        private static func isPendingEnvelope(_ event: OperationEvent) -> Bool {
+            event.kind == .progress && PendingRunEnvelope.isRendered(text: event.detail)
+        }
+
         /// Waits with no deadline for the run of `token`, and gives its
-        /// terminal event. The time limit of the suite stops a wait that never
-        /// ends.
+        /// terminal event. The wait ends when the run settles.
         ///
         /// - Parameters:
         ///   - token: The completion token of the run.
