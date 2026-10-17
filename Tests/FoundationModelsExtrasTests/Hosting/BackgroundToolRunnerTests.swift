@@ -147,12 +147,17 @@ struct BackgroundToolRunnerTests {
     func toolWithNoGraceFollowsTheSite() async throws {
         let gate = RunLatch()
         gate.open()
+        let plane = await ManualSettlePlane.make()
         let generous = Fixtures.backgroundHarness(
-            wrapping: Fixtures.SiteGraceTool(gate: gate), inlineSettleGrace: Fixtures.generousInterval)
+            wrapping: Fixtures.SiteGraceTool(gate: gate), inlineSettleGrace: Fixtures.generousInterval,
+            runPlane: plane.runPlane)
         let atOnce = Fixtures.backgroundHarness(
             wrapping: Fixtures.SiteGraceTool(gate: gate), inlineSettleGrace: Fixtures.pendingAtOnceGrace)
 
-        let inline = try await generous.mounted.call(arguments: MountArguments(value: "site"))
+        let waiting = generous.mounted
+        let inline = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await waiting.call(arguments: MountArguments(value: "site"))
+        }
         let pending = try await atOnce.mounted.call(arguments: MountArguments(value: "site"))
 
         #expect(inline == Fixtures.SiteGraceTool.output(for: "site"))
@@ -163,30 +168,43 @@ struct BackgroundToolRunnerTests {
 
     @Test("a tool that states no grace on a site that takes the default settles a fast run inline")
     func defaultSiteGraceSettlesAFastRunInline() async throws {
-        let runPlane = RunPlane()
-        let site = MountSite(sessionID: ULID(), runPlane: runPlane, sink: Fixtures.RecordingSink())
+        let plane = await ManualSettlePlane.make()
+        let site = MountSite(sessionID: ULID(), runPlane: plane.runPlane, sink: Fixtures.RecordingSink())
         let runner = BackgroundToolRunner(wrapping: Fixtures.FastTool(), site: site, timeout: nil)
 
-        let rendered = try await runner.call(arguments: MountArguments(value: "default"))
+        let rendered = try await plane.answer(settlingWithin: ToolMount.defaultInlineSettleGrace) {
+            try await runner.call(arguments: MountArguments(value: "default"))
+        }
 
         #expect(rendered == "fast: default")
-        #expect(await runPlane.backgroundRuns().isEmpty)
+        #expect(await plane.runPlane.backgroundRuns().isEmpty)
     }
 
     @Test("the grace that a tool states wins over the settle period of its site, in both directions")
     func statedGraceWinsOverTheSite() async throws {
         let gate = RunLatch()
         gate.open()
+        let plane = await ManualSettlePlane.make()
         // The site answers at once, but the tool waits.
         let waitingTool = Fixtures.backgroundHarness(
             wrapping: Fixtures.InlineGraceTool(gate: gate, grace: Fixtures.generousInterval),
-            inlineSettleGrace: Fixtures.pendingAtOnceGrace)
+            inlineSettleGrace: Fixtures.pendingAtOnceGrace, runPlane: plane.runPlane)
         // The site waits, but the tool answers at once.
         let atOnceTool = Fixtures.backgroundHarness(
-            wrapping: Fixtures.InlineGraceTool(gate: gate, grace: 0), inlineSettleGrace: Fixtures.generousInterval)
+            wrapping: Fixtures.InlineGraceTool(gate: gate, grace: 0), inlineSettleGrace: Fixtures.generousInterval,
+            runPlane: plane.runPlane)
 
-        let inline = try await waitingTool.mounted.call(arguments: MountArguments(value: "tool"))
-        let pending = try await atOnceTool.mounted.call(arguments: MountArguments(value: "tool"))
+        let waiting = waitingTool.mounted
+        let atOnce = atOnceTool.mounted
+        let inline = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await waiting.call(arguments: MountArguments(value: "tool"))
+        }
+        // A call that takes the grace of the site waits for its run. The
+        // run settles, and the call answers inline: the check of the
+        // envelope below then fails.
+        let pending = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await atOnce.call(arguments: MountArguments(value: "tool"))
+        }
 
         #expect(inline == Fixtures.InlineGraceTool.output(for: "tool"))
         let envelope = try Fixtures.decodeEnvelope(pending)
@@ -213,9 +231,14 @@ struct BackgroundToolRunnerTests {
         let gate = RunLatch()
         // Open already, so the body returns when it starts, before the grace.
         gate.open()
-        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.InlineGraceTool(gate: gate, grace: Fixtures.generousInterval))
+        let plane = await ManualSettlePlane.make()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: Fixtures.InlineGraceTool(gate: gate, grace: Fixtures.generousInterval), runPlane: plane.runPlane)
 
-        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "now"))
+        let mounted = harness.mounted
+        let rendered = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await mounted.call(arguments: MountArguments(value: "now"))
+        }
 
         #expect(rendered == Fixtures.InlineGraceTool.output(for: "now"))
         #expect(!PendingRunEnvelope.isRendered(text: rendered))
@@ -234,11 +257,16 @@ struct BackgroundToolRunnerTests {
     func runThrowingInsideTheGraceRethrowsTheToolError() async throws {
         let gate = RunLatch()
         gate.open()
+        let plane = await ManualSettlePlane.make()
         let harness = Fixtures.backgroundHarness(
-            wrapping: Fixtures.InlineThrowingTool(gate: gate, grace: Fixtures.generousInterval))
+            wrapping: Fixtures.InlineThrowingTool(gate: gate, grace: Fixtures.generousInterval),
+            runPlane: plane.runPlane)
 
+        let mounted = harness.mounted
         await #expect(throws: Fixtures.FixtureError.self) {
-            _ = try await harness.mounted.call(arguments: MountArguments(value: "fail"))
+            _ = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+                try await mounted.call(arguments: MountArguments(value: "fail"))
+            }
         }
 
         let events = await harness.sink.events
@@ -248,7 +276,8 @@ struct BackgroundToolRunnerTests {
 
     @Test("an inline result leaves nothing staged for a later prompt, and a pending run still stages its progress")
     func inlineResultWithdrawsWhatTheRunStaged() async throws {
-        let runPlane = RunPlane()
+        let plane = await ManualSettlePlane.make()
+        let runPlane = plane.runPlane
         let sink = Fixtures.StagingSink()
         let site = Fixtures.site(runPlane: runPlane, sink: sink, inlineSettleGrace: Fixtures.pendingAtOnceGrace)
         let gate = RunLatch()
@@ -257,7 +286,9 @@ struct BackgroundToolRunnerTests {
             wrapping: Fixtures.InlineGraceTool(gate: gate, grace: Fixtures.generousInterval), site: site, timeout: nil
         )
 
-        let rendered = try await inline.call(arguments: MountArguments(value: "inline"))
+        let rendered = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await inline.call(arguments: MountArguments(value: "inline"))
+        }
 
         #expect(rendered == Fixtures.InlineGraceTool.output(for: "inline"))
         #expect(await sink.staged.isEmpty)
@@ -281,15 +312,18 @@ struct BackgroundToolRunnerTests {
 
     @Test("a run that throws inside the grace also takes back its staged events")
     func inlineErrorWithdrawsWhatTheRunStaged() async throws {
+        let plane = await ManualSettlePlane.make()
         let sink = Fixtures.StagingSink()
-        let site = Fixtures.site(runPlane: RunPlane(), sink: sink, inlineSettleGrace: Fixtures.pendingAtOnceGrace)
+        let site = Fixtures.site(runPlane: plane.runPlane, sink: sink, inlineSettleGrace: Fixtures.pendingAtOnceGrace)
         let gate = RunLatch()
         gate.open()
         let runner = BackgroundToolRunner(
             wrapping: Fixtures.InlineThrowingTool(gate: gate, grace: Fixtures.generousInterval), site: site, timeout: nil)
 
         await #expect(throws: Fixtures.FixtureError.self) {
-            _ = try await runner.call(arguments: MountArguments(value: "fail"))
+            _ = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+                try await runner.call(arguments: MountArguments(value: "fail"))
+            }
         }
 
         #expect(await sink.staged.isEmpty)
@@ -298,10 +332,14 @@ struct BackgroundToolRunnerTests {
     @Test("a run that a cancel of only that run ends inside the grace gives the model a tool result that tells so, and its terminal outcome is cancelled")
     func runCancelledInsideTheGraceGivesAToolResult() async throws {
         let wrapped = Fixtures.SelfCancellingTool()
-        let harness = Fixtures.backgroundHarness(wrapping: wrapped, inlineSettleGrace: Fixtures.generousInterval)
+        let plane = await ManualSettlePlane.make()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: wrapped, inlineSettleGrace: Fixtures.generousInterval, runPlane: plane.runPlane)
         let tool = try Fixtures.modelFacingTextTool(harness.mounted, arguments: MountArguments.self)
 
-        let output = try await tool.call(arguments: MountArguments(value: "x"))
+        let output = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await tool.call(arguments: MountArguments(value: "x"))
+        }
 
         let token = try #require(await harness.runPlane.settledRunTokens().first)
         #expect(output == "The run \(token) of \(wrapped.name) was cancelled before it ended, so it gives no result.")
@@ -311,15 +349,16 @@ struct BackgroundToolRunnerTests {
 
     @Test("a call whose own task is cancelled, for a run that a cancel ended inside the grace, still throws CancellationError")
     func cancelledCallOfACancelledRunThrowsTheCancellation() async throws {
+        let plane = await ManualSettlePlane.make()
         let site = Fixtures.site(
-            runPlane: RunPlane(), sink: Fixtures.CallCancellingSink(), inlineSettleGrace: Fixtures.generousInterval)
+            runPlane: plane.runPlane, sink: Fixtures.CallCancellingSink(), inlineSettleGrace: Fixtures.generousInterval)
         let runner = BackgroundToolRunner(wrapping: Fixtures.SelfCancellingTool(), site: site, timeout: nil)
         let tool = try Fixtures.modelFacingTextTool(runner, arguments: MountArguments.self)
 
-        let calling = Task { try await tool.call(arguments: MountArguments(value: "x")) }
-
         await #expect(throws: CancellationError.self) {
-            _ = try await calling.value
+            _ = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+                try await tool.call(arguments: MountArguments(value: "x"))
+            }
         }
     }
 
@@ -381,12 +420,18 @@ struct BackgroundToolRunnerTests {
 
     @Test("the timeout of a background run settles it with outcome timedOut and one terminal event")
     func timeoutExpiryOnBackgroundRun() async throws {
-        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.SleepingTool(), timeout: Fixtures.shortInterval)
+        let clock = ManualRunClock()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: Fixtures.SleepingTool(), timeout: Fixtures.shortInterval, runPlane: RunPlane(clock: clock))
 
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
         let envelope = try Fixtures.decodeEnvelope(rendered)
 
-        let terminal = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
+        // The call answered at once, so the one timer on the clock is the
+        // timeout of the run.
+        let runPlane = harness.runPlane
+        let settling = Task { try await Fixtures.settledTerminal(of: envelope.completionToken, in: runPlane) }
+        let terminal = try await clock.elapse(Fixtures.shortInterval, endingWait: settling)
         #expect(terminal.outcome == .timedOut)
 
         let events = await harness.sink.events

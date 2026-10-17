@@ -39,7 +39,8 @@ struct ToolCallSpanTests {
     private static let sameIntervalTolerance = Duration.milliseconds(100)
 
     /// The settle period of a background call whose run must settle inside
-    /// it. It is long, so a fast run always ends in it.
+    /// it. The run plane of the call waits on a manual clock, and the test
+    /// moves the clock by this full period only after the run settled.
     private static let inlineSettleGrace = Fixtures.generousInterval
 
     /// The settle period of a background call whose run continues after it.
@@ -240,12 +241,16 @@ struct ToolCallSpanTests {
     @Test("a run-to-completion call that times out records timed_out with no error status, and throws the timeout")
     func aTimedOutCallIsNotAnError() async throws {
         let tool = Fixtures.SleepingTool()
-        let harness = Fixtures.runToCompletionHarness(wrapping: tool, timeout: Fixtures.shortInterval)
+        let clock = ManualRunClock()
+        let harness = Fixtures.runToCompletionHarness(
+            wrapping: tool, timeout: Fixtures.shortInterval, runPlane: RunPlane(clock: clock))
         let timeout = ToolMountError.timedOut(tool: tool.name, timeoutSeconds: Fixtures.shortInterval)
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
+            let mounted = harness.mounted
+            let calling = Task { try await mounted.call(arguments: MountArguments(value: "x")) }
             await #expect(throws: timeout) {
-                _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+                _ = try await clock.elapse(Fixtures.shortInterval, endingWait: calling)
             }
             return context
         }
@@ -288,10 +293,15 @@ struct ToolCallSpanTests {
     @Test("a background run that succeeds inside the settle period records succeeded and tool.settled_inline=true")
     func aBackgroundRunThatSucceedsInlineRecordsSucceeded() async throws {
         let tool = Fixtures.FastTool()
-        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace)
+        let plane = await ManualSettlePlane.make()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace, runPlane: plane.runPlane)
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
-            _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            let mounted = harness.mounted
+            _ = try await plane.answer(settlingWithin: Self.inlineSettleGrace) {
+                try await mounted.call(arguments: MountArguments(value: "x"))
+            }
             await harness.runPlane.joinRunBodies()
             return context
         }
@@ -306,10 +316,15 @@ struct ToolCallSpanTests {
         // The test binds no task-local tracer, thus only the tracer of the
         // site can receive the two spans.
         let tracer = W3CInMemoryTracer()
+        let plane = await ManualSettlePlane.make()
         let harness = Fixtures.backgroundHarness(
-            wrapping: Fixtures.FastTool(), inlineSettleGrace: Self.inlineSettleGrace, tracer: tracer)
+            wrapping: Fixtures.FastTool(), inlineSettleGrace: Self.inlineSettleGrace, tracer: tracer,
+            runPlane: plane.runPlane)
 
-        _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+        let mounted = harness.mounted
+        _ = try await plane.answer(settlingWithin: Self.inlineSettleGrace) {
+            try await mounted.call(arguments: MountArguments(value: "x"))
+        }
         await harness.runPlane.joinRunBodies()
 
         #expect(tracer.finishedSpans.map(\.operationName).sorted() == Fixtures.spanNamesOfASettledBackgroundCall)
@@ -318,11 +333,16 @@ struct ToolCallSpanTests {
     @Test("a background run that fails inside the settle period records one count and one duration of failed, and throws the error")
     func aBackgroundRunThatFailsInlineRecordsFailed() async throws {
         let tool = Fixtures.ThrowingTool()
-        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace)
+        let plane = await ManualSettlePlane.make()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace, runPlane: plane.runPlane)
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
+            let mounted = harness.mounted
             await #expect(throws: Fixtures.FixtureError.self) {
-                _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+                _ = try await plane.answer(settlingWithin: Self.inlineSettleGrace) {
+                    try await mounted.call(arguments: MountArguments(value: "x"))
+                }
             }
             await harness.runPlane.joinRunBodies()
             return context
@@ -339,13 +359,20 @@ struct ToolCallSpanTests {
     @Test("a background run that times out inside the settle period records timed_out with no error status, and throws the timeout")
     func aBackgroundRunThatTimesOutInlineIsNotAnError() async throws {
         let tool = Fixtures.SleepingTool()
+        let plane = await ManualSettlePlane.make()
         let harness = Fixtures.backgroundHarness(
-            wrapping: tool, timeout: Fixtures.shortInterval, inlineSettleGrace: Self.inlineSettleGrace)
+            wrapping: tool, timeout: Fixtures.shortInterval, inlineSettleGrace: Self.inlineSettleGrace,
+            runPlane: plane.runPlane)
         let timeout = ToolMountError.timedOut(tool: tool.name, timeoutSeconds: Fixtures.shortInterval)
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
+            let mounted = harness.mounted
+            let call = plane.start { try await mounted.call(arguments: MountArguments(value: "x")) }
+            // Two timers wait: the timeout of the run and the settle period
+            // of the call. Only the timeout ends at its own length.
+            try await plane.clock.elapseOneTimer(Fixtures.shortInterval, among: 2) { _ = await call.task.result }
             await #expect(throws: timeout) {
-                _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+                _ = try await plane.answer(of: call, settlingWithin: Self.inlineSettleGrace)
             }
             await harness.runPlane.joinRunBodies()
             return context
@@ -391,14 +418,21 @@ struct ToolCallSpanTests {
     func aBackgroundRunThatTheSweepSettlesRecordsTheRunPlaneOutcome() async throws {
         let gate = RunLatch()
         let tool = Fixtures.GatedProcessTool(gate: gate, processCanceler: { .stopped })
-        let harness = Fixtures.backgroundHarness(wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace)
+        let clock = ManualRunClock()
+        let harness = Fixtures.backgroundHarness(
+            wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace, runPlane: RunPlane(clock: clock))
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
             let answer = Task { try await harness.mounted.call(arguments: MountArguments(value: "x")) }
             // The run plane tracks the run before its body starts. A call
             // that ends first lets the test go on, and the checks fail.
             await Waits.untilFirstEnds({ await tool.started.waitUntilOpen() }, { _ = await answer.result })
+            // The sweep settles the run, and the settlement resumes the wait
+            // of the call before the sweep returns. Then the move of the
+            // clock cannot change the answer. A call that did not see the
+            // settlement ends at its deadline, and the checks fail.
             _ = await harness.runPlane.sweep()
+            clock.advance(by: .seconds(Self.inlineSettleGrace))
             _ = try await answer.value
             // The body still waits on its gate. It ends here, thus the
             // capture holds each record of the run when the test reads it.
@@ -415,15 +449,24 @@ struct ToolCallSpanTests {
     func aBackgroundCallCarriesNoToolContent() async throws {
         let succeeding = Fixtures.FastTool()
         let failing = Fixtures.ThrowingTool()
-        let succeedingHarness = Fixtures.backgroundHarness(wrapping: succeeding, inlineSettleGrace: Self.inlineSettleGrace)
-        let failingHarness = Fixtures.backgroundHarness(wrapping: failing, inlineSettleGrace: Self.inlineSettleGrace)
+        let plane = await ManualSettlePlane.make()
+        let succeedingHarness = Fixtures.backgroundHarness(
+            wrapping: succeeding, inlineSettleGrace: Self.inlineSettleGrace, runPlane: plane.runPlane)
+        let failingHarness = Fixtures.backgroundHarness(
+            wrapping: failing, inlineSettleGrace: Self.inlineSettleGrace, runPlane: plane.runPlane)
         let failureDetail = String(describing: Fixtures.FixtureError())
 
         let context = try await TelemetryCapture.run(forbidding: [Self.backgroundContent, failureDetail]) { context in
-            let output = try await succeedingHarness.mounted.call(arguments: MountArguments(value: Self.backgroundContent))
+            let succeedingTool = succeedingHarness.mounted
+            let failingTool = failingHarness.mounted
+            let output = try await plane.answer(settlingWithin: Self.inlineSettleGrace) {
+                try await succeedingTool.call(arguments: MountArguments(value: Self.backgroundContent))
+            }
             #expect(output.contains(Self.backgroundContent))
             await #expect(throws: Fixtures.FixtureError.self) {
-                _ = try await failingHarness.mounted.call(arguments: MountArguments(value: Self.backgroundContent))
+                _ = try await plane.answer(settlingWithin: Self.inlineSettleGrace) {
+                    try await failingTool.call(arguments: MountArguments(value: Self.backgroundContent))
+                }
             }
             await succeedingHarness.runPlane.joinRunBodies()
             await failingHarness.runPlane.joinRunBodies()

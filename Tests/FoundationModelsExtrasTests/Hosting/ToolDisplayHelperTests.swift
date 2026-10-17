@@ -159,10 +159,14 @@ struct ToolDisplayHelperTests {
     func backgroundToolRunnerDeliversTheDisplaysInTheSettlePeriod() async throws {
         let gate = RunLatch()
         gate.open()
+        let plane = await ManualSettlePlane.make()
         let harness = Fixtures.backgroundHarness(
-            wrapping: DisplayingTool(gate: gate), inlineSettleGrace: Fixtures.generousInterval)
+            wrapping: DisplayingTool(gate: gate), inlineSettleGrace: Fixtures.generousInterval, runPlane: plane.runPlane)
 
-        let token = try await harness.mounted.call(arguments: MountArguments(value: Self.callValue))
+        let mounted = harness.mounted
+        let token = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await mounted.call(arguments: MountArguments(value: Self.callValue))
+        }
 
         #expect(!PendingRunEnvelope.isRendered(text: token))
         #expect(await harness.sink.displays == Self.expectedDisplays(tool: harness.mounted.name, token: token))
@@ -198,12 +202,15 @@ struct ToolDisplayHelperTests {
         let sink = Fixtures.StagingSink()
         let gate = RunLatch()
         gate.open()
+        let plane = await ManualSettlePlane.make()
         let runner = BackgroundToolRunner(
             wrapping: DisplayingTool(gate: gate),
-            site: Fixtures.site(runPlane: RunPlane(), sink: sink, inlineSettleGrace: Fixtures.generousInterval),
+            site: Fixtures.site(runPlane: plane.runPlane, sink: sink, inlineSettleGrace: Fixtures.generousInterval),
             timeout: nil)
 
-        let token = try await runner.call(arguments: MountArguments(value: Self.callValue))
+        let token = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await runner.call(arguments: MountArguments(value: Self.callValue))
+        }
 
         let expected = Self.expectedDisplays(tool: runner.name, token: token)
         #expect(await sink.staged.isEmpty)
