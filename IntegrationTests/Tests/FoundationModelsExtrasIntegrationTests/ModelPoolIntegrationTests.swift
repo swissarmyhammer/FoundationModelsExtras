@@ -26,40 +26,30 @@ extension RealModelSuites {
     /// memory of that load, and its progress.
     @Suite("Model pool with real models")
     struct ModelPoolIntegrationTests {
-        @Test("two concurrent acquires of the real LLM load it one time, share one container, and add one model of memory")
-        func concurrentAcquiresLoadTheModelOneTime() async throws {
+        @Test(
+            """
+            two concurrent acquires of the real LLM load it one time, share one container, and add one model of \
+            memory, and after the last release the eviction job removes the model and MLX frees its memory
+            """)
+        func concurrentAcquiresLoadOneModelThatTheEvictionFrees() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
             let loader = RecordingLoader()
             let weightBytes = try ModelMemory.weightBytes(of: IntegrationModels.llm)
+            let tolerance = weightBytes / toleranceDivisor
+            let bytesBefore = ModelMemory.activeBytes
 
             let holds = try await Self.acquireConcurrently(in: pool, loader: loader)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
+            let bytesAfter = ModelMemory.activeBytes
 
             #expect(await loader.loadedKeys == [IntegrationModels.llm])
             #expect(holds.shareOneEntry)
             #expect(holds.modelIDs == Array(repeating: IntegrationModels.llm.ref.repo, count: concurrentHoldCount))
             #expect(
-                abs(holds.activeGrowth - weightBytes) < weightBytes / toleranceDivisor,
+                abs(holds.activeGrowth - weightBytes) < tolerance,
                 "MLX active memory grew \(holds.activeGrowth) bytes; one model is \(weightBytes) bytes")
-        }
-
-        @Test("after the last release, the eviction job removes the real LLM and MLX frees its memory")
-        func evictionFreesTheMemoryOfTheModel() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            let weightBytes = try ModelMemory.weightBytes(of: IntegrationModels.llm)
-            let tolerance = weightBytes / toleranceDivisor
-            let bytesBefore = ModelMemory.activeBytes
-
-            let bytesWhileResident = try await Self.loadAndRelease(in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
-            let bytesAfter = ModelMemory.activeBytes
-
             #expect(!pool.isResident(IntegrationModels.llm))
-            #expect(
-                bytesWhileResident - bytesBefore > weightBytes - tolerance,
-                "the load added \(bytesWhileResident - bytesBefore) bytes; one model is \(weightBytes) bytes")
             #expect(
                 bytesAfter - bytesBefore < tolerance,
                 "after the eviction, \(bytesAfter - bytesBefore) bytes stay of a model of \(weightBytes) bytes")
@@ -67,7 +57,7 @@ extension RealModelSuites {
 
         @Test(
             "two acquires by key through ModelPool() load the real model by name one time, and count the weight files",
-            arguments: [IntegrationModels.embedding, IntegrationModels.toolCallingLLM])
+            arguments: [IntegrationModels.embedding, IntegrationModels.llm])
         func acquireByKeyLoadsEachModelByName(_ key: ModelPoolKey) async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
@@ -81,23 +71,12 @@ extension RealModelSuites {
             #expect(holds.footprintBytes == Int64(try ModelMemory.weightBytes(of: key)))
         }
 
-        @Test("a real load by name through ModelPool() gives its progress in order, and the stream ends with ready")
-        func aLoadEndsWithReady() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            let key = IntegrationModels.embedding
-            let progress = pool.progress(for: key.ref)
-
-            let steps = try await Self.loadAndReadProgress(of: key, in: pool, progress: progress)
-            try await IntegrationModels.waitForEviction(of: key, in: pool)
-
-            #expect(Array(steps.drop(while: \.isDownload)) == [.loading, .ready])
-        }
-
         @Test(
-            "a real download by name reports the real bytes of the repository, which grow to the total, and ends with ready"
-        )
-        func aRealDownloadReportsItsBytes() async throws {
+            """
+            a real load by name through ModelPool() reports the real bytes of the repository, which grow to the \
+            total, then loading, and the stream ends with ready
+            """)
+        func aRealLoadReportsItsBytesAndEndsWithReady() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
             let key = IntegrationModels.embedding
@@ -112,7 +91,7 @@ extension RealModelSuites {
             #expect(last.totalBytes >= weightBytes)
             #expect(last.completedBytes == last.totalBytes)
             #expect(zip(downloads, downloads.dropFirst()).allSatisfy { $0.completedBytes <= $1.completedBytes })
-            #expect(steps.last == .ready)
+            #expect(Array(steps.drop(while: \.isDownload)) == [.loading, .ready])
         }
 
         @Test("a load of a repository name that is not valid ends with failed, and gives no other step")
@@ -178,14 +157,6 @@ extension RealModelSuites {
                 shareOneEntry: holds[0].queue === holds[1].queue,
                 modelIDs: try holds.map { try #require($0.container as? MLXLanguageModel).modelID },
                 activeGrowth: ModelMemory.activeBytes - bytesBefore)
-        }
-
-        /// Loads the LLM, and releases the hold on return.
-        ///
-        /// - Returns: The MLX active memory while the hold exists.
-        private static func loadAndRelease(in pool: ModelPool) async throws -> Int {
-            let hold = try await IntegrationModels.acquire(key: IntegrationModels.llm, in: pool)
-            return withExtendedLifetime(hold) { ModelMemory.activeBytes }
         }
     }
 }
