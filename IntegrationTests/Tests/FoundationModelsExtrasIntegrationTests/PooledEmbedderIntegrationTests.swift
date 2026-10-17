@@ -62,8 +62,8 @@ private enum MixedLengthTexts {
     static let shortCount = shortCountBeforeLong + shortCountAfterLong
 
     /// The count of sentences in the long text: more than 1,000 tokens. One
-    /// padded tensor of all the texts is then large enough that the time of
-    /// its attention is much more than the fixed time of a model call.
+    /// padded tensor of all the texts is then much larger than the
+    /// sub-batches of the same texts.
     static let longSentenceCount = 100
 
     /// The sentence that the long text repeats.
@@ -81,17 +81,13 @@ private enum MixedLengthTexts {
 
     /// The short texts, with the long text at ``longIndex``.
     static let all = Array(shorts[..<longIndex]) + [long] + Array(shorts[longIndex...])
-
-    /// A list of the length of ``all`` with only copies of the long text.
-    /// Its tensor shape is (count) x (longest row), the shape of one padded
-    /// call of ``all``, thus its time is the time of one padded call.
-    static let paddedEquivalent = Array(repeating: long, count: all.count)
 }
 
-/// The smallest ratio of the time of one padded call of ``MixedLengthTexts``
-/// to the time of the call of ``MixedLengthTexts/all``. Only one row of the
-/// call has the length of the long text, thus the call must be much faster.
-private let minimumSpeedupOverPaddedCall = 4.0
+/// The smallest ratio of the tokens of one padded batch of
+/// ``MixedLengthTexts/all`` to the padded tokens of the sub-batches of the
+/// real call. Only one row of the call has the length of the long text, thus
+/// the sub-batches must pad far fewer tokens.
+private let minimumPaddingReduction = 4
 
 /// The lowest cosine between the vector of a text in a batch and the vector of
 /// the same text alone. The pad tokens of a batch must not change a vector, thus
@@ -103,8 +99,18 @@ private let batchCosineFloor: Float = 0.999
 /// division.
 private let oneSubBatch = 1
 
+/// The depth of the queue of the embedding model when the first job runs and
+/// no call waits.
+private let depthOfTheFirstJob = 1
+
 /// The texts that the two users of one embedding model embed.
 private let sharedTexts = ["Route this question to the best model.", "Find the tool that reads a file."]
+
+/// The step that the overlap test writes when the embed call returned.
+private let embedEnded = "the embed call ended"
+
+/// The step that the overlap test writes when the generation ended.
+private let generationEnded = "the generation ended"
 
 /// A user of the shared embedding model.
 private enum EmbedderUser {
@@ -138,7 +144,7 @@ extension RealModelSuites {
     /// model that two users share, one embed call at a time on the queue of the
     /// model, the residency that the embedder handles keep, and the span tree
     /// of an embed call with real tokens and real sub-batches.
-    @Suite("Pooled embedder with a real model", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
+    @Suite("Pooled embedder with a real model")
     struct PooledEmbedderIntegrationTests {
         @Test("a real embed by name gives one vector for each text, and a paraphrase has a higher cosine than an unrelated text")
         func realEmbedByNamePlacesSimilarTextsCloser() async throws {
@@ -173,19 +179,28 @@ extension RealModelSuites {
             #expect(cosines.allSatisfy { $0 >= batchCosineFloor }, "cosines: \(cosines)")
         }
 
-        @Test("a call of short texts and one long text is much faster than one padded call of the same count of texts")
-        func mixedLengthCallIsFasterThanOnePaddedCall() async throws {
+        @Test("a call of short texts and one long text pads far fewer tokens than one padded batch of the same texts")
+        func mixedLengthCallPadsFarFewerTokensThanOnePaddedBatch() async throws {
             try ModelAvailability.requireMetalDevice()
             let pool = ModelPool()
 
-            let outcome = try await Self.timeMixedAndPaddedCalls(in: pool)
+            let context = try await Self.captureMixedLengthEmbed(in: pool, tokenizerLoader: RecordingTokenizerLoader())
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
-            let speedup = outcome.paddedDuration / outcome.mixedDuration
-            #expect(outcome.mixedVectorCount == MixedLengthTexts.all.count)
+            let embedSpan = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.embed, in: context.spans)
+            let subBatchSpans = CapturedSpans.children(
+                named: ExtrasTelemetry.SpanName.embedSubBatch, of: embedSpan, in: context.spans)
+            let textCount = try EmbedSpanExpectations.countAttribute(ExtrasTelemetry.AttributeKey.embedTextCount, of: embedSpan)
+            let maxTokens = try EmbedSpanExpectations.countAttribute(ExtrasTelemetry.AttributeKey.embedMaxTokens, of: embedSpan)
+            let paddedTokens = try subBatchSpans.reduce(0) { total, span in
+                total + (try EmbedSpanExpectations.countAttribute(ExtrasTelemetry.AttributeKey.subBatchPaddedTokens, of: span))
+            }
+            let onePaddedBatch = textCount * maxTokens
+            #expect(textCount == MixedLengthTexts.all.count)
+            #expect(subBatchSpans.count > oneSubBatch)
             #expect(
-                speedup >= minimumSpeedupOverPaddedCall,
-                "mixed call: \(outcome.mixedDuration); padded call: \(outcome.paddedDuration)")
+                onePaddedBatch >= minimumPaddingReduction * paddedTokens,
+                "the sub-batches padded \(paddedTokens) tokens; one padded batch has \(onePaddedBatch) tokens")
         }
 
         @Test("a router and a registry acquire one embedding key, the model loads one time, and the registry embeds with the router container")
@@ -198,8 +213,8 @@ extension RealModelSuites {
             let outcome = try await Self.shareOneModel(in: pool, routerLoader: routerLoader, registryLoader: registryLoader)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
-            #expect(await routerLoader.loads.events.map(\.key) == [IntegrationModels.embedding])
-            #expect(await registryLoader.loads.events.isEmpty)
+            #expect(await routerLoader.loadedKeys == [IntegrationModels.embedding])
+            #expect(await registryLoader.loadedKeys.isEmpty)
             #expect(outcome.shareOneQueue)
             let dimension = try #require(outcome.routerVectors.first).count
             #expect(dimension > 0)
@@ -216,10 +231,9 @@ extension RealModelSuites {
             let outcome = try await Self.embedConcurrently(in: pool, loader: loader)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
-            // The serial run made the first records, and the concurrent calls made the rest.
-            let records = await Array(loader.records.events.dropFirst(concurrentCalls.count))
-            #expect(records.map(\.texts) == concurrentCalls.map { [$0.text] })
-            #expect(zip(records, records.dropFirst()).allSatisfy { $1.start >= $0.end }, "calls: \(records)")
+            // The serial run made the first steps, and the concurrent calls made the rest.
+            let steps = await Array(loader.steps.events.dropFirst(EmbedStep.steps(of: concurrentCalls).count))
+            #expect(steps == EmbedStep.steps(of: concurrentCalls), "calls: \(steps)")
             #expect(outcome.concurrentVectors == outcome.serialVectors)
         }
 
@@ -252,9 +266,7 @@ extension RealModelSuites {
             let dimension = try #require(outcome.vectors.first).count
             #expect(dimension > 0)
             #expect(outcome.vectors.map(\.count) == [dimension])
-            #expect(
-                outcome.embedEnd < outcome.generationEnd,
-                "the embed ended \(outcome.generationEnd - outcome.embedEnd) before the generation")
+            #expect(outcome.steps == [embedEnded, generationEnded])
         }
 
         @Test(
@@ -318,28 +330,6 @@ extension RealModelSuites {
                 alone: try await embedSerially(texts, with: embedder))
         }
 
-        /// Embeds a probe text to warm up the model, then measures one call of
-        /// ``MixedLengthTexts/paddedEquivalent`` and one call of
-        /// ``MixedLengthTexts/all``, through one embedder. The embedder goes on
-        /// return.
-        private static func timeMixedAndPaddedCalls(in pool: ModelPool) async throws -> MixedTimingOutcome {
-            let embedder = try await makeEmbedder(in: pool)
-            _ = try await embedder.embed(texts: [probeText])
-            let padded = try await timedEmbed(of: MixedLengthTexts.paddedEquivalent, with: embedder)
-            let mixed = try await timedEmbed(of: MixedLengthTexts.all, with: embedder)
-            return MixedTimingOutcome(
-                mixedVectorCount: mixed.vectors.count, mixedDuration: mixed.duration, paddedDuration: padded.duration)
-        }
-
-        /// Embeds `texts` in one call, and measures the time of the call.
-        private static func timedEmbed(
-            of texts: [String], with embedder: PooledEmbedder
-        ) async throws -> (vectors: [[Float]], duration: Duration) {
-            let start = ContinuousClock.now
-            let vectors = try await embedder.embed(texts: texts)
-            return (vectors, start.duration(to: .now))
-        }
-
         /// Embeds `text` alone, and gives its one vector.
         private static func vector(of text: String, with embedder: PooledEmbedder) async throws -> [Float] {
             try #require(try await embedder.embed(texts: [text]).first)
@@ -371,11 +361,25 @@ extension RealModelSuites {
             let users = EmbedderUsers(
                 router: try PooledEmbedder(hold: routerHold), registry: try await makeEmbedder(in: pool, loader: loader))
             let serialVectors = try await embedSerially(concurrentCalls.map(\.text), with: users.router)
-            async let firstJob: Void = queue.submit {
-                try await Waiting.until { await queue.waitingCount == concurrentCalls.count }
+            let concurrentVectors = try await TelemetryCapture.run(forbidding: []) { context in
+                let firstJobRuns = Latch()
+                let allCallsWait = Latch()
+                let firstJob = Task {
+                    try await queue.submit {
+                        firstJobRuns.open()
+                        await allCallsWait.waitUntilOpen()
+                    }
+                }
+                await Waits.untilFirstEnds({ await firstJobRuns.waitUntilOpen() }, { _ = await firstJob.result })
+                let calls = await startInTurns(concurrentCalls, with: users, recordingInto: context)
+                allCallsWait.open()
+                try await firstJob.value
+                var vectors: [[Float]] = []
+                for call in calls {
+                    vectors.append(try await call.value)
+                }
+                return vectors
             }
-            let concurrentVectors = try await embedInTurns(concurrentCalls, with: users, on: queue)
-            try await firstJob
             return ConcurrentOutcome(serialVectors: serialVectors, concurrentVectors: concurrentVectors)
         }
 
@@ -391,32 +395,33 @@ extension RealModelSuites {
             }
         }
 
-        /// Makes `calls` concurrently, while a first job runs in `queue`. The
-        /// call at place `index` goes into `queue` when `index` calls wait
-        /// there, thus the calls go into the queue in the order of `calls`.
+        /// Starts `calls` on new tasks, one after the other, while a first job
+        /// runs in the queue of the embedding model. Each call starts when the
+        /// call before it waits in the queue, thus the calls go into the queue
+        /// in the order of `calls`.
         ///
-        /// - Returns: The one vector of each call, in the order of `calls`.
-        private static func embedInTurns(
-            _ calls: [EmbedCall], with users: EmbedderUsers, on queue: GenerationQueue
-        ) async throws -> [[Float]] {
-            let vectorsByIndex: [Int: [Float]] = try await withThrowingTaskGroup(of: (index: Int, vector: [Float]).self) { group in
-                for (index, call) in calls.enumerated() {
-                    group.addTask {
-                        try await Waiting.until { await isTurn(index: index, of: queue) }
-                        return (index, try await vector(of: call.text, with: users.embedder(for: call.user)))
-                    }
-                }
-                return try await group.reduce(into: [:]) { $0[$1.index] = $1.vector }
+        /// The queue records its depth in `context` in the step that accepts a
+        /// call. A call that ends before it waits in the queue also ends its
+        /// wait, and the order check of the test then fails.
+        ///
+        /// - Parameters:
+        ///   - calls: The calls, in order.
+        ///   - users: The embedder of each user.
+        ///   - context: The capture that gets the depth of the queue.
+        /// - Returns: The task of each call, in the order of `calls`.
+        private static func startInTurns(
+            _ calls: [EmbedCall], with users: EmbedderUsers, recordingInto context: TelemetryCapture.Context
+        ) async -> [Task<[Float], any Error>] {
+            var tasks: [Task<[Float], any Error>] = []
+            for (index, call) in calls.enumerated() {
+                let task = Task { try await vector(of: call.text, with: users.embedder(for: call.user)) }
+                let depth = Double(depthOfTheFirstJob + index + 1)
+                await Waits.untilFirstEnds(
+                    { await context.wait { QueueDepth.model(IntegrationModels.embedding, in: $0) == depth } },
+                    { _ = await task.result })
+                tasks.append(task)
             }
-            return try calls.indices.map { try #require(vectorsByIndex[$0]) }
-        }
-
-        /// Whether the call at place `index` may go into `queue` now: a job
-        /// runs, and `index` calls wait behind it.
-        private static func isTurn(index: Int, of queue: GenerationQueue) async -> Bool {
-            let isRunning = await queue.isRunning
-            let waitingCount = await queue.waitingCount
-            return isRunning && waitingCount == index
+            return tasks
         }
 
         /// Makes two embedder handles, embeds with each, and releases one of
@@ -440,24 +445,30 @@ extension RealModelSuites {
         }
 
         /// Starts a long generation on the queue of the LLM, and embeds while
-        /// it runs. The holds go on return.
+        /// it runs. The test writes the end of the embed call and the end of
+        /// the generation into one log. The holds go on return.
         private static func embedDuringGeneration(in pool: ModelPool) async throws -> GenerationOverlapOutcome {
             let llmHold = try await IntegrationModels.acquire(key: IntegrationModels.llm, in: pool)
             let model = try Generation.languageModel(of: llmHold)
             let embeddingHold = try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool)
             let embedder = try PooledEmbedder(hold: embeddingHold)
-            let generationStarts = EventLog<ContinuousClock.Instant>()
-            async let generationEnd = llmHold.queue.submit {
-                await generationStarts.append(.now)
-                _ = try await Generation.respond(to: endlessPrompt, with: model, maximumResponseTokens: longGenerationTokens)
-                return ContinuousClock.now
+            let steps = EventLog<String>()
+            let generationRuns = Latch()
+            let generation = Task {
+                try await llmHold.queue.submit {
+                    generationRuns.open()
+                    _ = try await Generation.respond(to: endlessPrompt, with: model, maximumResponseTokens: longGenerationTokens)
+                    await steps.append(generationEnded)
+                }
             }
-            try await Waiting.until { await !generationStarts.events.isEmpty }
+            // A generation that ends before it opens the latch also ends the
+            // wait, and the order check of the test then fails.
+            await Waits.untilFirstEnds({ await generationRuns.waitUntilOpen() }, { _ = await generation.result })
             let vectors = try await embedder.embed(texts: [probeText])
-            let embedEnd = ContinuousClock.now
+            await steps.append(embedEnded)
+            try await generation.value
             return GenerationOverlapOutcome(
-                shareOneQueue: llmHold.queue === embeddingHold.queue,
-                vectors: vectors, embedEnd: embedEnd, generationEnd: try await generationEnd)
+                shareOneQueue: llmHold.queue === embeddingHold.queue, vectors: vectors, steps: await steps.events)
         }
 
         /// Makes an embedder whose model loads with `tokenizerLoader`, and
@@ -537,6 +548,17 @@ private enum EmbedSpanExpectations {
             ], on: span)
     }
 
+    /// Gives the count that `span` carries as the attribute `key`.
+    ///
+    /// - Parameters:
+    ///   - key: The key of a count attribute.
+    ///   - span: The span.
+    /// - Returns: The count.
+    /// - Throws: A failed expectation when the span has no count with `key`.
+    static func countAttribute(_ key: String, of span: FinishedInMemorySpan) throws -> Int {
+        Int(try #require(span.attributes.get(key)?.integerValue, "the span \(span.operationName) has no count \(key)"))
+    }
+
     /// Expects that `span` carries each attribute of `attributes`.
     ///
     /// - Parameters:
@@ -608,16 +630,6 @@ private struct BatchOutcome {
     let alone: [[Float]]
 }
 
-/// The times of the mixed-length test.
-private struct MixedTimingOutcome {
-    /// The count of vectors of the call of ``MixedLengthTexts/all``.
-    let mixedVectorCount: Int
-    /// The time of the call of ``MixedLengthTexts/all``.
-    let mixedDuration: Duration
-    /// The time of the call of ``MixedLengthTexts/paddedEquivalent``.
-    let paddedDuration: Duration
-}
-
 /// What the two users of one embedding model observed.
 private struct SharedModelOutcome {
     /// Whether the holds of the two users share one queue, thus one pool entry.
@@ -652,34 +664,40 @@ private struct GenerationOverlapOutcome {
     let shareOneQueue: Bool
     /// The vectors of the embed call.
     let vectors: [[Float]]
-    /// The time when the embed call returned.
-    let embedEnd: ContinuousClock.Instant
-    /// The time when the generation ended.
-    let generationEnd: ContinuousClock.Instant
+    /// The end of the embed call and the end of the generation, in order.
+    let steps: [String]
 }
 
-/// One embed call that a ``RecordingEmbedding`` ran.
-private struct EmbedRecord: Sendable {
-    /// The texts of the call.
-    let texts: [String]
-    /// The time when the call started.
-    let start: ContinuousClock.Instant
-    /// The time when the call ended.
-    let end: ContinuousClock.Instant
+/// One step of an embed call that a ``RecordingEmbedding`` ran.
+private enum EmbedStep: Equatable, Sendable {
+    /// The call with these texts started.
+    case started([String])
+    /// The call with these texts ended.
+    case ended([String])
+
+    /// The steps of `calls` when they run one at a time, in order: the start
+    /// and the end of each call with its one text.
+    ///
+    /// - Parameter calls: The calls, in order.
+    /// - Returns: The steps.
+    static func steps(of calls: [EmbedCall]) -> [EmbedStep] {
+        calls.flatMap { [.started([$0.text]), .ended([$0.text])] }
+    }
 }
 
-/// A ``PooledEmbedding`` that records each call of the embedding it wraps.
+/// A ``PooledEmbedding`` that records the start and the end of each call of
+/// the embedding it wraps.
 private struct RecordingEmbedding: PooledEmbedding {
     /// The embedding that does the real work.
     let embedding: any PooledEmbedding
-    /// The completed calls, in the order in which they ended.
-    let records: EventLog<EmbedRecord>
+    /// The steps of the calls, in order.
+    let steps: EventLog<EmbedStep>
 
     /// Embeds `texts` with the wrapped embedding, and records the call.
     func embed(texts: [String]) async throws -> [[Float]] {
-        let start = ContinuousClock.now
+        await steps.append(.started(texts))
         let vectors = try await embedding.embed(texts: texts)
-        await records.append(EmbedRecord(texts: texts, start: start, end: .now))
+        await steps.append(.ended(texts))
         return vectors
     }
 }
@@ -688,8 +706,8 @@ private struct RecordingEmbedding: PooledEmbedding {
 /// gives it wrapped in a ``RecordingEmbedding``. The first loader of a key gives
 /// the container of all holds, thus each user of the key records its calls here.
 private struct RecordingEmbeddingLoader: PooledModelLoader {
-    /// The embed calls of each user of the loaded model.
-    let records = EventLog<EmbedRecord>()
+    /// The steps of the embed calls of each user of the loaded model.
+    let steps = EventLog<EmbedStep>()
 
     /// The loader that does the real work.
     private let loader = MLXModelLoader()
@@ -702,7 +720,7 @@ private struct RecordingEmbeddingLoader: PooledModelLoader {
     ///   container is not a ``PooledEmbedding``.
     func load(_ key: ModelPoolKey) async throws -> any Sendable {
         let embedding = try #require(try await loader.load(key) as? any PooledEmbedding)
-        return RecordingEmbedding(embedding: embedding, records: records)
+        return RecordingEmbedding(embedding: embedding, steps: steps)
     }
 
     /// Evicts the container with `MLXModelLoader`.

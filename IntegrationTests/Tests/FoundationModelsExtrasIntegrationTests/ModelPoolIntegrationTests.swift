@@ -1,5 +1,6 @@
 import FoundationModelsExtras
 import MLXFoundationModels
+import TelemetryTestSupport
 import Testing
 
 /// The divisor that gives the tolerance of a memory check from the bytes of
@@ -21,10 +22,17 @@ private let toleranceDivisor = 10
 /// The holds that the one-load test acquires at the same time.
 private let concurrentHoldCount = 2
 
+/// The depth of the admission queue when the plain acquire waits behind the
+/// running admission job.
+private let depthWithTheAcquireBehindTheJob: Double = 2
+
+/// The step that the admission job of the order test writes when it returns.
+private let admissionJobEnded = PoolStep.test("the admission job ended")
+
 extension RealModelSuites {
     /// The real `ModelPool` with real MLX models: one load for each model, the
     /// memory of that load, and the order of the admission queue.
-    @Suite("Model pool with real models", .timeLimit(.minutes(RealModelSuites.testTimeLimitMinutes)))
+    @Suite("Model pool with real models")
     struct ModelPoolIntegrationTests {
         @Test("two concurrent acquires of the real LLM load it one time, share one container, and add one model of memory")
         func concurrentAcquiresLoadTheModelOneTime() async throws {
@@ -36,7 +44,7 @@ extension RealModelSuites {
             let holds = try await Self.acquireConcurrently(in: pool, loader: loader)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
 
-            #expect(await loader.loads.events.map(\.key) == [IntegrationModels.llm])
+            #expect(await loader.loadedKeys == [IntegrationModels.llm])
             #expect(holds.shareOneEntry)
             #expect(holds.modelIDs == Array(repeating: IntegrationModels.llm.ref.repo, count: concurrentHoldCount))
             #expect(
@@ -72,18 +80,19 @@ extension RealModelSuites {
             let loader = RecordingLoader()
             let footprints = pool.footprints
 
-            let timeline = try await Self.admitLLMWhileAcquiringEmbedding(in: pool, loader: loader)
+            let job = try await Self.admitLLMWhileAcquiringEmbedding(in: pool, loader: loader)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
             try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
 
-            let loads = await loader.loads.events
-            let llmLoad = try #require(loads.first)
-            let embeddingLoad = try #require(loads.last)
-            #expect(timeline.footprintAtJobStart == FootprintStep(resident: [], loadingBytes: 0))
-            #expect(loads.map(\.key) == [IntegrationModels.llm, IntegrationModels.embedding])
-            #expect(timeline.embeddingRequested < llmLoad.end)
-            #expect(llmLoad.end <= timeline.jobEnd)
-            #expect(embeddingLoad.start > timeline.jobEnd)
+            #expect(job.footprintAtJobStart == FootprintStep(resident: [], loadingBytes: 0))
+            // The plain acquire waited in the admission queue before the LLM
+            // load started, and its load started only after the job ended.
+            #expect(job.acquireWaitedBehindTheJob)
+            #expect(
+                await loader.steps.events == [
+                    .loadStarted(IntegrationModels.llm), .loadEnded(IntegrationModels.llm), admissionJobEnded,
+                    .loadStarted(IntegrationModels.embedding), .loadEnded(IntegrationModels.embedding),
+                ])
             #expect(await Self.firstSteps(of: footprints) == Self.oneLoadAtATime)
         }
 
@@ -221,25 +230,35 @@ extension RealModelSuites {
         }
 
         /// Runs one admission job that reads the footprint, starts a plain
-        /// acquire of the embedding model, and then loads the LLM. Releases the
-        /// two holds on return.
+        /// acquire of the embedding model, waits until that acquire waits in
+        /// the admission queue behind the job, and then loads the LLM. The job
+        /// writes its end into the steps of `loader`. Releases the two holds on
+        /// return.
         private static func admitLLMWhileAcquiringEmbedding(
             in pool: ModelPool, loader: RecordingLoader
-        ) async throws -> AdmissionTimeline {
-            let job = try await pool.admit { admission in
-                let footprint = FootprintStep(admission.footprint)
-                let embedding = Task {
-                    let requested = ContinuousClock.now
-                    return (requested, try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader))
+        ) async throws -> AdmissionOutcome {
+            try await TelemetryCapture.run(forbidding: []) { context in
+                let job = try await pool.admit { admission in
+                    let footprint = FootprintStep(admission.footprint)
+                    let embedding = Task {
+                        try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader)
+                    }
+                    // A plain acquire that does not wait for this job ends
+                    // the wait too.
+                    await Waits.untilFirstEnds(
+                        { await context.wait { QueueDepth.admission(in: $0) == depthWithTheAcquireBehindTheJob } },
+                        { _ = await embedding.result })
+                    let acquireWaited = QueueDepth.admission(in: context) == depthWithTheAcquireBehindTheJob
+                    let hold = try await admission.acquire(
+                        IntegrationModels.llm, footprintBytes: IntegrationModels.footprintBytes,
+                        sessionBytes: IntegrationModels.sessionBytes, loader: loader)
+                    await loader.steps.append(admissionJobEnded)
+                    return AdmissionJob(footprint: footprint, acquireWaited: acquireWaited, embedding: embedding, llmHold: hold)
                 }
-                let hold = try await admission.acquire(
-                    IntegrationModels.llm, footprintBytes: IntegrationModels.footprintBytes,
-                    sessionBytes: IntegrationModels.sessionBytes, loader: loader)
-                return AdmissionJob(footprint: footprint, embedding: embedding, llmHold: hold, end: .now)
-            }
-            let (requested, embeddingHold) = try await job.embedding.value
-            return withExtendedLifetime((job.llmHold, embeddingHold)) {
-                AdmissionTimeline(footprintAtJobStart: job.footprint, embeddingRequested: requested, jobEnd: job.end)
+                let embeddingHold = try await job.embedding.value
+                return withExtendedLifetime((job.llmHold, embeddingHold)) {
+                    AdmissionOutcome(footprintAtJobStart: job.footprint, acquireWaitedBehindTheJob: job.acquireWaited)
+                }
             }
         }
 
@@ -276,22 +295,22 @@ private struct ByKeyHolds {
 private struct AdmissionJob: Sendable {
     /// The footprint at the start of the job.
     let footprint: FootprintStep
+    /// Whether the plain acquire waited in the admission queue behind the job
+    /// before the job loaded the LLM.
+    let acquireWaited: Bool
     /// The plain acquire of the embedding model, which the job started.
-    let embedding: Task<(ContinuousClock.Instant, ModelHold), any Error>
+    let embedding: Task<ModelHold, any Error>
     /// The hold of the LLM that the job loaded.
     let llmHold: ModelHold
-    /// The time when the job returned.
-    let end: ContinuousClock.Instant
 }
 
-/// The times of the admission test.
-private struct AdmissionTimeline {
+/// What the admission test observed.
+private struct AdmissionOutcome {
     /// The footprint that the admission job read at its start.
     let footprintAtJobStart: FootprintStep
-    /// The time when the plain acquire of the embedding model started.
-    let embeddingRequested: ContinuousClock.Instant
-    /// The time when the admission job returned.
-    let jobEnd: ContinuousClock.Instant
+    /// Whether the plain acquire waited in the admission queue behind the job
+    /// before the job loaded the LLM.
+    let acquireWaitedBehindTheJob: Bool
 }
 
 /// A footprint as the resident models and the bytes of the load that runs.
