@@ -64,8 +64,8 @@ comments:
   timestamp: 2026-10-17T12:52:22.961026+00:00
 depends_on:
 - 01M53BTZ0M0DH3HXBD47N7BNKZ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffa680
 title: 'Tests: the mount timeouts and the settle grace use a manual clock, not the real clock'
 ---
 ## Goal

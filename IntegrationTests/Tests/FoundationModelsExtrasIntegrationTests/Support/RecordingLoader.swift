@@ -1,58 +1,31 @@
 import FoundationModelsExtras
 
-/// One step that a pool test records, in the order of the steps.
+/// An `MLXModelLoader` that records each load that ends.
 ///
-/// A ``RecordingLoader`` writes the start and the end of each load, and the
-/// test writes its own steps into the same log. Thus the order of the log
-/// shows which step came first, and the test reads no clock.
-enum PoolStep: Equatable, Sendable {
-    /// The pool called the loader for the model.
-    case loadStarted(ModelPoolKey)
-    /// The loader returned the container of the model.
-    case loadEnded(ModelPoolKey)
-    /// A step of the test itself, by name.
-    case test(String)
-}
-
-/// An `MLXModelLoader` that records the start and the end of each load.
-///
-/// A test counts the loads, and compares the order of the loads with the
-/// order of its own steps.
+/// A test counts the loads of a pool with it.
 struct RecordingLoader: PooledModelLoader {
-    /// The steps of the loads, and of the test when it shares this log.
-    let steps: EventLog<PoolStep>
+    /// The model of each load that ended, in the order in which the loads
+    /// ended.
+    private let loads = EventLog<ModelPoolKey>()
 
     /// The loader that does the real work.
     private let loader = MLXModelLoader()
 
-    /// Makes a loader that records into `steps`.
-    ///
-    /// - Parameter steps: The log of the steps. The default is a new log.
-    init(steps: EventLog<PoolStep> = EventLog()) {
-        self.steps = steps
-    }
-
     /// The model of each completed load, in the order in which the loads
     /// ended.
     var loadedKeys: [ModelPoolKey] {
-        get async {
-            await steps.events.compactMap { step in
-                guard case .loadEnded(let key) = step else { return nil }
-                return key
-            }
-        }
+        get async { await loads.events }
     }
 
-    /// Loads the model of `key` with `MLXModelLoader`, and records the start
-    /// and the end of the load.
+    /// Loads the model of `key` with `MLXModelLoader`, and records the end of
+    /// the load.
     ///
     /// - Parameter key: The model and its role.
     /// - Returns: The loaded container.
-    /// - Throws: The error of the load. A failed load records no end.
+    /// - Throws: The error of the load. A failed load records nothing.
     func load(_ key: ModelPoolKey) async throws -> any Sendable {
-        await steps.append(.loadStarted(key))
         let container = try await loader.load(key)
-        await steps.append(.loadEnded(key))
+        await loads.append(key)
         return container
     }
 

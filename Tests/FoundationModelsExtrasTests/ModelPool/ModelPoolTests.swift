@@ -50,6 +50,22 @@ struct ModelPoolTests {
     /// other job came: the record of its enqueue.
     private static let recordsOfOneRunningJob = 1
 
+    /// The key that the admit job of the load order test loads.
+    private static let jobKey = ModelPoolKey(ref: "org/job", role: .llm)
+
+    /// The log line of the load of ``jobKey`` by the loader `A`.
+    private static let loadOfJobKey = "load org/job by A"
+
+    /// The first footprints of the load order test: the admit job loads
+    /// ``jobKey``, and only then the queued acquire loads ``key``.
+    private static let oneLoadAtATime = [
+        ModelPoolFootprint(resident: [:], loadingBytes: 0),
+        ModelPoolFootprint(resident: [:], loadingBytes: footprintBytes),
+        ModelPoolFootprint(resident: [jobKey: footprintBytes], loadingBytes: 0),
+        ModelPoolFootprint(resident: [jobKey: footprintBytes], loadingBytes: footprintBytes),
+        ModelPoolFootprint(resident: [jobKey: footprintBytes, key: footprintBytes], loadingBytes: 0),
+    ]
+
     /// How many times the order test releases two holds at the same time.
     private static let orderRepetitions = 100
 
@@ -110,9 +126,9 @@ struct ModelPoolTests {
     }
 
     /// An admit job that holds the admission queue until the test ends it.
-    private struct BlockingJob {
-        /// The task that waits for the job.
-        let task: Task<Void, any Error>
+    private struct BlockingJob<Value: Sendable> {
+        /// The task that waits for the job, and gives what the job gave.
+        let task: Task<Value, any Error>
 
         /// Finish this to end the job.
         let end: AsyncStream<Void>.Continuation
@@ -126,13 +142,32 @@ struct ModelPoolTests {
     ///   - log: The log.
     /// - Returns: The job.
     /// - Throws: An `ExpectationFailedError` when the job never ran.
-    private static func startBlockingJob(on pool: ModelPool, log: Recorder<String>) async throws -> BlockingJob {
+    private static func startBlockingJob(on pool: ModelPool, log: Recorder<String>) async throws -> BlockingJob<Void> {
+        try await startBlockingJob(on: pool, log: log) { _ in }
+    }
+
+    /// Starts an admit job that writes `"job begins"`, waits until the test
+    /// ends it, runs `last`, writes `"job ends"`, and gives what `last` gave.
+    /// Returns when the job runs.
+    ///
+    /// - Parameters:
+    ///   - pool: The pool.
+    ///   - log: The log.
+    ///   - last: The work of the job after the test ends the wait.
+    /// - Returns: The job.
+    /// - Throws: An `ExpectationFailedError` when the job never ran.
+    private static func startBlockingJob<Value: Sendable>(
+        on pool: ModelPool, log: Recorder<String>,
+        last: @escaping @Sendable (ModelPoolAdmission) async throws -> Value
+    ) async throws -> BlockingJob<Value> {
         let (mayEnd, end) = AsyncStream.makeStream(of: Void.self)
         let task = Task {
-            try await pool.admit { _ in
+            try await pool.admit { admission in
                 log.append("job begins")
                 for await _ in mayEnd {}
+                let value = try await last(admission)
                 log.append("job ends")
+                return value
             }
         }
         await log.waitUntil(holds: "job begins", orUntilEndOf: task)
@@ -247,12 +282,18 @@ struct ModelPoolTests {
         #expect(try Self.model(in: firstHold) === Self.model(in: secondHold))
     }
 
-    @Test("acquire of a new key, started while an admit job runs, loads only after that job ends")
+    @Test("acquire of a new key, started while an admit job that loads a first key runs, loads only after that job ends")
     func newKeyAcquireLoadsAfterTheAdmitJob() async throws {
         let pool = ModelPool()
         let log = Recorder<String>()
         let loader = RecordingLoader(name: "A", log: log)
-        let job = try await Self.startBlockingJob(on: pool, log: log)
+        let footprints = pool.footprints
+        let job = try await Self.startBlockingJob(on: pool, log: log) { admission in
+            // The job loads its key after the acquire of the test waits in
+            // the admission queue.
+            try await admission.acquire(
+                Self.jobKey, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: loader)
+        }
 
         let acquiring = try await TelemetryCapture.run(forbidding: []) { context in
             await Self.startQueuedAcquire(on: pool, recordingInto: context) {
@@ -261,12 +302,15 @@ struct ModelPoolTests {
         }
         let logWhileTheJobRuns = log.values
         job.end.finish()
-        try await job.task.value
+        let jobHold = try await job.task.value
         let hold = try await acquiring.value
 
         #expect(logWhileTheJobRuns == ["job begins"])
-        #expect(log.values == ["job begins", "job ends", Self.loadByA])
+        #expect(log.values == ["job begins", Self.loadOfJobKey, "job ends", Self.loadByA])
         #expect(hold.key == Self.key)
+        // The second load starts only after the first model is resident.
+        #expect(await Self.first(Self.oneLoadAtATime.count, of: footprints) == Self.oneLoadAtATime)
+        withExtendedLifetime(jobHold) {}
     }
 
     @Test("inside an admit job, admission.acquire of a new key loads it with no deadlock")

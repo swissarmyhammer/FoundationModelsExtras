@@ -1,6 +1,5 @@
 import FoundationModelsExtras
 import MLXFoundationModels
-import TelemetryTestSupport
 import Testing
 
 /// The divisor that gives the tolerance of a memory check from the bytes of
@@ -22,16 +21,9 @@ private let toleranceDivisor = 10
 /// The holds that the one-load test acquires at the same time.
 private let concurrentHoldCount = 2
 
-/// The depth of the admission queue when the plain acquire waits behind the
-/// running admission job.
-private let depthWithTheAcquireBehindTheJob: Double = 2
-
-/// The step that the admission job of the order test writes when it returns.
-private let admissionJobEnded = PoolStep.test("the admission job ended")
-
 extension RealModelSuites {
     /// The real `ModelPool` with real MLX models: one load for each model, the
-    /// memory of that load, and the order of the admission queue.
+    /// memory of that load, and its progress.
     @Suite("Model pool with real models")
     struct ModelPoolIntegrationTests {
         @Test("two concurrent acquires of the real LLM load it one time, share one container, and add one model of memory")
@@ -71,29 +63,6 @@ extension RealModelSuites {
             #expect(
                 bytesAfter - bytesBefore < tolerance,
                 "after the eviction, \(bytesAfter - bytesBefore) bytes stay of a model of \(weightBytes) bytes")
-        }
-
-        @Test("a plain acquire of a second model loads only after the admission job that loads the first model ends")
-        func acquireWaitsForTheRunningAdmissionJob() async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
-            let loader = RecordingLoader()
-            let footprints = pool.footprints
-
-            let job = try await Self.admitLLMWhileAcquiringEmbedding(in: pool, loader: loader)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.llm, in: pool)
-            try await IntegrationModels.waitForEviction(of: IntegrationModels.embedding, in: pool)
-
-            #expect(job.footprintAtJobStart == FootprintStep(resident: [], loadingBytes: 0))
-            // The plain acquire waited in the admission queue before the LLM
-            // load started, and its load started only after the job ended.
-            #expect(job.acquireWaitedBehindTheJob)
-            #expect(
-                await loader.steps.events == [
-                    .loadStarted(IntegrationModels.llm), .loadEnded(IntegrationModels.llm), admissionJobEnded,
-                    .loadStarted(IntegrationModels.embedding), .loadEnded(IntegrationModels.embedding),
-                ])
-            #expect(await Self.firstSteps(of: footprints) == Self.oneLoadAtATime)
         }
 
         @Test(
@@ -198,16 +167,6 @@ extension RealModelSuites {
                 footprintBytes: pool.footprint.resident[key] ?? 0)
         }
 
-        /// The first footprints of a new pool in which one admission job loads
-        /// the LLM and a plain acquire then loads the embedding model.
-        private static let oneLoadAtATime = [
-            FootprintStep(resident: [], loadingBytes: 0),
-            FootprintStep(resident: [], loadingBytes: IntegrationModels.footprintBytes),
-            FootprintStep(resident: [IntegrationModels.llm], loadingBytes: 0),
-            FootprintStep(resident: [IntegrationModels.llm], loadingBytes: IntegrationModels.footprintBytes),
-            FootprintStep(resident: [IntegrationModels.llm, IntegrationModels.embedding], loadingBytes: 0),
-        ]
-
         /// Acquires the LLM with concurrent calls, and releases the holds on
         /// return.
         private static func acquireConcurrently(in pool: ModelPool, loader: RecordingLoader) async throws -> SharedHolds {
@@ -227,44 +186,6 @@ extension RealModelSuites {
         private static func loadAndRelease(in pool: ModelPool) async throws -> Int {
             let hold = try await IntegrationModels.acquire(key: IntegrationModels.llm, in: pool)
             return withExtendedLifetime(hold) { ModelMemory.activeBytes }
-        }
-
-        /// Runs one admission job that reads the footprint, starts a plain
-        /// acquire of the embedding model, waits until that acquire waits in
-        /// the admission queue behind the job, and then loads the LLM. The job
-        /// writes its end into the steps of `loader`. Releases the two holds on
-        /// return.
-        private static func admitLLMWhileAcquiringEmbedding(
-            in pool: ModelPool, loader: RecordingLoader
-        ) async throws -> AdmissionOutcome {
-            try await TelemetryCapture.run(forbidding: []) { context in
-                let job = try await pool.admit { admission in
-                    let footprint = FootprintStep(admission.footprint)
-                    let embedding = Task {
-                        try await IntegrationModels.acquire(key: IntegrationModels.embedding, in: pool, loader: loader)
-                    }
-                    // A plain acquire that does not wait for this job ends
-                    // the wait too.
-                    await Waits.untilFirstEnds(
-                        { await context.wait { QueueDepth.admission(in: $0) == depthWithTheAcquireBehindTheJob } },
-                        { _ = await embedding.result })
-                    let acquireWaited = QueueDepth.admission(in: context) == depthWithTheAcquireBehindTheJob
-                    let hold = try await admission.acquire(
-                        IntegrationModels.llm, footprintBytes: IntegrationModels.footprintBytes,
-                        sessionBytes: IntegrationModels.sessionBytes, loader: loader)
-                    await loader.steps.append(admissionJobEnded)
-                    return AdmissionJob(footprint: footprint, acquireWaited: acquireWaited, embedding: embedding, llmHold: hold)
-                }
-                let embeddingHold = try await job.embedding.value
-                return withExtendedLifetime((job.llmHold, embeddingHold)) {
-                    AdmissionOutcome(footprintAtJobStart: job.footprint, acquireWaitedBehindTheJob: job.acquireWaited)
-                }
-            }
-        }
-
-        /// Reads the first footprints of a stream that a new pool made.
-        private static func firstSteps(of footprints: AsyncStream<ModelPoolFootprint>) async -> [FootprintStep] {
-            await footprints.prefix(oneLoadAtATime.count).map(FootprintStep.init).reduce(into: []) { $0.append($1) }
         }
     }
 }
@@ -289,43 +210,6 @@ private struct ByKeyHolds {
     let residentModelCount: Int
     /// The bytes that the pool counts for the model while the two holds exist.
     let footprintBytes: Int64
-}
-
-/// What the admission job returns.
-private struct AdmissionJob: Sendable {
-    /// The footprint at the start of the job.
-    let footprint: FootprintStep
-    /// Whether the plain acquire waited in the admission queue behind the job
-    /// before the job loaded the LLM.
-    let acquireWaited: Bool
-    /// The plain acquire of the embedding model, which the job started.
-    let embedding: Task<ModelHold, any Error>
-    /// The hold of the LLM that the job loaded.
-    let llmHold: ModelHold
-}
-
-/// What the admission test observed.
-private struct AdmissionOutcome {
-    /// The footprint that the admission job read at its start.
-    let footprintAtJobStart: FootprintStep
-    /// Whether the plain acquire waited in the admission queue behind the job
-    /// before the job loaded the LLM.
-    let acquireWaitedBehindTheJob: Bool
-}
-
-/// A footprint as the resident models and the bytes of the load that runs.
-private struct FootprintStep: Equatable, Sendable {
-    /// The resident models.
-    let resident: Set<ModelPoolKey>
-    /// The bytes of the load that runs, or 0.
-    let loadingBytes: Int64
-}
-
-extension FootprintStep {
-    /// Makes the step of `footprint`.
-    init(_ footprint: ModelPoolFootprint) {
-        self.init(resident: Set(footprint.resident.keys), loadingBytes: footprint.loadingBytes)
-    }
 }
 
 extension ModelLoadProgress {
