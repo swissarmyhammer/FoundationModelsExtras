@@ -51,26 +51,16 @@ extension RealModelSuites {
     @Suite("MLX model loader with a tokenizer loader")
     struct MLXModelLoaderIntegrationTests {
         @Test(
-            "a real load by name through MLXModelLoader(tokenizerLoader:) loads the tokenizer one time with that tokenizer loader",
+            """
+            a real load by name through MLXModelLoader(tokenizerLoader:) loads the tokenizer one time with that \
+            tokenizer loader, and opens one load span and one child span of the right parent for each phase, with \
+            no cache path
+            """,
             arguments: [IntegrationModels.llm, IntegrationModels.embedding])
-        func aLoadUsesTheGivenTokenizerLoader(key: ModelPoolKey) async throws {
+        func aLoadUsesTheGivenTokenizerLoaderAndOpensItsPhaseSpans(key: ModelPoolKey) async throws {
             try ModelAvailability.requireMetalDevice()
             let tokenizerLoader = RecordingTokenizerLoader()
             let pool = ModelPool(loader: MLXModelLoader(tokenizerLoader: tokenizerLoader))
-
-            // The hold goes at once, thus the eviction job follows the load.
-            _ = try await pool.acquire(key)
-            try await IntegrationModels.waitForEviction(of: key, in: pool)
-
-            #expect(await tokenizerLoader.directories.events.count == tokenizerLoadsOfOneModelLoad)
-        }
-
-        @Test(
-            "a real load by name opens one load span, and one child span of the right parent for each phase, with no cache path",
-            arguments: [IntegrationModels.llm, IntegrationModels.embedding])
-        func aLoadOpensItsPhaseSpans(key: ModelPoolKey) async throws {
-            try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
 
             let spans = try await TelemetryCapture.run(forbidding: [HubCache.default.cacheDirectory.path]) { context in
                 // The hold goes at once, thus the eviction job follows the load.
@@ -79,6 +69,7 @@ extension RealModelSuites {
                 return context.spans
             }
 
+            #expect(await tokenizerLoader.directories.events.count == tokenizerLoadsOfOneModelLoad)
             let load = try CapturedSpans.onlySpan(named: ExtrasTelemetry.SpanName.modelLoad, in: spans)
             #expect(load.attributes.get(ExtrasTelemetry.AttributeKey.modelRef) == .string(key.ref.stringValue))
             #expect(
