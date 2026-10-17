@@ -18,8 +18,9 @@ import Testing
 /// or the runner kills it at a short timeout.
 /// No test sleeps or polls. A test that needs the pid of a running child
 /// gets it from the child through a named pipe (``PidHandshake``). The wait
-/// for the exit of a grandchild is the one wait with a deadline, because only
-/// the OS reports that exit (``exits(_:within:)``).
+/// for the exit of a grandchild has no deadline: the grandchild ends at the
+/// group kill, or by itself after its sleep, and only the second end writes a
+/// marker file (``exits(_:)``).
 @Suite struct ProcessRunnerTests {
 
   /// A timeout that no test reaches: the child ends on its own first.
@@ -46,11 +47,6 @@ import Testing
   /// it registered the pid, thus the pid is in the registry when the test
   /// gets it.
   private static let pipeFillBytes = 262_144
-
-  /// The deadline of the wait for the exit of a grandchild. The grandchild
-  /// sleeps for ``longSleepSeconds``, which is longer, thus a grandchild that
-  /// the group kill did not reach is still alive at the deadline.
-  private static let grandchildExitDeadline: Duration = .seconds(30)
 
   /// Runs `/bin/sh -c script` through the runner with the given cap and
   /// registry, in a temporary directory.
@@ -123,31 +119,27 @@ import Testing
     }
   }
 
-  /// Waits until `pid` exits, or until `deadline` passes.
+  /// Waits until `pid` exits.
   ///
   /// The group kill stops a grandchild, and launchd then owns the
   /// grandchild. Only the OS reports its exit, as a `NOTE_EXIT` event of a
-  /// kqueue. When the kill did not reach the grandchild, no event of the
-  /// runner shows it, thus this one wait has a deadline. The wait runs on a
-  /// thread of its own, because `kevent` blocks.
+  /// kqueue. The wait has no deadline: a grandchild that the kill did not
+  /// reach ends by itself at the end of its sleep. The wait runs on a thread
+  /// of its own, because `kevent` blocks.
   ///
-  /// - Parameters:
-  ///   - pid: The pid of the process.
-  ///   - deadline: The longest wait.
+  /// - Parameter pid: The pid of the process.
   /// - Returns: `true` when the process exited, or was gone already.
-  private static func exits(_ pid: pid_t, within deadline: Duration) async -> Bool {
+  private static func exits(_ pid: pid_t) async -> Bool {
     await withCheckedContinuation { continuation in
-      Thread { continuation.resume(returning: waitForExit(of: pid, within: deadline)) }.start()
+      Thread { continuation.resume(returning: waitForExit(of: pid)) }.start()
     }
   }
 
-  /// Blocks in `kevent` until `pid` exits, or until `deadline` passes.
+  /// Blocks in `kevent` until `pid` exits.
   ///
-  /// - Parameters:
-  ///   - pid: The pid of the process.
-  ///   - deadline: The longest wait.
+  /// - Parameter pid: The pid of the process.
   /// - Returns: `true` when the process exited, or was gone already.
-  private static func waitForExit(of pid: pid_t, within deadline: Duration) -> Bool {
+  private static func waitForExit(of pid: pid_t) -> Bool {
     let queue = kqueue()
     guard queue >= 0 else { return false }
     defer { close(queue) }
@@ -155,8 +147,7 @@ import Testing
       ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT), fflags: NOTE_EXIT,
       data: 0, udata: nil)
     var event = kevent()
-    var timeout = timespec(tv_sec: Int(deadline.components.seconds), tv_nsec: 0)
-    let count = kevent(queue, &change, 1, &event, 1, &timeout)
+    let count = kevent(queue, &change, 1, &event, 1, nil)
     if count < 0 {
       return errno == ESRCH
     }
@@ -222,13 +213,19 @@ import Testing
   }
 
   @Test func aChildOfTheChildIsAlsoKilledBecauseTheKillGoesToTheGroup() async throws {
+    let marker = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: marker) }
+    // The grandchild writes the marker only when its sleep ends by itself.
     let outcome = try await Self.runShell(
-      "sleep \(Self.longSleepSeconds) & echo $!; wait", timeout: Self.shortTimeout)
+      "(sleep \(Self.longSleepSeconds); touch '\(marker.path)') & echo $!; wait", timeout: Self.shortTimeout)
 
     #expect(outcome.termination == .timedOut)
     let grandchildText = try #require(outcome.output.first)
     let grandchild = try #require(pid_t(grandchildText))
-    #expect(await Self.exits(grandchild, within: Self.grandchildExitDeadline))
+    #expect(await Self.exits(grandchild))
+    // A grandchild that the group kill did not reach ends after its sleep,
+    // and then the marker is there.
+    #expect(!FileManager.default.fileExists(atPath: marker.path))
   }
 
   // MARK: - No kill after the reap

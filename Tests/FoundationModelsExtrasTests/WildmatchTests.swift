@@ -223,17 +223,12 @@ import Testing
   /// they can each greedily claim is the classic pathological input for a
   /// naive recursive matcher (exponential blowup). `Wildmatch` uses the
   /// iterative two-pointer algorithm instead, which is
-  /// `O(pattern.count * text.count)` — this should resolve in well under a
-  /// second even at this size, not time out or exhaust the stack.
+  /// `O(pattern.count * text.count)`. The test reads no clock: a matcher that
+  /// blows up does not end, and then the test run stops making output.
   @Test func pathologicalStarPatternDoesNotBlowUp() {
     let pattern = String(repeating: "a*", count: 40) + "b"
     let text = String(repeating: "a", count: 8000)
 
-    let start = Date()
-    let result = Wildmatch.wildmatch(pattern: pattern, path: text)
-    let elapsed = Date().timeIntervalSince(start)
-
-    #expect(result == false)
-    #expect(elapsed < 3.0, "matching took \(elapsed)s — suspect exponential blowup")
+    #expect(Wildmatch.wildmatch(pattern: pattern, path: text) == false)
   }
 }
