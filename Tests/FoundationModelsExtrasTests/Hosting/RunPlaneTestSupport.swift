@@ -197,13 +197,135 @@ extension ManualRunClock {
     func elapse<Value: Sendable, Failure: Error>(
         _ seconds: Double, endingWait waiting: Task<Value, Failure>
     ) async throws -> Value {
-        await waitForSleepers(atLeast: 1) { _ = await waiting.result }
-        try #require(sleeperCount == 1, "the task set no timer on the clock")
-        advance(by: .seconds(seconds) - Self.lastStepOfATimer)
-        try #require(sleeperCount == 1, "the timer ended before \(seconds) seconds")
-        advance(by: Self.lastStepOfATimer)
-        try #require(sleeperCount == 0, "the timer did not end at \(seconds) seconds")
+        try await elapseOneTimer(seconds, among: 1) { _ = await waiting.result }
         return try await waiting.result.get()
+    }
+
+    /// Moves this clock to the end of one timer of `seconds`, while `count`
+    /// timers wait on it.
+    ///
+    /// First `count` timers must wait on this clock, or `ended` must end.
+    /// Then the clock moves to one step before `seconds`, and each timer
+    /// must still wait. Then the clock moves the last step, and exactly one
+    /// timer must end. A wrong number of timers, or a timer that ends before
+    /// or after `seconds`, makes the test fail, and the test does not hang.
+    ///
+    /// - Parameters:
+    ///   - seconds: The length of the timer that must end, in seconds.
+    ///   - count: The number of timers that wait before the move.
+    ///   - ended: The wait for the event that shows that no more timers
+    ///     come, for example the end of a call.
+    /// - Throws: When the number of timers is wrong, or no single timer ended
+    ///   at `seconds`.
+    func elapseOneTimer(
+        _ seconds: Double, among count: Int, orUntil ended: @escaping @Sendable () async -> Void
+    ) async throws {
+        await waitForSleepers(atLeast: count, orUntil: ended)
+        try #require(sleeperCount == count, "\(sleeperCount) timers wait on the clock, not \(count)")
+        advance(by: .seconds(seconds) - Self.lastStepOfATimer)
+        try #require(sleeperCount == count, "a timer ended before \(seconds) seconds")
+        advance(by: Self.lastStepOfATimer)
+        try #require(sleeperCount == count - 1, "no timer ended at \(seconds) seconds")
+    }
+}
+
+/// Keeps each terminal event that a run plane gives to its settlement
+/// observer, so a test waits for the settle of a run with no poll.
+final class SettledRunLog: BackgroundRunSettlementObserver {
+    /// Each terminal event, in delivery order.
+    let terminals = Recorder<OperationEvent>()
+
+    /// Keeps `terminal`.
+    ///
+    /// - Parameter terminal: The terminal event of the run.
+    func deliver(settledTerminal terminal: OperationEvent) async {
+        terminals.append(terminal)
+    }
+}
+
+/// A run plane whose timers wait on a ``ManualRunClock``, with a log of the
+/// runs that settle on it by themselves.
+///
+/// A settle period on this plane ends only when the test moves the clock.
+/// The run plane resumes each wait for a run before it gives the terminal
+/// event to the log. Thus, when the log has the terminal event, each call
+/// that waits for that run already has the settlement, and a move of the
+/// clock cannot change its answer.
+struct ManualSettlePlane {
+    /// One call that waits on the plane for its run.
+    struct Call<Value: Sendable> {
+        /// The task of the call.
+        let task: Task<Value, any Error>
+
+        /// The number of runs that settled on the plane before the call
+        /// started.
+        let settledBefore: Int
+    }
+
+    /// The clock of the timers of the plane.
+    let clock: ManualRunClock
+
+    /// The run plane.
+    let runPlane: RunPlane
+
+    /// The log of the runs that settled by themselves.
+    let settledRuns: SettledRunLog
+
+    /// Makes a plane on a new manual clock, with a new log as its settlement
+    /// observer. The plane keeps the log.
+    ///
+    /// - Returns: The plane.
+    static func make() async -> ManualSettlePlane {
+        let clock = ManualRunClock()
+        let plane = ManualSettlePlane(clock: clock, runPlane: RunPlane(clock: clock), settledRuns: SettledRunLog())
+        await plane.runPlane.attach(settlementObserver: plane.settledRuns)
+        return plane
+    }
+
+    /// Starts `body`, a call that waits on this plane for its run.
+    ///
+    /// - Parameter body: The call.
+    /// - Returns: The started call.
+    func start<Value: Sendable>(_ body: @escaping @Sendable () async throws -> Value) -> Call<Value> {
+        // The count comes before the start, so no settle of this call is in it.
+        let settledBefore = settledRuns.terminals.values.count
+        return Call(task: Task { try await body() }, settledBefore: settledBefore)
+    }
+
+    /// The answer of `call`, a call that waits for its run up to `grace`.
+    ///
+    /// The wait ends when the call ends, or when a run settles on this plane
+    /// first. Then the clock moves past `grace`. A call that did not see the
+    /// settle then ends at its deadline with the pending envelope, and the
+    /// test fails and does not hang. A run that never settles, in a call that
+    /// never ends, gives no event to wait for.
+    ///
+    /// - Parameters:
+    ///   - call: The started call.
+    ///   - grace: The settle period of the call, in seconds.
+    /// - Returns: The value of the call.
+    /// - Throws: The error of the call.
+    func answer<Value: Sendable>(of call: Call<Value>, settlingWithin grace: TimeInterval) async throws -> Value {
+        let terminals = settledRuns.terminals
+        let task = call.task
+        await Waits.untilFirstEnds(
+            { await terminals.waitUntil { $0.count > call.settledBefore } }, { _ = await task.result })
+        clock.advance(by: .seconds(grace))
+        return try await task.value
+    }
+
+    /// Starts `body`, a call that waits on this plane for its run up to
+    /// `grace`, and returns its answer. See ``answer(of:settlingWithin:)``.
+    ///
+    /// - Parameters:
+    ///   - grace: The settle period of the call, in seconds.
+    ///   - body: The call.
+    /// - Returns: The value of the call.
+    /// - Throws: The error of the call.
+    func answer<Value: Sendable>(
+        settlingWithin grace: TimeInterval, of body: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try await answer(of: start(body), settlingWithin: grace)
     }
 }
 

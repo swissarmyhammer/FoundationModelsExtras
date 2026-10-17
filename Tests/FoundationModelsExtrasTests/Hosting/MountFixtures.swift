@@ -315,13 +315,20 @@ enum MountFixtures {
         return Harness(runPlane: runPlane, sink: sink, mounted: mounted)
     }
 
-    /// Mounts `tool` in a ``RunToCompletionRunner`` over a new run plane and
-    /// sink.
+    /// Mounts `tool` in a ``RunToCompletionRunner`` over a run plane and a
+    /// new sink.
+    ///
+    /// - Parameters:
+    ///   - tool: The tool to mount.
+    ///   - timeout: The timeout of the mount, or `nil` for none.
+    ///   - runPlane: The run plane of the mount. The default is a new run
+    ///     plane on the real clock. A test of the timeout gives a run plane
+    ///     on a ``ManualRunClock``.
     static func runToCompletionHarness<Arguments: ConvertibleFromGeneratedContent & Sendable>(
         wrapping tool: any Tool<Arguments, String>,
-        timeout: TimeInterval? = nil
+        timeout: TimeInterval? = nil,
+        runPlane: RunPlane = RunPlane()
     ) -> Harness<RunToCompletionRunner<Arguments>> {
-        let runPlane = RunPlane()
         let sink = RecordingSink()
         let mounted = RunToCompletionRunner(wrapping: tool, site: site(runPlane: runPlane, sink: sink), timeout: timeout)
         return Harness(runPlane: runPlane, sink: sink, mounted: mounted)

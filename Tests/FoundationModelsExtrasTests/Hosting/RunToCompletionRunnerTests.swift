@@ -127,29 +127,28 @@ struct RunToCompletionRunnerTests {
 
     @Test("a per-call timeout wins over the mount timeout")
     func perCallTimeoutOverridesMount() async throws {
-        let harness = Fixtures.runToCompletionHarness(
-            wrapping: Fixtures.PerCallTimeoutTool(timeoutSeconds: Fixtures.shortInterval),
-            timeout: Fixtures.generousInterval
-        )
+        let call = ClockedCall.start(
+            Fixtures.PerCallTimeoutTool(timeoutSeconds: Fixtures.shortInterval), timeout: Fixtures.generousInterval)
 
+        // The timer ends at the timeout of the call, not at the mount timeout.
         await #expect(throws: ToolMountError.self) {
-            _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            _ = try await call.clock.elapse(Fixtures.shortInterval, endingWait: call.calling)
         }
 
-        let events = await harness.sink.events
+        let events = await call.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
         #expect(events.last?.outcome == .timedOut)
     }
 
     @Test("a nil per-call timeout uses the mount timeout")
     func nilPerCallTimeoutFallsBackToMount() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.NilTimeoutTool(), timeout: Fixtures.shortInterval)
+        let call = ClockedCall.start(Fixtures.NilTimeoutTool(), timeout: Fixtures.shortInterval)
 
         await #expect(throws: ToolMountError.self) {
-            _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            _ = try await call.clock.elapse(Fixtures.shortInterval, endingWait: call.calling)
         }
 
-        let events = await harness.sink.events
+        let events = await call.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
         #expect(events.last?.outcome == .timedOut)
     }
@@ -183,13 +182,13 @@ struct RunToCompletionRunnerTests {
 
     @Test("the timeout cancels the work and throws the one named error, with outcome timedOut")
     func timeoutExpiryThrowsNamedError() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.SleepingTool(), timeout: Fixtures.shortInterval)
+        let call = ClockedCall.start(Fixtures.SleepingTool(), timeout: Fixtures.shortInterval)
 
         await #expect(throws: ToolMountError.self) {
-            _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            _ = try await call.clock.elapse(Fixtures.shortInterval, endingWait: call.calling)
         }
 
-        let events = await harness.sink.events
+        let events = await call.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
         #expect(events.last?.outcome == .timedOut)
     }
@@ -197,20 +196,17 @@ struct RunToCompletionRunnerTests {
     @Test("the timeout also sets the cooperative flag that the tool reads")
     func timeoutSetsCancellationFlag() async throws {
         let witness = Fixtures.CancellationWitness()
-        let harness = Fixtures.runToCompletionHarness(
-            wrapping: Fixtures.CancellationFlagTool(witness: witness),
-            timeout: Fixtures.shortInterval
-        )
+        let call = ClockedCall.start(Fixtures.CancellationFlagTool(witness: witness), timeout: Fixtures.shortInterval)
 
         await #expect(throws: ToolMountError.self) {
-            _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
+            _ = try await call.clock.elapse(Fixtures.shortInterval, endingWait: call.calling)
         }
 
         // The runner sets the flag before the timeout returns, so the flag
         // that the tool reads is set now.
         #expect(await witness.context.value.isCancelled)
 
-        let events = await harness.sink.events
+        let events = await call.sink.events
         #expect(events.filter { $0.kind == .completed }.count == 1)
         #expect(events.last?.outcome == .timedOut)
     }
