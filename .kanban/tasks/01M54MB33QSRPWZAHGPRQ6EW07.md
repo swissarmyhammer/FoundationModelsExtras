@@ -13,6 +13,42 @@ comments:
     - Proposal: a suite trait (SuiteTrait and TestScoping) in Support loads the models of one suite one time, gives them through a task local, and releases the holds and waits for the eviction after the last test, also on a throw.
     - The list of removals and the fixture design went to the coordinator for review. No deletion before the approval.
   timestamp: 2026-10-17T13:38:53.114113+00:00
+- actor: claude-code
+  id: 01m5531kscn11q2qcaqvv6ry58
+  text: |-
+    Removed and merged tests, each with its cover. The peer approved the list before the deletion. IT = IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests, UT = Tests/FoundationModelsExtrasTests.
+
+    1. IT ModelPoolSmokeTests generatesThroughThePoolAndEvictsAfterTheRelease: removed. Cover: IT GenerationQueue cancelledRunningGenerationStopsEarly (a generation in the queue of the hold, the answer holds "Paris") and IT ModelPool concurrentAcquiresLoadOneModelThatTheEvictionFrees (!isResident after the eviction).
+    2. IT ModelPoolSmokeTests embedsThroughThePoolAndEvictsAfterTheRelease: removed (the file is gone). Cover: IT PooledEmbedder realEmbedByNamePlacesSimilarTextsCloser; UT ModelPoolTests theLastReleaseEvictsOneTime and UT PooledEmbedderTests theHandleKeepsTheModelResident.
+    3. IT GenerationQueue concurrentGenerationsRunOneAtATimeInOrder: removed. Cover: UT GenerationQueueWorkerTests itemsFromThreeTasksRunInOrderWithNoOverlap.
+    4. IT GenerationQueue cancelledWaitingJobNeverStarts: removed. Cover: UT GenerationQueueWorkerTests aCancelledWaitingItemNeverRunsAndTheNextItemRuns and aCancelledWaitingItemLeavesTheCountWhenTheCancelReturns.
+    5. IT GenerationQueue submissionInsideAnOpenModelCallIsRefused: removed. Cover: UT GenerationQueueWorkerTests aSubmissionInsideAnOpenSubmissionOnTheSameQueueIsRefused.
+    6. IT ModelPool acquireWaitsForTheRunningAdmissionJob: removed. Cover: UT ModelPoolTests newKeyAcquireLoadsAfterTheAdmitJob, which now also checks the footprint stream (the second load starts only after the first model is resident). Fault demo: ModelPool.acquire changed to load outside the admission queue; the footprint check failed (with the two log checks); the change was reverted.
+    7. IT ModelPool acquireByKeyLoadsEachModelByName: changed to the arguments [embedding, llm] (L1B in place of Q4B).
+    8. IT ModelPool aLoadEndsWithReady: merged into aRealLoadReportsItsBytesAndEndsWithReady (one load, both checks).
+    9. IT PooledEmbedder twoUsersShareOneLoadOfTheModel: removed. Cover: UT ModelPoolTests theFirstLoaderWins, UT PooledEmbedderTests aCallerWithLoaderBEmbedsWithTheModelOfLoaderA and twoEmbeddersOfOneNameShareOneModel, IT ModelPool acquireByKeyLoadsEachModelByName(embedding).
+    10. IT PooledEmbedder concurrentEmbedsRunOneAtATimeInOrder: removed. Cover: UT PooledEmbedderTests concurrentCallsRunOneAtATimeInOrder.
+    11. IT PooledEmbedder embedderHandleKeepsTheModelResident: removed. Cover: UT PooledEmbedderTests theHandleKeepsTheModelResident and theLastCopyOfTheLastEmbedderEvictsTheModel.
+    12. IT PooledEmbedder embedDoesNotWaitBehindAGeneration: changed. The generation waits at a latch after its first snapshot. The latch opens when the embed call returned, or when a second job waits in the queue of the LLM. The token count is now 256 and changes only the time. Fault demo: the embed call went through the queue of the LLM; the order check failed after 1.5 s with no hang; the change was reverted.
+    13. IT ToolHosting fastBackgroundRunAnswersInsideTheGrace: removed. Cover: UT BackgroundToolRunnerTests runSettlingInsideTheGraceAnswersWithItsOwnOutput and defaultSiteGraceSettlesAFastRunInline; IT ToolHosting inBandToolRunsToCompletion.
+    14. IT ToolHosting cancelSettlesTheRunWithTheCancelerOutcome: removed. Cover: UT DeclaredRunKindTests aToolDeclaringNothingKeepsTheCooperativeCanceler, UT BackgroundToolRunnerTests cancellingBackgroundRunYieldsOneCancelledTerminal; IT ToolHosting backgroundToolSettlesAfterItsEnvelope.
+    15. IT ToolHosting perCallMountOfOneTool: removed, perCallMountOfAnOperationTool stays. Cover: OperationTool uses the same BackgroundTool.mount(for:) hook; UT PerCallMountTests eachCallGetsTheMountOfItsArguments.
+    16. IT PooledModel aLanguageModelSessionAnswers: removed. Cover: IT PooledModel twoCallsOpenAColdAndThenAWarmGenerateSpan (same session, same prompt, requires "paris").
+    17. IT MLXModelLoader aLoadUsesTheGivenTokenizerLoader: merged into aLoadUsesTheGivenTokenizerLoaderAndOpensItsPhaseSpans (one load for each key).
+    18. IT PooledEmbedder mixedLengthCallPadsFarFewerTokensThanOnePaddedBatch: merged into anEmbedCallOpensItsSpanTreeWithTheRealCounts (the same span-based padding check).
+    19. IT ModelPool concurrentAcquiresLoadTheModelOneTime and evictionFreesTheMemoryOfTheModel: merged into concurrentAcquiresLoadOneModelThatTheEvictionFrees.
+
+    Fixture: Support/SharedModels.swift, SharedLoadsTrait (SuiteTrait, TestScoping, isRecursive false). GenerationQueue, PooledEmbedder, PooledModel and ToolHosting use it. ModelPool, MLXModelLoader and the PooledModel telemetry suite have no trait.
+    Real loads: before 41 (LLM 11, embedding 16, Q4B 14). After 12 (LLM 5, embedding 4, Q4B 3).
+  timestamp: 2026-10-17T14:07:55.180299+00:00
+- actor: claude-code
+  id: 01m55322kaxvv4sdbt8e5rtwzq
+  text: |-
+    ### implement — changed
+    - evidence: 8 local commits 4c96d32..813a73a (not pushed). One IntegrationTests run: 26 tests in 10 suites passed in 51.2 s (metallib copied beside the test binary, copies removed after the run). One root swift test run: 1223 tests in 120 suites passed, plus the other test runs of the root package passed, with no issue and no warning.
+    - open: the card needs the CI integration time before and after. That needs a push and a CI run, and this step does not push.
+    - next: the coordinator pushes when the runner is free, and records the CI times; then review.
+  timestamp: 2026-10-17T14:08:10.346031+00:00
 depends_on:
 - 01M53BTZ0M0DH3HXBD47N7BNKZ
 - 01M54QGXNTCEDD848YPNBB4PPJ
