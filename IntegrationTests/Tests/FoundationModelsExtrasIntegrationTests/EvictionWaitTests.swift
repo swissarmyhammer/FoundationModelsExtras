@@ -1,4 +1,5 @@
 import FoundationModelsExtras
+import TelemetryTestSupport
 import Testing
 
 /// The model of the eviction-wait test. No loader downloads it: the fake
@@ -8,36 +9,35 @@ private let fakeKey = ModelPoolKey(ref: "fake/gated-eviction", role: .llm)
 /// The bytes that the pool counts for the fake model.
 private let fakeFootprintBytes: Int64 = 1
 
-/// The milliseconds of ``gateDelay``.
-private let gateDelayMilliseconds = 100
-
-/// The time from the start of the wait to the end of the fake eviction. A wait
-/// that does not wait for the eviction returns in this time, and the test then
-/// sees an eviction that did not end. A correct wait passes at each delay.
-private let gateDelay = Duration.milliseconds(gateDelayMilliseconds)
-
-/// The longest time that the eviction-wait test may take. A wait that never
-/// returns fails the test.
-private let evictionWaitTimeLimitMinutes = 1
+/// The depth of the admission queue when the wait parks behind the eviction
+/// job: the eviction job runs, and one more job waits.
+private let depthWithTheWaitBehindTheEviction: Double = 2
 
 /// The test of the helper that each real-model test calls after its last
-/// release. A fake loader makes the eviction slow, thus the test needs no real
-/// model and no MLX.
-@Suite("The eviction wait of the real-model tests", .timeLimit(.minutes(evictionWaitTimeLimitMinutes)))
+/// release. A fake loader holds the eviction at a gate, thus the test needs no
+/// real model and no MLX.
+@Suite("The eviction wait of the real-model tests")
 struct EvictionWaitTests {
     @Test("waitForEviction returns only after the evict call of the loader returned")
     func waitForEvictionReturnsAfterTheEvictCall() async throws {
         let gate = EvictionGate()
         let pool = ModelPool()
-        try await Self.acquireAndRelease(in: pool, loader: GatedEvictionLoader(gate: gate))
-        // The eviction job runs, and its evict call waits at the gate.
-        try await Waiting.until { await gate.hasStarted }
 
-        async let evictionEndedAtReturn = Self.evictionEndedAtReturn(of: gate, in: pool)
-        try await Task.sleep(for: gateDelay)
-        await gate.open()
+        let evictionEndedAtReturn = try await TelemetryCapture.run(forbidding: []) { context in
+            try await Self.acquireAndRelease(in: pool, loader: GatedEvictionLoader(gate: gate))
+            // The eviction job runs, and its evict call waits at the gate.
+            await gate.started.waitUntilOpen()
+            let waiting = Task { try await Self.evictionEndedAtReturn(of: gate, in: pool) }
+            // A correct wait parks in the admission queue behind the gated
+            // eviction job. A wait that does not wait returns first.
+            await Waits.untilFirstEnds(
+                { await context.wait { QueueDepth.admission(in: $0) == depthWithTheWaitBehindTheEviction } },
+                { _ = await waiting.result })
+            gate.open()
+            return try await waiting.value
+        }
 
-        #expect(try await evictionEndedAtReturn)
+        #expect(evictionEndedAtReturn)
     }
 
     /// Acquires the fake model with `loader`, and releases the hold on return.
@@ -62,36 +62,36 @@ struct EvictionWaitTests {
     /// - Throws: What the wait throws.
     private static func evictionEndedAtReturn(of gate: EvictionGate, in pool: ModelPool) async throws -> Bool {
         try await IntegrationModels.waitForEviction(of: fakeKey, in: pool)
-        return await gate.hasEnded
+        return gate.hasEnded
     }
 }
 
 /// A gate that holds the evict call of ``GatedEvictionLoader`` until the test
 /// opens it, and records the start and the end of that call.
-private actor EvictionGate {
-    /// Whether the evict call started.
-    private(set) var hasStarted = false
-    /// Whether the evict call returned.
-    private(set) var hasEnded = false
-    /// Whether the test opened the gate.
-    private var isOpen = false
-    /// The evict call that waits at the gate, or `nil`.
-    private var waiting: CheckedContinuation<Void, Never>?
+private final class EvictionGate: Sendable {
+    /// Opens when the evict call starts.
+    let started = Latch()
 
-    /// Runs as the evict call: waits until the gate is open.
+    /// Opens when the test lets the evict call continue.
+    private let opened = Latch()
+
+    /// Opens when the evict call returns.
+    private let ended = Latch()
+
+    /// Whether the evict call returned.
+    var hasEnded: Bool { ended.isOpen }
+
+    /// Runs as the evict call: signals the start, waits until the gate is
+    /// open, and signals the end.
     func pass() async {
-        hasStarted = true
-        if !isOpen {
-            await withCheckedContinuation { waiting = $0 }
-        }
-        hasEnded = true
+        started.open()
+        await opened.waitUntilOpen()
+        ended.open()
     }
 
     /// Opens the gate, and lets the waiting evict call continue.
     func open() {
-        isOpen = true
-        waiting?.resume()
-        waiting = nil
+        opened.open()
     }
 }
 

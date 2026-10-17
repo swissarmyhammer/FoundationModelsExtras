@@ -65,23 +65,25 @@ enum IntegrationModels {
     /// returns. `MLXLanguageModel.evict()` frees the prompt cache of the model
     /// in that call, and on 2026-09-29 about 370 MB of the last generation
     /// test was still active when the footprint showed no LLM. The memory
-    /// check of the next test then read too much memory before its load. The
-    /// pool now counts an evicted model until its evict call returns, thus a
-    /// footprint without the key shows that the call returned. This wait also
-    /// runs an empty admission job: the last release puts the eviction job in
-    /// the admission queue in the same step, and the queue runs its jobs first
-    /// in first out, thus the empty job starts only after the eviction job
-    /// ended.
+    /// check of the next test then read too much memory before its load.
+    ///
+    /// This wait first runs an empty admission job: the last release puts the
+    /// eviction job in the admission queue in the same step, and the queue
+    /// runs its jobs first in first out, thus the empty job starts only after
+    /// the eviction job ended. While it waits, the admission queue holds the
+    /// empty job behind the eviction job. Then the wait reads the footprint:
+    /// the pool counts an evicted model until its evict call returns, thus a
+    /// footprint without the key shows that the call returned. After the
+    /// empty job, the first footprint has no key.
     ///
     /// - Parameters:
     ///   - key: A model of `pool` that has no hold.
     ///   - pool: The pool of the test.
-    /// - Throws: `CancellationError` when the task is cancelled, for example
-    ///   by the time limit.
+    /// - Throws: `CancellationError` when the task is cancelled.
     static func waitForEviction(of key: ModelPoolKey, in pool: ModelPool) async throws {
+        try await pool.admit { _ in }
         for await footprint in pool.footprints where footprint.resident[key] == nil {
             break
         }
-        try await pool.admit { _ in }
     }
 }
