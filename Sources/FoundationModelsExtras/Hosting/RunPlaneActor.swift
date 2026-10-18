@@ -64,6 +64,11 @@ public actor RunPlane {
         /// The queue ticket of the run, from its start. The settle of the
         /// run completes it.
         let ticket: QueueTicket
+
+        /// The ``WorkKind/backgroundRun`` lease of the run in
+        /// ``RunPlane/workRegistry``, from its start. The settle of the run
+        /// ends it. It is suspended while the run waits only for the user.
+        let lease: BackgroundWork
     }
 
     /// One ``wait(completionToken:seconds:)`` that waits for an open run.
@@ -212,6 +217,17 @@ public actor RunPlane {
     /// fixed for the life of the run plane, which is the life of one session.
     public nonisolated let userPresence: UserPresence
 
+    /// The registry of the background work of the session.
+    ///
+    /// Each background run holds one ``WorkKind/backgroundRun`` lease in it,
+    /// from its start to its settle, also when it fails or when a cancel
+    /// stops it. While each open question of the session that holds the run
+    /// waits for the user, the run waits only for the user: then its lease is
+    /// suspended, because the run is not work. The lease resumes when the
+    /// last of those questions leaves ``openElicitations()``. Each
+    /// ``ToolContext`` of the session begins its leases here too.
+    public nonisolated let workRegistry: WorkRegistry
+
     /// Makes an empty run plane.
     ///
     /// - Parameters:
@@ -221,8 +237,18 @@ public actor RunPlane {
     ///   - userPresence: Tells if a user can answer the questions of the
     ///     session. The default is ``UserPresence/interactive``. A host that
     ///     runs a session with no user gives ``UserPresence/headless``.
-    public init(clock: any RunClock = ContinuousRunClock(), userPresence: UserPresence = .interactive) {
-        self.init(clock: clock, userPresence: userPresence, tokenSource: Self.makeCompletionToken)
+    ///   - workRegistry: The registry of the background work of the session,
+    ///     or `nil` for a new registry. A host gives the registry of the
+    ///     session, so that each lease has the id of the session as its
+    ///     owner. A new registry has a new id of its own.
+    public init(
+        clock: any RunClock = ContinuousRunClock(),
+        userPresence: UserPresence = .interactive,
+        workRegistry: WorkRegistry? = nil
+    ) {
+        self.init(
+            clock: clock, userPresence: userPresence, workRegistry: workRegistry,
+            tokenSource: Self.makeCompletionToken)
     }
 
     /// Makes an empty run plane whose runs get their completion tokens from
@@ -232,12 +258,20 @@ public actor RunPlane {
     ///   - clock: The clock of the timers of the runs.
     ///   - userPresence: Tells if a user can answer the questions of the
     ///     session.
+    ///   - workRegistry: The registry of the background work of the session,
+    ///     or `nil` for a new registry.
     ///   - tokenSource: Gives the completion token of each new run of a tool
     ///     call. A test gives a source that repeats a token, so that two
     ///     calls ask for the same token.
-    init(clock: any RunClock, userPresence: UserPresence, tokenSource: @escaping @Sendable () -> String) {
+    init(
+        clock: any RunClock,
+        userPresence: UserPresence,
+        workRegistry: WorkRegistry? = nil,
+        tokenSource: @escaping @Sendable () -> String
+    ) {
         self.clock = clock
         self.userPresence = userPresence
+        self.workRegistry = workRegistry ?? WorkRegistry(sessionID: ULID())
         self.tokenSource = tokenSource
     }
 
@@ -304,6 +338,9 @@ public actor RunPlane {
         }
         var ticket = runTelemetry.enqueued()
         runTelemetry.started(&ticket)
+        // The lease opens before the task of the body, which runs outside
+        // this actor, thus the session has work before the first output.
+        let lease = workRegistry.begin(.backgroundRun, id: completionToken)
         let work = Task { [weak self] in
             let terminal = await Self.runTraced(
                 body, tool: tool, op: op, kind: kind, completionToken: completionToken, tracer: tracer)
@@ -320,7 +357,7 @@ public actor RunPlane {
         runs.append(
             Run(
                 token: completionToken, tool: tool, op: op, kind: kind, canceler: canceler ?? cooperative,
-                ticket: ticket))
+                ticket: ticket, lease: lease))
         return .started
     }
 
@@ -568,6 +605,7 @@ public actor RunPlane {
             id: request.elicitationId, runToken: runToken, mode: request.mode, completing: completing,
             ending: ending, posting: Task { await posting() }, ticket: elicitationTelemetry.enqueued())
         elicitations.append(elicitation)
+        refreshLease(ofRun: runToken)
         return await elicitation.answer.value
     }
 
@@ -744,7 +782,9 @@ public actor RunPlane {
             elicitations[index].accepted = response
             return .acceptedAwaitingCompletion
         }
-        finish(elicitations.remove(at: index), with: response)
+        let answered = elicitations.remove(at: index)
+        refreshLease(ofRun: answered.runToken)
+        finish(answered, with: response)
         return .delivered
     }
 
@@ -905,6 +945,25 @@ public actor RunPlane {
 
     // MARK: - Helpers
 
+    /// Suspends the lease of the open run of `token` while one or more of
+    /// its questions are open, and resumes it when none is open. This is the
+    /// rule of ``runsWaitingOnlyForUser()``: a run that waits only for the
+    /// user is not work. A token that is not an open run does nothing.
+    ///
+    /// Call it in the same step as each change of ``elicitations``, thus the
+    /// lease agrees with ``runsWaitingOnlyForUser()`` at each read, and the
+    /// lease resumes before the run gets its answer.
+    ///
+    /// - Parameter token: The completion token of the run.
+    private func refreshLease(ofRun token: String) {
+        guard let index = index(of: token) else { return }
+        if elicitations.contains(where: { $0.runToken == token }) {
+            runs[index].lease.suspend()
+        } else {
+            runs[index].lease.resume()
+        }
+    }
+
     /// Removes the task of the body of `token`, which ended.
     ///
     /// - Parameter token: The completion token of the run.
@@ -1009,6 +1068,7 @@ public actor RunPlane {
     private func settle(_ token: String, with terminal: OperationEvent) -> Bool {
         guard let index = index(of: token) else { return false }
         let run = runs.remove(at: index)
+        run.lease.end()
         settled[token] = terminal
         runTelemetry.completed(run.ticket, outcome: Self.queueOutcome(of: terminal))
         for waiter in run.waiters.values {
@@ -1068,6 +1128,7 @@ public actor RunPlane {
             return .noPendingElicitation
         }
         let elicitation = elicitations.remove(at: index)
+        refreshLease(ofRun: elicitation.runToken)
         completingElicitationIds.append(elicitation.id)
         Task {
             await elicitation.completing()
@@ -1158,6 +1219,9 @@ public actor RunPlane {
     private func endQuestions(with response: ElicitationResponse, where isEnded: (Elicitation) -> Bool) async -> [ULID] {
         let ended = elicitations.filter(isEnded)
         elicitations.removeAll(where: isEnded)
+        for runToken in Set(ended.map(\.runToken)) {
+            refreshLease(ofRun: runToken)
+        }
         endingElicitationIds.append(contentsOf: ended.map(\.id))
         for elicitation in ended {
             await elicitation.posting.value

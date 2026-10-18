@@ -74,6 +74,24 @@ public struct ToolContext: Sendable {
         runSite.runPlane
     }
 
+    /// The session that started the session of the call, or `nil` when the
+    /// session of the call is the root of its tree.
+    public var parentSessionID: ULID? {
+        runSite.parentSessionID
+    }
+
+    /// The root session of the tree of the session of the call. At the root,
+    /// it is ``sessionID``.
+    public var rootSessionID: ULID {
+        runSite.rootSessionID
+    }
+
+    /// Tells if a user can answer questions in the root session of the tree.
+    /// At the root, it is ``userPresence``.
+    public var rootUserPresence: UserPresence {
+        runSite.rootRunPlane.userPresence
+    }
+
     /// Tells if a user can answer questions in the session of the call.
     ///
     /// The host sets the value one time, when it makes the run plane of the
@@ -513,6 +531,68 @@ public struct ToolContext: Sendable {
     /// - Returns: The ``CancelOutcome``.
     public func cancel(completionToken: String) async -> CancelOutcome {
         await runPlane.cancel(completionToken: completionToken)
+    }
+
+    // MARK: - Background work
+
+    /// Begins a lease of `kind` under `id` in the ``WorkRegistry`` of the
+    /// session of the call, and gives its handle.
+    ///
+    /// Use it for work that the call starts and that lives past the call, for
+    /// example an MCP call or a child session. The session has work until the
+    /// lease ends: call ``BackgroundWork/end()`` when the work settles, fails
+    /// or is cancelled, for example in a `defer`. A handle that is freed with
+    /// no end ends the lease, and writes a warning log.
+    ///
+    /// The call is synchronous, thus the lease is open before the work gives
+    /// its first output. A background run of the run plane holds a lease of
+    /// its own, thus a tool does not begin one for its own run.
+    ///
+    /// - Parameters:
+    ///   - kind: The kind of the work.
+    ///   - id: The id of the work.
+    /// - Returns: The handle of the lease.
+    public func beginBackgroundWork(_ kind: WorkKind, id: String) -> BackgroundWork {
+        runPlane.workRegistry.begin(kind, id: id)
+    }
+
+    /// Runs `body` with a lease of `kind` under `id` in the registry of the
+    /// session of the call. The lease ends when `body` returns or throws.
+    ///
+    /// - Parameters:
+    ///   - kind: The kind of the work.
+    ///   - id: The id of the work.
+    ///   - isolation: The actor of the caller.
+    ///   - body: The work.
+    /// - Returns: The value of `body`.
+    /// - Throws: The error of `body`.
+    public func withBackgroundWork<Value>(
+        _ kind: WorkKind,
+        id: String,
+        isolation: isolated (any Actor)? = #isolation,
+        _ body: () async throws -> Value
+    ) async rethrows -> Value {
+        let lease = beginBackgroundWork(kind, id: id)
+        defer { lease.end() }
+        return try await body()
+    }
+
+    /// The site of a child session that this call starts, for example a
+    /// subagent. The session of this call is the parent of the child, and its
+    /// root is the root of the child.
+    ///
+    /// The child has its own run plane, and thus its own registry: the work
+    /// of the child never goes into the registry of this session. This call
+    /// holds the child as work of this session with one lease of
+    /// ``WorkKind/childSession``, from ``beginBackgroundWork(_:id:)``.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The child session.
+    ///   - runPlane: The run plane of the child session.
+    ///   - sink: The sink of the child session.
+    /// - Returns: The site of the child session.
+    public func childSite(sessionID: ULID, runPlane: RunPlane, sink: any OperationEventSink) -> MountSite {
+        runSite.childSite(sessionID: sessionID, runPlane: runPlane, sink: sink)
     }
 
     // MARK: - Mounting

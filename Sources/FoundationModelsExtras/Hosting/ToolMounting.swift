@@ -12,6 +12,19 @@ public struct MountSite: Sendable {
     /// The run plane of the session.
     let runPlane: RunPlane
 
+    /// The session that started this session, or `nil` when this session is
+    /// the root of its tree.
+    let parentSessionID: ULID?
+
+    /// The root session of the tree of this session. At the root, it is
+    /// ``sessionID``.
+    let rootSessionID: ULID
+
+    /// The run plane of the root session. The facts that the whole tree
+    /// shares, for example the user presence of the root, come from it. At
+    /// the root, it is ``runPlane``.
+    let rootRunPlane: RunPlane
+
     /// The sink of the events and the records of each call.
     private(set) var sink: any OperationEventSink
 
@@ -74,8 +87,78 @@ public struct MountSite: Sendable {
         tracer: (any Tracer)? = nil,
         inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
     ) {
+        self.init(
+            sessionID: sessionID, runPlane: runPlane, parent: nil, sink: sink, op: op, tracer: tracer,
+            inlineSettleGrace: inlineSettleGrace)
+    }
+
+    /// Makes the mount site of a child session: a session that a call of the
+    /// session `parentSessionID` started, for example a subagent.
+    ///
+    /// The child session has its own run plane, and thus its own
+    /// ``WorkRegistry``. A lease of the child never goes into the registry of
+    /// the parent. Each value must belong to the child session, except the
+    /// ids and the run plane of the parent and of the root.
+    ///
+    /// ``ToolContext/childSite(sessionID:runPlane:sink:)`` makes this site
+    /// from the context of the call that starts the child.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The child session.
+    ///   - runPlane: The run plane of the child session.
+    ///   - parentSessionID: The session that started the child.
+    ///   - rootSessionID: The root session of the tree.
+    ///   - rootRunPlane: The run plane of the root session.
+    ///   - sink: The sink of the events and the records of each call.
+    ///   - op: The `"verb noun"` op of the registration, or `nil` for the
+    ///     tool name.
+    ///   - tracer: The tracer of the session, or `nil` for
+    ///     `InstrumentationSystem.tracer` at call time.
+    ///   - inlineSettleGrace: The settle period of each background call, in
+    ///     seconds. A negative value acts as `0`.
+    public init(
+        sessionID: ULID,
+        runPlane: RunPlane,
+        parentSessionID: ULID,
+        rootSessionID: ULID,
+        rootRunPlane: RunPlane,
+        sink: any OperationEventSink,
+        op: String? = nil,
+        tracer: (any Tracer)? = nil,
+        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
+    ) {
+        self.init(
+            sessionID: sessionID, runPlane: runPlane,
+            parent: (parentSessionID, rootSessionID, rootRunPlane), sink: sink, op: op, tracer: tracer,
+            inlineSettleGrace: inlineSettleGrace)
+    }
+
+    /// Makes a mount site at the root (`parent` is `nil`) or in a child
+    /// session.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The session of each call.
+    ///   - runPlane: The run plane of the session.
+    ///   - parent: The parent session, the root session and the run plane of
+    ///     the root, or `nil` at the root.
+    ///   - sink: The sink of the events and the records of each call.
+    ///   - op: The op of the registration, or `nil` for the tool name.
+    ///   - tracer: The tracer of the session, or `nil`.
+    ///   - inlineSettleGrace: The settle period of each background call.
+    private init(
+        sessionID: ULID,
+        runPlane: RunPlane,
+        parent: (sessionID: ULID, rootSessionID: ULID, rootRunPlane: RunPlane)?,
+        sink: any OperationEventSink,
+        op: String?,
+        tracer: (any Tracer)?,
+        inlineSettleGrace: TimeInterval
+    ) {
         self.sessionID = sessionID
         self.runPlane = runPlane
+        self.parentSessionID = parent?.sessionID
+        self.rootSessionID = parent?.rootSessionID ?? sessionID
+        self.rootRunPlane = parent?.rootRunPlane ?? runPlane
         self.sink = sink
         self.sessionSink = sink
         self.op = op
@@ -83,6 +166,22 @@ public struct MountSite: Sendable {
         self.inlineSettleGrace = max(0, inlineSettleGrace)
         self.inlineSettleDeadline = nil
         self.holdingRunToken = nil
+    }
+
+    /// The site of a child session that a call on this site starts, for
+    /// example a subagent. This session is the parent of the child, and the
+    /// root of this session is the root of the child. The child keeps the
+    /// tracer and the configured settle period of this site.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The child session.
+    ///   - runPlane: The run plane of the child session.
+    ///   - sink: The sink of the child session.
+    /// - Returns: The site of the child session.
+    public func childSite(sessionID: ULID, runPlane: RunPlane, sink: any OperationEventSink) -> MountSite {
+        MountSite(
+            sessionID: sessionID, runPlane: runPlane, parentSessionID: self.sessionID, rootSessionID: rootSessionID,
+            rootRunPlane: rootRunPlane, sink: sink, tracer: tracer, inlineSettleGrace: inlineSettleGrace)
     }
 
     /// This site, with the sink of the session as the sink of each call.

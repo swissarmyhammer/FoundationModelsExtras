@@ -878,6 +878,30 @@ questions that those runs ask the user.
   headless session, `elicit(_:)` returns a cancel with the reason
   `RunPlane.noUserPresentReason` (`"no user is present"`) at once. The
   question does not go to the sink, no question opens, and nothing waits.
+- Each session has one `WorkRegistry`: the set of the open `BackgroundWork`
+  leases of the session, that is, the work that lives past its call. The
+  host gives it to the run plane (`RunPlane(workRegistry:)`), and reads it as
+  `runPlane.workRegistry`. The first open lease gives `.workStarted`, and the
+  end of the last open lease gives `.noWork`, exactly one time each, also
+  when many tasks begin and end leases at the same time
+  (`transitions(includingCurrent:)`). `openWork` tells what holds the
+  session, and `awaitNoWork()` waits until nothing does. After `close()`, the
+  registry gives no transition. A tool begins a lease with
+  `ToolContext.beginBackgroundWork(_:id:)` or
+  `withBackgroundWork(_:id:_:)`, and ends it with `end()`. A second end does
+  nothing, and a lease that is freed with no end ends and writes a warning
+  log. The kind (`WorkKind`) is open: a host adds its own kinds. Each
+  background run holds a `.backgroundRun` lease from its start to its settle,
+  also on a failure or a cancel. While the run waits only for the user (see
+  `runsWaitingOnlyForUser()`), the lease is suspended, and the run is not
+  work. Housekeeping (an index, a file watcher, a language-server daemon) is
+  not work and takes no lease.
+- A child session (for example a subagent) has its own run plane and its own
+  registry, and its leases never go into the registry of the parent. The
+  call that starts the child holds one `.childSession` lease in the parent.
+  `ToolContext.childSite(sessionID:runPlane:sink:)` makes the site of the
+  child, and `parentSessionID`, `rootSessionID` and `rootUserPresence` of a
+  context tell the tree of its session.
 
 - An answer (`ElicitationResponse`) has the shape `{ action, content, reason }`,
   with `action` = `accept`, `decline` or `cancel`. `content` is `nil` for a
