@@ -326,6 +326,10 @@ enum ExtrasTelemetry {
         /// the span attribute.
         static let completionToken = AttributeKey.completionToken
 
+        /// The ``WorkKind`` of a ``BackgroundWork`` lease. Only the kind goes
+        /// in a record, never the id of the lease.
+        static let workKind = "work.kind"
+
         /// The type of the error of a log record, from
         /// ``ExtrasTelemetry/errorType(of:)``. It has the same key as the
         /// span attribute.
