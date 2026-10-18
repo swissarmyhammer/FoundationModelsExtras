@@ -329,6 +329,30 @@ struct BackgroundToolRunnerTests {
         #expect(await sink.staged.isEmpty)
     }
 
+    /// The production change that makes this test fail: a call that takes
+    /// back the staged events only after its wait for the run ended. The run
+    /// plane settles the run first, and the settlement wakes a host whose
+    /// delivery is free, so the host can take the events before the call
+    /// takes them back.
+    @Test("a run that answers inline takes back its staged events before the run plane settles it")
+    func anInlineRunWithdrawsBeforeItSettles() async throws {
+        let plane = await ManualSettlePlane.make()
+        let sink = Fixtures.SettleWatchingSink(runPlane: plane.runPlane)
+        let site = Fixtures.site(runPlane: plane.runPlane, sink: sink, inlineSettleGrace: Fixtures.pendingAtOnceGrace)
+        let gate = RunLatch()
+        gate.open()
+        let runner = BackgroundToolRunner(
+            wrapping: Fixtures.InlineGraceTool(gate: gate, grace: Fixtures.generousInterval), site: site, timeout: nil)
+
+        let rendered = try await plane.answer(settlingWithin: Fixtures.generousInterval) {
+            try await runner.call(arguments: MountArguments(value: "inline"))
+        }
+
+        #expect(rendered == Fixtures.InlineGraceTool.output(for: "inline"))
+        #expect(await sink.settledAtEachWithdraw.first == false)
+        #expect(await sink.staged.isEmpty)
+    }
+
     @Test("a run that a cancel of only that run ends inside the grace gives the model a tool result that tells so, and its terminal outcome is cancelled")
     func runCancelledInsideTheGraceGivesAToolResult() async throws {
         let wrapped = Fixtures.SelfCancellingTool()

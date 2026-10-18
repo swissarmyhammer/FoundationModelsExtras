@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Synchronization
 
 /// A decorator that runs each call of the tool in the background, unless the
 /// tool gives a synchronous mount for that call.
@@ -126,6 +127,15 @@ struct BackgroundToolRunner<
     /// run: the model never reads it, and the client already shows it. See
     /// ``StagedEventWithdrawing``.
     ///
+    /// The body of the run takes the events back before it returns, while
+    /// the call still waits (``InlineAnswerClaim``), thus before the run plane
+    /// settles the run. The settlement wakes the host, and a host whose
+    /// delivery is free could take the staged events first. A call whose wait
+    /// ends in the same time keeps the result that the body claimed, and
+    /// answers with it. A run that the run plane settled while its body still
+    /// runs (a sweep, or a stop of a process) has no claim of the body, so
+    /// the call takes the events back after its wait.
+    ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool, the error of a run that ended
     ///   inside the settle period, the text of a run that a cancel of only
@@ -141,6 +151,8 @@ struct BackgroundToolRunner<
         let pending = PendingRunEnvelope(
             completionToken: token, next: declared?.collectInstruction(forCompletionToken: token))
         let result = Promise<Result<String, any Error>>()
+        let claim = InlineAnswerClaim(callWaits: grace > 0)
+        let sink = site.sink
         // The body waits until the call posted its open record and its
         // envelope, thus each event of the run comes after them.
         let posted = Promise<Void>()
@@ -157,6 +169,11 @@ struct BackgroundToolRunner<
             return await ModelCallMark.withBackgroundRunMark {
                 let settlement = await run.execute(arguments: arguments)
                 result.fulfill(settlement.result)
+                // The call still waits, so it answers with this result: the
+                // staged events go back before the run settles.
+                if claim.claimForTheCall() {
+                    await (sink as? any StagedEventWithdrawing)?.withdrawStagedEvents(correlationID: token)
+                }
                 return settlement.terminal
             }
         }
@@ -173,11 +190,16 @@ struct BackgroundToolRunner<
             posted.fulfill(())
         }
         posted.fulfill(())
-        guard grace > 0,
-            case .settled(let terminal) = await site.runPlane.wait(completionToken: token, seconds: grace)
-        else {
+        guard grace > 0 else {
             return Answer(result: .success(pending.rendered), settledTerminal: nil)
         }
+        let waited = await site.runPlane.wait(completionToken: token, seconds: grace)
+        guard let terminal = await terminalOfAnInlineAnswer(after: waited, token: token, claim: claim) else {
+            return Answer(result: .success(pending.rendered), settledTerminal: nil)
+        }
+        // The body took the staged events back already, unless the run plane
+        // settled the run while the body still runs. A second withdraw finds
+        // nothing.
         await (site.sink as? any StagedEventWithdrawing)?.withdrawStagedEvents(correlationID: token)
         // The body gives its result before it returns the terminal event, so
         // a run that the body settled has its result here. A run that the run
@@ -188,6 +210,37 @@ struct BackgroundToolRunner<
         return Answer(
             result: Self.modelResult(of: settled, completionToken: token, tool: run.context.tool),
             settledTerminal: terminal)
+    }
+
+    /// The terminal of the run when the call answers with the result of its
+    /// run, or `nil` when the call answers with the pending envelope.
+    ///
+    /// A wait that the run settled answers with the result. A wait that
+    /// ended in another way (the end of the settle period, or a cancel of the
+    /// call) gives the result up (``InlineAnswerClaim/giveUp()``), unless the
+    /// body claimed the result first. The body then took the staged events
+    /// back, thus the model gets the result only from this call: the call
+    /// waits for the settlement, which comes right after the body returns.
+    ///
+    /// - Parameters:
+    ///   - waited: The outcome of the wait of the call.
+    ///   - token: The completion token of the run.
+    ///   - claim: The claim of the result of the run.
+    /// - Returns: The terminal event, or `nil`.
+    private func terminalOfAnInlineAnswer(
+        after waited: WaitOutcome, token: String, claim: InlineAnswerClaim
+    ) async -> OperationEvent? {
+        if case .settled(let terminal) = waited {
+            return terminal
+        }
+        guard !claim.giveUp() else { return nil }
+        // The settlement waits for no cancel of this call: the body already
+        // returned its result, and the run plane settles the run next.
+        return await Task {
+            guard case .settled(let terminal) = await site.runPlane.wait(completionToken: token, seconds: nil)
+            else { return nil }
+            return terminal
+        }.value
     }
 
     /// The answer of a call whose run the run plane refused, because a
@@ -271,5 +324,65 @@ struct DuplicateRunTokenError: Error, CustomStringConvertible {
     /// The text that the model and the log read.
     var description: String {
         "The run of \(tool) did not start, because a different run already has the completion token \(completionToken)."
+    }
+}
+
+/// Who answers with the result of one background run: the call that waits
+/// for the run inside its settle period, or nobody, because the call gave
+/// the result up and answers with the pending envelope.
+///
+/// The body of the run and the call decide in one step under a lock, so the
+/// two never disagree. The body claims the result for the call when it ends
+/// while the call still waits (``claimForTheCall()``), and then takes the
+/// staged events back before the run settles. The call gives the result up
+/// when its wait ends before the run settled (``giveUp()``). The first of the
+/// two wins.
+final class InlineAnswerClaim: Sendable {
+    /// The steps of a claim.
+    private enum State {
+        /// The call waits for the run.
+        case callWaits
+
+        /// The body claimed the result for the call.
+        case claimed
+
+        /// The call gave the result up, or it never waited.
+        case givenUp
+    }
+
+    /// The step of the claim.
+    private let state: Mutex<State>
+
+    /// Makes a claim.
+    ///
+    /// - Parameter callWaits: Whether the call waits for the run. A call
+    ///   with no settle period never waits, thus its run claims nothing.
+    init(callWaits: Bool) {
+        state = Mutex(callWaits ? .callWaits : .givenUp)
+    }
+
+    /// Claims the result for the call, when the call still waits.
+    ///
+    /// - Returns: `true` when this call claimed the result. The body then
+    ///   takes the staged events of the run back.
+    func claimForTheCall() -> Bool {
+        state.withLock { state in
+            guard state == .callWaits else { return false }
+            state = .claimed
+            return true
+        }
+    }
+
+    /// Gives the result up, when the body did not claim it.
+    ///
+    /// - Returns: `true` when the call gave the result up, and answers with
+    ///   the pending envelope. `false` when the body claimed the result
+    ///   first: the call then answers with it.
+    func giveUp() -> Bool {
+        state.withLock { state in
+            guard state == .callWaits else { return state == .givenUp }
+            state = .givenUp
+            return true
+        }
     }
 }

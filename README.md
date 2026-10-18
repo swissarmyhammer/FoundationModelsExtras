@@ -824,7 +824,10 @@ questions that those runs ask the user.
   the site. `ToolContext` gives the settle period to each tool that it mounts,
   and `settling(within:)` changes it. An inner background call inside the
   settle period of its outer run stops its wait 1 second before the end of
-  that period.
+  that period. A run that answers in its settle period takes its staged
+  events back from the sink (`StagedEventWithdrawing`) before the run plane
+  settles it, while the call still waits. So a host that the settlement
+  wakes never finds those events, and the model reads the result one time.
 - `BackgroundTool.mount(for:)` gives the mount of one call, from its
   arguments. The host asks for it before each call, and it wins over the
   mount of the tool and the mount of the site. Thus one tool can start a run

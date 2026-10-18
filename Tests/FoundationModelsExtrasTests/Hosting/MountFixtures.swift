@@ -180,6 +180,42 @@ enum MountFixtures {
         }
     }
 
+    /// A sink that stages each event, as ``StagingSink`` does, and records
+    /// at each withdraw whether the run plane already settled the run. The
+    /// settlement wakes the host, and a host whose delivery is free can take
+    /// the staged events then, so a run that answers inline must take its
+    /// events back before it settles.
+    actor SettleWatchingSink: OperationEventSink, StagedEventWithdrawing {
+        /// The run plane of the runs.
+        let runPlane: RunPlane
+
+        /// The staged events, in post order.
+        private(set) var staged: [OperationEvent] = []
+
+        /// Whether the run plane had settled the run at each withdraw, in
+        /// withdraw order.
+        private(set) var settledAtEachWithdraw: [Bool] = []
+
+        /// Makes a sink for the runs of `runPlane`.
+        ///
+        /// - Parameter runPlane: The run plane of the runs.
+        init(runPlane: RunPlane) {
+            self.runPlane = runPlane
+        }
+
+        /// Stages `event`.
+        func post(event: OperationEvent) {
+            staged.append(event)
+        }
+
+        /// Records whether the run `correlationID` settled, then removes each
+        /// staged event of that run.
+        func withdrawStagedEvents(correlationID: String) async {
+            settledAtEachWithdraw.append(await runPlane.settledRunTokens().contains(correlationID))
+            staged.removeAll { $0.correlationID == correlationID }
+        }
+    }
+
     /// A sink that cancels the task of the call when the runner takes back
     /// the staged events of a run. The runner does that after the wait for
     /// the run settled and before it makes its answer, thus the cancel comes
