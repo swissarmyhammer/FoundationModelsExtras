@@ -20,8 +20,25 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/Hosting/ToolCallWitness.swift (new), Sources/FoundationModelsExtras/Hosting/ToolMounting.swift, Sources/FoundationModelsExtras/Hosting/ToolContext.swift, Sources/FoundationModelsExtras/Hosting/ContextBindingTool.swift, Tests/FoundationModelsExtrasTests/Hosting/ToolCallWitnessTests.swift (new); swift test --filter ToolCallWitness 12/12 pass; swift test 1300 tests / 128 suites pass, zero new warnings
     - next: /review; the push/send subtask stays open (not done by this step)
   timestamp: 2026-10-19T21:36:41.447242+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5b1q2jv3sb9w06kk9jgymqp
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (06adccb) — 0 findings, 0 confirmed, 0 refuted; 7 validator passes attempted, 0 failed, 0 skipped; 5 files reviewed, 4 .kanban/ files excluded by .reviewignore
+    - next: orchestrator pushes to origin/main and sends the sha and final API to foundationmodelsrouter-75
+  timestamp: 2026-10-19T21:40:07.899689+00:00
+- actor: claude-code
+  id: 01m5b1qgxex96q1wtadag6sjyp
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed (5 files)
+    - test: green (swift test: 1300 tests, 128 suites, only the known mlx metal warning)
+    - commit: 06adccb
+    - review: clean (0 findings)
+    - next: push together with the AgentLaunching card (^SFDK6), then send the sha to router-75
+  timestamp: 2026-10-19T21:40:22.574136+00:00
+position_column: done
+position_ordinal: ffad80
 title: 'ToolCallWitness: MountSite reports the start of each mounted call, outer and inner'
 ---
 Request from foundationmodelsrouter-75, for acpagent-a5, narrowed in its second message. The Router wants to hint a root session to hand a bug fix to an agent. In the bench, the model edits through runCode → tools.files.edit. Those inner calls go through ToolContext.mount, so the Router never sees them. The Router's own decorator already sees each outer, model-facing call with its arguments. So the witness reports ONLY the calls that ToolContext.mount mounts (the inner calls of a run), never an outer call: reporting outer calls too would count them twice. The Router owns all the state and the hint. Extras gives only the seam. The change must be additive: existing callers compile without change.

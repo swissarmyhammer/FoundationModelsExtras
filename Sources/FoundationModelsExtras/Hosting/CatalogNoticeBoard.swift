@@ -14,6 +14,23 @@ public protocol CatalogNoticing {
     var catalogNoticeBoard: CatalogNoticeBoard { get }
 }
 
+/// A tool that can start agents of a catalog, and tells which of them it can
+/// start now.
+///
+/// A host holds each tool of a session as `any Tool`, thus it asks the tool
+/// at run time, with a cast, if it is an `AgentLaunching` tool. A tool that
+/// is not one starts no agent. A host that names an agent to the model takes
+/// the name from ``launchableAgents()``, and names none when the list is
+/// empty.
+public protocol AgentLaunching: Tool {
+    /// The catalog entries that this tool can start now: the entries of the
+    /// catalog that its grant allows, in catalog order. An empty list means
+    /// that it can start none.
+    ///
+    /// - Returns: The entries that this tool can start now.
+    func launchableAgents() async -> [CatalogEntry]
+}
+
 /// The live sessions that mounted a ``CatalogNoticing`` tool, and the post of
 /// a ``CatalogChangeNotice`` to each of them.
 ///
