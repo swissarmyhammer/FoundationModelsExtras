@@ -1,0 +1,1 @@
+{"id":"01M5ABFNKKG84BKRGCA5JW50M6","timestamp":"2026-10-19T15:11:36.563278Z","op":"create","item_id":"01M5ABFNKJ34MDWBQ4R6BG3V9S","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: e36209\n+tag_name: frontmatter-enabled\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: e36209\n-tag_name: frontmatter-enabled\n","transaction_id":null}

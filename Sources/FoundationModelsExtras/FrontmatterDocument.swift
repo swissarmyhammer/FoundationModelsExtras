@@ -21,15 +21,26 @@ public struct FrontmatterDocument<Metadata: Sendable>: Sendable {
   /// there is no frontmatter block.
   public var content: String
 
+  /// Whether the document is on, from the `enabled` key of its frontmatter.
+  /// See ``FrontmatterEnablement``.
+  public var enablement: FrontmatterEnablement
+
+  /// Whether the document is on. Only ``FrontmatterEnablement/enabled`` is
+  /// on.
+  public var isEnabled: Bool { enablement.isEnabled }
+
   /// Creates a document. Exposed publicly so that a consumer can build
   /// fixtures and fakes with a plain `import FoundationModelsExtras`.
   ///
   /// - Parameters:
   ///   - metadata: The decoded frontmatter, or `nil`.
   ///   - content: The text after the closing fence.
-  public init(metadata: Metadata?, content: String) {
+  ///   - enablement: Whether the document is on. The default is
+  ///     ``FrontmatterEnablement/enabled``.
+  public init(metadata: Metadata?, content: String, enablement: FrontmatterEnablement = .enabled) {
     self.metadata = metadata
     self.content = content
+    self.enablement = enablement
   }
 }
 
