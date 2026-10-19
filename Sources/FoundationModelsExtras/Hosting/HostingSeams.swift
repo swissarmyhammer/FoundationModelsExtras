@@ -12,6 +12,23 @@ public protocol ToolCallReportSink: Sendable {
     func post(report: ToolCallReport) async
 }
 
+/// A session sink that also takes a ``CatalogChangeNotice``.
+///
+/// A ``CatalogNoticeBoard`` sends each notice to the session sink of each
+/// live session that mounted a ``CatalogNoticing`` tool. The board asks the
+/// sink at run time, with a cast, if it is a `CatalogNoticeSink`, the same as
+/// a ``ToolCallReportSink``. A sink that is not one drops the notice.
+///
+/// A host puts the notice in the mail queue of the session as one mail, which
+/// the model reads as ``CatalogChangeNotice/text``. The notice never changes
+/// the description of a tool.
+public protocol CatalogNoticeSink: Sendable {
+    /// Gets one notice of a catalog change for the session of this sink.
+    ///
+    /// - Parameter notice: The notice.
+    func post(catalogNotice notice: CatalogChangeNotice) async
+}
+
 /// Gets the terminal event of each background run that settles by itself.
 ///
 /// The run plane holds its observer weakly, so the observer is a class

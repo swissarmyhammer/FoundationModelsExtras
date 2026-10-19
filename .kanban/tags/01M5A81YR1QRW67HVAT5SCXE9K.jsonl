@@ -1,0 +1,1 @@
+{"id":"01M5A81YR9YVN7PY7X30WVCRXK","timestamp":"2026-10-19T14:11:41.449163Z","op":"create","item_id":"01M5A81YR1QRW67HVAT5SCXE9K","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: b60205\n+tag_name: catalog-notice\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: b60205\n-tag_name: catalog-notice\n","transaction_id":null}

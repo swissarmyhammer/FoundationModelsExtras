@@ -325,6 +325,10 @@ public enum ToolMounting {
     /// through ``BackgroundTool/mount(for:)`` wins over both. Each other tool
     /// only gets a bound ``ToolContext``.
     ///
+    /// When `tool` is ``CatalogNoticing``, the session of `site` joins the
+    /// ``CatalogNoticeBoard`` of the tool, and gets each later catalog change
+    /// on the session sink of `site`.
+    ///
     /// - Parameters:
     ///   - tool: The tool to mount.
     ///   - site: Where the tool runs.
@@ -332,6 +336,7 @@ public enum ToolMounting {
     /// - Returns: The mounted tool, with the `Arguments` and `Output` of
     ///   `tool`.
     public static func makeWrapped(tool: any Tool, site: MountSite, configuration: ToolMount) -> any Tool {
+        (tool as? any CatalogNoticing)?.catalogNoticeBoard.join(site)
         func runner<A: ConvertibleFromGeneratedContent & Sendable>(_: A.Type, for tool: any Tool) -> any Tool {
             guard let typed = tool as? any Tool<A, String> else { return tool }
             let mount = (typed as? any BackgroundTool)?.mount ?? configuration
