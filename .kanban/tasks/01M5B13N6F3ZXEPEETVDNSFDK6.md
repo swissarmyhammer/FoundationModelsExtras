@@ -13,8 +13,24 @@ comments:
     - evidence: 2 files — Sources/FoundationModelsExtras/Hosting/CatalogNoticeBoard.swift (protocol added), Tests/FoundationModelsExtrasTests/Hosting/AgentLaunchingTests.swift (new, 3 tests); full swift test green
     - next: /review; the push/send subtask stays open, to go together with the ToolCallWitness card
   timestamp: 2026-10-19T21:43:02.237378+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5b20cf70kd408s1qhvpghw7
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (9b8730a) — 0 findings, 0 confirmed, 0 refuted; 7 attempted, 0 failed; 2 files reviewed, 4 .kanban/ files excluded by .reviewignore; no prior Review Findings sections
+    - next: orchestrator pushes to origin/main with the ToolCallWitness card and sends the sha to foundationmodelsrouter-75
+  timestamp: 2026-10-19T21:45:12.935365+00:00
+- actor: claude-code
+  id: 01m5b20vh56cs51sdhxmf8cxaa
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed (2 files)
+    - test: green (swift test: 1303 tests, 129 suites, only the known mlx metal warning)
+    - commit: 9b8730a
+    - review: clean (0 findings)
+  timestamp: 2026-10-19T21:45:28.357270+00:00
+position_column: done
+position_ordinal: ffae80
 title: 'AgentLaunching: a tool tells which catalog agents it can start now'
 ---
 Request from foundationmodelsrouter-75, for the same hint as the ToolCallWitness card. Agents agreed to conform. The Router casts each original tool of a root session to AgentLaunching, and hints only when the list is not empty, naming an agent from the entries. Extras gives only the protocol, which is additive.
