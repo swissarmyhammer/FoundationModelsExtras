@@ -35,11 +35,15 @@ struct ContextBindingTool<
     /// the duration on the timer and the span measure the same interval, and
     /// both include the time of the report.
     ///
+    /// An inner call that ``ToolContext/mount(_:op:as:)`` mounted goes to the
+    /// ``ToolCallWitness`` of the site first.
+    ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool, as is.
     /// - Throws: The error of the tool, as is.
     func call(arguments: Arguments) async throws -> Output {
-        try await ToolCallSpan.withSpan(
+        site.witnessStart(ofCallTo: wrapped.name, arguments: arguments)
+        return try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { call in
             let settlement = await settle(arguments: arguments)
