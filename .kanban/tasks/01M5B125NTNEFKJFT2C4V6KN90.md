@@ -39,7 +39,7 @@ comments:
   timestamp: 2026-10-19T21:40:22.574136+00:00
 position_column: done
 position_ordinal: ffad80
-title: 'ToolCallWitness: MountSite reports the start of each mounted call, outer and inner'
+title: 'ToolCallWitness: MountSite reports the start of each inner call that ToolContext.mount mounts'
 ---
 Request from foundationmodelsrouter-75, for acpagent-a5, narrowed in its second message. The Router wants to hint a root session to hand a bug fix to an agent. In the bench, the model edits through runCode → tools.files.edit. Those inner calls go through ToolContext.mount, so the Router never sees them. The Router's own decorator already sees each outer, model-facing call with its arguments. So the witness reports ONLY the calls that ToolContext.mount mounts (the inner calls of a run), never an outer call: reporting outer calls too would count them twice. The Router owns all the state and the hint. Extras gives only the seam. The change must be additive: existing callers compile without change.
 
@@ -80,4 +80,4 @@ public struct WitnessedToolCall: Sendable {
   - a site with no witness changes nothing;
   - an inner tool that throws still reports once, and the error is unchanged.
 - [x] Full `swift test` is green with zero warnings, apart from the known Swift Build metal warning (see ^8pa1503).
-- [ ] After done: push to origin/main, then send the sha and the final API to foundationmodelsrouter-75.
+- [x] After done: push to origin/main, then send the sha and the final API to foundationmodelsrouter-75. Pushed at a63ddda and sent to router-75 on 2026-10-19.

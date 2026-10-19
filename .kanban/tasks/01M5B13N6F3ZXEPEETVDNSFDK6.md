@@ -48,4 +48,4 @@ public protocol AgentLaunching: Tool {
   - a tool that does not conform fails the cast;
   - an empty list stays empty.
 - [x] Full `swift test` is green with zero warnings, apart from the known Swift Build metal warning (^8pa1503).
-- [ ] After done, together with the ToolCallWitness card: push to origin/main, send the sha to foundationmodelsrouter-75, and the Router tells foundationmodelsagents-93.
+- [x] After done, together with the ToolCallWitness card: push to origin/main, send the sha to foundationmodelsrouter-75, and the Router tells foundationmodelsagents-93. Pushed at a63ddda and sent to router-75 on 2026-10-19.
