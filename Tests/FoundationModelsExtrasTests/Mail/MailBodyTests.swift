@@ -17,6 +17,10 @@ struct MailBodyTests {
         .elicitationAnswer(id: ULID(), response: .accept(content: ["name": .string("Ada")])),
         .elicitationAnswer(id: ULID(), response: .decline),
         .agentMessage(from: ULID(), content: "The child is done."),
+        .catalogChange(
+            CatalogChangeNotice(
+                kind: .skills, added: [CatalogEntry(name: "x", description: "does x")],
+                removed: [CatalogEntry(name: "y", description: "did y")], changed: [])),
     ]
 
     /// One sender of each case.
@@ -25,6 +29,7 @@ struct MailBodyTests {
         .run(correlationID: ULID().ulidString),
         .elicitation(ULID()),
         .session(ULID()),
+        .catalog(.agents),
     ]
 
     @Test("each body survives a JSON round trip", arguments: bodies)
@@ -44,14 +49,14 @@ struct MailBodyTests {
     @Test("each body gives the kind of its case")
     func eachBodyGivesItsKind() {
         #expect(Self.bodies.map(\.kind) == [
-            .userMessage, .runEvent, .elicitationAnswer, .elicitationAnswer, .agentMessage,
+            .userMessage, .runEvent, .elicitationAnswer, .elicitationAnswer, .agentMessage, .catalogChange,
         ])
     }
 
     @Test("each mail kind has its fixed raw value")
     func eachKindHasItsRawValue() {
         #expect(MailKind.allCases.map(\.rawValue) == [
-            "user_message", "run_event", "elicitation_answer", "agent_message",
+            "user_message", "run_event", "elicitation_answer", "agent_message", "catalog_change",
         ])
     }
 }

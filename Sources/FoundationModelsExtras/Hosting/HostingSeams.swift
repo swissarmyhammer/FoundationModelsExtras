@@ -19,8 +19,9 @@ public protocol ToolCallReportSink: Sendable {
 /// sink at run time, with a cast, if it is a `CatalogNoticeSink`, the same as
 /// a ``ToolCallReportSink``. A sink that is not one drops the notice.
 ///
-/// A host puts the notice in the mail queue of the session as one mail, which
-/// the model reads as ``CatalogChangeNotice/text``. The notice never changes
+/// A host puts the notice in the mail queue of the session as one mail,
+/// ``Mail/init(id:catalogNotice:)``, which the model reads as
+/// ``CatalogChangeNotice/text``. The notice never changes
 /// the description of a tool.
 public protocol CatalogNoticeSink: Sendable {
     /// Gets one notice of a catalog change for the session of this sink.

@@ -184,3 +184,16 @@ public struct CatalogChangeNotice: Sendable, Codable, Hashable {
         return catalog.filter { seen.insert($0.name).inserted }
     }
 }
+
+extension Mail {
+    /// Makes the mail of `notice`: the sender is the catalog of the notice,
+    /// and the body is ``MailBody/catalogChange(_:)``. A host that is a
+    /// ``CatalogNoticeSink`` puts this mail in the mail queue of its session.
+    ///
+    /// - Parameters:
+    ///   - id: The correlation id. The default is a new id.
+    ///   - notice: The notice.
+    public init(id: MailID = MailID(), catalogNotice notice: CatalogChangeNotice) {
+        self.init(id: id, sender: .catalog(notice.kind), body: .catalogChange(notice))
+    }
+}
