@@ -53,8 +53,25 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift; `swift test`: 1380 tests / 135 suites passed, 0 failures (only warning is the existing mlx-swift_Cmlx.bundle SwiftPM line from a dependency); 3 findings checked off
     - next: /review; then commit, push to main and send the sha to foundationmodelsacpagent-a5
   timestamp: 2026-10-20T17:36:54.594954+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5d6a40dbjjsgb51ahj91534
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (3940732) — 0 findings, 0 confirmed, 0 refuted (7 validator passes attempted, 0 failed); all 3 prior findings checked
+    - next: task moved to done; acceptance item "Pushed to main, and the sha sent to the FoundationModelsACPAgent session" is still unchecked
+  timestamp: 2026-10-20T17:38:55.117184+00:00
+- actor: claude-code
+  id: 01m5d6adb6aa4ggxg4n1r6vstn
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (PooledModelTests.swift named constants)
+    - test: green — swift test, 1380 passed
+    - commit: 3940732
+    - review: clean — none
+    - note: push to main + sha to foundationmodelsacpagent-a5 awaits user approval
+  timestamp: 2026-10-20T17:39:04.678175+00:00
+position_column: done
+position_ordinal: ffb480
 title: Record input and cached token counts in generate telemetry
 ---
 ## What
