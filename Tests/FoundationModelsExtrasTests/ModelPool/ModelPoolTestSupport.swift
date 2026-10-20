@@ -1161,8 +1161,64 @@ enum GenerateTelemetryExpectations {
     /// - Returns: The output token count that each call added, in order.
     /// - Throws: When `metrics` has no such counter.
     static func outputTokenCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
-        try metrics.expectCounter(ExtrasTelemetry.MetricName.generateOutputTokens, ModelMetricDimensions.model(ref))
-            .values
+        try counterValues(of: ExtrasTelemetry.MetricName.generateOutputTokens, in: metrics, ref: ref)
+    }
+
+    /// Gives the values of the input token counter of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The input token count that each call added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func inputTokenCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try counterValues(of: ExtrasTelemetry.MetricName.generateInputTokens, in: metrics, ref: ref)
+    }
+
+    /// Gives the values of the cached token counter of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The cached token count that each call added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func cachedTokenCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try counterValues(of: ExtrasTelemetry.MetricName.generateCachedTokens, in: metrics, ref: ref)
+    }
+
+    /// Expects that `span` carries the input and cached token counts of the
+    /// rounds of one call summed, and the input and cached token counts of
+    /// its first round.
+    ///
+    /// - Parameters:
+    ///   - span: A generate span.
+    ///   - summed: The token counts of the rounds of the call, summed.
+    ///   - firstRound: The token counts of the first round of the call.
+    static func expectInputTokenAttributes(
+        of span: FinishedInMemorySpan, summed: StubTokenUsage, firstRound: StubTokenUsage
+    ) {
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.generateInputTokens) == .int64(Int64(summed.input)))
+        #expect(span.attributes.get(ExtrasTelemetry.AttributeKey.generateCachedTokens) == .int64(Int64(summed.cached)))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.generateFirstRoundInputTokens)
+                == .int64(Int64(firstRound.input)))
+        #expect(
+            span.attributes.get(ExtrasTelemetry.AttributeKey.generateFirstRoundCachedTokens)
+                == .int64(Int64(firstRound.cached)))
+    }
+
+    /// Expects that `span` carries no input token count and no cached token
+    /// count.
+    ///
+    /// - Parameter span: A generate span.
+    static func expectNoInputTokenAttributes(of span: FinishedInMemorySpan) {
+        let keys = [
+            ExtrasTelemetry.AttributeKey.generateInputTokens,
+            ExtrasTelemetry.AttributeKey.generateCachedTokens,
+            ExtrasTelemetry.AttributeKey.generateFirstRoundInputTokens,
+            ExtrasTelemetry.AttributeKey.generateFirstRoundCachedTokens,
+        ]
+        #expect(keys.filter { span.attributes.get($0) != nil } == [])
     }
 
     /// Gives the values of the tokens-per-second recorder of `ref`.
@@ -1175,6 +1231,18 @@ enum GenerateTelemetryExpectations {
     static func tokensPerSecond(in metrics: TestMetrics, ref: ModelRef) throws -> [Double] {
         try metrics.expectRecorder(ExtrasTelemetry.MetricName.generateTokensPerSecond, ModelMetricDimensions.model(ref))
             .values
+    }
+
+    /// Gives the values of the generate counter `label` of `ref`.
+    ///
+    /// - Parameters:
+    ///   - label: The label of the counter.
+    ///   - metrics: The factory that the calls recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The count that each call added, in order.
+    /// - Throws: When `metrics` has no such counter.
+    private static func counterValues(of label: String, in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try metrics.expectCounter(label, ModelMetricDimensions.model(ref)).values
     }
 
     /// Gives the values of the generate timer `label` of `ref` with

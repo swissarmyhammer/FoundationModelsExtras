@@ -524,8 +524,18 @@ extension PooledModelTests {
     /// The second prompt of a generate telemetry test.
     private static let secondTelemetryPrompt = "qz-and-a-spider"
 
-    /// The output token count that the stub of a token test gives.
-    private static let reportedOutputTokens = 12
+    /// The usage that the stub of a token test gives for each call: a round
+    /// whose prompt cache reused part of the context.
+    private static let reportedUsage = StubTokenUsage(input: 30, cached: 20, output: 12)
+
+    /// The usage of the first round of a token test with a tool call: the
+    /// round that asks for the tool.
+    private static let toolRoundUsage = StubTokenUsage(input: 40, cached: 10, output: 5)
+
+    /// The usage of the second round of a token test with a tool call: the
+    /// round that answers. It reads the whole context again, most of it from
+    /// the prompt cache.
+    private static let answerRoundUsage = StubTokenUsage(input: 55, cached: 40, output: 7)
 
     /// The number of generation calls of a test with one call.
     private static let oneCall = 1
@@ -647,7 +657,7 @@ extension PooledModelTests {
 
     @Test("a respond whose model gives token counts records its output tokens and its tokens per second")
     func aRespondWithTokenCountsRecordsTheTokenMetrics() async throws {
-        let script = StubLanguageModelScript(outputTokenCount: Self.reportedOutputTokens)
+        let script = StubLanguageModelScript(usages: [Self.reportedUsage])
         let context = try await Self.captureGenerate {
             _ = try await LanguageModelSession(model: Self.pooledModel(playing: script)).respond(to: Self.telemetryPrompt)
         }
@@ -656,12 +666,57 @@ extension PooledModelTests {
         let tokensPerSecond = try GenerateTelemetryExpectations.tokensPerSecond(in: metrics, ref: Self.key.ref)
         #expect(
             try GenerateTelemetryExpectations.outputTokenCounts(in: metrics, ref: Self.key.ref)
-                == [Int64(Self.reportedOutputTokens)])
+                == [Int64(Self.reportedUsage.output)])
         #expect(tokensPerSecond.count == Self.oneCall)
         #expect(tokensPerSecond.allSatisfy { $0 > 0 })
     }
 
-    @Test("a respond whose model gives no token counts records no output tokens and no tokens per second")
+    @Test("a respond whose model gives token counts records its input and cached tokens as counters and on its span")
+    func aRespondWithTokenCountsRecordsTheInputTokens() async throws {
+        let script = StubLanguageModelScript(usages: [Self.reportedUsage])
+        let context = try await Self.captureGenerate {
+            _ = try await LanguageModelSession(model: Self.pooledModel(playing: script)).respond(to: Self.telemetryPrompt)
+        }
+
+        let metrics = context.metricsFactory
+        #expect(
+            try GenerateTelemetryExpectations.inputTokenCounts(in: metrics, ref: Self.key.ref)
+                == [Int64(Self.reportedUsage.input)])
+        #expect(
+            try GenerateTelemetryExpectations.cachedTokenCounts(in: metrics, ref: Self.key.ref)
+                == [Int64(Self.reportedUsage.cached)])
+        let span = try #require(GenerateTelemetryExpectations.generateSpans(in: context.spans).first)
+        GenerateTelemetryExpectations.expectInputTokenAttributes(
+            of: span, summed: Self.reportedUsage, firstRound: Self.reportedUsage)
+    }
+
+    @Test("a PooledSession respond with a tool call sums the input and cached tokens of its rounds, and keeps its first round apart")
+    func aRespondWithAToolCallSumsTheInputTokensOfItsRounds() async throws {
+        let script = StubLanguageModelScript(
+            usages: [Self.toolRoundUsage, Self.answerRoundUsage], toolName: SpanProbeTool.toolName)
+        let context = try await Self.captureGenerate {
+            let session = try await Self.pooledModel(playing: script).session(tools: [SpanProbeTool()])
+            _ = try await session.respond(to: Self.telemetryPrompt)
+        }
+
+        let summed = StubTokenUsage(
+            input: Self.toolRoundUsage.input + Self.answerRoundUsage.input,
+            cached: Self.toolRoundUsage.cached + Self.answerRoundUsage.cached,
+            output: Self.toolRoundUsage.output + Self.answerRoundUsage.output)
+        let metrics = context.metricsFactory
+        #expect(
+            try GenerateTelemetryExpectations.inputTokenCounts(in: metrics, ref: Self.key.ref) == [Int64(summed.input)])
+        #expect(
+            try GenerateTelemetryExpectations.cachedTokenCounts(in: metrics, ref: Self.key.ref) == [Int64(summed.cached)])
+        #expect(
+            try GenerateTelemetryExpectations.outputTokenCounts(in: metrics, ref: Self.key.ref) == [Int64(summed.output)])
+        let spans = GenerateTelemetryExpectations.generateSpans(in: context.spans)
+        try #require(spans.count == Self.oneCall)
+        GenerateTelemetryExpectations.expectInputTokenAttributes(
+            of: spans[0], summed: summed, firstRound: Self.toolRoundUsage)
+    }
+
+    @Test("a respond whose model gives no token counts records no token metric and no token attribute")
     func aRespondWithNoTokenCountsRecordsNoTokenMetrics() async throws {
         let context = try await Self.captureTwoResponds()
 
@@ -671,6 +726,15 @@ extension PooledModelTests {
         }
         #expect(throws: TestMetricsError.self) {
             try GenerateTelemetryExpectations.tokensPerSecond(in: metrics, ref: Self.key.ref)
+        }
+        #expect(throws: TestMetricsError.self) {
+            try GenerateTelemetryExpectations.inputTokenCounts(in: metrics, ref: Self.key.ref)
+        }
+        #expect(throws: TestMetricsError.self) {
+            try GenerateTelemetryExpectations.cachedTokenCounts(in: metrics, ref: Self.key.ref)
+        }
+        for span in GenerateTelemetryExpectations.generateSpans(in: context.spans) {
+            GenerateTelemetryExpectations.expectNoInputTokenAttributes(of: span)
         }
     }
 
@@ -721,7 +785,7 @@ extension PooledModelTests {
 
     @Test("the generate telemetry of both pooled paths holds no prompt and no answer, and the capture saw records")
     func theGenerateTelemetryHoldsNoContent() async throws {
-        let script = StubLanguageModelScript(outputTokenCount: Self.reportedOutputTokens)
+        let script = StubLanguageModelScript(usages: [Self.reportedUsage, Self.reportedUsage])
         let context = try await Self.captureGenerate {
             _ = try await LanguageModelSession(model: Self.pooledModel(playing: script)).respond(to: Self.telemetryPrompt)
             _ = try await Self.pooledModel(playing: script).session().respond(to: Self.secondTelemetryPrompt)

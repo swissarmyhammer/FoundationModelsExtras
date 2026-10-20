@@ -171,6 +171,26 @@ enum ExtrasTelemetry {
         /// `false`. It is not the `cache.result` dimension of the pool
         /// acquires.
         static let generateCold = "generate.cold"
+
+        /// The input token count of a generation call: the sum over its model
+        /// rounds. Each round reads the whole context again, thus the sum
+        /// counts each token of the context once for each round.
+        static let generateInputTokens = "generate.input_tokens"
+
+        /// The cached input token count of a generation call: the sum over
+        /// its model rounds of the input tokens that the prompt cache reused.
+        static let generateCachedTokens = "generate.cached_tokens"
+
+        /// The input token count of the first model round of a generation
+        /// call. The time to first token covers that round alone, thus (this
+        /// count minus ``generateFirstRoundCachedTokens``) divided by the time
+        /// to first token is the prefill rate of the call.
+        static let generateFirstRoundInputTokens = "generate.first_round.input_tokens"
+
+        /// The cached input token count of the first model round of a
+        /// generation call: the input tokens of that round that the prompt
+        /// cache reused.
+        static let generateFirstRoundCachedTokens = "generate.first_round.cached_tokens"
     }
 
     /// The metric names of the core target.
@@ -263,6 +283,18 @@ enum ExtrasTelemetry {
         /// The counter that adds the output token count of each generation
         /// call whose model gives token counts.
         static let generateOutputTokens = "FoundationModelsExtras.generate.output_tokens"
+
+        /// The counter that adds the input token count of each generation
+        /// call whose model gives token counts: the sum over the model rounds
+        /// of the call. Each round reads the whole context again, thus the sum
+        /// is the count of the tokens that the call fed in.
+        static let generateInputTokens = "FoundationModelsExtras.generate.input_tokens"
+
+        /// The counter that adds the cached input token count of each
+        /// generation call whose model gives token counts: the sum over the
+        /// model rounds of the call of the input tokens that the prompt cache
+        /// reused.
+        static let generateCachedTokens = "FoundationModelsExtras.generate.cached_tokens"
 
         /// The recorder of the output tokens of each generation call divided
         /// by the seconds of its model runs, for a model that gives token

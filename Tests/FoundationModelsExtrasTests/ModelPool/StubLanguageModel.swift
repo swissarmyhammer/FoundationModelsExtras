@@ -1,5 +1,18 @@
 import FoundationModels
 
+/// The token counts of the `updateUsage` event that one generation call of a
+/// ``StubLanguageModel`` gives.
+struct StubTokenUsage: Sendable {
+    /// The input tokens of the call: the whole context that the model read.
+    let input: Int
+
+    /// The input tokens that the prompt cache reused.
+    let cached: Int
+
+    /// The output tokens of the call.
+    let output: Int
+}
+
 /// The script that each copy of one ``StubLanguageModel`` plays. The model
 /// and the test share it, thus the test reads the log of the calls here.
 ///
@@ -17,9 +30,10 @@ final class StubLanguageModelScript: Sendable {
     /// the transcript, in order.
     fileprivate let answer: @Sendable (_ prompts: [String]) -> String
 
-    /// The output token count that each answer gives in an `updateUsage`
-    /// event after its text, or `nil` when the answer gives no usage.
-    fileprivate let outputTokenCount: Int?
+    /// The usage that each generation call gives in an `updateUsage` event
+    /// after its answer or its tool call, in the order of the calls. A call
+    /// past the end of the list gives no usage.
+    fileprivate let usages: [StubTokenUsage]
 
     /// The name of the tool that the model calls one time before it answers,
     /// or `nil` when the model calls no tool.
@@ -35,9 +49,9 @@ final class StubLanguageModelScript: Sendable {
     ///   - firstCallMayEnd: The first call ends only after this stream
     ///     finishes. The default stream is finished, so the first call ends
     ///     at once.
-    ///   - outputTokenCount: The output token count that each answer gives
-    ///     in an `updateUsage` event, or `nil` for no usage event. The
-    ///     default is `nil`.
+    ///   - usages: The usage that each generation call gives in an
+    ///     `updateUsage` event, in the order of the calls. A call past the
+    ///     end of the list gives no usage event. The default is empty.
     ///   - toolName: The name of the tool that the model calls with the
     ///     arguments `{}` before it answers, or `nil` for no tool call. The
     ///     default is `nil`.
@@ -47,13 +61,13 @@ final class StubLanguageModelScript: Sendable {
     init(
         log: Recorder<String> = Recorder(),
         firstCallMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
-        outputTokenCount: Int? = nil,
+        usages: [StubTokenUsage] = [],
         toolName: String? = nil,
         answer: @escaping @Sendable (_ prompts: [String]) -> String = { $0.joined(separator: " ") }
     ) {
         self.log = log
         self.firstCallMayEnd = firstCallMayEnd
-        self.outputTokenCount = outputTokenCount
+        self.usages = usages
         self.toolName = toolName
         self.answer = answer
     }
@@ -66,9 +80,9 @@ final class StubLanguageModelScript: Sendable {
 /// `"end <last prompt>"` to the log of the script. The first call waits
 /// between the two writes until the `firstCallMayEnd` stream of the script
 /// finishes. When the script names a tool and the transcript holds no tool
-/// output yet, the call then asks for that tool and ends. Else the call
-/// answers with the answer of the script, and then gives the usage of the
-/// script when it has one.
+/// output yet, the call then asks for that tool. Else the call answers with
+/// the answer of the script. Last, the call gives its usage from the script
+/// when the script has one for it.
 struct StubLanguageModel: LanguageModel {
     /// The executor that plays the script.
     typealias Executor = StubLanguageModelExecutor
@@ -113,9 +127,9 @@ struct StubLanguageModelExecutor: LanguageModelExecutor {
     /// with no argument.
     private static let toolCallArguments = "{}"
 
-    /// The input, cached and reasoning token counts of the usage of the stub.
-    /// The stub meters only its output tokens, thus each other count is zero.
-    private static let noTokens = 0
+    /// The reasoning token count of the usage of the stub. The stub does not
+    /// reason, thus the count is zero.
+    private static let noReasoningTokens = 0
 
     /// Makes an executor. The configuration holds nothing that the executor
     /// reads: the script arrives with the model on each call.
@@ -125,8 +139,9 @@ struct StubLanguageModelExecutor: LanguageModelExecutor {
     ///   requirement.
     init(configuration: Configuration) throws {}
 
-    /// Writes the call to the log, waits for the gate on the first call, and
-    /// asks for the tool of the script or emits the answer of the script.
+    /// Writes the call to the log, waits for the gate on the first call,
+    /// asks for the tool of the script or emits the answer of the script,
+    /// and then gives the usage of the call when the script has one.
     ///
     /// - Parameters:
     ///   - request: The generation request with the full transcript.
@@ -141,17 +156,19 @@ struct StubLanguageModelExecutor: LanguageModelExecutor {
         let prompts = Self.promptTexts(in: request.transcript)
         let name = prompts.last ?? ""
         script.log.append("begin \(name)")
-        if script.startedCalls.next() == Self.firstCall {
+        let call = script.startedCalls.next()
+        if call == Self.firstCall {
             for await _ in script.firstCallMayEnd {}
         }
         script.log.append("end \(name)")
         if let toolName = script.toolName, !Self.holdsToolOutput(request.transcript) {
             await Self.askForTool(named: toolName, into: channel)
-            return
+        } else {
+            await channel.send(
+                .response(action: .appendText(script.answer(prompts), tokenCount: Self.emittedTokenCount)))
         }
-        await channel.send(.response(action: .appendText(script.answer(prompts), tokenCount: Self.emittedTokenCount)))
-        if let outputTokenCount = script.outputTokenCount {
-            await Self.sendUsage(outputTokenCount: outputTokenCount, into: channel)
+        if let usage = script.usages.dropFirst(call - Self.firstCall).first {
+            await Self.send(usage, into: channel)
         }
     }
 
@@ -168,18 +185,17 @@ struct StubLanguageModelExecutor: LanguageModelExecutor {
                     action: .appendArguments(toolCallArguments, tokenCount: emittedTokenCount))))
     }
 
-    /// Gives the usage of one answer: no input token, and `outputTokenCount`
-    /// output tokens.
+    /// Gives the usage of one generation call in an `updateUsage` event.
     ///
     /// - Parameters:
-    ///   - outputTokenCount: The output token count of the answer.
+    ///   - usage: The token counts of the call.
     ///   - channel: The channel that the usage goes into.
-    private static func sendUsage(outputTokenCount: Int, into channel: LanguageModelExecutorGenerationChannel) async {
+    private static func send(_ usage: StubTokenUsage, into channel: LanguageModelExecutorGenerationChannel) async {
         await channel.send(
             .response(
                 action: .updateUsage(
-                    input: .init(totalTokenCount: noTokens, cachedTokenCount: noTokens),
-                    output: .init(totalTokenCount: outputTokenCount, reasoningTokenCount: noTokens))))
+                    input: .init(totalTokenCount: usage.input, cachedTokenCount: usage.cached),
+                    output: .init(totalTokenCount: usage.output, reasoningTokenCount: noReasoningTokens))))
     }
 
     /// Whether `transcript` holds the output of a tool call.
