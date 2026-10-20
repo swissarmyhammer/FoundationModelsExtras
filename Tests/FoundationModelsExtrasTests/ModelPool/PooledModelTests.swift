@@ -524,18 +524,50 @@ extension PooledModelTests {
     /// The second prompt of a generate telemetry test.
     private static let secondTelemetryPrompt = "qz-and-a-spider"
 
+    /// The input token count of ``reportedUsage``.
+    private static let reportedInputTokens = 30
+
+    /// The cached token count of ``reportedUsage``: the part of its input
+    /// that the prompt cache reused.
+    private static let reportedCachedTokens = 20
+
+    /// The output token count of ``reportedUsage``.
+    private static let reportedOutputTokens = 12
+
+    /// The input token count of ``toolRoundUsage``.
+    private static let toolRoundInputTokens = 40
+
+    /// The cached token count of ``toolRoundUsage``.
+    private static let toolRoundCachedTokens = 10
+
+    /// The output token count of ``toolRoundUsage``.
+    private static let toolRoundOutputTokens = 5
+
+    /// The input token count of ``answerRoundUsage``: the whole context
+    /// again, now with the tool call and its output.
+    private static let answerRoundInputTokens = 55
+
+    /// The cached token count of ``answerRoundUsage``: most of its input.
+    private static let answerRoundCachedTokens = 40
+
+    /// The output token count of ``answerRoundUsage``.
+    private static let answerRoundOutputTokens = 7
+
     /// The usage that the stub of a token test gives for each call: a round
     /// whose prompt cache reused part of the context.
-    private static let reportedUsage = StubTokenUsage(input: 30, cached: 20, output: 12)
+    private static let reportedUsage = StubTokenUsage(
+        input: reportedInputTokens, cached: reportedCachedTokens, output: reportedOutputTokens)
 
     /// The usage of the first round of a token test with a tool call: the
     /// round that asks for the tool.
-    private static let toolRoundUsage = StubTokenUsage(input: 40, cached: 10, output: 5)
+    private static let toolRoundUsage = StubTokenUsage(
+        input: toolRoundInputTokens, cached: toolRoundCachedTokens, output: toolRoundOutputTokens)
 
     /// The usage of the second round of a token test with a tool call: the
     /// round that answers. It reads the whole context again, most of it from
     /// the prompt cache.
-    private static let answerRoundUsage = StubTokenUsage(input: 55, cached: 40, output: 7)
+    private static let answerRoundUsage = StubTokenUsage(
+        input: answerRoundInputTokens, cached: answerRoundCachedTokens, output: answerRoundOutputTokens)
 
     /// The number of generation calls of a test with one call.
     private static let oneCall = 1
@@ -666,7 +698,7 @@ extension PooledModelTests {
         let tokensPerSecond = try GenerateTelemetryExpectations.tokensPerSecond(in: metrics, ref: Self.key.ref)
         #expect(
             try GenerateTelemetryExpectations.outputTokenCounts(in: metrics, ref: Self.key.ref)
-                == [Int64(Self.reportedUsage.output)])
+                == [Int64(Self.reportedOutputTokens)])
         #expect(tokensPerSecond.count == Self.oneCall)
         #expect(tokensPerSecond.allSatisfy { $0 > 0 })
     }
@@ -681,10 +713,10 @@ extension PooledModelTests {
         let metrics = context.metricsFactory
         #expect(
             try GenerateTelemetryExpectations.inputTokenCounts(in: metrics, ref: Self.key.ref)
-                == [Int64(Self.reportedUsage.input)])
+                == [Int64(Self.reportedInputTokens)])
         #expect(
             try GenerateTelemetryExpectations.cachedTokenCounts(in: metrics, ref: Self.key.ref)
-                == [Int64(Self.reportedUsage.cached)])
+                == [Int64(Self.reportedCachedTokens)])
         let span = try #require(GenerateTelemetryExpectations.generateSpans(in: context.spans).first)
         GenerateTelemetryExpectations.expectInputTokenAttributes(
             of: span, summed: Self.reportedUsage, firstRound: Self.reportedUsage)
@@ -700,9 +732,9 @@ extension PooledModelTests {
         }
 
         let summed = StubTokenUsage(
-            input: Self.toolRoundUsage.input + Self.answerRoundUsage.input,
-            cached: Self.toolRoundUsage.cached + Self.answerRoundUsage.cached,
-            output: Self.toolRoundUsage.output + Self.answerRoundUsage.output)
+            input: Self.toolRoundInputTokens + Self.answerRoundInputTokens,
+            cached: Self.toolRoundCachedTokens + Self.answerRoundCachedTokens,
+            output: Self.toolRoundOutputTokens + Self.answerRoundOutputTokens)
         let metrics = context.metricsFactory
         #expect(
             try GenerateTelemetryExpectations.inputTokenCounts(in: metrics, ref: Self.key.ref) == [Int64(summed.input)])

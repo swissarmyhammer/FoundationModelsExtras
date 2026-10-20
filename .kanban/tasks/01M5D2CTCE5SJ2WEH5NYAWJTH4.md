@@ -26,6 +26,33 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/Telemetry/GenerateTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/ExtrasTelemetry.swift, Tests/FoundationModelsExtrasTests/ModelPool/StubLanguageModel.swift, Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift; `swift test`: 1380 tests / 135 suites passed, 0 failures
     - next: /review; then commit, push to main and send the sha to foundationmodelsacpagent-a5 (the last acceptance item)
   timestamp: 2026-10-20T17:29:26.013778+00:00
+- actor: claude-code
+  id: 01m5d62xr2027sp28hgdcbvcwb
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (b3b025b): 3 findings — Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift:529, :533, :538 (code-hygiene/magic-numbers-swift)
+    - next: replace the magic numbers in the StubTokenUsage fixtures (reportedUsage, toolRoundUsage, answerRoundUsage) with named constants, and remove the same cause from the whole file; then re-review
+  timestamp: 2026-10-20T17:34:59.330128+00:00
+- actor: claude-code
+  id: 01m5d638nts34zmgye5vxs9xde
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 5 files
+    - test: green — swift test, 1380 passed
+    - commit: b3b025b
+    - review: findings — Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift:529, :533, :538
+  timestamp: 2026-10-20T17:35:10.522538+00:00
+- actor: claude-code
+  id: 01m5d66c7fkk2xh51792q48bqh
+  text: 'Review findings fixed (code-hygiene/magic-numbers-swift). In PooledModelTests.swift the nine token counts are now documented `private static let` constants (reportedInput/Cached/OutputTokens, toolRoundInput/Cached/OutputTokens, answerRoundInput/Cached/OutputTokens). The three StubTokenUsage fixtures are built from those constants. The multi-round expected sums and the single-round asserted counter values now come straight from the constants. No other number added by b3b025b remains in the file. The only literal left is the `spans[0]` index, and 0 is on the allow list. Checked with swiftlint `no_magic_numbers` and allowed_numbers [0, 1, -1, 100]: 0 violations. The finding lines were literals inside call arguments. swiftlint does not flag a literal in a `static let` declaration, which is why the fix moved the numbers there.'
+  timestamp: 2026-10-20T17:36:52.463242+00:00
+- actor: claude-code
+  id: 01m5d66ea26x34g3zwngw537wh
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift; `swift test`: 1380 tests / 135 suites passed, 0 failures (only warning is the existing mlx-swift_Cmlx.bundle SwiftPM line from a dependency); 3 findings checked off
+    - next: /review; then commit, push to main and send the sha to foundationmodelsacpagent-a5
+  timestamp: 2026-10-20T17:36:54.594954+00:00
 position_column: doing
 position_ordinal: '80'
 title: Record input and cached token counts in generate telemetry
@@ -67,3 +94,14 @@ The FoundationModelsACPAgent session is working out why SWE-bench runs are slow,
 - [ ] Pushed to main, and the sha sent to the FoundationModelsACPAgent session (foundationmodelsacpagent-a5), which asked for it
 
 Requested by the FoundationModelsACPAgent session. The Router session (foundationmodelsrouter-08) has a matching ask for its transcript/metrics side.
+
+## Review Findings (2026-10-20 12:30)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift:529` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift:533` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift:538` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
