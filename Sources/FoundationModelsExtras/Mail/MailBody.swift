@@ -21,6 +21,13 @@ public enum MailBody: Sendable, Codable, Equatable {
     /// sender.
     case agentMessage(from: ULID, content: String)
 
+    /// A change of a catalog that a tool lists in its description, for
+    /// example the skills of the `skills` tool. The model reads
+    /// ``CatalogChangeNotice/text``. This mail is neither user-type mail nor
+    /// run mail: it never starts an answer by itself, and it rides the next
+    /// submission.
+    case catalogChange(CatalogChangeNotice)
+
     /// The kind of this body.
     public var kind: MailKind {
         switch self {
@@ -28,6 +35,7 @@ public enum MailBody: Sendable, Codable, Equatable {
         case .runEvent: .runEvent
         case .elicitationAnswer: .elicitationAnswer
         case .agentMessage: .agentMessage
+        case .catalogChange: .catalogChange
         }
     }
 }
@@ -48,4 +56,7 @@ public enum MailKind: String, Sendable, Codable, Hashable, CaseIterable {
 
     /// A ``MailBody/agentMessage(from:content:)``.
     case agentMessage = "agent_message"
+
+    /// A ``MailBody/catalogChange(_:)``.
+    case catalogChange = "catalog_change"
 }

@@ -50,6 +50,24 @@ import Foundation
 /// the YAML, for example a `:` or a `#` from the value of a variable. The
 /// decode then fails on a document that was valid before the render.
 ///
+/// ## The `enabled` key
+///
+/// Each document carries its ``FrontmatterDocument/enablement``, read from
+/// the raw frontmatter with the rule of ``FrontmatterEnablement``, apart
+/// from `decode`, so that each `Metadata` type gets it. The rule runs after
+/// the layer shadowing: the nearest copy of a path wins, and when that copy
+/// is off, a lower copy does not come back. Thus a higher layer turns off an
+/// item of a lower layer, for example a read-only checkout, with a stub that
+/// holds only `enabled: false`.
+///
+/// `item(at:)`, `items(in:named:)` and `tree(_:)` give each document, also
+/// one that is off, so that a settings UI can list it.
+/// `enabledItems(in:named:)` and `enabledTree(_:)` give only the documents
+/// that are on, for a catalog that the model reads.
+///
+/// A value of the key that is not a bool turns the document off and gives
+/// one diagnostic. A document that is off gives no decode diagnostic.
+///
 /// ## Failures
 ///
 /// A decode failure is not an error. It does not throw, and it does not
@@ -89,6 +107,9 @@ where Base.Item == String {
   private let onDiagnostic: DiagnosticHandler
 
   /// The text of the diagnostic for a decode failure.
+  ///
+  /// A document that is off gives no decode failure, because a stub that
+  /// only turns its item off holds no other key.
   private static var decodeFailureMessage: String { "the frontmatter did not decode" }
 
   /// Creates a document stack over `base`.
@@ -146,6 +167,31 @@ where Base.Item == String {
   /// - Returns: The view of the base stack with each text split.
   public func tree(_ subdirectory: String? = nil) -> [String: Located<Item>] {
     base.tree(subdirectory).mapValues(document)
+  }
+
+  /// The documents of ``items(in:named:)`` that are on.
+  ///
+  /// The shadowing runs first: a name whose nearest copy is off is not in
+  /// the result, also when a lower layer holds a copy that is on.
+  ///
+  /// - Parameters:
+  ///   - subdirectory: A directory relative to a layer's root, as accepted
+  ///     by the base stack. `nil` means the layer root.
+  ///   - fileName: The name of the file to find in each child directory.
+  /// - Returns: The enabled items, keyed as ``items(in:named:)`` keys them.
+  public func enabledItems(
+    in subdirectory: String? = nil, named fileName: String
+  ) -> [String: Located<Item>] {
+    items(in: subdirectory, named: fileName).filter { $0.value.value.isEnabled }
+  }
+
+  /// The documents of ``tree(_:)`` that are on, after the shadowing.
+  ///
+  /// - Parameter subdirectory: A directory relative to a layer's root, as
+  ///   accepted by the base stack. `nil` means the layer root.
+  /// - Returns: The enabled documents, keyed as ``tree(_:)`` keys them.
+  public func enabledTree(_ subdirectory: String? = nil) -> [String: Located<Item>] {
+    tree(subdirectory).filter { $0.value.value.isEnabled }
   }
 
   /// The recursive combined view of `subdirectory` as URLs, as the base
@@ -226,32 +272,46 @@ where Base.Item == String {
     base.isExecutable(relativePath)
   }
 
-  /// Splits the text of `located` and decodes its frontmatter.
+  /// Splits the text of `located`, reads its enablement, and decodes its
+  /// frontmatter.
   ///
   /// Every text lookup routes through this helper, so each of them applies
-  /// the same split rule and the same failure rule.
+  /// the same split rule, the same enablement rule and the same failure
+  /// rule.
   ///
   /// - Parameter located: An item of the base stack.
   /// - Returns: The same item with its text split into a document.
   private func document(_ located: Located<String>) -> Located<Item> {
     let split = FrontmatterDocument.split(text: located.value)
-    let metadata = split.frontmatter.flatMap { decoded($0, of: located) }
+    let enablement = split.frontmatter.map(FrontmatterEnablement.init(frontmatter:)) ?? .enabled
+    if case .invalid(let message) = enablement {
+      onDiagnostic(Diagnostic(url: located.url, layer: located.layer, message: message))
+    }
+    let metadata = split.frontmatter.flatMap {
+      decoded($0, of: located, reportingFailure: enablement.isEnabled)
+    }
     return Located(
       url: located.url, layer: located.layer,
-      value: Item(metadata: metadata, content: split.body))
+      value: Item(metadata: metadata, content: split.body, enablement: enablement))
   }
 
-  /// Decodes `frontmatter`, and reports a failure to `onDiagnostic`.
+  /// Decodes `frontmatter`, and reports a failure to `onDiagnostic` when
+  /// `reportingFailure` is `true`.
   ///
   /// - Parameters:
   ///   - frontmatter: The raw text between the fences.
   ///   - located: The item of the base stack that holds `frontmatter`.
-  /// - Returns: The decoded metadata, or `nil` when the decode failed, in
-  ///   which case the failure went to `onDiagnostic`.
-  private func decoded(_ frontmatter: String, of located: Located<String>) -> Metadata? {
+  ///   - reportingFailure: Whether a failure goes to `onDiagnostic`. It is
+  ///     `false` for a document that is off.
+  /// - Returns: The decoded metadata, or `nil` when the decode failed.
+  private func decoded(
+    _ frontmatter: String, of located: Located<String>, reportingFailure: Bool
+  ) -> Metadata? {
     guard let metadata = decode(frontmatter) else {
-      onDiagnostic(
-        Diagnostic(url: located.url, layer: located.layer, message: Self.decodeFailureMessage))
+      if reportingFailure {
+        onDiagnostic(
+          Diagnostic(url: located.url, layer: located.layer, message: Self.decodeFailureMessage))
+      }
       return nil
     }
     return metadata

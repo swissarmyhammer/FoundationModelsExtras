@@ -157,6 +157,9 @@ public final class WorkRegistry: Sendable {
         /// Each test task that waits for a number of waits.
         var waiterCountWatches: [WaiterCountWatch] = []
 
+        /// Each action that runs at ``close()``, in add order.
+        var closeActions: [@Sendable () -> Void] = []
+
         /// The id of the next stream or wait.
         var nextID: UInt64 = 0
 
@@ -372,9 +375,12 @@ public final class WorkRegistry: Sendable {
     /// and each open lease leaves the set with no transition. A second call
     /// does nothing.
     public func close() {
-        let (subscribers, waiters, watches) = state.withLock { state in
+        let (subscribers, waiters, watches, actions) = state.withLock { state in
             guard !state.isClosed else {
-                return ([AsyncStream<WorkTransition>.Continuation](), [NoWorkWaiter](), [WaiterCountWatch]())
+                return (
+                    [AsyncStream<WorkTransition>.Continuation](), [NoWorkWaiter](), [WaiterCountWatch](),
+                    [@Sendable () -> Void]()
+                )
             }
             state.isClosed = true
             state.open.removeAll()
@@ -382,12 +388,30 @@ public final class WorkRegistry: Sendable {
                 state.subscribers.removeAll()
                 state.noWorkWaiters.removeAll()
                 state.waiterCountWatches.removeAll()
+                state.closeActions.removeAll()
             }
-            return (Array(state.subscribers.values), Array(state.noWorkWaiters.values), state.waiterCountWatches)
+            return (
+                Array(state.subscribers.values), Array(state.noWorkWaiters.values), state.waiterCountWatches,
+                state.closeActions
+            )
         }
         subscribers.forEach { $0.finish() }
         waiters.forEach { $0.resume() }
         watches.forEach { $0.continuation.resume() }
+        actions.forEach { $0() }
+    }
+
+    /// Runs `action` one time, at ``close()``, after the lock. A closed
+    /// registry runs it at once. A ``CatalogNoticeBoard`` uses it to forget
+    /// a session that closed.
+    ///
+    /// - Parameter action: The action.
+    func whenClosed(_ action: @escaping @Sendable () -> Void) {
+        let isClosed = state.withLock { state in
+            if !state.isClosed { state.closeActions.append(action) }
+            return state.isClosed
+        }
+        if isClosed { action() }
     }
 
     // MARK: - Tests

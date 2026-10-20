@@ -34,4 +34,19 @@ struct MailTests {
 
         #expect(decoded == mail)
     }
+
+    @Test("the mail of a catalog notice has the catalog as sender and the notice as body")
+    func theMailOfACatalogNotice() {
+        let notice = CatalogChangeNotice(
+            kind: .skills, added: [CatalogEntry(name: "x", description: "does x")], removed: [], changed: [])
+        let id = MailID()
+
+        let mail = Mail(id: id, catalogNotice: notice)
+
+        #expect(mail.id == id)
+        #expect(mail.sender == .catalog(.skills))
+        #expect(mail.body == .catalogChange(notice))
+        #expect(mail.body.kind == .catalogChange)
+        #expect(Mail(catalogNotice: notice).id != Mail(catalogNotice: notice).id)
+    }
 }

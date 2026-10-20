@@ -613,6 +613,11 @@ public struct ToolContext: Sendable {
     /// one: the run plane tracks it, and its events and its terminal go to
     /// the sink of the session under its own token.
     ///
+    /// Each call of the mounted tool is an inner call. When the site of the
+    /// session has a ``ToolCallWitness``, each inner call goes to it one time,
+    /// at its start, with `op` or else the tool name. An inner call that
+    /// mounts its own inner calls reports them too. See ``MountSite``.
+    ///
     /// - Parameters:
     ///   - tool: The tool to mount.
     ///   - op: The op of the mounted runs, or `nil` for the tool name.
@@ -646,6 +651,9 @@ public struct ToolContext: Sendable {
     /// runs of one tool apart. The report of a mounted call does not reach a
     /// `sink` that is not a ``ToolCallReportSink``.
     ///
+    /// Each call of the mounted tool goes to the ``ToolCallWitness`` of the
+    /// session, as with ``mount(_:op:as:)``.
+    ///
     /// - Parameters:
     ///   - tool: The tool to mount.
     ///   - op: The op of the mounted runs, or `nil` for the tool name.
@@ -662,7 +670,9 @@ public struct ToolContext: Sendable {
     }
 
     /// Mounts `tool` on a copy of the site of this run that posts to
-    /// `eventSink` and `sessionSink`, and keeps the types of `tool`.
+    /// `eventSink` and `sessionSink`, and keeps the types of `tool`. The copy
+    /// witnesses its calls: this is the one place that marks a call as an
+    /// inner call.
     ///
     /// - Parameters:
     ///   - tool: The tool to mount.
@@ -678,7 +688,7 @@ public struct ToolContext: Sendable {
         eventSink: any OperationEventSink,
         sessionSink: any OperationEventSink
     ) -> any Tool<T.Arguments, T.Output> {
-        let site = runSite.posting(to: eventSink, sessionSink: sessionSink, op: op)
+        let site = runSite.posting(to: eventSink, sessionSink: sessionSink, op: op).witnessingCalls
         let mounted = ToolMounting.makeWrapped(tool: tool, site: site, configuration: configuration)
         // Each mount keeps `Arguments` and `Output`, so the cast does not
         // fail. The fallback calls the tool with no mount.

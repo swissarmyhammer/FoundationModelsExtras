@@ -66,7 +66,22 @@ public struct MountSite: Sendable {
     /// A background call is a run of its own, and does not use this value.
     private(set) var holdingRunToken: String?
 
+    /// The witness of each inner call that ``ToolContext/mount(_:op:as:)``
+    /// mounts on this site, or `nil` for none. See ``ToolCallWitness``.
+    let callWitness: (any ToolCallWitness)?
+
+    /// Whether each call on this site is an inner call that
+    /// ``ToolContext/mount(_:op:as:)`` mounted, and thus goes to
+    /// ``callWitness``. Only the site that a mount makes sets it. The site
+    /// that a host gives to ``ToolMounting/makeWrapped(tool:site:configuration:)``
+    /// keeps `false`, so an outer call is never reported.
+    private(set) var witnessesCalls: Bool
+
     /// Makes a mount site. Each value must belong to the same session.
+    ///
+    /// A call that a host mounts on this site is an outer call, and never
+    /// goes to `callWitness`. Each inner call that such a call mounts through
+    /// ``ToolContext/mount(_:op:as:)`` goes to `callWitness` at its start.
     ///
     /// - Parameters:
     ///   - sessionID: The session of each call.
@@ -79,17 +94,20 @@ public struct MountSite: Sendable {
     ///   - inlineSettleGrace: The settle period of each background call, in
     ///     seconds. A negative value acts as `0`. The default is
     ///     ``ToolMount/defaultInlineSettleGrace``.
+    ///   - callWitness: The witness of each inner call, or `nil` for none.
+    ///     The default is `nil`.
     public init(
         sessionID: ULID,
         runPlane: RunPlane,
         sink: any OperationEventSink,
         op: String? = nil,
         tracer: (any Tracer)? = nil,
-        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
+        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace,
+        callWitness: (any ToolCallWitness)? = nil
     ) {
         self.init(
             sessionID: sessionID, runPlane: runPlane, parent: nil, sink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace)
+            inlineSettleGrace: inlineSettleGrace, callWitness: callWitness)
     }
 
     /// Makes the mount site of a child session: a session that a call of the
@@ -102,6 +120,11 @@ public struct MountSite: Sendable {
     ///
     /// ``ToolContext/childSite(sessionID:runPlane:sink:)`` makes this site
     /// from the context of the call that starts the child.
+    ///
+    /// As at the root, a call that a host mounts on this site is an outer
+    /// call, and never goes to `callWitness`. Each inner call that such a call
+    /// mounts through ``ToolContext/mount(_:op:as:)`` goes to `callWitness` at
+    /// its start.
     ///
     /// - Parameters:
     ///   - sessionID: The child session.
@@ -116,6 +139,8 @@ public struct MountSite: Sendable {
     ///     `InstrumentationSystem.tracer` at call time.
     ///   - inlineSettleGrace: The settle period of each background call, in
     ///     seconds. A negative value acts as `0`.
+    ///   - callWitness: The witness of each inner call, or `nil` for none.
+    ///     The default is `nil`.
     public init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -125,16 +150,17 @@ public struct MountSite: Sendable {
         sink: any OperationEventSink,
         op: String? = nil,
         tracer: (any Tracer)? = nil,
-        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
+        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace,
+        callWitness: (any ToolCallWitness)? = nil
     ) {
         self.init(
             sessionID: sessionID, runPlane: runPlane,
             parent: (parentSessionID, rootSessionID, rootRunPlane), sink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace)
+            inlineSettleGrace: inlineSettleGrace, callWitness: callWitness)
     }
 
     /// Makes a mount site at the root (`parent` is `nil`) or in a child
-    /// session.
+    /// session. The site does not witness its own calls.
     ///
     /// - Parameters:
     ///   - sessionID: The session of each call.
@@ -145,6 +171,7 @@ public struct MountSite: Sendable {
     ///   - op: The op of the registration, or `nil` for the tool name.
     ///   - tracer: The tracer of the session, or `nil`.
     ///   - inlineSettleGrace: The settle period of each background call.
+    ///   - callWitness: The witness of each inner call, or `nil`.
     private init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -152,7 +179,8 @@ public struct MountSite: Sendable {
         sink: any OperationEventSink,
         op: String?,
         tracer: (any Tracer)?,
-        inlineSettleGrace: TimeInterval
+        inlineSettleGrace: TimeInterval,
+        callWitness: (any ToolCallWitness)?
     ) {
         self.sessionID = sessionID
         self.runPlane = runPlane
@@ -166,12 +194,20 @@ public struct MountSite: Sendable {
         self.inlineSettleGrace = max(0, inlineSettleGrace)
         self.inlineSettleDeadline = nil
         self.holdingRunToken = nil
+        self.callWitness = callWitness
+        self.witnessesCalls = false
     }
 
     /// The site of a child session that a call on this site starts, for
     /// example a subagent. This session is the parent of the child, and the
     /// root of this session is the root of the child. The child keeps the
     /// tracer and the configured settle period of this site.
+    ///
+    /// The child drops the ``callWitness`` of this site: it gets none, and it
+    /// does not witness its calls. Thus no inner call of the child goes to
+    /// the witness of this session. A host that wants the inner calls of the
+    /// child makes the child site with
+    /// ``init(sessionID:runPlane:parentSessionID:rootSessionID:rootRunPlane:sink:op:tracer:inlineSettleGrace:callWitness:)``.
     ///
     /// - Parameters:
     ///   - sessionID: The child session.
@@ -234,6 +270,29 @@ public struct MountSite: Sendable {
         var changed = self
         changed.inlineSettleGrace = max(0, grace)
         return changed
+    }
+
+    /// This site, for the inner calls that ``ToolContext/mount(_:op:as:)``
+    /// mounts: each call on it goes to ``callWitness``. Each other value
+    /// stays.
+    var witnessingCalls: MountSite {
+        var changed = self
+        changed.witnessesCalls = true
+        return changed
+    }
+
+    /// Gives the start of one call to ``callWitness``, when this site
+    /// witnesses its calls and has a witness. Each entry point of a call
+    /// calls this one time, before the call runs.
+    ///
+    /// - Parameters:
+    ///   - tool: The name of the called tool.
+    ///   - arguments: The arguments of the call.
+    func witnessStart(ofCallTo tool: String, arguments: some ConvertibleFromGeneratedContent) {
+        guard witnessesCalls, let callWitness else { return }
+        let content = (arguments as? any ConvertibleToGeneratedContent)?.generatedContent
+        callWitness.toolCallWillBegin(
+            WitnessedToolCall(tool: tool, op: op ?? tool, arguments: content, sessionID: sessionID))
     }
 }
 
@@ -325,6 +384,10 @@ public enum ToolMounting {
     /// through ``BackgroundTool/mount(for:)`` wins over both. Each other tool
     /// only gets a bound ``ToolContext``.
     ///
+    /// When `tool` is ``CatalogNoticing``, the session of `site` joins the
+    /// ``CatalogNoticeBoard`` of the tool, and gets each later catalog change
+    /// on the session sink of `site`.
+    ///
     /// - Parameters:
     ///   - tool: The tool to mount.
     ///   - site: Where the tool runs.
@@ -332,6 +395,7 @@ public enum ToolMounting {
     /// - Returns: The mounted tool, with the `Arguments` and `Output` of
     ///   `tool`.
     public static func makeWrapped(tool: any Tool, site: MountSite, configuration: ToolMount) -> any Tool {
+        (tool as? any CatalogNoticing)?.catalogNoticeBoard.join(site)
         func runner<A: ConvertibleFromGeneratedContent & Sendable>(_: A.Type, for tool: any Tool) -> any Tool {
             guard let typed = tool as? any Tool<A, String> else { return tool }
             let mount = (typed as? any BackgroundTool)?.mount ?? configuration
@@ -365,6 +429,9 @@ public enum ToolMounting {
     /// mount. Thus its terminal goes to the session as the terminal of its
     /// own run.
     ///
+    /// An inner call that ``ToolContext/mount(_:op:as:)`` mounted goes to the
+    /// ``ToolCallWitness`` of `site` first, in each mode.
+    ///
     /// - Parameters:
     ///   - wrapped: The called tool.
     ///   - arguments: The arguments of the call.
@@ -378,6 +445,7 @@ public enum ToolMounting {
         site: MountSite,
         mount: ToolMount
     ) async throws -> String {
+        site.witnessStart(ofCallTo: wrapped.name, arguments: arguments)
         let declared = backgroundDeclaration(of: wrapped, for: arguments)
         let chosen = declared.flatMap { $0.tool.mount(for: $0.content) } ?? mount
         switch chosen.mode {
