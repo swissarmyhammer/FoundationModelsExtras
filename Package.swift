@@ -91,6 +91,15 @@ let package = Package(
         .package(url: "https://github.com/swissarmyhammer/mlx-swift-lm", branch: "stable"),
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
+        // The GraphQL toolkit of the family: the engine (the parser, the
+        // validator and the executor) and the schema builder. These are the
+        // only pins of GraphQL and Graphiti in the family; each other package
+        // gets them through this package, so a host resolves one copy.
+        .package(url: "https://github.com/GraphQLSwift/GraphQL.git", from: "4.3.0"),
+        .package(url: "https://github.com/GraphQLSwift/Graphiti.git", from: "3.1.0"),
+        // The ordered dictionary that a GraphQL `Map` object holds. The
+        // `JSON` scalar and the name rewrite name this type directly.
+        .package(url: "https://github.com/apple/swift-collections.git", from: "1.0.0"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -119,6 +128,11 @@ let package = Package(
                 .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
                 .product(name: "HuggingFace", package: "swift-huggingface"),
                 .product(name: "Tokenizers", package: "swift-transformers"),
+                // The GraphQL toolkit in `GraphQL/`: the endpoint protocol,
+                // the engine run, the name rewrite and the test kit.
+                .product(name: "GraphQL", package: "GraphQL"),
+                .product(name: "Graphiti", package: "Graphiti"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
             ]
         ),
 
@@ -168,6 +182,10 @@ let package = Package(
                 // The download progress tests of `MLXModelLoader` give a fake
                 // `Downloader` to the downloader that reports the progress.
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                // The GraphQL toolkit tests build an example schema with
+                // Graphiti and give variables as GraphQL `Map` values.
+                .product(name: "GraphQL", package: "GraphQL"),
+                .product(name: "Graphiti", package: "Graphiti"),
             ],
             resources: [
                 // `CorpusGoldenTests` reads these directly off disk via

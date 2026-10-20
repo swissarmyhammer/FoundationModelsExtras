@@ -80,6 +80,9 @@ struct TelemetryDependencyTests {
         .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
         .product(name: "HuggingFace", package: "swift-huggingface"),
         .product(name: "Tokenizers", package: "swift-transformers"),
+        .product(name: "GraphQL", package: "GraphQL"),
+        .product(name: "Graphiti", package: "Graphiti"),
+        .product(name: "OrderedCollections", package: "swift-collections"),
     ])
 
     @Test("no library source logs or writes signposts through the os framework")
