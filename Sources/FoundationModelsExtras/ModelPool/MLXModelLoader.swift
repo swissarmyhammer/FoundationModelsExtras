@@ -40,21 +40,34 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The tokenizer loader of each load, of an LLM and of an embedding model.
     let tokenizerLoader: any TokenizerLoader
 
-    /// Makes a loader over the default Hugging Face cache, the cache that the
-    /// download writes to.
+    /// Makes a loader over a Hugging Face cache. The download writes to this
+    /// cache, the load reads the weights from it, and the footprint measures
+    /// the weights in it.
     ///
-    /// - Parameter tokenizerLoader: The tokenizer loader of each load, of an
-    ///   LLM and of an embedding model. For example, a loader that gives a
-    ///   chat template with a pinned date. `nil` uses the Hugging Face
-    ///   tokenizer loader.
-    public init(tokenizerLoader: (any TokenizerLoader)? = nil) {
-        self.init(cache: .default, tokenizerLoader: tokenizerLoader)
-    }
-
-    /// Makes a loader that measures the weights in `cache`.
+    /// ```swift
+    /// let models = URL.applicationSupportDirectory.appending(path: "Models")
+    /// let pool = ModelPool(loader: MLXModelLoader(cacheDirectory: models))
+    /// ```
     ///
     /// - Parameters:
-    ///   - cache: The Hugging Face cache that holds the weights.
+    ///   - cacheDirectory: The folder of the cache. A given folder is the
+    ///     cache, also when `HF_HUB_CACHE` or `HF_HOME` names a different
+    ///     folder. `nil` uses the default Hugging Face cache, which reads
+    ///     these variables.
+    ///   - tokenizerLoader: The tokenizer loader of each load, of an LLM and
+    ///     of an embedding model. For example, a loader that gives a chat
+    ///     template with a pinned date. `nil` uses the Hugging Face tokenizer
+    ///     loader.
+    public init(cacheDirectory: URL? = nil, tokenizerLoader: (any TokenizerLoader)? = nil) {
+        self.init(
+            cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenizerLoader: tokenizerLoader)
+    }
+
+    /// Makes a loader over `cache`.
+    ///
+    /// - Parameters:
+    ///   - cache: The Hugging Face cache that the download writes to and that
+    ///     holds the weights.
     ///   - tokenizerLoader: The tokenizer loader of each load. `nil` uses the
     ///     Hugging Face tokenizer loader.
     init(cache: HubCache, tokenizerLoader: (any TokenizerLoader)? = nil) {
@@ -95,11 +108,12 @@ public struct MLXModelLoader: PooledModelLoader {
             try MetalLibraryBootstrap.install()
         }
         let configuration = ModelConfiguration(id: key.ref.repo, revision: Self.revision(of: key))
-        let downloader = ProgressReportingDownloader(upstream: #hubDownloader(), report: progressHandler)
+        let downloader = ProgressReportingDownloader(upstream: #hubDownloader(hubClient()), report: progressHandler)
         switch key.role {
         case .llm:
             return try await Self.loadLanguageModel(
-                configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
+                configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader,
+                weightsLocation: { [cache] id in Self.weightsDirectory(of: id, in: cache) })
         case .embedding:
             return try await MLXEmbedding.load(
                 ref: key.ref, configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
@@ -130,6 +144,25 @@ public struct MLXModelLoader: PooledModelLoader {
         return try files.filter { $0.pathExtension == Self.weightFileExtension }.reduce(0) { total, file in
             total + (try Self.blobBytes(of: file))
         }
+    }
+
+    /// The Hugging Face client of each download. Its cache is the cache of the
+    /// loader, thus the download writes to the folder of the loader.
+    ///
+    /// - Returns: A client over the cache of the loader.
+    func hubClient() -> HubClient {
+        HubClient(cache: cache)
+    }
+
+    /// The folder of the model `id` in `cache`, where `MLXLanguageModel` looks
+    /// for its weights.
+    ///
+    /// - Parameters:
+    ///   - id: The repository of the model.
+    ///   - cache: The cache that holds the weights.
+    /// - Returns: The folder of the repository in the cache.
+    static func weightsDirectory(of id: String, in cache: HubCache) -> URL {
+        cache.repoDirectory(repo: "\(id)", kind: .model)
     }
 
     /// The revision of `key` that the loader loads. The load span of the pool
@@ -183,15 +216,16 @@ public struct MLXModelLoader: PooledModelLoader {
     ///   - configuration: The model and its revision.
     ///   - downloader: The downloader of the files of the model.
     ///   - tokenizerLoader: The loader of the tokenizer of the model.
+    ///   - weightsLocation: Gives the folder of the weights of a model.
     /// - Returns: The loaded model.
     /// - Throws: The error of the download or of the load.
     private static func loadLanguageModel(
         configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
-        tokenizerLoader: any TokenizerLoader
+        tokenizerLoader: any TokenizerLoader, weightsLocation: @escaping @Sendable (String) -> URL
     ) async throws -> MLXLanguageModel {
         let model = MLXLanguageModel(
             configuration: configuration, capabilities: languageModelCapabilities,
-            weightsLocation: { id in HubCache.default.repoDirectory(repo: "\(id)", kind: .model) }
+            weightsLocation: weightsLocation
         ) { configuration, progress in
             try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
                 try await loadModelContainer(

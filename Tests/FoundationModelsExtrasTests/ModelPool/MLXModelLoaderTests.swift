@@ -114,6 +114,48 @@ struct MLXModelLoaderTests {
         }
     }
 
+    @Test("a loader with a cache folder downloads to that folder, also when HF_HUB_CACHE and HF_HOME name another")
+    func cacheFolderIsTheDownloadFolder() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let other = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: other) }
+        let defaultFolder = HubCache.default.cacheDirectory
+
+        let loader = Self.withEnvironment(
+            ["HF_HUB_CACHE": other.path, "HF_HOME": other.path]
+        ) { MLXModelLoader(cacheDirectory: root) }
+
+        let downloadFolder = try #require(loader.hubClient().cache?.cacheDirectory)
+        #expect(downloadFolder == root)
+        #expect(HubCache.default.cacheDirectory == defaultFolder)
+        #expect(
+            MLXModelLoader.weightsDirectory(of: Self.repository, in: HubCache(cacheDirectory: root)).path
+                .hasPrefix(root.path))
+    }
+
+    @Test("a loader with no cache folder downloads to the default Hugging Face cache")
+    func noCacheFolderUsesTheDefaultCache() throws {
+        let loader = MLXModelLoader()
+
+        let downloadFolder = try #require(loader.hubClient().cache?.cacheDirectory)
+
+        #expect(downloadFolder == HubCache.default.cacheDirectory)
+    }
+
+    @Test("the footprint of a loader with a cache folder measures the weights in that folder")
+    func footprintReadsTheGivenCacheFolder() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.writeSnapshot(
+            in: HubCache(cacheDirectory: root), ref: MLXModelLoader.defaultRevision, commit: Self.mainCommit)
+        let loader = MLXModelLoader(cacheDirectory: root)
+
+        let bytes = try await loader.footprintBytes(of: ModelPoolKey(ref: ModelRef(Self.repository), role: .llm))
+
+        #expect(bytes == Int64(Self.firstWeightBytes + Self.secondWeightBytes))
+    }
+
     @Test("the metal library step links mlx.metallib beside an xctest binary to the library of the Cmlx bundle")
     func metalLibraryStepLinksTheBundledLibrary() throws {
         let root = try TemporaryDirectory.make()
@@ -270,6 +312,29 @@ struct MLXModelLoaderTests {
         let directory = root.appendingPathComponent(path, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    /// Runs `body` while the process environment holds `variables`, and then
+    /// puts back the old values.
+    ///
+    /// - Parameters:
+    ///   - variables: The names and values to set.
+    ///   - body: The work to run.
+    /// - Returns: The result of `body`.
+    /// - Throws: The error of `body`.
+    private static func withEnvironment<Result>(
+        _ variables: [String: String], _ body: () throws -> Result
+    ) rethrows -> Result {
+        let old = variables.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        for (name, value) in variables {
+            setenv(name, value, 1)
+        }
+        defer {
+            for (name, value) in old {
+                if let value { setenv(name, value, 1) } else { unsetenv(name) }
+            }
+        }
+        return try body()
     }
 
     /// Writes one snapshot of ``repository`` in `cache`: two weight files and
