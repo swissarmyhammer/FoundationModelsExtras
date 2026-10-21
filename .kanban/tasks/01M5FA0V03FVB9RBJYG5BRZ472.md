@@ -57,8 +57,24 @@ comments:
     - evidence: 1 file — Sources/FoundationModelsExtras/GraphQL/GraphQLTestKit.swift; swiftlint no_magic_numbers 1 → 0; `swift test` 1513 tests in 155 suites passed, exit 0 (only the existing MLX bundle "missing creator" build note)
     - next: /review
   timestamp: 2026-10-21T14:18:46.645321+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5fdcehf1n2kz3vb7xx7fr2k
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (b8a88c0) — 0 findings (7 validator pairs attempted, 0 failed); prior finding GraphQLTestKit.swift:208 code-hygiene/magic-numbers-swift checked
+    - next: none — task moved to done
+  timestamp: 2026-10-21T14:21:00.335487+00:00
+- actor: claude-code
+  id: 01m5fdcpg2dzktm6xa5gbna49m
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (GraphQLTestKit.swift, firstResponseLimitSeconds)
+    - test: green — swift test, 1513 tests in 155 suites, 0 failed
+    - commit: b8a88c0
+    - review: clean — 0 findings; prior finding GraphQLTestKit.swift:208 checked
+  timestamp: 2026-10-21T14:21:08.482168+00:00
+position_column: done
+position_ordinal: ffbb80
 title: 'GraphQLEndpointConformance: subscription alias probes through subscribe'
 ---
 Requested by the Multitool coordinator. The agents session found the gap after EXTRAS-11. Low priority; nothing is blocked on it.
