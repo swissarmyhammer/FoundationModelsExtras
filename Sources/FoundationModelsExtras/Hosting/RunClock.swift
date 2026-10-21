@@ -8,6 +8,9 @@ import Synchronization
 /// a ``ManualRunClock`` to the run plane, and then moves the time forward
 /// with no real sleep.
 ///
+/// ``GraphQLEndpointConformance`` reads a clock of this type too, for its wait
+/// on the first response of a subscription.
+///
 /// The instants are `ContinuousClock.Instant` values, thus a deadline that a
 /// context stores is the same type for each clock.
 public protocol RunClock: Sendable {

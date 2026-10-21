@@ -151,6 +151,16 @@ public enum GraphQLSchemaDescriptions {
 /// A call with an alias name that an endpoint must answer, for the conformance check: the document, and the rewrite
 /// that the response must report in `extensions.rewrites`.
 public struct GraphQLAliasProbe: Sendable {
+    /// How the conformance check sends the document of a probe.
+    public enum Kind: Sendable {
+        /// The check sends the document through `execute`: a query or a mutation.
+        case query
+
+        /// The check sends the document through `subscribe`, and reads the first response. The endpoint must send
+        /// that response at once, for example from the buffer of a ``ChangeLog`` after the cursor of the document.
+        case subscription
+    }
+
     /// A document that names one field, argument, or `input` field by an alias or a different case.
     public var query: String
 
@@ -163,6 +173,9 @@ public struct GraphQLAliasProbe: Sendable {
     /// The canonical name that the rewrite must give.
     public var to: String
 
+    /// How the check sends the document.
+    public var kind: Kind
+
     /// Makes a probe.
     ///
     /// - Parameters:
@@ -170,11 +183,13 @@ public struct GraphQLAliasProbe: Sendable {
     ///   - variables: The values of the variables of the document.
     ///   - from: The name that the document wrote.
     ///   - to: The canonical name that the rewrite must give.
-    public init(query: String, variables: [String: Map] = [:], from: String, to: String) {
+    ///   - kind: How the check sends the document. The default is ``Kind/query``.
+    public init(query: String, variables: [String: Map] = [:], from: String, to: String, kind: Kind = .query) {
         self.query = query
         self.variables = variables
         self.from = from
         self.to = to
+        self.kind = kind
     }
 }
 
@@ -188,19 +203,25 @@ public enum GraphQLEndpointConformance {
     /// A query that each schema answers.
     private static let typenameQuery = "{ __typename }"
 
-    /// Checks an endpoint.
+    /// The longest time that the check waits for the first response of a subscription. A subscription that sends no
+    /// response in this time is a problem, so the check does not hang on an endpoint that never sends.
+    public static let firstResponseLimit: Duration = .seconds(10)
+
+    /// What a subscription gives first.
+    private enum FirstResponse: Sendable {
+        /// The JSON text of the first response.
+        case response(String)
+
+        /// The stream ended with no response.
+        case ended
+
+        /// No response came in ``GraphQLEndpointConformance/firstResponseLimit``.
+        case timedOut
+    }
+
+    /// Checks an endpoint with one alias probe.
     ///
-    /// The check reads the name, the version, and the SDL schema, then sends these calls with no viewer:
-    ///
-    /// - `{ __typename }` must give `data.__typename` and no error;
-    /// - a document that does not parse must give one error with the code `GRAPHQL_PARSE_FAILED`, also from
-    ///   `subscribe`;
-    /// - the alias probe must give `data`, no error, and the rewrite of the probe in `extensions.rewrites`.
-    ///
-    /// It then checks each rule of ``GraphQLConventionRule`` that has no exception, and each problem of a rule starts
-    /// with the name of the rule, for example `rule 9: …`. The codes of rule 8 are not in the SDL, and one call does
-    /// not give them all, so the endpoint gives its codes: each code of its own `CodedError` types and each warning
-    /// code that it can give.
+    /// This is ``problems(of:scope:probes:codes:exceptions:clock:)`` with a list of one probe and the real time.
     ///
     /// - Parameters:
     ///   - endpoint: The endpoint.
@@ -217,6 +238,46 @@ public enum GraphQLEndpointConformance {
         codes: [String] = [],
         exceptions: [GraphQLConventionException] = []
     ) async -> [String] {
+        await problems(of: endpoint, scope: scope, probes: [probe], codes: codes, exceptions: exceptions)
+    }
+
+    /// Checks an endpoint.
+    ///
+    /// The check reads the name, the version, and the SDL schema, then sends these calls with no viewer:
+    ///
+    /// - `{ __typename }` must give `data.__typename` and no error;
+    /// - a document that does not parse must give one error with the code `GRAPHQL_PARSE_FAILED`, also from
+    ///   `subscribe`;
+    /// - each alias probe must give `data`, no error, and the rewrite of the probe in `extensions.rewrites`. A
+    ///   ``GraphQLAliasProbe/Kind/subscription`` probe goes through `subscribe`, and the check reads its first
+    ///   response.
+    ///
+    /// The check waits at most ``firstResponseLimit`` for the first response of a subscription, and a subscription
+    /// that sends none in that time, or that ends with none, is a problem.
+    ///
+    /// It then checks each rule of ``GraphQLConventionRule`` that has no exception, and each problem of a rule starts
+    /// with the name of the rule, for example `rule 9: …`. The codes of rule 8 are not in the SDL, and one call does
+    /// not give them all, so the endpoint gives its codes: each code of its own `CodedError` types and each warning
+    /// code that it can give.
+    ///
+    /// - Parameters:
+    ///   - endpoint: The endpoint.
+    ///   - scope: The scope that the endpoint must have.
+    ///   - probes: The calls with an alias name, for example one query alias and one subscription alias.
+    ///   - codes: Each error code and warning code that the endpoint can give, for rule 8. The default is none.
+    ///   - exceptions: The rules that the endpoint does not obey yet, each with the task that removes it. The default
+    ///     is none.
+    ///   - clock: The clock of the wait for the first response of a subscription. The default is the real time; a
+    ///     test gives a ``ManualRunClock``.
+    /// - Returns: The problems, or an empty list when the endpoint conforms.
+    public static func problems(
+        of endpoint: any GraphQLEndpoint,
+        scope: GraphQLEndpointScope,
+        probes: [GraphQLAliasProbe],
+        codes: [String] = [],
+        exceptions: [GraphQLConventionException] = [],
+        clock: any RunClock = ContinuousRunClock()
+    ) async -> [String] {
         var problems = facts(of: endpoint, scope: scope)
         problems += GraphQLConventions.problems(of: endpoint, codes: codes, exceptions: exceptions)
         problems += await check("The call \(typenameQuery)") {
@@ -228,28 +289,112 @@ public enum GraphQLEndpointConformance {
             parseFailureProblems(of: try await execute(brokenDocument, on: endpoint))
         }
         problems += await check("A subscription document that does not parse") {
-            let stream = try await endpoint.subscribe(
-                query: brokenDocument,
-                variables: [:],
-                operationName: nil,
-                viewer: nil
-            )
-            var iterator = stream.makeAsyncIterator()
-            guard let first = try await iterator.next() else {
-                return ["gave no response"]
-            }
-            return parseFailureProblems(of: try ParsedResponse(json: first))
+            let stream = try await subscribe(brokenDocument, on: endpoint)
+            return try await firstResponseProblems(of: stream, clock: clock, parseFailureProblems)
         }
-        problems += await check("The alias probe \(probe.query)") {
-            let response = try await execute(probe.query, variables: probe.variables, on: endpoint)
-            let rewrites = response.extensions?["rewrites"] as? [[String: Any]] ?? []
-            let reported = rewrites.contains { rewrite in
-                rewrite["from"] as? String == probe.from && rewrite["to"] as? String == probe.to
-            }
-            return errorsAndData(of: response, needsData: true)
-                + (reported ? [] : ["gave no rewrite from \(probe.from) to \(probe.to) in extensions.rewrites"])
+        for probe in probes {
+            problems += await aliasProblems(of: probe, on: endpoint, clock: clock)
         }
         return problems
+    }
+
+    /// Sends one alias probe the way its kind asks, and gives its problems.
+    ///
+    /// - Parameters:
+    ///   - probe: The probe.
+    ///   - endpoint: The endpoint.
+    ///   - clock: The clock of the wait for the first response of a subscription.
+    /// - Returns: The problems of the probe, each with the probe in its subject.
+    private static func aliasProblems(
+        of probe: GraphQLAliasProbe,
+        on endpoint: any GraphQLEndpoint,
+        clock: any RunClock
+    ) async -> [String] {
+        switch probe.kind {
+        case .query:
+            await check("The alias probe \(probe.query)") {
+                let response = try await execute(probe.query, variables: probe.variables, on: endpoint)
+                return rewriteProblems(of: response, probe: probe)
+            }
+        case .subscription:
+            await check("The subscription alias probe \(probe.query)") {
+                let stream = try await subscribe(probe.query, variables: probe.variables, on: endpoint)
+                return try await firstResponseProblems(of: stream, clock: clock) { response in
+                    rewriteProblems(of: response, probe: probe)
+                }
+            }
+        }
+    }
+
+    /// Gives the problems of the response to an alias probe: an error, no `data`, or no rewrite of the probe in
+    /// `extensions.rewrites`.
+    ///
+    /// - Parameters:
+    ///   - response: The response.
+    ///   - probe: The probe.
+    /// - Returns: The problems.
+    private static func rewriteProblems(of response: ParsedResponse, probe: GraphQLAliasProbe) -> [String] {
+        let rewrites = response.extensions?["rewrites"] as? [[String: Any]] ?? []
+        let reported = rewrites.contains { rewrite in
+            rewrite["from"] as? String == probe.from && rewrite["to"] as? String == probe.to
+        }
+        return errorsAndData(of: response, needsData: true)
+            + (reported ? [] : ["gave no rewrite from \(probe.from) to \(probe.to) in extensions.rewrites"])
+    }
+
+    /// Reads the first response of a subscription, and gives its problems.
+    ///
+    /// - Parameters:
+    ///   - stream: The stream of the subscription.
+    ///   - clock: The clock of the wait.
+    ///   - responseProblems: Gives the problems of the first response.
+    /// - Returns: The problems of the first response, or one problem when the stream ends with no response or sends
+    ///   none in ``firstResponseLimit``.
+    /// - Throws: The error that ends the stream, or ``ParsedResponse/NotAnObject`` when the response is not a JSON
+    ///   object.
+    private static func firstResponseProblems(
+        of stream: AsyncThrowingStream<String, Error>,
+        clock: any RunClock,
+        _ responseProblems: (ParsedResponse) -> [String]
+    ) async throws -> [String] {
+        switch try await firstResponse(of: stream, clock: clock) {
+        case .response(let json):
+            responseProblems(try ParsedResponse(json: json))
+        case .ended:
+            ["gave no response"]
+        case .timedOut:
+            ["gave no response within \(firstResponseLimit)"]
+        }
+    }
+
+    /// Waits for the first response of a subscription, at most ``firstResponseLimit``.
+    ///
+    /// The read of the stream races a sleep on `clock`, and the loser is cancelled, so a stream that stays open with
+    /// no response does not hang the check.
+    ///
+    /// - Parameters:
+    ///   - stream: The stream of the subscription.
+    ///   - clock: The clock of the wait.
+    /// - Returns: What the subscription gave first.
+    /// - Throws: The error that ends the stream.
+    private static func firstResponse(
+        of stream: AsyncThrowingStream<String, Error>,
+        clock: any RunClock
+    ) async throws -> FirstResponse {
+        let deadline = clock.now.advanced(by: firstResponseLimit)
+        return try await withThrowingTaskGroup(of: FirstResponse.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return try await iterator.next().map(FirstResponse.response) ?? .ended
+            }
+            group.addTask {
+                try await clock.sleep(until: deadline)
+                return .timedOut
+            }
+            defer { group.cancelAll() }
+            // The group holds two tasks, so its first result is never `nil`.
+            return try await group.next() ?? .timedOut
+        }
     }
 
     /// Checks the name, the version, the scope, and the SDL of an endpoint.
@@ -310,6 +455,22 @@ public enum GraphQLEndpointConformance {
         try ParsedResponse(
             json: await endpoint.execute(query: query, variables: variables, operationName: nil, viewer: nil)
         )
+    }
+
+    /// Starts one subscription document with no viewer.
+    ///
+    /// - Parameters:
+    ///   - query: The document.
+    ///   - variables: The values of the variables.
+    ///   - endpoint: The endpoint.
+    /// - Returns: The stream of the responses.
+    /// - Throws: The error of the endpoint.
+    private static func subscribe(
+        _ query: String,
+        variables: [String: Map] = [:],
+        on endpoint: any GraphQLEndpoint
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        try await endpoint.subscribe(query: query, variables: variables, operationName: nil, viewer: nil)
     }
 
     /// Gives the problems of a response that must have no error, and `data` when the caller asks for it.

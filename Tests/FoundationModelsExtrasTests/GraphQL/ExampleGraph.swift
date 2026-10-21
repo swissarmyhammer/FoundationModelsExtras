@@ -20,12 +20,16 @@ struct ExampleGraph: GraphQLEndpoint {
     /// The time that `Query.now` gives.
     static let now = DateTime(millisecondsSince1970: 1_791_000_000_123)
 
-    /// The rules of the example: one alias of each table kind, the root container, and one removed parameter.
+    /// The alias of the subscription `changes` that the rules rewrite.
+    static let changesAlias = "noteChanges"
+
+    /// The rules of the example: one alias of each table kind, an alias of the subscription `changes`, the root
+    /// container, and one removed parameter.
     static let rules = GraphQLNameRules(
         aliases: GraphQLAliasTable(
             everywhere: ["body": ["description"]],
             inEachInput: ["body": ["content"]],
-            byType: ["Note": ["state": ["status"]]],
+            byType: ["Note": ["state": ["status"]], "Subscription": ["changes": [changesAlias]]],
             byField: ["Shelf.notes": ["first": ["limit"]]]
         ),
         rootContainer: GraphQLRootContainer(field: "shelf", responseKeyPrefix: "_shelfRoot"),
@@ -55,6 +59,27 @@ struct ExampleGraph: GraphQLEndpoint {
     init(transaction: String? = nil) throws {
         api = try ExampleAPI()
         self.transaction = transaction
+    }
+
+    /// Makes the probe of a subscription alias of `changes` for the conformance check.
+    ///
+    /// The probe resumes after the newest cursor of the change log, and one change then follows that cursor, so the
+    /// first response of the subscription comes at once from the buffer of the log.
+    ///
+    /// - Parameter field: The name that the document writes for `changes`. The default is the alias that the rules
+    ///   rewrite.
+    /// - Returns: The probe, which expects the rewrite from `field` to `changes`.
+    func changesProbe(writing field: String = Self.changesAlias) async -> GraphQLAliasProbe {
+        let log = api.resolver.log
+        let cursor = await log.cursor
+        await log.append(ChangedIDs(added: [Self.firstNote.id]))
+        return GraphQLAliasProbe(
+            query: "subscription($after: String) { \(field)(after: $after) { cursor } }",
+            variables: ["after": .string(cursor)],
+            from: field,
+            to: GraphQLConventions.changesField,
+            kind: .subscription
+        )
     }
 
     var schema: String {

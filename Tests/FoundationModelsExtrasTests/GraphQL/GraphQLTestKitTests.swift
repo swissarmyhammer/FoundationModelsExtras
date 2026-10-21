@@ -36,16 +36,120 @@ struct GraphQLTestKitTests {
         }
     }
 
+    /// An endpoint whose subscriptions start and then send nothing, and stay open.
+    struct SilentSubscriptionEndpoint: GraphQLEndpoint {
+        let name = "silent"
+        let version = "1"
+        let scope = GraphQLEndpointScope.server
+        let schema = "type Query { a: String } type Subscription { changes: String }"
+
+        func execute(
+            query _: String,
+            variables _: [String: Map],
+            operationName _: String?,
+            viewer _: GraphQLViewer?
+        ) async throws -> String {
+            #"{"data":{"__typename":"Query"}}"#
+        }
+
+        func subscribe(
+            query _: String,
+            variables _: [String: Map],
+            operationName _: String?,
+            viewer _: GraphQLViewer?
+        ) async throws -> AsyncThrowingStream<String, Error> {
+            AsyncThrowingStream { _ in }
+        }
+    }
+
+    /// The codes of the example endpoint, for rule 8.
+    static let exampleCodes = ["NOT_FOUND", "NO_BODY", "PING"]
+
     @Test("the example endpoint built from the toolkit conforms, with its alias probe")
     func exampleEndpointConforms() async throws {
         let problems = await GraphQLEndpointConformance.problems(
             of: try ExampleGraph(),
             scope: .sessionFolder,
             probe: ExampleGraph.aliasProbe,
-            codes: ["NOT_FOUND", "NO_BODY", "PING"]
+            codes: Self.exampleCodes
         )
 
         #expect(problems == [])
+    }
+
+    @Test("the example endpoint conforms with a query alias probe and a subscription alias probe in one call")
+    func exampleEndpointConformsWithASubscriptionProbe() async throws {
+        let endpoint = try ExampleGraph()
+
+        let problems = await GraphQLEndpointConformance.problems(
+            of: endpoint,
+            scope: .sessionFolder,
+            probes: [ExampleGraph.aliasProbe, await endpoint.changesProbe()],
+            codes: Self.exampleCodes
+        )
+
+        #expect(problems == [])
+    }
+
+    @Test("a subscription alias that the endpoint does not rewrite gives a problem that names the probe")
+    func unrewrittenSubscriptionAliasGivesAProblem() async throws {
+        let endpoint = try ExampleGraph()
+        let probe = await endpoint.changesProbe(writing: "agentChanges")
+
+        let problems = await GraphQLEndpointConformance.problems(
+            of: endpoint,
+            scope: .sessionFolder,
+            probes: [probe],
+            codes: Self.exampleCodes
+        )
+
+        #expect(
+            problems.contains(
+                "The subscription alias probe \(probe.query) gave no rewrite from agentChanges to changes in "
+                    + "extensions.rewrites."))
+    }
+
+    @Test("a subscription that sends no first response gives a problem when the wait ends, and does not hang")
+    func silentSubscriptionGivesAProblem() async {
+        let clock = ManualRunClock()
+        let probe = GraphQLAliasProbe(
+            query: "subscription { changes }",
+            from: "changes",
+            to: "changes",
+            kind: .subscription
+        )
+        let limit = GraphQLEndpointConformance.firstResponseLimit
+        let checking = Task {
+            await GraphQLEndpointConformance.problems(
+                of: SilentSubscriptionEndpoint(),
+                scope: .server,
+                probes: [probe],
+                clock: clock
+            )
+        }
+
+        // The document that does not parse waits first, then the probe.
+        await clock.waitForSleepers(atLeast: 1)
+        clock.advance(by: limit)
+        await clock.waitForSleepers(atLeast: 1)
+        clock.advance(by: limit)
+        let problems = await checking.value
+
+        #expect(problems.contains("A subscription document that does not parse gave no response within \(limit)."))
+        #expect(problems.contains("The subscription alias probe \(probe.query) gave no response within \(limit)."))
+    }
+
+    @Test("a subscription that ends with no response gives a problem for the probe")
+    func endedSubscriptionGivesAProblem() async {
+        let probe = GraphQLAliasProbe(query: "subscription { A }", from: "A", to: "a", kind: .subscription)
+
+        let problems = await GraphQLEndpointConformance.problems(
+            of: NonConformingEndpoint(),
+            scope: .server,
+            probes: [probe]
+        )
+
+        #expect(problems.contains("The subscription alias probe \(probe.query) gave no response."))
     }
 
     @Test("an endpoint that breaks the conventions gives a problem for each break")
