@@ -14,8 +14,24 @@ comments:
     - note: an unknown recipient gives nil (no throw), since the spec makes the lookup a nil-or-message answer; `inbox` still throws unknownSession.
     - next: /review
   timestamp: 2026-10-21T13:43:59.972506+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5fbg5jepsqy6cnxdd690gzr
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (fb00871) — 0 findings (0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed); 4 .kanban/ files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-21T13:48:05.070651+00:00
+- actor: claude-code
+  id: 01m5fbgg3t2an9pnj07v65m583
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 files (SessionDirectory, InMemorySessionDirectory, State+Messages, MessageLookupTests)
+    - test: green — swift test, 1509 tests in 155 suites, 0 failed
+    - commit: fb00871
+    - review: clean — 0 findings
+  timestamp: 2026-10-21T13:48:15.866169+00:00
+position_column: done
+position_ordinal: ffba80
 title: 'SessionDirectory.message(_:to:): look up a delivered message by id (EXTRAS-3 amendment)'
 ---
 This amends EXTRAS-3 and EXTRAS-4. The Multitool coordinator asked for it while building the `reply message` op of the sessions tool.
