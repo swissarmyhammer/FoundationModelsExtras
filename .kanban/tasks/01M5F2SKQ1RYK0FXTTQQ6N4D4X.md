@@ -34,10 +34,26 @@ comments:
   id: 01m5f4jsvrcv6a5rsq3xyk4x64
   text: 'How each acceptance box is met: (1) GraphQLConventionTests `conformingSDLHasNoRuleProblem`: an SDL-only fixture that obeys rules 3, 7, 8 and 9 gives no rule problem. It is not a toolkit endpoint, so the older response checks (alias probe, parse failure) still report on it; the full toolkit fixture `ExampleGraph` gives `[]` in `exampleEndpointConforms`, but only with a rule 9 exception until ^70231sy gives the toolkit an `ID` scalar. (2) `ruleBreakNamesItsRule` (15 cases for rules 7 and 9), `codeThatIsNotUpperSnakeBreaksRuleEight`, `scopeThatDisagreesBreaksRuleThree`. (3) `noMutationPassesRuleSeven`. (4) `exceptionRemovesOnlyItsRule`. (5) GraphQLTestKitTests all pass.'
   timestamp: 2026-10-21T11:47:11.352632+00:00
+- actor: claude-code
+  id: 01m5f4vfc7t3trxyxj37t4gdah
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (dbf4202) — 0 findings, 0 confirmed, 0 refuted; 7 files attempted, 0 failed; 6 .kanban files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-21T11:51:55.527232+00:00
+- actor: claude-code
+  id: 01m5f4vpy6f6rzezbmczrwkm4v
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files (GraphQLConventions.swift new, GraphQLTestKit.swift, ExampleGraph + 4 test files); follow-up ^70231sy
+    - test: green — swift test, 1412 tests in 138 suites, 0 failed
+    - commit: dbf4202
+    - review: clean — 0 findings
+  timestamp: 2026-10-21T11:52:03.270960+00:00
 depends_on:
 - 01M5F2SBCYPDK97Z605S8T6R5V
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffb680
 title: 'EXTRAS-11: GraphQLEndpointConformance checks the EXTRAS-9 conventions'
 ---
 Spec: TestudoApp/features/packages/foundationmodels-extras.md, EXTRAS-9 (the rules) and EXTRAS-11; D115. Extend `GraphQLEndpointConformance` in Sources/FoundationModelsExtras/GraphQL/GraphQLTestKit.swift so that `problems` also checks the rules of EXTRAS-9 that a machine can check from the SDL and one call.
