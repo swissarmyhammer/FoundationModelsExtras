@@ -42,9 +42,7 @@ struct GraphQLTestKitTests {
             of: try ExampleGraph(),
             scope: .sessionFolder,
             probe: ExampleGraph.aliasProbe,
-            codes: ["NOT_FOUND", "NO_BODY", "PING"],
-            // `IDChange` maps its ids to `[String!]!`, not `[ID!]!`, until the toolkit has an `ID` scalar.
-            exceptions: [GraphQLConventionException(rule: .changes, removedBy: "^70231sy")]
+            codes: ["NOT_FOUND", "NO_BODY", "PING"]
         )
 
         #expect(problems == [])

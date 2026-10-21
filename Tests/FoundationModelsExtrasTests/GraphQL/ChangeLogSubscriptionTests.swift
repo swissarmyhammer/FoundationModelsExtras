@@ -48,6 +48,7 @@ struct ChangeFeedAPI: API {
         resolver = ChangeFeedResolver(log: log)
         schema = try SchemaBuilder(ChangeFeedResolver.self, ChangeFeedContext.self)
             .addToolkitScalars()
+            .addToolkitIDScalar()
             .add {
                 Type(IDChange.self, as: "NoteChange") {
                     Field("cursor", at: \.cursor).description("The cursor that resumes after this change.")

@@ -7,9 +7,9 @@ import GraphQL
 /// A small `notes` endpoint built only from the GraphQL toolkit: the example that the toolkit tests run against.
 ///
 /// The schema has a root container field `shelf`, so the root query fields `note` and `notes` can move into it, an
-/// `input` type with a list field, an enum, the `DateTime` and `JSON` scalars, a resolver that throws a coded error,
-/// and a resolver that adds a warning with no `await`. It obeys each rule of ``GraphQLConventionRule``: the root
-/// query `cursor` and the subscription `changes(after:)` read a ``ChangeLog``, and each mutation takes one `input`.
+/// `input` type with a list field, an enum, the `DateTime`, `JSON` and `ID` scalars, a resolver that throws a coded
+/// error, and a resolver that adds a warning with no `await`. It obeys each rule of ``GraphQLConventionRule``: the
+/// root query `cursor` and the subscription `changes(after:)` read a ``ChangeLog``; each mutation takes one `input`.
 struct ExampleGraph: GraphQLEndpoint {
     /// The name of the endpoint.
     static let endpointName = "notes"
@@ -279,6 +279,7 @@ struct ExampleAPI: API {
     init() throws {
         schema = try SchemaBuilder(ExampleResolver.self, ExampleContext.self)
             .addToolkitScalars()
+            .addToolkitIDScalar()
             .add {
                 Enum(ExampleState.self, as: "State") {
                     Value(.open).description("The note is open.")

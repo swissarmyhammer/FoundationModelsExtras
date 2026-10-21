@@ -110,6 +110,53 @@ extension Int64 {
     }
 }
 
+/// An id, as the GraphQL `ID` scalar of ``SchemaBuilder/addToolkitIDScalar()``.
+///
+/// The output is a String. The input is a String or an Int, as the GraphQL spec says for `ID`, and an Int input
+/// becomes its decimal text. The Codable form is the text.
+///
+/// The type is not named `GraphQLID`, because the GraphQL package already gives a `GraphQLID`: its built-in `ID`
+/// scalar, whose input rules the toolkit scalar uses.
+public struct ToolkitID: Codable, Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
+    /// The text of the id.
+    public let text: String
+
+    /// Makes an id from its text.
+    ///
+    /// - Parameter text: The text of the id.
+    public init(_ text: String) {
+        self.text = text
+    }
+
+    /// Makes an id from a string literal.
+    ///
+    /// - Parameter value: The text of the id.
+    public init(stringLiteral value: String) {
+        self.init(value)
+    }
+
+    /// Decodes the id from its text.
+    ///
+    /// - Parameter decoder: The decoder that holds the text.
+    /// - Throws: A decoding error when the value is not a String.
+    public init(from decoder: any Decoder) throws {
+        try self.init(decoder.singleValueContainer().decode(String.self))
+    }
+
+    /// Encodes the id as its text.
+    ///
+    /// - Parameter encoder: The encoder that gets the text.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(text)
+    }
+
+    /// The text of the id.
+    public var description: String {
+        text
+    }
+}
+
 /// An error from the `DateTime` scalar.
 public enum DateTimeError: Error, Equatable {
     /// The text is not RFC 3339. The value is the text.
@@ -191,6 +238,9 @@ public enum JSONScalar {
 extension SchemaBuilder {
     /// Adds the `DateTime` and `JSON` scalars of the toolkit to the schema.
     ///
+    /// It does not add an `ID` scalar, because a package can register its own scalar named `ID`, and a second type
+    /// of that name breaks the schema. ``addToolkitIDScalar()`` adds the toolkit `ID` scalar.
+    ///
     /// - Returns: This builder, for method chaining.
     @discardableResult
     public func addToolkitScalars() -> Self {
@@ -205,6 +255,26 @@ extension SchemaBuilder {
                 parseLiteral: JSONScalar.parseLiteral
             )
             .description("Any JSON value. The keys of each object are in sorted order.")
+        }
+    }
+
+    /// Adds the toolkit `ID` scalar to the schema: a ``ToolkitID`` in Swift is an `ID` in GraphQL.
+    ///
+    /// The scalar gives a String, and takes a String or an Int, as the GraphQL spec says for `ID`. An endpoint that
+    /// maps ``IDChange`` calls this method, so that its `added`, `changed` and `removed` are `[ID!]!`. A package
+    /// that registers its own scalar named `ID` does not call it.
+    ///
+    /// - Returns: This builder, for method chaining.
+    @discardableResult
+    public func addToolkitIDScalar() -> Self {
+        add {
+            Scalar(
+                ToolkitID.self,
+                as: GraphQL.GraphQLID.name,
+                parseValue: { map, _ in try GraphQL.GraphQLID.parseValue(map) },
+                parseLiteral: { literal, _ in try GraphQL.GraphQLID.parseLiteral(literal) }
+            )
+            .description("A unique id: a String in the output, and a String or an Int in the input.")
         }
     }
 }

@@ -29,7 +29,8 @@ public struct ChangedIDs: Hashable, Sendable {
 ///
 /// An endpoint maps it with Graphiti as its own `<Noun>Change` type, for example
 /// `Type(IDChange.self, as: "NoteChange")` with one `Field` for each property, and resolves each event of the
-/// subscription with ``init(_:)``.
+/// subscription with ``init(_:)``. The ids are ``ToolkitID`` values, so an endpoint that maps `IDChange` calls
+/// ``SchemaBuilder/addToolkitIDScalar()``, and `added`, `changed` and `removed` are then `[ID!]!`.
 public struct IDChange: Hashable, Sendable {
     /// The cursor that resumes the subscription after this change.
     public let cursor: String
@@ -38,13 +39,13 @@ public struct IDChange: Hashable, Sendable {
     public let at: DateTime
 
     /// The ids that the change added.
-    public let added: [String]
+    public let added: [ToolkitID]
 
     /// The ids that the change changed.
-    public let changed: [String]
+    public let changed: [ToolkitID]
 
     /// The ids that the change removed.
-    public let removed: [String]
+    public let removed: [ToolkitID]
 
     /// Makes the change of one entry of a ``ChangeLog``.
     ///
@@ -52,8 +53,8 @@ public struct IDChange: Hashable, Sendable {
     public init(_ entry: ChangeLogEntry<ChangedIDs>) {
         cursor = entry.cursor
         at = DateTime(entry.at)
-        added = entry.event.added
-        changed = entry.event.changed
-        removed = entry.event.removed
+        added = entry.event.added.map(ToolkitID.init(_:))
+        changed = entry.event.changed.map(ToolkitID.init(_:))
+        removed = entry.event.removed.map(ToolkitID.init(_:))
     }
 }
