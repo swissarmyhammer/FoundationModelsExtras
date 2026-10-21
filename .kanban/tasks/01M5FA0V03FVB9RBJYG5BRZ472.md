@@ -32,6 +32,31 @@ comments:
     - evidence: 4 files — Sources/FoundationModelsExtras/GraphQL/GraphQLTestKit.swift, Sources/FoundationModelsExtras/Hosting/RunClock.swift, Tests/FoundationModelsExtrasTests/GraphQL/ExampleGraph.swift, Tests/FoundationModelsExtrasTests/GraphQL/GraphQLTestKitTests.swift; `swift test --filter GraphQLTestKitTests` 10/10 passed; `swift test` 1513 tests in 155 suites passed, exit 0, no compiler warnings (only the build-system MLX bundle "missing creator" note that the build already gave before this change)
     - next: /review
   timestamp: 2026-10-21T14:12:40.345837+00:00
+- actor: claude-code
+  id: 01m5fd4vs8ps2jzg3wdh908f9h
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (6d5b7ba) — 1 finding (1 confirmed, 0 refuted): Sources/FoundationModelsExtras/GraphQL/GraphQLTestKit.swift:208 code-hygiene/magic-numbers-swift
+    - next: implement — replace the magic number with a named constant (and remove the same cause across GraphQLTestKit.swift), then re-review
+  timestamp: 2026-10-21T14:16:51.752660+00:00
+- actor: claude-code
+  id: 01m5fd54sqv8zs72n3q7mjpbjy
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 4 files (GraphQLTestKit.swift, RunClock.swift, ExampleGraph.swift, GraphQLTestKitTests.swift)
+    - test: green — swift test, 1513 tests in 155 suites, 0 failed
+    - commit: 6d5b7ba
+    - review: findings — Sources/FoundationModelsExtras/GraphQL/GraphQLTestKit.swift:208 (magic-numbers-swift)
+  timestamp: 2026-10-21T14:17:00.983572+00:00
+- actor: claude-code
+  id: 01m5fd8bznk1zbxqjmknm1gvcn
+  text: |-
+    Finding fix: `.seconds(10)` in `firstResponseLimit` was the only unnamed number in GraphQLTestKit.swift (the other digit matches are `.utf8` and `=1` inside strings). Added `private static let firstResponseLimitSeconds = 10` and `firstResponseLimit = .seconds(firstResponseLimitSeconds)`, following `DotfolderWatcher.defaultDebounceMilliseconds`. Checked with swiftlint `no_magic_numbers` using the rule's options (allowed_numbers [0, 1, -1, 100]): HEAD gives 1 warning at :208:63, the edit gives 0. swiftlint does not flag a literal that is the whole initializer of a `static let`.
+
+    ### implement — changed
+    - evidence: 1 file — Sources/FoundationModelsExtras/GraphQL/GraphQLTestKit.swift; swiftlint no_magic_numbers 1 → 0; `swift test` 1513 tests in 155 suites passed, exit 0 (only the existing MLX bundle "missing creator" build note)
+    - next: /review
+  timestamp: 2026-10-21T14:18:46.645321+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'GraphQLEndpointConformance: subscription alias probes through subscribe'
@@ -51,3 +76,12 @@ Requested by the Multitool coordinator. The agents session found the gap after E
 - [x] Existing callers of `problems(of:scope:probe:...)` compile with no change.
 
 #graphql
+
+## Review Findings (2026-10-21 09:14)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 4 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsExtras/GraphQL/GraphQLTestKit.swift:208` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.

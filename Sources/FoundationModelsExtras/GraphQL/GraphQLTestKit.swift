@@ -203,9 +203,12 @@ public enum GraphQLEndpointConformance {
     /// A query that each schema answers.
     private static let typenameQuery = "{ __typename }"
 
+    /// The number of seconds in ``firstResponseLimit``.
+    private static let firstResponseLimitSeconds = 10
+
     /// The longest time that the check waits for the first response of a subscription. A subscription that sends no
     /// response in this time is a problem, so the check does not hang on an endpoint that never sends.
-    public static let firstResponseLimit: Duration = .seconds(10)
+    public static let firstResponseLimit: Duration = .seconds(firstResponseLimitSeconds)
 
     /// What a subscription gives first.
     private enum FirstResponse: Sendable {
