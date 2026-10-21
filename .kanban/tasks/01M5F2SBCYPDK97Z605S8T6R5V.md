@@ -20,8 +20,24 @@ comments:
     - evidence: 7 files — Sources/FoundationModelsExtras/GraphQL/ChangeLog.swift (new), Sources/FoundationModelsExtras/GraphQL/IDChange.swift (new), Sources/FoundationModelsExtras/GraphQL/CodedError.swift, Sources/FoundationModelsExtras/GraphQL/GraphQLRun.swift, Tests/FoundationModelsExtrasTests/GraphQL/ChangeLogTests.swift (new), Tests/FoundationModelsExtrasTests/GraphQL/ChangeLogSubscriptionTests.swift (new), Tests/FoundationModelsExtrasTests/GraphQL/GraphQLResponseConventionTests.swift. `swift test`: all runs passed (1403 + 410 + 131 + 44 + 40 + 26 tests, 0 failures); the only warning is the SwiftPM "missing creator for mutated node" on the mlx-swift_Cmlx bundle, which no source file of this change produces.
     - next: /review
   timestamp: 2026-10-21T11:27:04.618756+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5f3rz9xkbqxe37k1x02ms1w
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (f126153) — 0 findings, 0 confirmed, 1 refuted, 7 files attempted, 0 failed; 12 .kanban/ files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-21T11:33:04.957482+00:00
+- actor: claude-code
+  id: 01m5f3sbk1xb20w4qpq6zkw28a
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files (ChangeLog.swift, IDChange.swift, CodedError.swift, GraphQLRun.swift + 3 test files)
+    - test: green — swift test, 1403 tests in 137 suites, 0 failed, 0 skipped
+    - commit: f126153
+    - review: clean — 0 findings
+  timestamp: 2026-10-21T11:33:17.537755+00:00
+position_column: done
+position_ordinal: ffb580
 title: 'EXTRAS-10: ChangeLog<Event> and the shared codes NOT_FOUND / RESYNC_REQUIRED'
 ---
 Highest priority: it blocks the `changes` subscription task of every endpoint package (settings, snapshots, sessions, agents, skills, kanban). The Multitool session (foundationmodelsmultitool-bc) coordinates the work and needs the main sha when this lands.
