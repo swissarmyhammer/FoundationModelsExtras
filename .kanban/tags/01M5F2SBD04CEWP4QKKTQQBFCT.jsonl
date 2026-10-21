@@ -1,0 +1,1 @@
+{"id":"01M5F2SBD1SK48H7CHJ25QZYP8","timestamp":"2026-10-21T11:15:48.769070Z","op":"create","item_id":"01M5F2SBD04CEWP4QKKTQQBFCT","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 0075ca\n+tag_name: priority\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 0075ca\n-tag_name: priority\n","transaction_id":null}

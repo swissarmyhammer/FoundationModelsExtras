@@ -39,6 +39,15 @@ public enum GraphQLToolkitError: CodedError, Hashable {
     /// `INTERNAL`: a fault that is not a ``CodedError``. The detail is the message of the GraphQL engine.
     case internalFailure(detail: String)
 
+    /// `NOT_FOUND`: the call names an id that the endpoint does not hold. The kind names what the id is for, for
+    /// example `note`, and the id is the id that the call sent.
+    case notFound(kind: String, id: String)
+
+    /// `RESYNC_REQUIRED`: a subscription cannot resume the changes after its cursor, so it ends with this error. The
+    /// reason tells why, for example that the cursor is from another run of the endpoint. The caller queries the
+    /// state again, and subscribes with the new `cursor` of that state.
+    case resyncRequired(reason: String)
+
     /// The text between two items of a list in a message.
     static let listSeparator = ", "
 
@@ -51,6 +60,8 @@ public enum GraphQLToolkitError: CodedError, Hashable {
         case .graphQLValidationFailed: "GRAPHQL_VALIDATION_FAILED"
         case .ambiguousName: "AMBIGUOUS_NAME"
         case .internalFailure: "INTERNAL"
+        case .notFound: "NOT_FOUND"
+        case .resyncRequired: "RESYNC_REQUIRED"
         }
     }
 
@@ -67,6 +78,12 @@ public enum GraphQLToolkitError: CodedError, Hashable {
         case .ambiguousName(let name, let matches):
             "The name \"\(name)\" matches more than one name: \(matches.joined(separator: Self.listSeparator)). "
                 + "Use one of these names."
+        case .notFound(let kind, let id):
+            "No \(kind) has the id \"\(id)\". Query the state again to get the current ids, then send the call with "
+                + "one of them."
+        case .resyncRequired(let reason):
+            "\(reason) The changes after the cursor are lost. Query the state again, then subscribe with the new "
+                + "cursor."
         }
     }
 }

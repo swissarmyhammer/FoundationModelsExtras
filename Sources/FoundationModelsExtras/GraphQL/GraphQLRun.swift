@@ -102,7 +102,9 @@ extension API where ContextType: GraphQLRunContext {
     ///
     /// The name rewrite changes the document first, the same as for a call. A document that does not parse or
     /// validate, and a subscription that cannot start, give a stream with one response with the errors and no
-    /// `data`, and the stream then ends.
+    /// `data`, and the stream then ends. A ``CodedError`` that ends the source stream of a running subscription, for
+    /// example the `RESYNC_REQUIRED` of a ``ChangeLog``, gives one last response with that error and its
+    /// `extensions.code`, and the stream then ends.
     ///
     /// The warnings list is for a call: a response of a subscription has no `extensions.warnings`.
     ///
@@ -202,6 +204,10 @@ extension AsyncThrowingStream where Element == String, Failure == Error {
     /// Gives the response of each event of a subscription as JSON text. The stream ends when the results end, and it
     /// stops reading the results when the reader of the stream stops.
     ///
+    /// A ``CodedError`` that ends the source stream of the subscription, for example the `RESYNC_REQUIRED` of a
+    /// ``ChangeLog``, gives one last response with that error in `errors`, with its `extensions.code`, and the stream
+    /// then ends with no error. Each other error ends the stream with that error.
+    ///
     /// - Parameters:
     ///   - results: The result of each event.
     ///   - encode: Gives the response JSON text of one result.
@@ -216,6 +222,10 @@ extension AsyncThrowingStream where Element == String, Failure == Error {
                     for try await result in results {
                         continuation.yield(try encode(result))
                     }
+                    continuation.finish()
+                } catch let codedError as any CodedError {
+                    let error = GraphQLError(message: codedError.message, originalError: codedError)
+                    continuation.yield(with: Result { try encode(GraphQLResult(errors: [error])) })
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)

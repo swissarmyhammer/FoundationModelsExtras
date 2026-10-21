@@ -20,10 +20,32 @@ struct GraphQLResponseConventionTests {
             (.graphQLValidationFailed(detail: "x"), "GRAPHQL_VALIDATION_FAILED"),
             (.ambiguousName(name: "n", matches: ["a", "b"]), "AMBIGUOUS_NAME"),
             (.internalFailure(detail: "x"), "INTERNAL"),
+            (.notFound(kind: "note", id: "n9"), "NOT_FOUND"),
+            (.resyncRequired(reason: "x"), "RESYNC_REQUIRED"),
         ]
     )
     func eachToolkitErrorHasItsCode(error: GraphQLToolkitError, code: String) {
         #expect(error.code == code)
+    }
+
+    @Test("the not found error names the id, and tells the caller to query the state again")
+    func notFoundNamesTheID() {
+        let error = GraphQLToolkitError.notFound(kind: "note", id: "n9")
+
+        #expect(
+            error.message
+                == "No note has the id \"n9\". Query the state again to get the current ids, "
+                + "then send the call with one of them.")
+    }
+
+    @Test("the resync error gives the reason, and tells the caller to query the state again and subscribe again")
+    func resyncRequiredTellsHowToResume() {
+        let error = GraphQLToolkitError.resyncRequired(reason: "The cursor is from another run.")
+
+        #expect(
+            error.message
+                == "The cursor is from another run. The changes after the cursor are lost. Query the state again, "
+                + "then subscribe with the new cursor.")
     }
 
     @Test("the subscription error gives the hint of the tool, or the general text")
