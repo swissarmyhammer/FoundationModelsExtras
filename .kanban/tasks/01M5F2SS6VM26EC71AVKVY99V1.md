@@ -29,8 +29,24 @@ comments:
     - evidence: 14 new sources in Sources/FoundationModelsExtras/Sessions/ (SessionKind, SessionState, SessionDirectoryOrigin, SessionSummary, SessionQuery, SessionAddress, SessionMessageSender, OutgoingSessionMessage, SessionMessage, SessionSendReceipt, SessionStartRequest, SessionDirectoryEvent, SessionDirectoryError, SessionDirectory) and 10 new test files in Tests/FoundationModelsExtrasTests/Sessions/. `swift test`: every run passed (largest 1442 tests in 149 suites), 0 failures. `swift test --filter Session`: 52 tests in 23 suites passed. The one warning is the build-system "missing creator for mutated node" line from the mlx-swift_Cmlx bundle, which is not from this change.
     - next: /review
   timestamp: 2026-10-21T12:11:06.418718+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5f65qarej1w4qsxrj0ddjwr
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (ceb37f7) — 0 findings, 0 confirmed, 0 refuted; 7 validators attempted, 0 failed; 25 files reviewed, 2 .kanban files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-21T12:14:59.928727+00:00
+- actor: claude-code
+  id: 01m5f65zcnjv96zvgt261etxjt
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 14 source files in Sessions/, 11 test files
+    - test: green — swift test, 1442 tests in 149 suites, 0 failed
+    - commit: ceb37f7
+    - review: clean — 0 findings
+  timestamp: 2026-10-21T12:15:08.181412+00:00
+position_column: done
+position_ordinal: ffb880
 title: 'EXTRAS-3: SessionDirectory port and its value types in Sources/FoundationModelsExtras/Sessions/'
 ---
 Spec: TestudoApp/features/packages/foundationmodels-extras.md EXTRAS-3; the full design is FoundationModelsMultitool/session.md section 6 (the protocol and the value types, copy them as given, except the rename below) and section 7 (event stream rules). The Router implements the port (ROUTER-3); Multitool's `sessions` tool (MT-2) and `sessions` graph (MT-10) are blocked on it.
