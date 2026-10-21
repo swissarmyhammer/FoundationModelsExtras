@@ -8,7 +8,8 @@ import GraphQL
 ///
 /// The schema has a root container field `shelf`, so the root query fields `note` and `notes` can move into it, an
 /// `input` type with a list field, an enum, the `DateTime` and `JSON` scalars, a resolver that throws a coded error,
-/// and a resolver that adds a warning with no `await`.
+/// and a resolver that adds a warning with no `await`. It obeys each rule of ``GraphQLConventionRule``: the root
+/// query `cursor` and the subscription `changes(after:)` read a ``ChangeLog``, and each mutation takes one `input`.
 struct ExampleGraph: GraphQLEndpoint {
     /// The name of the endpoint.
     static let endpointName = "notes"
@@ -162,6 +163,22 @@ struct AddNoteArguments: Codable, Sendable {
     let input: AddNoteInput
 }
 
+/// The `input` object of `removeNote`.
+struct RemoveNoteInput: Codable, Sendable {
+    let id: String
+}
+
+/// The arguments of `removeNote`.
+struct RemoveNoteArguments: Codable, Sendable {
+    let input: RemoveNoteInput
+}
+
+/// The arguments of `Subscription.changes`.
+struct ExampleChangesArguments: Codable, Sendable {
+    /// The cursor to resume after, or `nil` for the new changes only.
+    let after: String?
+}
+
 /// The arguments of `echo`.
 struct EchoArguments: Codable, Sendable {
     let value: Map?
@@ -182,6 +199,22 @@ struct ExampleShelf: Sendable {
 
 /// The root resolver of the example.
 struct ExampleResolver: Sendable {
+    /// The change log of the notes.
+    let log = ChangeLog<ChangedIDs>()
+
+    /// Resolves `Query.cursor`: the newest cursor of the notes.
+    func cursor(context _: ExampleContext, arguments _: NoArguments) async -> String {
+        await log.cursor
+    }
+
+    /// Resolves the source stream of `Subscription.changes`.
+    func changes(
+        context _: ExampleContext,
+        arguments: ExampleChangesArguments
+    ) async -> AsyncThrowingStream<ChangeLogEntry<ChangedIDs>, Error> {
+        await log.changes(after: arguments.after)
+    }
+
     /// Resolves `Query.shelf`.
     func shelf(context _: ExampleContext, arguments _: NoArguments) -> ExampleShelf {
         ExampleShelf()
@@ -228,10 +261,10 @@ struct ExampleResolver: Sendable {
         )
     }
 
-    /// Resolves `Mutation.deleteNote`: the store has only the first note, so each other id gives `NOT_FOUND`.
-    func deleteNote(context _: ExampleContext, arguments: NoteIDArguments) throws -> ExampleNote? {
-        guard arguments.id == ExampleGraph.firstNote.id else {
-            throw NoteNotFound(id: arguments.id)
+    /// Resolves `Mutation.removeNote`: the store has only the first note, so each other id gives `NOT_FOUND`.
+    func removeNote(context _: ExampleContext, arguments: RemoveNoteArguments) throws -> ExampleNote? {
+        guard arguments.input.id == ExampleGraph.firstNote.id else {
+            throw NoteNotFound(id: arguments.input.id)
         }
         return ExampleGraph.firstNote
     }
@@ -278,8 +311,21 @@ struct ExampleAPI: API {
                     InputField("state", at: \.state).description("The state of the note.")
                 }
                 .description("A new note.")
+                Input(RemoveNoteInput.self) {
+                    InputField("id", at: \.id).description("The id of the note.")
+                }
+                .description("The note to remove.")
+                Type(IDChange.self, as: "NoteChange") {
+                    Field("cursor", at: \.cursor).description("The cursor that resumes after this change.")
+                    Field("at", at: \.at).description("The time of the change.")
+                    Field("added", at: \.added).description("The ids of the added notes.")
+                    Field("changed", at: \.changed).description("The ids of the changed notes.")
+                    Field("removed", at: \.removed).description("The ids of the removed notes.")
+                }
+                .description("One change of the notes.")
             }
             .addQuery {
+                Field("cursor", at: ExampleResolver.cursor).description("The newest cursor of the notes.")
                 Field("shelf", at: ExampleResolver.shelf).description("The notes of the folder.")
                 Field("now", at: ExampleResolver.now).description("The time now.")
                 Field("echo", at: ExampleResolver.echo) {
@@ -295,10 +341,22 @@ struct ExampleAPI: API {
                     Argument("input", at: \.input).description("The new note.")
                 }
                 .description("Adds a note.")
-                Field("deleteNote", at: ExampleResolver.deleteNote) {
-                    Argument("id", at: \.id).description("The id of the note.")
+                Field("removeNote", at: ExampleResolver.removeNote) {
+                    Argument("input", at: \.input).description("The note to remove.")
                 }
-                .description("Deletes a note.")
+                .description("Removes a note.")
+            }
+            .addSubscription {
+                SubscriptionField(
+                    "changes",
+                    at: { (entry: ChangeLogEntry<ChangedIDs>) in
+                        { (_: ExampleContext, _: ExampleChangesArguments) async throws -> IDChange in IDChange(entry) }
+                    },
+                    atSub: ExampleResolver.changes
+                ) {
+                    Argument("after", at: \.after).description("The cursor to resume after.")
+                }
+                .description("The changes of the notes.")
             }
             .build()
     }

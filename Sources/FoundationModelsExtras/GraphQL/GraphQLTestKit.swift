@@ -179,7 +179,8 @@ public struct GraphQLAliasProbe: Sendable {
 }
 
 /// The conformance check of a ``GraphQLEndpoint``: the facts that a host and a client read, the response conventions
-/// of the toolkit, and the forgiving names.
+/// of the toolkit, the forgiving names, and the rules of the endpoint conventions (EXTRAS-9) that a machine can check
+/// from the SDL and the facts, which ``GraphQLConventionRule`` lists.
 public enum GraphQLEndpointConformance {
     /// A document that does not parse.
     private static let brokenDocument = "{"
@@ -196,17 +197,28 @@ public enum GraphQLEndpointConformance {
     ///   `subscribe`;
     /// - the alias probe must give `data`, no error, and the rewrite of the probe in `extensions.rewrites`.
     ///
+    /// It then checks each rule of ``GraphQLConventionRule`` that has no exception, and each problem of a rule starts
+    /// with the name of the rule, for example `rule 9: …`. The codes of rule 8 are not in the SDL, and one call does
+    /// not give them all, so the endpoint gives its codes: each code of its own `CodedError` types and each warning
+    /// code that it can give.
+    ///
     /// - Parameters:
     ///   - endpoint: The endpoint.
     ///   - scope: The scope that the endpoint must have.
     ///   - probe: A call with an alias name.
+    ///   - codes: Each error code and warning code that the endpoint can give, for rule 8. The default is none.
+    ///   - exceptions: The rules that the endpoint does not obey yet, each with the task that removes it. The default
+    ///     is none.
     /// - Returns: The problems, or an empty list when the endpoint conforms.
     public static func problems(
         of endpoint: any GraphQLEndpoint,
         scope: GraphQLEndpointScope,
-        probe: GraphQLAliasProbe
+        probe: GraphQLAliasProbe,
+        codes: [String] = [],
+        exceptions: [GraphQLConventionException] = []
     ) async -> [String] {
         var problems = facts(of: endpoint, scope: scope)
+        problems += GraphQLConventions.problems(of: endpoint, codes: codes, exceptions: exceptions)
         problems += await check("The call \(typenameQuery)") {
             let response = try await execute(typenameQuery, on: endpoint)
             return errorsAndData(of: response, needsData: true)

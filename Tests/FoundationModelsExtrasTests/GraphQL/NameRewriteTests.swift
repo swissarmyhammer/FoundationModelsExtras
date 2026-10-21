@@ -168,11 +168,11 @@ struct NameRewriteTests {
 
     @Test("a coded resolver error keeps its code, and the field is null")
     func codedResolverError() async throws {
-        let response = try await Self.run(#"mutation { deleteNote(id: "n9") { id } }"#)
+        let response = try await Self.run(#"mutation { removeNote(input: { id: "n9" }) { id } }"#)
 
         #expect(try ResponseJSON.codes(response) == ["NOT_FOUND"])
         #expect(try Self.messages(response) == [NoteNotFound(id: "n9").message])
-        #expect((try Self.data(response))["deleteNote"] is NSNull)
+        #expect((try Self.data(response))["removeNote"] is NSNull)
     }
 
     @Test("a resolver fault that is not a coded error gives INTERNAL")

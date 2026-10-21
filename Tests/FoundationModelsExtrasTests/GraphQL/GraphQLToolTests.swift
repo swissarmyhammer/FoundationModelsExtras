@@ -93,7 +93,10 @@ struct GraphQLToolTests {
 
         let response = try await tool.call(arguments: GraphQLArguments(query: "subscription { ping }"))
         let named = try await tool.call(
-            arguments: GraphQLArguments(query: "query A { ping } subscription B { ping }", operationName: "A")
+            arguments: GraphQLArguments(
+                query: "query A { ping } subscription B { changes { cursor } }",
+                operationName: "A"
+            )
         )
 
         #expect(try ResponseJSON.codes(response) == ["SUBSCRIPTION_NOT_IN_TOOL"])

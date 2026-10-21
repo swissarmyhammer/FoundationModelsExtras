@@ -41,7 +41,10 @@ struct GraphQLTestKitTests {
         let problems = await GraphQLEndpointConformance.problems(
             of: try ExampleGraph(),
             scope: .sessionFolder,
-            probe: ExampleGraph.aliasProbe
+            probe: ExampleGraph.aliasProbe,
+            codes: ["NOT_FOUND", "NO_BODY", "PING"],
+            // `IDChange` maps its ids to `[String!]!`, not `[ID!]!`, until the toolkit has an `ID` scalar.
+            exceptions: [GraphQLConventionException(rule: .changes, removedBy: "^70231sy")]
         )
 
         #expect(problems == [])
