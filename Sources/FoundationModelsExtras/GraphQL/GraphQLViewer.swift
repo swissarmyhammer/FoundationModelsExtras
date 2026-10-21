@@ -26,6 +26,11 @@ public struct GraphQLViewer: Codable, Hashable, Sendable {
     /// has no client owner, for example a session that the agent started.
     public var clientOwnedSessions: Set<String>
 
+    /// The ids of the sessions that the connection of this client started. A session stays in this set when a
+    /// different client takes it over, for example a device of the user, so it can leave ``ownedSessions`` and
+    /// stay here.
+    public var startedSessions: Set<String>
+
     /// Makes the viewer of a call.
     ///
     /// - Parameters:
@@ -34,16 +39,32 @@ public struct GraphQLViewer: Codable, Hashable, Sendable {
     ///   - ownedSessions: The ids of the sessions that this client owns.
     ///   - clientOwnedSessions: The ids of the sessions that any client owns. The set holds each id of
     ///     `ownedSessions` also when the caller does not give it.
+    ///   - startedSessions: The ids of the sessions that the connection of this client started.
     public init(
         clientId: String,
         trust: Trust,
         ownedSessions: Set<String> = [],
-        clientOwnedSessions: Set<String> = []
+        clientOwnedSessions: Set<String> = [],
+        startedSessions: Set<String> = []
     ) {
         self.clientId = clientId
         self.trust = trust
         self.ownedSessions = ownedSessions
         self.clientOwnedSessions = clientOwnedSessions.union(ownedSessions)
+        self.startedSessions = startedSessions
+    }
+
+    /// Decodes a viewer. A payload with no `startedSessions` key, from before the field, gives an empty set.
+    ///
+    /// - Parameter decoder: The decoder to read from.
+    /// - Throws: `DecodingError` when a field that the viewer needs is missing or has the wrong type.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        clientId = try container.decode(String.self, forKey: .clientId)
+        trust = try container.decode(Trust.self, forKey: .trust)
+        ownedSessions = try container.decode(Set<String>.self, forKey: .ownedSessions)
+        clientOwnedSessions = try container.decode(Set<String>.self, forKey: .clientOwnedSessions)
+        startedSessions = try container.decodeIfPresent(Set<String>.self, forKey: .startedSessions) ?? []
     }
 
     /// Tells if this client owns a session.

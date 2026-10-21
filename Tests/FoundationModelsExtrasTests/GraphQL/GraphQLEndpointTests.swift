@@ -93,6 +93,39 @@ struct GraphQLEndpointTests {
         #expect(GraphQLViewer.Trust.external.rawValue == "external")
     }
 
+    @Test("a viewer starts no session when the caller gives none")
+    func viewerStartedSessionsDefaultToEmpty() {
+        let viewer = GraphQLViewer(clientId: "ipad", trust: .external, ownedSessions: ["s1"])
+
+        #expect(viewer.startedSessions.isEmpty)
+    }
+
+    @Test("the started sessions of a viewer survive an encode and decode")
+    func viewerStartedSessionsRoundTrip() throws {
+        let viewer = GraphQLViewer(
+            clientId: "ipad",
+            trust: .external,
+            ownedSessions: ["s1"],
+            clientOwnedSessions: ["s2"],
+            startedSessions: ["s1", "s3"]
+        )
+
+        let decoded = try JSONDecoder().decode(GraphQLViewer.self, from: try JSONEncoder().encode(viewer))
+
+        #expect(decoded == viewer)
+        #expect(decoded.startedSessions == ["s1", "s3"])
+    }
+
+    @Test("a viewer encoded before started sessions decodes with none")
+    func viewerWithNoStartedSessionsKeyDecodes() throws {
+        let json = #"{"clientId":"ipad","trust":"external","ownedSessions":["s1"],"clientOwnedSessions":["s1","s2"]}"#
+
+        let viewer = try JSONDecoder().decode(GraphQLViewer.self, from: Data(json.utf8))
+
+        #expect(viewer.startedSessions.isEmpty)
+        #expect(viewer == GraphQLViewer(clientId: "ipad", trust: .external, ownedSessions: ["s1"], clientOwnedSessions: ["s2"]))
+    }
+
     @Test("the endpoint gives the viewer of the call to its resolvers, and no viewer is the agent")
     func endpointGivesTheViewerToItsResolvers() async throws {
         let endpoint = try ExampleGraph()
