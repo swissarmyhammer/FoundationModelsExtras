@@ -1,9 +1,9 @@
 import Foundation
 import ULID
 
-/// The sends and the inbox of the test double: the address rules of
-/// session.md section 9, the delivery rules of section 10.2 and the loop
-/// guards of section 10.3.
+/// The sends, the inbox and the message lookup of the test double: the
+/// address rules of session.md section 9, the delivery rules of section 10.2
+/// and the loop guards of section 10.3.
 extension InMemorySessionDirectoryState {
     /// The reason of a `refused` receipt.
     typealias Refusal = InMemorySessionDirectory.Refusal
@@ -51,6 +51,18 @@ extension InMemorySessionDirectoryState {
             }
         }
         return unread
+    }
+
+    /// One message to a session, read or not read, found by its id. It
+    /// marks nothing read.
+    ///
+    /// - Parameters:
+    ///   - id: The id of the message.
+    ///   - recipient: The session id that the message went to.
+    /// - Returns: The message, or `nil` when no message to `recipient` has
+    ///   the id.
+    func message(_ id: MailID, to recipient: ULID) -> SessionMessage? {
+        deliveries[recipient]?.first { $0.message.id == id }?.message
     }
 
     /// Delivers the message to each session that the address names.

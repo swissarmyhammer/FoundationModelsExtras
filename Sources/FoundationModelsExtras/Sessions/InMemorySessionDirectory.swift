@@ -185,6 +185,19 @@ public final class InMemorySessionDirectory: SessionDirectory {
         try state.withLock { try $0.inbox(of: id, markRead: markRead) }
     }
 
+    /// One message that the directory delivered to `recipient`, read or not
+    /// read, found by its id. The lookup marks nothing read.
+    ///
+    /// - Parameters:
+    ///   - id: The id of the message.
+    ///   - recipient: The session id that the message went to.
+    /// - Returns: The message, with its read flag, or `nil` when no message
+    ///   has the id or the message went to another session. An unknown
+    ///   recipient gives `nil` too, because no message went to it.
+    public func message(_ id: MailID, to recipient: ULID) async throws -> SessionMessage? {
+        state.withLock { $0.message(id, to: recipient) }
+    }
+
     /// Archives the session `id` (ROUTER-11): it stops its turn, leaves the
     /// live list, takes no more message, and the directory sends `archived`.
     ///

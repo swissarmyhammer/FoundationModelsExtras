@@ -82,6 +82,21 @@ public protocol SessionDirectory: Sendable {
     /// - Returns: The messages that were not read.
     func inbox(of id: ULID, markRead: Bool) async throws -> [SessionMessage]
 
+    /// One message that the directory delivered to `recipient`, read or not
+    /// read, found by its id. A reply finds the sender of the message that
+    /// it answers with this lookup, after ``inbox(of:markRead:)`` read it.
+    ///
+    /// The lookup gives a message only to the session that it went to, thus a
+    /// session cannot read the mail of other sessions. It marks nothing read,
+    /// and a queued message still starts a turn later.
+    ///
+    /// - Parameters:
+    ///   - id: The id of the message, as ``SessionMessage/id`` holds it.
+    ///   - recipient: The session id that the message went to.
+    /// - Returns: The message, with its read flag, or `nil` when no message
+    ///   has the id or the message went to another session.
+    func message(_ id: MailID, to recipient: ULID) async throws -> SessionMessage?
+
     /// Ends the session `id` (D68): stops a running turn, removes it from the
     /// live list, marks it archived in its facts, and sends `archived`.
     ///
