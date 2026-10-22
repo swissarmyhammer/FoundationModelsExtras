@@ -63,6 +63,13 @@ comments:
     - formatting: the repo holds no formatter config (.swift-format, .swiftformat, .swiftlint.yml absent; no Airbnb plugin), so tool defaults applied. `swift format lint -s` reported LineLength x8 and one TrailingComma in JSONLFile.swift and JSONLFileTests.swift; `swift format -i` on those two files fixed them, lint now clean. ExtrasTelemetry.swift and older files were left alone (4-space legacy style, thousands of default-rule hits not from this task).
     - next: review
   timestamp: 2026-10-22T16:08:42.781798+00:00
+- actor: claude-code
+  id: 01m5j5z3mvb4h86ca7rpstt0ga
+  text: |-
+    ### commit — changed
+    - evidence: e846c1b feat(jsonl): JSONLFile, the append-only JSONL writer and reader (local, not pushed)
+    - next: review
+  timestamp: 2026-10-22T16:09:06.459186+00:00
 position_column: doing
 position_ordinal: '80'
 title: JSONLFile — the one append-only JSONL writer and reader (append mode, one full line per write, fsync per line)
