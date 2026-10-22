@@ -39,7 +39,10 @@ import Foundation
 ///   is always an appended tombstone line, never a rewrite of the file.
 ///
 /// Each line is the JSON of the record with sorted keys, slashes not escaped,
-/// and ISO 8601 dates.
+/// and dates as ISO 8601 text in UTC with milliseconds, for example
+/// `2026-10-22T10:58:03.123Z`, so two dates in one second keep their order. A
+/// read decodes a date only from that text: a date with whole seconds only
+/// does not decode, and its line is skipped.
 public struct JSONLFile: Sendable {
   /// The flags of the open of an append: each write at the end, and create
   /// the file when it is not there. Read and write, so that the heal check

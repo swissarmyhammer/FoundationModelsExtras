@@ -10,8 +10,8 @@ import Testing
 /// whole line in one `write(2)` with an `fsync` before the append returns, a
 /// torn final line is dropped with a warning, an append after a torn tail
 /// starts a new line, a whole line that does not decode is skipped with a
-/// warning, the newest line for a key wins and a tombstone line removes the
-/// key.
+/// warning, the newest line for a key wins, a tombstone line removes the key,
+/// and two dates in one second read back in their order.
 @Suite("JSONL file")
 struct JSONLFileTests {
   /// The name of the log file in the folder of each test.
@@ -84,6 +84,19 @@ struct JSONLFileTests {
     var key: String { id }
 
     var isTombstone: Bool { removed }
+  }
+
+  /// The number of milliseconds in one second.
+  private static let millisecondsPerSecond = 1000.0
+
+  /// The milliseconds since 1970 of two events of October 2026 in one
+  /// second, oldest first.
+  private static let eventMilliseconds = [1_792_234_683_123.0, 1_792_234_683_457.0]
+
+  /// One event of the tests: the time it happened.
+  private struct Event: Codable, Equatable {
+    /// The time of the event.
+    let at: Date
   }
 
   /// Makes a new empty folder and the log file in it. The file is not on
@@ -332,6 +345,23 @@ struct JSONLFileTests {
 
     #expect(try file.latestRecords(as: Entry.self) == ["b": Entry(id: "b", value: Self.otherValue)])
     #expect(try Data(contentsOf: file.url).prefix(before.count) == before)
+  }
+
+  @Test func twoDatesInOneSecondReadBackInTheirOrder() throws {
+    let (folder, file) = try Self.makeFile()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let events = Self.eventMilliseconds.map {
+      Event(at: Date(timeIntervalSince1970: $0 / Self.millisecondsPerSecond))
+    }
+
+    for event in events {
+      try file.append(event)
+    }
+
+    let records = try file.records(as: Event.self)
+    #expect(records == events)
+    #expect(records.map(\.at) == records.map(\.at).sorted())
+    #expect(Set(records.map(\.at)).count == events.count)
   }
 
   @Test func twoConcurrentAppendersWriteOnlyWholeLines() async throws {

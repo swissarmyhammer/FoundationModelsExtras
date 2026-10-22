@@ -881,7 +881,7 @@ struct MarketplaceCacheTests {
             "ref": "main", "pinnedSha": null, "unpinned": true,
             "pending": { "sha": "\(pendingSha)" },
             "currentSha": "\(sha)",
-            "lastChecked": "2026-09-14T19:55:43Z", "lastUpdated": "2026-09-12T08:10:00Z",
+            "lastChecked": "2026-09-14T19:55:43.000Z", "lastUpdated": "2026-09-12T08:10:00.000Z",
             "lastError": null
           }
         }
@@ -934,11 +934,11 @@ struct MarketplaceCacheTests {
     #expect(!saved.contains(MarketplaceTestSupport.earlierCatalogVersionKey))
   }
 
-  /// The seconds since 1970 of `2026-09-14T19:55:43Z`, the `lastChecked`
+  /// The seconds since 1970 of `2026-09-14T19:55:43.000Z`, the `lastChecked`
   /// value of the full state file.
   private static let lastCheckedEpochSeconds: TimeInterval = 1_789_415_743
 
-  /// The seconds since 1970 of `2026-09-12T08:10:00Z`, the `lastUpdated`
+  /// The seconds since 1970 of `2026-09-12T08:10:00.000Z`, the `lastUpdated`
   /// value of the full state file.
   private static let lastUpdatedEpochSeconds: TimeInterval = 1_789_200_600
 
