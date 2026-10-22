@@ -31,8 +31,24 @@ comments:
     - evidence: single local commit of MarketplaceCacheTests.swift line wrapping plus all .kanban changes (including new card ^vp7ejme); not pushed
     - next: review
   timestamp: 2026-10-22T17:34:41.467403+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5jaxe4vh3zqfgjhr1hdxahv
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (1e97207) — 0 findings, 0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed; 1 file reviewed (Tests/MarketplaceTests/MarketplaceCacheTests.swift), 4 .kanban files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-22T17:35:34.555924+00:00
+- actor: claude-code
+  id: 01m5jaxp0s38jp8vzyyabnt0qt
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 1 file (Tests/MarketplaceTests/MarketplaceCacheTests.swift), lint 13 → 0
+    - test: green — swift test, 1557 passed, 0 failed, 0 skipped
+    - commit: 1e97207
+    - review: clean — none
+  timestamp: 2026-10-22T17:35:42.617001+00:00
+position_column: done
+position_ordinal: ffc180
 title: 'MarketplaceCacheTests: fix the swift format lint findings already at HEAD'
 ---
 Found while working ^vapqv96. `swift format lint -s Tests/MarketplaceTests/MarketplaceCacheTests.swift` reports 13 findings that are already present at HEAD (827bdae), none of them from ^vapqv96: one `[AddLines] add 1 line break` (in `stageSnapshot(sha:)`, the `let staged = root` chain) and 12 `[LineLength] line is too long` (the `install(through:snapshotAt:sha:ref:)` signature, the `destinationOfSymbolicLink` line, the telemetry tests' `cacheCounts`/`Array(repeating:)` lines, the `withSnapshotInUse` capture line, the two unsafe sha/ref test signatures and their bodies, and the `writerLockHeld` row of `cacheErrorDescriptions`).
