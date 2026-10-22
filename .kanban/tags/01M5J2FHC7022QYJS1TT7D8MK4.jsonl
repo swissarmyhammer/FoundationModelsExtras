@@ -1,0 +1,1 @@
+{"id":"01M5J2FHC8BG4002JTSWDAF97J","timestamp":"2026-10-22T15:08:10.504347Z","op":"create","item_id":"01M5J2FHC7022QYJS1TT7D8MK4","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: e4e669\n+tag_name: recording\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: e4e669\n-tag_name: recording\n","transaction_id":null}

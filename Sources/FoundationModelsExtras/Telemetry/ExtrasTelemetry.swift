@@ -375,6 +375,28 @@ enum ExtrasTelemetry {
         /// ``ExtrasTelemetry/telemetryRole(of:)``. It has the same key as the
         /// metric dimension.
         static let modelRole = DimensionKey.modelRole
+
+        /// The byte offset of a line in a file, for example the start of the
+        /// torn final line that a ``JSONLFile`` read dropped. Only the offset
+        /// goes in a record, never the path or the bytes of the line.
+        static let byteOffset = "file.byte_offset"
+
+        /// The number of a line in a file, for example a line that a
+        /// ``JSONLFile`` read skipped. The first line is 1.
+        static let lineNumber = "file.line_number"
+    }
+
+    /// The messages of the log records of ``JSONLFile``.
+    enum JSONLLogMessage {
+        /// The message of the record that a read writes when it drops the
+        /// torn final line of a file: the bytes after the last newline, which
+        /// an append that a crash stopped left behind.
+        static let tornTailDropped = "dropped the torn final line of a JSONL file"
+
+        /// The message of the record that a read writes when it skips a whole
+        /// line that does not decode, for example a torn line that a later
+        /// append ended with its newline.
+        static let corruptLineSkipped = "skipped a line of a JSONL file that does not decode"
     }
 
     /// The messages of the log records of the model pool.
