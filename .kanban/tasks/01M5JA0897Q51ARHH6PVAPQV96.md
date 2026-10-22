@@ -37,8 +37,24 @@ comments:
     - evidence: single local commit of green working tree (ISO8601JSON, JSONLFile, tests, all pending .kanban changes incl. MarketplaceCacheTests lint card); sha recorded in the commit itself and reported to the caller
     - next: review
   timestamp: 2026-10-22T17:27:47.180917+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5jaksgjx2ynfxsx2tnj9sqa
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (4024c7d) — 0 findings, 0 confirmed, 0 refuted; 7 attempted, 0 failed; 5 files reviewed, 4 .kanban files excluded by .reviewignore
+    - next: send sha 4024c7d to the Router session (foundationmodelsrouter-08)
+  timestamp: 2026-10-22T17:30:18.514967+00:00
+- actor: claude-code
+  id: 01m5jambmymvem88p237v728z2
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files (ISO8601JSON.swift, JSONLFile.swift, ISO8601JSONTests, JSONLFileTests, MarketplaceCacheTests)
+    - test: green — swift test, 1557 passed, 0 failed, 0 skipped
+    - commit: 4024c7d
+    - review: clean — none
+  timestamp: 2026-10-22T17:30:37.086132+00:00
+position_column: done
+position_ordinal: ffc080
 title: ISO8601JSON writes and reads ISO 8601 dates with fractional seconds
 ---
 Requested by the Router session (foundationmodelsrouter-08); send it the sha when landed so it can drop its whole-second `sentAt` stamping.
