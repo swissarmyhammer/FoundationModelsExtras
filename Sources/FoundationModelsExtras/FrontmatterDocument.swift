@@ -48,8 +48,9 @@ public struct FrontmatterDocument<Metadata: Sendable>: Sendable {
 /// `FrontmatterDocument<Never>` so that a caller writes
 /// `FrontmatterDocument.split(text:)` with no generic argument.
 extension FrontmatterDocument where Metadata == Never {
-  /// The literal fence line that opens and closes a frontmatter block.
-  private static var fence: Substring { "---" }
+  /// The literal fence line that opens and closes a frontmatter block. The
+  /// split reads it and the render of a save writes it.
+  static var fence: Substring { "---" }
 
   /// Splits `text` into an optional frontmatter block and a body.
   ///

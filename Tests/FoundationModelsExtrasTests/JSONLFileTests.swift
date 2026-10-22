@@ -184,12 +184,12 @@ struct JSONLFileTests {
     let (folder, _) = try Self.makeFile()
     defer { try? FileManager.default.removeItem(at: folder) }
     let file = JSONLFile(
-      url: folder.appendingPathComponent(Self.fileName), calls: RecordedCalls.halfWrite)
+      url: folder.appendingPathComponent(Self.fileName), calls: HalfWriteCalls.calls)
     let line = try JSONLFile.line(of: Entry(id: "a", value: Self.oldValue))
 
     #expect(
       throws: JSONLFileError.shortWrite(
-        written: line.count / RecordedCalls.shortWriteDivisor, expected: line.count)
+        written: line.count / HalfWriteCalls.shortWriteDivisor, expected: line.count)
     ) {
       try file.append(Entry(id: "a", value: Self.oldValue))
     }
@@ -368,7 +368,7 @@ struct JSONLFileTests {
 /// The write and the sync calls of the appends of one test, in order.
 ///
 /// A `final class` around a `Mutex`, not an `actor`: the calls of
-/// `JSONLFile.Calls` are synchronous and cannot `await`.
+/// `FileWriteCalls` are synchronous and cannot `await`.
 private final class RecordedCalls: Sendable {
   /// One call of an append.
   enum Event: Equatable {
@@ -379,10 +379,6 @@ private final class RecordedCalls: Sendable {
     case sync
   }
 
-  /// The part of the bytes of a write that ``halfWrite`` puts on disk: one
-  /// in this number.
-  static let shortWriteDivisor = 2
-
   /// The calls so far.
   private let recorded = Mutex<[Event]>([])
 
@@ -392,24 +388,15 @@ private final class RecordedCalls: Sendable {
   }
 
   /// The calls of the system, which also record each call here.
-  var recording: JSONLFile.Calls {
-    JSONLFile.Calls(
+  var recording: FileWriteCalls {
+    FileWriteCalls(
       write: { descriptor, bytes in
         self.recorded.withLock { $0.append(.write(Data(bytes))) }
-        return JSONLFile.Calls.system.write(descriptor, bytes)
+        return FileWriteCalls.system.write(descriptor, bytes)
       },
       sync: { descriptor in
         self.recorded.withLock { $0.append(.sync) }
-        return JSONLFile.Calls.system.sync(descriptor)
+        return FileWriteCalls.system.sync(descriptor)
       })
   }
-
-  /// The calls of the system, but each write puts only the first half of its
-  /// bytes on disk, as a full disk does.
-  static let halfWrite = JSONLFile.Calls(
-    write: { descriptor, bytes in
-      JSONLFile.Calls.system.write(
-        descriptor, UnsafeRawBufferPointer(rebasing: bytes.prefix(bytes.count / shortWriteDivisor)))
-    },
-    sync: JSONLFile.Calls.system.sync)
 }

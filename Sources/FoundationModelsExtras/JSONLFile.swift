@@ -41,21 +41,6 @@ import Foundation
 /// Each line is the JSON of the record with sorted keys, slashes not escaped,
 /// and ISO 8601 dates.
 public struct JSONLFile: Sendable {
-  /// The system calls of an append that a test can watch: the `write(2)` of
-  /// the line and the `fsync(2)` after it.
-  struct Calls: Sendable {
-    /// Writes the bytes to the descriptor, as `write(2)` does.
-    let write: @Sendable (_ descriptor: Int32, _ bytes: UnsafeRawBufferPointer) -> Int
-
-    /// Flushes the descriptor to the disk, as `fsync(2)` does.
-    let sync: @Sendable (_ descriptor: Int32) -> Int32
-
-    /// The calls of the system.
-    static let system = Calls(
-      write: { descriptor, bytes in Darwin.write(descriptor, bytes.baseAddress, bytes.count) },
-      sync: { descriptor in Darwin.fsync(descriptor) })
-  }
-
   /// The flags of the open of an append: each write at the end, and create
   /// the file when it is not there. Read and write, so that the heal check
   /// can `pread(2)` the last byte through the same descriptor; `pread(2)`
@@ -73,8 +58,9 @@ public struct JSONLFile: Sendable {
   /// folder must exist.
   public let url: URL
 
-  /// The system calls of an append.
-  private let calls: Calls
+  /// The system calls of an append that a test can watch: the `write(2)` of
+  /// the line and the `fsync(2)` after it.
+  private let calls: FileWriteCalls
 
   /// Makes the value of the JSONL file at `url`. It opens nothing.
   ///
@@ -90,7 +76,7 @@ public struct JSONLFile: Sendable {
   /// - Parameters:
   ///   - url: The file.
   ///   - calls: The write and the sync of each append.
-  init(url: URL, calls: Calls) {
+  init(url: URL, calls: FileWriteCalls) {
     self.url = url
     self.calls = calls
   }
@@ -112,14 +98,15 @@ public struct JSONLFile: Sendable {
     let descriptor = try openForAppending()
     do throws(JSONLFileError) {
       let bytes = try endsWithTornLine(descriptor) ? Data([Self.newline]) + line : line
-      try write(bytes, to: descriptor)
-      try synchronize(descriptor)
+      try calls.writeWhole(
+        bytes, to: descriptor, failed: JSONLFileError.writeFailed, short: JSONLFileError.shortWrite)
+      try calls.synchronize(descriptor, failed: JSONLFileError.syncFailed)
     } catch {
       // The failure of the write or of the sync is the error of the append.
       _ = Darwin.close(descriptor)
       throw error
     }
-    try close(descriptor)
+    try FileWriteCalls.close(descriptor, failed: JSONLFileError.closeFailed)
   }
 
   /// Reads the records of the file, in the order of their lines.
@@ -293,47 +280,6 @@ public struct JSONLFile: Sendable {
       throw .tailCheckFailed(errno: errorNumber)
     }
     return lastByte != Self.newline
-  }
-
-  /// Gives `line` to one `write(2)`.
-  ///
-  /// - Parameters:
-  ///   - line: The whole line, with its `\n`.
-  ///   - descriptor: The descriptor of the file.
-  /// - Throws: ``JSONLFileError/writeFailed(errno:)`` when the write fails,
-  ///   or ``JSONLFileError/shortWrite(written:expected:)`` when it wrote
-  ///   part of the line.
-  private func write(_ line: Data, to descriptor: Int32) throws(JSONLFileError) {
-    let (written, errorNumber) = line.withUnsafeBytes { bytes in
-      SystemCall.retryingInterrupts { calls.write(descriptor, bytes) }
-    }
-    guard written != SystemCall.failure else {
-      throw .writeFailed(errno: errorNumber)
-    }
-    guard written == line.count else {
-      throw .shortWrite(written: written, expected: line.count)
-    }
-  }
-
-  /// Flushes the file to the disk with `fsync(2)`.
-  ///
-  /// - Parameter descriptor: The descriptor of the file.
-  /// - Throws: ``JSONLFileError/syncFailed(errno:)`` when the sync fails.
-  private func synchronize(_ descriptor: Int32) throws(JSONLFileError) {
-    let (result, errorNumber) = SystemCall.retryingInterrupts { calls.sync(descriptor) }
-    guard result != SystemCall.failure else {
-      throw .syncFailed(errno: errorNumber)
-    }
-  }
-
-  /// Closes the descriptor of an append.
-  ///
-  /// - Parameter descriptor: The descriptor of the file.
-  /// - Throws: ``JSONLFileError/closeFailed(errno:)`` when the close fails.
-  private func close(_ descriptor: Int32) throws(JSONLFileError) {
-    guard Darwin.close(descriptor) != SystemCall.failure else {
-      throw .closeFailed(errno: errno)
-    }
   }
 }
 
