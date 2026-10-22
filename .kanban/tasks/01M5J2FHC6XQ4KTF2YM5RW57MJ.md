@@ -117,8 +117,24 @@ comments:
     - evidence: refactor(extras): share ISO8601JSON coder and SystemCall.retryingInterrupts; JSONLFile review fixes (local, not pushed; sha is the HEAD commit that contains this comment)
     - next: review
   timestamp: 2026-10-22T16:22:21.973+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5j6x815vm931p80x70vz90e
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (b2d7166) — 0 findings, 0 confirmed, 0 refuted; 7 files attempted, 0 failed; both prior findings (2026-10-22 11:09) checked
+    - next: task moved to done
+  timestamp: 2026-10-22T16:25:33.989086+00:00
+- actor: claude-code
+  id: 01m5j6xyb9mqkvvac3a003yxmy
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 7 files (shared ISO8601JSON + SystemCall, JSONLFile/ProcessRunner/MarketplaceState call them)
+    - test: green — swift test, 1537 passed, 0 failed, 0 skipped
+    - commit: b2d7166
+    - review: clean — none
+  timestamp: 2026-10-22T16:25:56.841060+00:00
+position_column: done
+position_ordinal: ffbd80
 title: JSONLFile — the one append-only JSONL writer and reader (append mode, one full line per write, fsync per line)
 ---
 Copied from FoundationModelsRouter card 01M5HS4C6FBNTAX30161HP0BS5 (../FoundationModelsRouter). Requested by the FoundationModelsKanban session, which is blocked on it (EventLog moves onto it).
