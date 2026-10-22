@@ -38,8 +38,24 @@ comments:
     - evidence: single local commit of green working tree (source, tests, kanban state); not pushed
     - next: review
   timestamp: 2026-10-22T16:51:08.021102+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5j8m37sy2vma54gay0azbwq
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (41c8ca2) — 0 findings, 0 confirmed, 1 refuted; 7 files reviewed, 2 .kanban files excluded by .reviewignore
+    - next: send the landed sha 41c8ca2 to the Router session (foundationmodelsrouter-08)
+  timestamp: 2026-10-22T16:55:31.321676+00:00
+- actor: claude-code
+  id: 01m5j8mayez9xa0a40f4fnbjxr
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files (FrontmatterDocument+Save.swift, FileWriteCalls.swift, JSONLFile.swift, FrontmatterDocument.swift, tests)
+    - test: green — swift test, 1554 passed, 0 failed, 0 skipped
+    - commit: 41c8ca2
+    - review: clean — none
+  timestamp: 2026-10-22T16:55:39.214450+00:00
+position_column: done
+position_ordinal: ffbf80
 title: FrontmatterDocument save — write to a temp file and swap into place by default
 ---
 Copied from FoundationModelsRouter card 01M5HS4GB26B9S1XGRGV6WCCQT (Router ^v6wccqt). Router session (foundationmodelsrouter-08) waits on it; send it the sha when landed.
