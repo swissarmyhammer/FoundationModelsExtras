@@ -27,6 +27,10 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The file extension of a weight file.
     private static let weightFileExtension = "safetensors"
 
+    /// The environment variable that names the Hugging Face endpoint, as the
+    /// Hugging Face client reads it.
+    private static let endpointVariable = "HF_ENDPOINT"
+
     /// The capabilities of each `MLXLanguageModel` that the loader makes: the
     /// capabilities that the FoundationModelsRouter declares for each LLM.
     /// ``PooledModel`` declares them too when you give no capabilities.
@@ -36,6 +40,10 @@ public struct MLXModelLoader: PooledModelLoader {
 
     /// The Hugging Face cache that holds the downloaded weights.
     private let cache: HubCache
+
+    /// The token provider of each download, which gives the Hugging Face
+    /// token that the download sends.
+    private let tokenProvider: TokenProvider
 
     /// The tokenizer loader of each load, of an LLM and of an embedding model.
     let tokenizerLoader: any TokenizerLoader
@@ -49,18 +57,40 @@ public struct MLXModelLoader: PooledModelLoader {
     /// let pool = ModelPool(loader: MLXModelLoader(cacheDirectory: models))
     /// ```
     ///
+    /// A host with its own home gives its own token provider, thus a download
+    /// does not send the token of the Hugging Face folder of the user. A
+    /// missing token file gives no token:
+    ///
+    /// ```swift
+    /// let tokenFile = home.appending(path: "huggingface-token")
+    /// let loader = MLXModelLoader(
+    ///     cacheDirectory: home.appending(path: "Models"),
+    ///     tokenProvider: .custom {
+    ///         (try? String(contentsOf: tokenFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+    ///     })
+    /// ```
+    ///
     /// - Parameters:
     ///   - cacheDirectory: The folder of the cache. A given folder is the
     ///     cache, also when `HF_HUB_CACHE` or `HF_HOME` names a different
     ///     folder. `nil` uses the default Hugging Face cache, which reads
     ///     these variables.
+    ///   - tokenProvider: The token provider of each download, a
+    ///     `TokenProvider` of swift-huggingface. The default `.environment`
+    ///     reads `HF_TOKEN` and `~/.cache/huggingface/token`. A host with its
+    ///     own home gives `.custom { ... }`, which reads its own token file,
+    ///     or `.none`, which sends no token.
     ///   - tokenizerLoader: The tokenizer loader of each load, of an LLM and
     ///     of an embedding model. For example, a loader that gives a chat
     ///     template with a pinned date. `nil` uses the Hugging Face tokenizer
     ///     loader.
-    public init(cacheDirectory: URL? = nil, tokenizerLoader: (any TokenizerLoader)? = nil) {
+    public init(
+        cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
+        tokenizerLoader: (any TokenizerLoader)? = nil
+    ) {
         self.init(
-            cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenizerLoader: tokenizerLoader)
+            cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenProvider: tokenProvider,
+            tokenizerLoader: tokenizerLoader)
     }
 
     /// Makes a loader over `cache`.
@@ -68,10 +98,15 @@ public struct MLXModelLoader: PooledModelLoader {
     /// - Parameters:
     ///   - cache: The Hugging Face cache that the download writes to and that
     ///     holds the weights.
+    ///   - tokenProvider: The token provider of each download. The default
+    ///     `.environment` reads `HF_TOKEN` and `~/.cache/huggingface/token`.
     ///   - tokenizerLoader: The tokenizer loader of each load. `nil` uses the
     ///     Hugging Face tokenizer loader.
-    init(cache: HubCache, tokenizerLoader: (any TokenizerLoader)? = nil) {
+    init(
+        cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil
+    ) {
         self.cache = cache
+        self.tokenProvider = tokenProvider
         self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
     }
 
@@ -147,11 +182,24 @@ public struct MLXModelLoader: PooledModelLoader {
     }
 
     /// The Hugging Face client of each download. Its cache is the cache of the
-    /// loader, thus the download writes to the folder of the loader.
+    /// loader, thus the download writes to the folder of the loader. Its token
+    /// comes from the token provider of the loader.
     ///
-    /// - Returns: A client over the cache of the loader.
+    /// - Returns: A client over the cache and the token provider of the
+    ///   loader, at the host of ``hubHost()``.
     func hubClient() -> HubClient {
-        HubClient(cache: cache)
+        HubClient(host: Self.hubHost(), tokenProvider: tokenProvider, cache: cache)
+    }
+
+    /// The host of each download: the endpoint that `HF_ENDPOINT` names, or
+    /// the Hugging Face Hub. The Hugging Face client reads this variable only
+    /// in its init with no token provider, thus the loader reads it for the
+    /// init that takes one.
+    ///
+    /// - Returns: The URL of `HF_ENDPOINT`, or `HubClient.defaultHost` when
+    ///   the variable is not set or is not a URL.
+    private static func hubHost() -> URL {
+        ProcessInfo.processInfo.environment[endpointVariable].flatMap { URL(string: $0) } ?? HubClient.defaultHost
     }
 
     /// The folder of the model `id` in `cache`, where `MLXLanguageModel` looks

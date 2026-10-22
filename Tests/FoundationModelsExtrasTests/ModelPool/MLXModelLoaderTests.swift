@@ -115,14 +115,14 @@ struct MLXModelLoaderTests {
     }
 
     @Test("a loader with a cache folder downloads to that folder, also when HF_HUB_CACHE and HF_HOME name another")
-    func cacheFolderIsTheDownloadFolder() throws {
+    func cacheFolderIsTheDownloadFolder() async throws {
         let root = try TemporaryDirectory.make()
         defer { try? FileManager.default.removeItem(at: root) }
         let other = try TemporaryDirectory.make()
         defer { try? FileManager.default.removeItem(at: other) }
         let defaultFolder = HubCache.default.cacheDirectory
 
-        let loader = Self.withEnvironment(
+        let loader = await Self.withEnvironment(
             ["HF_HUB_CACHE": other.path, "HF_HOME": other.path]
         ) { MLXModelLoader(cacheDirectory: root) }
 
@@ -318,23 +318,33 @@ struct MLXModelLoaderTests {
     /// puts back the old values.
     ///
     /// - Parameters:
-    ///   - variables: The names and values to set.
+    ///   - variables: The names and values to set. A `nil` value removes the
+    ///     variable.
     ///   - body: The work to run.
     /// - Returns: The result of `body`.
     /// - Throws: The error of `body`.
     private static func withEnvironment<Result>(
-        _ variables: [String: String], _ body: () throws -> Result
-    ) rethrows -> Result {
+        _ variables: [String: String?], _ body: () async throws -> Result
+    ) async rethrows -> Result {
         let old = variables.keys.map { ($0, ProcessInfo.processInfo.environment[$0]) }
         for (name, value) in variables {
-            setenv(name, value, 1)
+            setEnvironmentVariable(name, to: value)
         }
         defer {
             for (name, value) in old {
-                if let value { setenv(name, value, 1) } else { unsetenv(name) }
+                setEnvironmentVariable(name, to: value)
             }
         }
-        return try body()
+        return try await body()
+    }
+
+    /// Sets the process environment variable `name` to `value`.
+    ///
+    /// - Parameters:
+    ///   - name: The name of the variable.
+    ///   - value: The value, or `nil` to remove the variable.
+    private static func setEnvironmentVariable(_ name: String, to value: String?) {
+        if let value { setenv(name, value, 1) } else { unsetenv(name) }
     }
 
     /// Writes one snapshot of ``repository`` in `cache`: two weight files and
@@ -365,6 +375,72 @@ struct MLXModelLoaderTests {
             let blob = blobs.appendingPathComponent("blob-\(name)")
             try Data(repeating: 0, count: byteCount).write(to: blob)
             try files.createSymbolicLink(at: snapshot.appendingPathComponent(name), withDestinationURL: blob)
+        }
+    }
+}
+
+extension MLXModelLoaderTests {
+    /// The hub client of each download sends the token of the token provider
+    /// of the loader, and goes to the host of `HF_ENDPOINT`.
+    ///
+    /// Each test reads its token with `bearerToken`, so no test makes a
+    /// request. The tests that set `HF_TOKEN` or `HF_ENDPOINT` change the
+    /// environment of the process, thus the suite runs them one at a time.
+    @Suite("MLX model loader: the token and the host of the hub client", .serialized)
+    struct HubClientTests {
+        /// The token of the fixed token provider that a test gives to a loader.
+        private static let fixedToken = "t"
+
+        /// The token that a test puts in `HF_TOKEN`.
+        private static let environmentToken = "hf_environment_token"
+
+        /// The host name of the endpoint that a test puts in `HF_ENDPOINT`.
+        private static let endpointHost = "hub.example.test"
+
+        /// The Hugging Face endpoint that a test puts in `HF_ENDPOINT`.
+        private static let endpoint = "https://\(endpointHost)"
+
+        @Test("a loader with a fixed token provider gives a hub client that sends that token")
+        func fixedTokenProviderGivesItsToken() async {
+            let loader = MLXModelLoader(tokenProvider: .fixed(token: Self.fixedToken))
+
+            #expect(await loader.hubClient().bearerToken == Self.fixedToken)
+        }
+
+        @Test("a loader with no token provider gives a hub client that sends no token, also when HF_TOKEN holds one")
+        func noTokenProviderGivesNoToken() async {
+            let token = await MLXModelLoaderTests.withEnvironment(["HF_TOKEN": Self.environmentToken]) {
+                await MLXModelLoader(tokenProvider: .none).hubClient().bearerToken
+            }
+
+            #expect(token == nil)
+        }
+
+        @Test("a loader with the default token provider gives a hub client that sends the token of HF_TOKEN")
+        func defaultTokenProviderReadsTheEnvironment() async {
+            let token = await MLXModelLoaderTests.withEnvironment(["HF_TOKEN": Self.environmentToken]) {
+                await MLXModelLoader().hubClient().bearerToken
+            }
+
+            #expect(token == Self.environmentToken)
+        }
+
+        @Test("a loader with a token provider gives a hub client whose host is the endpoint of HF_ENDPOINT")
+        func hubClientHostIsTheEndpointOfTheEnvironment() async {
+            let host = await MLXModelLoaderTests.withEnvironment(["HF_ENDPOINT": Self.endpoint]) {
+                MLXModelLoader(tokenProvider: .none).hubClient().host
+            }
+
+            #expect(host.host() == Self.endpointHost)
+        }
+
+        @Test("a loader gives a hub client whose host is the Hugging Face Hub when HF_ENDPOINT is not set")
+        func hubClientHostIsTheHubWithNoEndpoint() async {
+            let host = await MLXModelLoaderTests.withEnvironment(["HF_ENDPOINT": nil]) {
+                MLXModelLoader().hubClient().host
+            }
+
+            #expect(host.host() == HubClient.defaultHost.host())
         }
     }
 }
