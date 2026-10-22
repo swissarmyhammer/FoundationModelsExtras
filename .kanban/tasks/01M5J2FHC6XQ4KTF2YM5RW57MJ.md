@@ -70,6 +70,53 @@ comments:
     - evidence: e846c1b feat(jsonl): JSONLFile, the append-only JSONL writer and reader (local, not pushed)
     - next: review
   timestamp: 2026-10-22T16:09:06.459186+00:00
+- actor: claude-code
+  id: 01m5j6avvhzccbbm1n43r0zdzv
+  text: |-
+    ### review — findings
+    - evidence: `review sha e846c1b~1..e846c1b` — 2 findings (2 confirmed, 2 refuted): Sources/FoundationModelsExtras/JSONLFile.swift:203 (reuse/reuse, iso8601 JSONDecoder duplicates MarketplaceState.swift), Sources/FoundationModelsExtras/JSONLFile.swift:359 (reuse/reuse, retryingInterrupts duplicates ProcessRunner.swift). Style check: JSONLFile.swift and JSONLFileTests.swift use 2-space indentation like their root-level siblings (ProcessRunner.swift, ProcessRunnerTests.swift, PathConfinementTests.swift; 61 of 78 root files use 2 spaces). The ExtrasTelemetry.swift additions keep that file's 4-space style. No style mismatch.
+    - next: /implement the two unchecked items under `## Review Findings (2026-10-22 11:09)`, then re-review
+  timestamp: 2026-10-22T16:15:31.697165+00:00
+- actor: claude-code
+  id: 01m5j6bdefdbvjq0ypz7xf7bcy
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 3 files (JSONLFile.swift, ExtrasTelemetry.swift, JSONLFileTests.swift), incl. heal+skip amendment
+    - test: green — swift test, 1532 passed (main target), 0 failed, 0 skipped
+    - commit: e846c1b
+    - review: findings — Sources/FoundationModelsExtras/JSONLFile.swift:203, Sources/FoundationModelsExtras/JSONLFile.swift:359
+  timestamp: 2026-10-22T16:15:49.711167+00:00
+- actor: claude-code
+  id: 01m5j6kkh0q9h4em5nkvetss95
+  text: |-
+    Review findings fixed, failing tests first (RED: new suites failed to compile on the missing `SystemCall` / `ISO8601JSON`; GREEN: 5/5).
+
+    - Finding 1 (iso8601 decoder): new `Sources/FoundationModelsExtras/ISO8601JSON.swift`, a `package enum ISO8601JSON` with `makeEncoder(outputFormatting:)` and `makeDecoder()`. `package` access because MarketplaceState lives in the separate `Marketplace` target; this is the first `package` declaration in the repo (SwiftPM passes -package-name, tools 6.2). The cause was removed across both files: the iso8601 *encoder* setup was duplicated too (JSONLFile.line(of:) and MarketplaceState.save), so both now call `makeEncoder`, and JSONLFile.makeDecoder is deleted. MarketplaceState.swift gained `import FoundationModelsExtras`.
+    - Finding 2 (retryingInterrupts): new `Sources/FoundationModelsExtras/SystemCall.swift`, `enum SystemCall` (internal) with `failure = -1` and `retryingInterrupts(_:) -> (value, errorNumber)`. JSONLFile drops its private copy and its private `systemCallFailure` constant and uses `SystemCall` for every call. ProcessRunner: its throwing wrapper is renamed `checkedWait(_:)` and now delegates to `SystemCall.retryingInterrupts` (no more literal `-1`), and the hand-rolled `count < 0 && errno == EINTR` loop in `readToEnd` was the same cause, so it now reads through `SystemCall.retryingInterrupts` too.
+    - Card description: What/Subtasks now state the amended heal + skip rule (no "corrupt middle line throws"); both findings flipped to [x].
+    - No ARCHITECTURE.md change needed: it documents only the no-backward-compatibility rule, no module map.
+  timestamp: 2026-10-22T16:20:18.080119+00:00
+- actor: claude-code
+  id: 01m5j6kpsvbbbt0rmgd33sn9wa
+  text: |-
+    ### implement — changed
+    - evidence: 7 files — Sources/FoundationModelsExtras/SystemCall.swift (new), Sources/FoundationModelsExtras/ISO8601JSON.swift (new), Sources/FoundationModelsExtras/JSONLFile.swift, Sources/FoundationModelsExtras/ProcessRunner.swift, Sources/Marketplace/MarketplaceState.swift, Tests/FoundationModelsExtrasTests/SystemCallTests.swift (new), Tests/FoundationModelsExtrasTests/ISO8601JSONTests.swift (new). `swift test`: exit 0, main target 1537 tests / 158 suites passed, other targets 131/40/44/26/410 passed, 0 failed. Only warning is SwiftPM's "missing creator for mutated node" on the mlx-swift_Cmlx.bundle dependency. `swift format lint -s` clean on the new/changed 2-space files. Not committed.
+    - next: /review
+  timestamp: 2026-10-22T16:20:21.435235+00:00
+- actor: claude-code
+  id: 01m5j6psxqn4ej818cffd76wm8
+  text: |-
+    ### test — green
+    - evidence: `swift test` — 1537 tests in 158 suites passed, 0 failed, 0 skipped, no compiler warnings; `swift format lint -s` on the 7 changed/new files clean. One finding fixed: ProcessRunner.swift `[LineLength] line is too long` (the delegating `run` call re-wrapped).
+    - next: review
+  timestamp: 2026-10-22T16:22:02.935007+00:00
+- actor: claude-code
+  id: 01m5j6qcgmbedpxfyszbknyn6z
+  text: |-
+    ### commit — changed
+    - evidence: refactor(extras): share ISO8601JSON coder and SystemCall.retryingInterrupts; JSONLFile review fixes (local, not pushed; sha is the HEAD commit that contains this comment)
+    - next: review
+  timestamp: 2026-10-22T16:22:21.973+00:00
 position_column: doing
 position_ordinal: '80'
 title: JSONLFile — the one append-only JSONL writer and reader (append mode, one full line per write, fsync per line)
@@ -77,11 +124,12 @@ title: JSONLFile — the one append-only JSONL writer and reader (append mode, o
 Copied from FoundationModelsRouter card 01M5HS4C6FBNTAX30161HP0BS5 (../FoundationModelsRouter). Requested by the FoundationModelsKanban session, which is blocked on it (EventLog moves onto it).
 
 ## What
-Add a `JSONLFile` type to FoundationModelsExtras. It is the only way any of our packages writes or reads a `.jsonl` file. User decisions (2026-10-22):
+Add a `JSONLFile` type to FoundationModelsExtras. It is the only way any of our packages writes or reads a `.jsonl` file. User decisions (2026-10-22, read amended by the "Spec amendment" comment: heal + skip):
 - **Append-only:** open with `O_APPEND | O_CREAT`. Never truncate, rewrite or replace the file, and never seek.
 - **One full line per write:** each record is encoded, gets its `\n`, and goes out in a single `write(2)`. No buffering in our code.
+- **Heal a torn tail:** before its write, an append checks the file's last byte (`pread(2)`, no seek). If the file is non-empty and that byte is not `\n`, the append puts a `\n` in front of its line, in the same single `write(2)`.
 - **Flush:** `fsync` after every line, before the append returns.
-- **Read:** decode line by line. A torn final line, the expected crash artifact, is dropped with a warning. A corrupt earlier line is an error.
+- **Read:** decode line by line. A torn final line, the expected crash artifact, is dropped with a warning. A whole line that does not decode (anywhere in the file, most often a healed torn line) is **skipped with a warning** (line number and byte offset only, no path), and the records around it are kept. Nothing throws on a bad line.
 - **Last line wins:** a helper folds the records by key so the newest line for a key wins, and a tombstone record removes the key. Removal is always an appended tombstone line, never a rewrite.
 - Keep concurrent appenders from two processes (Router and ACPAgent on sessions.jsonl) whole: one `O_APPEND` write per line.
 
@@ -89,8 +137,18 @@ No backward compatibility (ARCHITECTURE.md).
 
 ## Subtasks
 - [x] `JSONLFile` with `append(_:)` (Encodable), `records(as:)` and the last-wins fold with tombstones
-- [x] Failing tests first: append-only on disk (file only grows, earlier bytes unchanged); one line per append; torn tail dropped; corrupt middle line throws; tombstone removes a key; two concurrent appenders produce whole lines
+- [x] Failing tests first: append-only on disk (file only grows, earlier bytes unchanged); one line per append; torn tail dropped; an append after a torn tail heals it; a corrupt whole line is skipped with a warning and the records around it are kept; crash → torn tail → append → read yields every whole record; tombstone removes a key; two concurrent appenders produce whole lines
 - [x] Document the rule in the type doc
 - [x] `swift test` passes, zero warnings
 
 #cross-repo #recording
+
+## Review Findings (2026-10-22 11:09)
+
+> Scope: `review sha e846c1b~1..e846c1b` — reviewed the diffs only — lines this change added or modified. 3 file(s) reviewed, 10 not reviewed.
+
+> 10 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 10 file(s)
+
+- [x] `Sources/FoundationModelsExtras/JSONLFile.swift:203` `reuse/reuse` — The `makeDecoder()` function creates a JSONDecoder with iso8601 date strategy, which is the same pattern already implemented in MarketplaceState.swift. This common decoder configuration should be extracted to a shared utility rather than duplicated. Extract the iso8601 JSONDecoder creation to a shared utility function in a common location (e.g., a JSON utilities module) and call it from both MarketplaceState and JSONLFile.
+- [x] `Sources/FoundationModelsExtras/JSONLFile.swift:359` `reuse/reuse` — The `retryingInterrupts` function reimplements the same utility that already exists in ProcessRunner.swift. Both retry a system call while it fails with EINTR. Instead of duplicating, JSONLFile should call the existing implementation or both should share a single extracted version. Extract `retryingInterrupts` to a shared utility function (perhaps in a new module or in an existing utilities file) and call it from both ProcessRunner and JSONLFile, or move it to a protocol extension on SignedInteger if appropriate.

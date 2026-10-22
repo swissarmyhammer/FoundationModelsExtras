@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 
 /// A snapshot that the store materialized but does not serve yet.
 ///
@@ -168,9 +169,7 @@ internal struct MarketplaceState: Sendable, Hashable, Codable {
   /// - Returns: The state.
   /// - Throws: The error of the JSON decoder.
   static func decode(from data: Data) throws -> MarketplaceState {
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    return try decoder.decode(MarketplaceState.self, from: data)
+    try ISO8601JSON.makeDecoder().decode(MarketplaceState.self, from: data)
   }
 
   /// Writes the state file in one atomic write, so a reader sees the old
@@ -182,9 +181,7 @@ internal struct MarketplaceState: Sendable, Hashable, Codable {
   /// - Throws: The error of the JSON encoder, of the folder, or of the file
   ///   write.
   func save(to url: URL) throws {
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let encoder = ISO8601JSON.makeEncoder(outputFormatting: [.prettyPrinted, .sortedKeys])
     let data = try encoder.encode(self)
     try FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

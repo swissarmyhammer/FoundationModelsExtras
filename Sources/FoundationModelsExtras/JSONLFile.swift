@@ -69,9 +69,6 @@ public struct JSONLFile: Sendable {
   /// The byte that ends each line.
   private static let newline = UInt8(ascii: "\n")
 
-  /// The value that a system call gives when it fails.
-  private static let systemCallFailure = -1
-
   /// The file. It does not have to exist: the first append creates it. Its
   /// folder must exist.
   public let url: URL
@@ -141,7 +138,7 @@ public struct JSONLFile: Sendable {
       return []
     }
     let segments = data.split(separator: Self.newline, omittingEmptySubsequences: false)
-    let decoder = Self.makeDecoder()
+    let decoder = ISO8601JSON.makeDecoder()
     let records = segments.dropLast().enumerated().compactMap { index, line in
       Self.decode(
         type, from: line, number: index + 1, byteOffset: line.startIndex - data.startIndex,
@@ -186,24 +183,12 @@ public struct JSONLFile: Sendable {
   /// - Throws: ``JSONLFileError/encodingFailed(description:)`` when the
   ///   record does not encode.
   static func line(of record: some Encodable) throws(JSONLFileError) -> Data {
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    let encoder = ISO8601JSON.makeEncoder(outputFormatting: [.sortedKeys, .withoutEscapingSlashes])
     do {
       return try encoder.encode(record) + [newline]
     } catch {
       throw .encodingFailed(description: String(describing: error))
     }
-  }
-
-  /// Makes the decoder of the lines: ISO 8601 dates, as ``line(of:)``
-  /// writes them.
-  ///
-  /// - Returns: A new decoder.
-  private static func makeDecoder() -> JSONDecoder {
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    return decoder
   }
 
   /// Decodes one line that ends with its `\n`, or logs the warning of a
@@ -275,10 +260,10 @@ public struct JSONLFile: Sendable {
   /// - Throws: ``JSONLFileError/openFailed(errno:)`` when the open fails.
   private func openForAppending() throws(JSONLFileError) -> Int32 {
     let path = url.path(percentEncoded: false)
-    let (descriptor, errorNumber) = Self.retryingInterrupts {
+    let (descriptor, errorNumber) = SystemCall.retryingInterrupts {
       Darwin.open(path, Self.appendFlags, Self.newFileMode)
     }
-    guard descriptor != Self.systemCallFailure else {
+    guard descriptor != SystemCall.failure else {
       throw .openFailed(errno: errorNumber)
     }
     return descriptor
@@ -294,17 +279,17 @@ public struct JSONLFile: Sendable {
   ///   or the `pread(2)` fails.
   private func endsWithTornLine(_ descriptor: Int32) throws(JSONLFileError) -> Bool {
     var status = stat()
-    guard fstat(descriptor, &status) != Self.systemCallFailure else {
+    guard fstat(descriptor, &status) != SystemCall.failure else {
       throw .tailCheckFailed(errno: errno)
     }
     guard status.st_size > 0 else {
       return false
     }
     var lastByte = Self.newline
-    let (count, errorNumber) = Self.retryingInterrupts {
+    let (count, errorNumber) = SystemCall.retryingInterrupts {
       pread(descriptor, &lastByte, MemoryLayout<UInt8>.size, status.st_size - 1)
     }
-    guard count != Self.systemCallFailure else {
+    guard count != SystemCall.failure else {
       throw .tailCheckFailed(errno: errorNumber)
     }
     return lastByte != Self.newline
@@ -320,9 +305,9 @@ public struct JSONLFile: Sendable {
   ///   part of the line.
   private func write(_ line: Data, to descriptor: Int32) throws(JSONLFileError) {
     let (written, errorNumber) = line.withUnsafeBytes { bytes in
-      Self.retryingInterrupts { calls.write(descriptor, bytes) }
+      SystemCall.retryingInterrupts { calls.write(descriptor, bytes) }
     }
-    guard written != Self.systemCallFailure else {
+    guard written != SystemCall.failure else {
       throw .writeFailed(errno: errorNumber)
     }
     guard written == line.count else {
@@ -335,8 +320,8 @@ public struct JSONLFile: Sendable {
   /// - Parameter descriptor: The descriptor of the file.
   /// - Throws: ``JSONLFileError/syncFailed(errno:)`` when the sync fails.
   private func synchronize(_ descriptor: Int32) throws(JSONLFileError) {
-    let (result, errorNumber) = Self.retryingInterrupts { calls.sync(descriptor) }
-    guard result != Self.systemCallFailure else {
+    let (result, errorNumber) = SystemCall.retryingInterrupts { calls.sync(descriptor) }
+    guard result != SystemCall.failure else {
       throw .syncFailed(errno: errorNumber)
     }
   }
@@ -346,25 +331,8 @@ public struct JSONLFile: Sendable {
   /// - Parameter descriptor: The descriptor of the file.
   /// - Throws: ``JSONLFileError/closeFailed(errno:)`` when the close fails.
   private func close(_ descriptor: Int32) throws(JSONLFileError) {
-    guard Darwin.close(descriptor) != Self.systemCallFailure else {
+    guard Darwin.close(descriptor) != SystemCall.failure else {
       throw .closeFailed(errno: errno)
-    }
-  }
-
-  /// Runs a system call again while it fails with `EINTR`: a signal stopped
-  /// it before it did anything.
-  ///
-  /// - Parameter call: The system call.
-  /// - Returns: The result of the last run, and the `errno` right after it.
-  private static func retryingInterrupts<Value: SignedInteger>(
-    _ call: () -> Value
-  ) -> (value: Value, errorNumber: Int32) {
-    while true {
-      let value = call()
-      let errorNumber = errno
-      guard value == systemCallFailure, errorNumber == EINTR else {
-        return (value, errorNumber)
-      }
     }
   }
 }

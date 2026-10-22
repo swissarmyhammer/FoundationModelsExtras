@@ -111,8 +111,8 @@ public enum ProcessRunner {
     outputCap: OutputCap, registry: ProcessRegistry = .global
   ) async throws -> Outcome {
     try await run(
-      executable: executable, arguments: arguments, workingDirectory: workingDirectory, timeout: timeout,
-      outputCap: outputCap, registry: registry, control: .system)
+      executable: executable, arguments: arguments, workingDirectory: workingDirectory,
+      timeout: timeout, outputCap: outputCap, registry: registry, control: .system)
   }
 
   /// Runs `executable` directly, in its own process group, and waits for,
@@ -304,7 +304,7 @@ public enum ProcessRunner {
   private static func awaitExit(_ pid: pid_t) async throws {
     try await Self.blocking {
       var info = siginfo_t()
-      try Self.retryingInterrupts { waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT) }
+      try Self.checkedWait { waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT) }
     }
   }
 
@@ -318,21 +318,20 @@ public enum ProcessRunner {
   private static func reap(_ pid: pid_t) async throws -> Termination {
     try await Self.blocking {
       var status: Int32 = 0
-      try Self.retryingInterrupts { waitpid(pid, &status, 0) }
+      try Self.checkedWait { waitpid(pid, &status, 0) }
       return Termination(waitStatus: status)
     }
   }
 
-  /// Calls `wait` again after each interrupt, until it gives a result that
-  /// is not `-1`.
+  /// Calls `wait` through ``SystemCall/retryingInterrupts(_:)``, so it runs
+  /// again after each interrupt, and throws when it fails for another cause.
   ///
   /// - Parameter wait: A `waitid` or `waitpid` call.
   /// - Throws: `Failure.waitFailed` when `wait` failed for a cause other
   ///   than an interrupt.
-  private static func retryingInterrupts(_ wait: () -> Int32) throws {
-    while wait() == -1 {
-      guard errno == EINTR else { throw Failure.waitFailed(errno: errno) }
-    }
+  private static func checkedWait(_ wait: () -> Int32) throws {
+    let (result, errorNumber) = SystemCall.retryingInterrupts(wait)
+    guard result != SystemCall.failure else { throw Failure.waitFailed(errno: errorNumber) }
   }
 
   // MARK: - Output capture
@@ -358,14 +357,13 @@ public enum ProcessRunner {
       var tail = ProcessOutputTail(cap: cap)
       var buffer = [UInt8](repeating: 0, count: Self.readChunkSize)
       while true {
-        let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
-        if count > 0 {
-          tail.append(Data(buffer[0..<count]))
-        } else if count < 0 && errno == EINTR {
-          continue
-        } else {
+        let count = buffer.withUnsafeMutableBytes { bytes in
+          SystemCall.retryingInterrupts { read(descriptor, bytes.baseAddress, bytes.count) }.value
+        }
+        guard count > 0 else {
           return tail.finish()
         }
+        tail.append(Data(buffer[0..<count]))
       }
     }
   }
