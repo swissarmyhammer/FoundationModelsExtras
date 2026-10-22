@@ -44,8 +44,24 @@ comments:
     - evidence: single local commit feat(modelpool): MLXModelLoader takes a Hugging Face token provider (source, tests, and .kanban state together; sha reported in the step block)
     - next: review
   timestamp: 2026-10-22T16:34:52.596793+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5j7jzx8z1t1ey3xyv7s4mad
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (ab910d7) — 0 findings, 0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed; 2 .kanban files excluded by .reviewignore
+    - next: done; send sha ab910d7 to Router session foundationmodelsrouter-08
+  timestamp: 2026-10-22T16:37:26.568370+00:00
+- actor: claude-code
+  id: 01m5j7kef8s1r6rj5vh0hce3zs
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 files (MLXModelLoader.swift, MLXModelLoaderTests.swift)
+    - test: green — swift test, 1542 passed, 0 failed, 0 skipped
+    - commit: ab910d7
+    - review: clean — none
+  timestamp: 2026-10-22T16:37:41.480644+00:00
+position_column: done
+position_ordinal: ffbe80
 title: MLXModelLoader takes a Hugging Face token provider
 ---
 Copied from FoundationModelsRouter card 01M5J0J48N3D4539V5D57DTGHB (Router ^d7dtghb). Router session (foundationmodelsrouter-08) waits on it; send it the sha when landed.
