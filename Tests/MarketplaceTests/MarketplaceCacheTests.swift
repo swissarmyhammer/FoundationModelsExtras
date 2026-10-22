@@ -95,7 +95,8 @@ struct MarketplaceCacheTests {
     /// - Returns: The staged folder.
     /// - Throws: The error of the folder or of the file write.
     func stageSnapshot(sha: String) throws -> URL {
-      let staged = root
+      let staged =
+        root
         .appendingPathComponent(stagingDirectoryName, isDirectory: true)
         .appendingPathComponent(sha, isDirectory: true)
       try MarketplaceTestSupport.writeFile(
@@ -122,7 +123,9 @@ struct MarketplaceCacheTests {
     ///   - sha: The commit of the snapshot.
     ///   - ref: The branch or the tag, or `nil` for a pinned commit.
     /// - Throws: The error of the install.
-    func install(through entry: InstallEntry, snapshotAt staged: URL, sha: String, ref: String?) throws {
+    func install(through entry: InstallEntry, snapshotAt staged: URL, sha: String, ref: String?)
+      throws
+    {
       switch entry {
       case .takesTheLock:
         try cache.install(snapshotAt: staged, sha: sha, ref: ref)
@@ -254,7 +257,8 @@ struct MarketplaceCacheTests {
 
     try fixture.install(sha: sha)
 
-    let target = try FileManager.default.destinationOfSymbolicLink(atPath: fixture.cache.currentLink.path)
+    let target = try FileManager.default.destinationOfSymbolicLink(
+      atPath: fixture.cache.currentLink.path)
     #expect(target == "snapshots/\(sha)")
   }
 
@@ -516,7 +520,8 @@ struct MarketplaceCacheTests {
     }
     #expect(
       try MarketplaceTelemetryExpectations.cacheCounts(
-        of: MarketplaceTelemetry.MetricName.writerLockConflicts, in: context.metricsFactory, id: Self.exampleID)
+        of: MarketplaceTelemetry.MetricName.writerLockConflicts, in: context.metricsFactory,
+        id: Self.exampleID)
         == [Int64(MarketplaceTelemetryExpectations.one)])
   }
 
@@ -531,9 +536,11 @@ struct MarketplaceCacheTests {
     try installed.get()
     #expect(
       try MarketplaceTelemetryExpectations.cacheCounts(
-        of: MarketplaceTelemetry.MetricName.removedSnapshots, in: context.metricsFactory, id: Self.exampleID)
+        of: MarketplaceTelemetry.MetricName.removedSnapshots, in: context.metricsFactory,
+        id: Self.exampleID)
         == Array(
-          repeating: Int64(MarketplaceTelemetryExpectations.one), count: Self.exampleShaCount - Self.keptShaCount))
+          repeating: Int64(MarketplaceTelemetryExpectations.one),
+          count: Self.exampleShaCount - Self.keptShaCount))
   }
 
   @Test func aSnapshotThatAReaderHoldsAddsNoRemovedCount() async throws {
@@ -545,7 +552,9 @@ struct MarketplaceCacheTests {
     try shas.dropLast().forEach(fixture.install(sha:))
 
     let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
-      Result { try fixture.cache.withSnapshotInUse(sha: held) { _ in try fixture.install(sha: last) } }
+      Result {
+        try fixture.cache.withSnapshotInUse(sha: held) { _ in try fixture.install(sha: last) }
+      }
     }
 
     try installed.get()
@@ -586,21 +595,29 @@ struct MarketplaceCacheTests {
   }
 
   @Test(arguments: InstallEntry.allCases, MarketplaceCacheTests.unsafeShaValues)
-  func anInstallWithAnUnsafeShaRecordsOneFailedInstallDuration(entry: InstallEntry, value: String) async throws {
+  func anInstallWithAnUnsafeShaRecordsOneFailedInstallDuration(entry: InstallEntry, value: String)
+    async throws
+  {
     let fixture = try CacheFixture()
     defer { fixture.remove() }
     let staged = try fixture.stageSnapshot(sha: try #require(Self.exampleShas.first))
 
     let (context, installed) = try await MarketplaceTelemetryExpectations.capture {
-      Result { try fixture.install(through: entry, snapshotAt: staged, sha: value, ref: Self.exampleRef) }
+      Result {
+        try fixture.install(through: entry, snapshotAt: staged, sha: value, ref: Self.exampleRef)
+      }
     }
 
-    #expect(throws: MarketplaceCacheError.unsafePathValue(kind: .sha, value: value)) { try installed.get() }
+    #expect(throws: MarketplaceCacheError.unsafePathValue(kind: .sha, value: value)) {
+      try installed.get()
+    }
     try Self.expectOneFailedInstallDuration(in: context)
   }
 
   @Test(arguments: InstallEntry.allCases, MarketplaceCacheTests.unsafeRefValues)
-  func anInstallWithAnUnsafeRefRecordsOneFailedInstallDuration(entry: InstallEntry, value: String) async throws {
+  func anInstallWithAnUnsafeRefRecordsOneFailedInstallDuration(entry: InstallEntry, value: String)
+    async throws
+  {
     let fixture = try CacheFixture()
     defer { fixture.remove() }
     let sha = try #require(Self.exampleShas.first)
@@ -610,7 +627,9 @@ struct MarketplaceCacheTests {
       Result { try fixture.install(through: entry, snapshotAt: staged, sha: sha, ref: value) }
     }
 
-    #expect(throws: MarketplaceCacheError.unsafePathValue(kind: .ref, value: value)) { try installed.get() }
+    #expect(throws: MarketplaceCacheError.unsafePathValue(kind: .ref, value: value)) {
+      try installed.get()
+    }
     try Self.expectOneFailedInstallDuration(in: context)
   }
 
@@ -808,7 +827,10 @@ struct MarketplaceCacheTests {
   /// Each cache error, with the sentence that it describes itself with.
   private static let cacheErrorDescriptions: [(error: MarketplaceCacheError, text: String)] = [
     (.cannotLock(path: "/c/lock", code: EACCES), #"Cannot lock "/c/lock": error code \#(EACCES)."#),
-    (.writerLockHeld(path: "/c/lock"), #"Another writer holds the marketplace folder of "/c/lock" now."#),
+    (
+      .writerLockHeld(path: "/c/lock"),
+      #"Another writer holds the marketplace folder of "/c/lock" now."#
+    ),
     (
       .cannotSwap(path: "/c/current", code: ENOENT),
       #"Cannot put the new snapshot link "/c/current" in place: error code \#(ENOENT)."#
