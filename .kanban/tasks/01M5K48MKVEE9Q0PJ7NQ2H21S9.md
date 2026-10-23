@@ -22,8 +22,24 @@ comments:
     - evidence: 3 files — Sources/FoundationModelsExtras/PlainNumberYAMLEncoder.swift (new), Sources/FoundationModelsExtras/FrontmatterDocument+Save.swift, Tests/FoundationModelsExtrasTests/FrontmatterDocumentSaveTests.swift. `swift test`: 1561 tests in 160 suites passed, 0 failures; the only warning is the allowed mlx bundle warning. `swift format lint --strict` is clean on the changed files.
     - next: /review (task left in doing)
   timestamp: 2026-10-23T01:07:51.360180+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5k51aacq1a1at6zvnegdcfm
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (6850fd4) — 0 findings (attempted 7, failed 0, skipped 0); 3 files reviewed, 2 .kanban/ files excluded by .reviewignore
+    - next: none — moved to done
+  timestamp: 2026-10-23T01:12:04.684737+00:00
+- actor: claude-code
+  id: 01m5k51nyksvqj1g7recag8dhm
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test, 1561 passed in 160 suites
+    - commit: 6850fd4
+    - review: clean — 0 findings
+  timestamp: 2026-10-23T01:12:16.595184+00:00
+position_column: done
+position_ordinal: ffc380
 title: FrontmatterDocument save writes a whole-number Double as 6e+0
 ---
 Reported by agentviewkit-05 while adopting Router index.md (AgentViewKit ^b36r42y). Router's SessionConfiguration.inlineSettleGrace (a TimeInterval, value 6) is saved in the index.md frontmatter through FrontmatterDocument.save(to:) / rendered() as `6e+0`. It decodes back correctly, but index.md is meant to be read by people, so a Double should render as plain decimal text (`6`, or `6.0`, and `0.25` rather than `2.5e-1`).
