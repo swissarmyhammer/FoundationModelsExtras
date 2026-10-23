@@ -1,13 +1,14 @@
 import Darwin
 import Foundation
-import Yams
 
 /// The save of a document: its metadata as YAML between two `---` fences,
 /// then its body unchanged. A read of the saved file with
 /// ``FrontmatterDocument/split(text:)`` and a YAML decode of the frontmatter
 /// gives the same metadata and the same body back.
 ///
-/// The YAML encode runs inside this file: no Yams type crosses the public
+/// The YAML encode runs inside this module, through
+/// `PlainNumberYAMLEncoder`, which writes each `Double` and `Float` as plain
+/// decimal text that a person can read: no Yams type crosses the public
 /// API, only ``FrontmatterDocumentSaveError``.
 ///
 /// The ``FrontmatterDocument/enablement`` of the document is not written: it
@@ -85,7 +86,7 @@ extension FrontmatterDocument where Metadata: Encodable {
   ///   when the encode fails.
   private static func yaml(of metadata: Metadata) throws(FrontmatterDocumentSaveError) -> String {
     do {
-      return try YAMLEncoder().encode(metadata)
+      return try PlainNumberYAMLEncoder.yaml(of: metadata)
     } catch {
       throw .encodingFailed(description: String(describing: error))
     }

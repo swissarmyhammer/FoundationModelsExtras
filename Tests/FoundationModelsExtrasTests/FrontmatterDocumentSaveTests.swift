@@ -58,6 +58,49 @@ struct FrontmatterDocumentSaveTests {
     var owner: String?
   }
 
+  /// A whole-number `Double`, which YAML must not write with an exponent.
+  private static let wholeSeconds: Double = 6
+
+  /// A fraction, which YAML must not write with an exponent.
+  private static let quarterSeconds: Double = 0.25
+
+  /// A tiny `Double`, whose shortest text in Swift carries an exponent.
+  private static let tinySeconds: Double = 0.000_01
+
+  /// A huge `Double`, whose shortest text in Swift carries an exponent.
+  private static let hugeSeconds: Double = 100_000_000_000_000_000_000
+
+  /// Doubles that only a text of 17 significant digits, or one at the
+  /// edge of the range, gives back exactly.
+  private static let hardDoubles: [Double] = [
+    0.1 + 0.2, -2.5, tinySeconds, hugeSeconds, wholeSeconds, quarterSeconds,
+    .greatestFiniteMagnitude, .leastNonzeroMagnitude, .infinity, -.infinity,
+  ]
+
+  /// Floats whose text must be the short text of a `Float`.
+  private static let floats: [Float] = [0.1, 0.25, 6]
+
+  /// Metadata of two named `Double` values.
+  private struct Timing: Codable, Equatable, Sendable {
+    /// A whole number of seconds.
+    var grace: Double
+
+    /// A fraction of a second.
+    var step: Double
+  }
+
+  /// Metadata of a list of `Double` values.
+  private struct Doubles: Codable, Equatable, Sendable {
+    /// The values.
+    var values: [Double]
+  }
+
+  /// Metadata of a list of `Float` values.
+  private struct Floats: Codable, Equatable, Sendable {
+    /// The values.
+    var values: [Float]
+  }
+
   /// Metadata whose encode always throws ``failure``.
   private struct UnencodableMetadata: Encodable, Sendable {
     /// The text of the failure.
@@ -132,6 +175,40 @@ struct FrontmatterDocumentSaveTests {
     let document = FrontmatterDocument(metadata: Title(title: "Test"), content: "# Body\n")
 
     #expect(try document.rendered() == "---\ntitle: Test\n---\n# Body\n")
+  }
+
+  @Test func aDoubleRendersAsPlainDecimalText() throws {
+    let timing = Timing(grace: Self.wholeSeconds, step: Self.quarterSeconds)
+    let document = FrontmatterDocument(metadata: timing, content: "")
+
+    #expect(try document.rendered() == "---\ngrace: 6.0\nstep: 0.25\n---\n")
+  }
+
+  @Test func aDoubleThatSwiftWritesWithAnExponentRendersWithoutOne() throws {
+    let timing = Timing(grace: Self.hugeSeconds, step: Self.tinySeconds)
+    let document = FrontmatterDocument(metadata: timing, content: "")
+
+    #expect(
+      try document.rendered()
+        == "---\ngrace: 100000000000000000000.0\nstep: 0.00001\n---\n")
+  }
+
+  @Test func aRenderedDoubleDecodesBackToTheSameValue() throws {
+    let numbers = Doubles(values: Self.hardDoubles)
+    let text = try FrontmatterDocument(metadata: numbers, content: "").rendered()
+
+    let frontmatter = try #require(FrontmatterDocument.split(text: text).frontmatter)
+    #expect(try YAMLValue.parse(frontmatter).decoded(as: Doubles.self) == numbers)
+    #expect(!frontmatter.contains(/[0-9][eE][-+]?[0-9]/))
+  }
+
+  @Test func aFloatRendersAsItsShortPlainTextAndDecodesBack() throws {
+    let numbers = Floats(values: Self.floats)
+    let text = try FrontmatterDocument(metadata: numbers, content: "").rendered()
+
+    #expect(text == "---\nvalues:\n- 0.1\n- 0.25\n- 6.0\n---\n")
+    let frontmatter = try #require(FrontmatterDocument.split(text: text).frontmatter)
+    #expect(try YAMLValue.parse(frontmatter).decoded(as: Floats.self) == numbers)
   }
 
   @Test func aSavedDocumentReadsBackWithTheSameMetadataAndBody() throws {
