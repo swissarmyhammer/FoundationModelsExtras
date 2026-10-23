@@ -24,8 +24,9 @@ import Foundation
 /// - **Flush.** An append calls `fsync(2)` after its line, before it returns.
 /// - **Concurrent appenders stay whole.** Each append opens its own open file
 ///   description with `O_APPEND`, so the kernel puts each line at the end of
-///   the file in one piece, also when two processes append to one file, for
-///   example the Router and the ACP agent on `sessions.jsonl`.
+///   the file in one piece, also when two threads or two processes append to
+///   one file, for example the log handler, the tracer and the metrics
+///   factory of the ACP agent, which all append to its `--telemetry-file`.
 /// - **Read.** A read decodes the file line by line. The bytes after the last
 ///   `\n` are a torn final line: the expected artifact of a crash in an
 ///   append. The read drops them and logs a warning with their byte offset. A
