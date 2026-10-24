@@ -162,6 +162,27 @@ struct NoteNotFound: CodedError {
     var message: String { "No note has the id \"\(id)\". Query the shelf to get the ids." }
 }
 
+/// The error of a note title that is not valid at a span of characters. The error gives the span in more keys of
+/// `extensions`, and also a `code` key, which the code of the error must win over.
+struct TitleSpanError: CodedError {
+    /// The start of the span, as `extensions.start` gives it.
+    static let start = 2
+
+    /// The end of the span, as `extensions.end` gives it. The end is exclusive.
+    static let end = 5
+
+    /// The `code` key that the extension fields give. The code of the error wins over it.
+    static let losingCode = "NOT_THE_CODE"
+
+    var code: String { "INVALID_TITLE" }
+
+    var message: String { "The title is not valid at \(Self.start)..\(Self.end)." }
+
+    var extensionFields: [String: Map] {
+        ["start": .number(Number(Self.start)), "end": .number(Number(Self.end)), "code": .string(Self.losingCode)]
+    }
+}
+
 /// A fault that is not a coded error.
 struct ExampleFault: Error {}
 

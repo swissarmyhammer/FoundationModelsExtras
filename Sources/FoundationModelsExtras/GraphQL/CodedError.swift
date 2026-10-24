@@ -12,6 +12,25 @@ public protocol CodedError: Error, Sendable {
 
     /// The message of the error: what is wrong, and how to correct the call.
     var message: String { get }
+
+    /// The other keys of `extensions` for the error, for example the span of a syntax error in a text. They go into
+    /// `extensions` beside `code`. A `code` key here has no effect: the ``code`` of the error always wins.
+    ///
+    /// The default is no key, so an error that does not give this property gives only `code`.
+    var extensionFields: [String: Map] { get }
+}
+
+extension CodedError {
+    /// No key: the default of an error that gives only `code`.
+    public var extensionFields: [String: Map] {
+        [:]
+    }
+
+    /// The keys that the error puts into `extensions`: the ``extensionFields``, and `code` with the ``code``. The code
+    /// wins over a `code` key of the extension fields.
+    var extensionsObject: [String: Map] {
+        CodedErrorJSON.Extensions(code: code, fields: extensionFields).object
+    }
 }
 
 /// The errors of the GraphQL toolkit itself: the errors that each endpoint can give, whatever its schema.
@@ -94,13 +113,14 @@ extension GraphQLError {
     /// The key of the code in the `extensions` object of an error.
     static let codeKey = "code"
 
-    /// Gives this error with the message and the code of a ``CodedError``.
+    /// Gives this error with the message, the code, and the extension fields of a ``CodedError``.
     ///
     /// The path, the locations, and the nodes of the error do not change.
     ///
-    /// - Parameter codedError: The error that gives the message and the code.
-    /// - Returns: The error with the message of `codedError`, and its code in `extensions.code`. The other keys of
-    ///   `extensions` do not change.
+    /// - Parameter codedError: The error that gives the message, the code, and the extension fields.
+    /// - Returns: The error with the message of `codedError`, its code in `extensions.code`, and its
+    ///   ``CodedError/extensionFields`` in `extensions`. The code wins over a `code` key of the extension fields, and
+    ///   the keys of `codedError` win over the same keys of this error. The other keys of `extensions` do not change.
     public func coded(as codedError: any CodedError) -> GraphQLError {
         GraphQLError(
             message: codedError.message,
@@ -109,7 +129,7 @@ extension GraphQLError {
             positions: positions,
             path: path,
             originalError: codedError,
-            extensions: extensions.merging([Self.codeKey: .string(codedError.code)]) { _, code in code }
+            extensions: extensions.merging(codedError.extensionsObject) { _, coded in coded }
         )
     }
 
@@ -144,7 +164,8 @@ extension GraphQLError {
 
 // MARK: - Error JSON
 
-/// The GraphQL error JSON of a ``CodedError``: `{ message, path, extensions: { code } }`.
+/// The GraphQL error JSON of a ``CodedError``: `{ message, path, extensions: { code, ... } }`, where `...` is the
+/// ``CodedError/extensionFields`` of the error.
 public struct CodedErrorJSON: Codable, Hashable, Sendable {
     /// One step of the `path` of a GraphQL error: the response key of a field, or the index of a list item.
     ///
@@ -184,16 +205,52 @@ public struct CodedErrorJSON: Codable, Hashable, Sendable {
         }
     }
 
-    /// The `extensions` object of a GraphQL error.
+    /// The `extensions` object of a GraphQL error: the code, and the extension fields of the error beside it.
+    ///
+    /// The JSON form is one object that holds `code` and each extension field as its own key.
     public struct Extensions: Codable, Hashable, Sendable {
         /// The code of the error, for example `NOT_FOUND`.
         public let code: String
 
+        /// The other keys of the object, for example the span of a syntax error in a text. The fields hold no `code`
+        /// key.
+        public let fields: [String: Map]
+
         /// Makes the `extensions` object of an error.
         ///
-        /// - Parameter code: The code of the error.
-        public init(code: String) {
+        /// - Parameters:
+        ///   - code: The code of the error.
+        ///   - fields: The other keys of the object. The code wins over a `code` key of the fields.
+        public init(code: String, fields: [String: Map] = [:]) {
             self.code = code
+            self.fields = fields.filter { key, _ in key != GraphQLError.codeKey }
+        }
+
+        /// Reads the object: the `code` key as the code, and each other key as an extension field.
+        ///
+        /// - Parameter decoder: The decoder that holds one JSON object.
+        /// - Throws: A `DecodingError` when the value is not an object, or when the object has no `code` string.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let object = try container.decode([String: Map].self)
+            guard case .string(let code)? = object[GraphQLError.codeKey] else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "The object has no code string.")
+            }
+            self.init(code: code, fields: object)
+        }
+
+        /// Writes the ``object``.
+        ///
+        /// - Parameter encoder: The encoder that gets one JSON object.
+        /// - Throws: An error from the encoder.
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(object)
+        }
+
+        /// The keys of the object: the extension fields, and the `code` key with the code.
+        var object: [String: Map] {
+            fields.merging([GraphQLError.codeKey: .string(code)]) { _, code in code }
         }
     }
 
@@ -203,7 +260,7 @@ public struct CodedErrorJSON: Codable, Hashable, Sendable {
     /// The path to the response field of the error. The path is empty when no field caused the error.
     public let path: [PathComponent]
 
-    /// The `extensions` object, which holds the code.
+    /// The `extensions` object, which holds the code and the extension fields.
     public let extensions: Extensions
 
     /// Makes the error JSON of a ``CodedError``.
@@ -215,7 +272,7 @@ public struct CodedErrorJSON: Codable, Hashable, Sendable {
     public init(_ error: any CodedError, at path: [PathComponent] = []) {
         message = error.message
         self.path = path
-        extensions = Extensions(code: error.code)
+        extensions = Extensions(code: error.code, fields: error.extensionFields)
     }
 }
 

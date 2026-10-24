@@ -102,6 +102,26 @@ struct GraphQLResponseConventionTests {
         #expect(holding.codedAsParseFailure().extensions["code"] == .string("NOT_FOUND"))
     }
 
+    @Test("a coded error with no extension fields of its own gives no extension field")
+    func codedErrorHasNoExtensionFieldsByDefault() {
+        #expect(NoteNotFound(id: "n9").extensionFields == [:])
+    }
+
+    @Test("a coded GraphQL error gets the extension fields of its coded error, and the code wins over a code field")
+    func codedErrorGetsTheExtensionFields() {
+        let error = GraphQLError(message: "engine text", extensions: ["hint": .string("kept")])
+
+        let coded = error.coded(as: TitleSpanError())
+
+        #expect(
+            coded.extensions == [
+                "code": .string(TitleSpanError().code),
+                "end": .number(Number(TitleSpanError.end)),
+                "hint": .string("kept"),
+                "start": .number(Number(TitleSpanError.start)),
+            ])
+    }
+
     @Test("the error-only response has the error, and the warnings only when there are some")
     func errorOnlyResponseHasTheWarningsWhenThereAreSome() throws {
         let error = GraphQLToolkitError.invalidVariables(received: "a number")
@@ -131,6 +151,25 @@ struct GraphQLResponseConventionTests {
         let decoded = try JSONDecoder().decode(CodedErrorJSON.self, from: Data(text.utf8))
 
         #expect(text.contains(#""path":["notes",2]"#))
+        #expect(decoded == json)
+    }
+
+    @Test("the error-only response writes the extension fields beside the code, and the code wins over a code field")
+    func errorOnlyResponseWritesTheExtensionFields() throws {
+        let error = TitleSpanError()
+        let extensions = #"{"code":"\#(error.code)","end":\#(TitleSpanError.end),"start":\#(TitleSpanError.start)}"#
+
+        let response = try error.responseJSON()
+
+        #expect(response == #"{"errors":[{"extensions":\#(extensions),"message":"\#(error.message)","path":[]}]}"#)
+    }
+
+    @Test("an error JSON with extension fields decodes to the same value")
+    func errorJSONWithExtensionFieldsRoundTrips() throws {
+        let json = CodedErrorJSON(TitleSpanError(), at: [.key("addNote")])
+
+        let decoded = try JSONDecoder().decode(CodedErrorJSON.self, from: try JSONEncoder().encode(json))
+
         #expect(decoded == json)
     }
 
