@@ -69,4 +69,47 @@ struct ModelRefTests {
         #expect(ref.stringValue == "org/repo")
         #expect(ref == literal)
     }
+
+    /// The forms of one reference to the default revision: no revision, an
+    /// empty revision, and the revision `main`, from each initializer.
+    private static let defaultRevisionForms: [ModelRef] = [
+        ModelRef("org/repo"),
+        ModelRef("org/repo@"),
+        ModelRef("org/repo@main"),
+        ModelRef(repo: "org/repo", revision: nil),
+        ModelRef(repo: "org/repo", revision: ""),
+        ModelRef(repo: "org/repo", revision: "main"),
+    ]
+
+    @Test("no revision, an empty revision and the revision main are one ModelRef", arguments: defaultRevisionForms)
+    func defaultRevisionFormsAreOneReference(_ ref: ModelRef) {
+        let unpinned = ModelRef("org/repo")
+
+        #expect(ref == unpinned)
+        #expect(ref.hashValue == unpinned.hashValue)
+        #expect(ref.revision == nil)
+        #expect(ref.stringValue == "org/repo")
+    }
+
+    @Test("a Codable round trip of each default-revision form gives the unpinned ModelRef")
+    func defaultRevisionCodableRoundTrip() throws {
+        for text in ["org/repo", "org/repo@", "org/repo@main"] {
+            let data = try JSONEncoder().encode(text)
+            let decoded = try JSONDecoder().decode(ModelRef.self, from: data)
+
+            #expect(decoded == ModelRef("org/repo"))
+            #expect(decoded.revision == nil)
+        }
+    }
+
+    @Test("a real revision stays different from the unpinned ModelRef")
+    func realRevisionIsDifferent() throws {
+        let pinned = ModelRef("org/repo@abc123")
+
+        #expect(pinned != ModelRef("org/repo"))
+        #expect(pinned != ModelRef("org/repo@main"))
+        #expect(pinned.stringValue == "org/repo@abc123")
+        let decoded = try JSONDecoder().decode(ModelRef.self, from: JSONEncoder().encode(pinned))
+        #expect(decoded == pinned)
+    }
 }

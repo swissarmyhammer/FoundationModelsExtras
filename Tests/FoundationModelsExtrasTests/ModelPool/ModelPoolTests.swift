@@ -719,6 +719,19 @@ struct ModelPoolTests {
         #expect(pool.residentModelCount == 1)
     }
 
+    @Test("an acquire with no revision and an acquire with the revision main load the model one time")
+    func unpinnedAndMainRevisionShareOneLoad() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: log))
+
+        let unpinnedHold = try await pool.acquire(ModelPoolKey(ref: "org/a", role: .llm))
+        let mainHold = try await pool.acquire(ModelPoolKey(ref: "org/a@main", role: .llm))
+
+        #expect(log.values.filter { $0.hasPrefix("load ") } == [Self.loadByA])
+        #expect(try Self.model(in: unpinnedHold) === Self.model(in: mainHold))
+        #expect(pool.residentModelCount == 1)
+    }
+
     @Test("after the last release of the holds of an acquire by key, the loader of the pool evicts the model")
     func acquireByKeyEvictsAfterTheLastRelease() async throws {
         let log = Recorder<String>()

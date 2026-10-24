@@ -1,0 +1,43 @@
+---
+position_column: todo
+position_ordinal: '8180'
+title: Call the MLX model directly, with an in-flight meter and a cancel that does not wait for the MLX lock
+---
+## What
+
+Add one public helper that every pooled call into a local model goes through, in place of the per-model `GenerationQueue` job. It adds the two things that the queue gave: a count of generations in flight, and a cancel that does not wait for the MLX lock. Use it in `PooledModel.respond`.
+
+**Why.** The design of 2026-10-24. The user's rule, word for word: "locks must not cross over a tool call -- ONLY -- over the actual call into the model".
+- MLX's `SerialAccessContainer` lock (`AsyncMutex`, FIFO) is the only lock, and it is held for one generation. MLX `respond` parses tool calls and sends them on the channel; the SDK runs the tool bodies after `respond` returns (mlx-swift-lm `MLXLanguageModel.swift:1360-1380`, `ToolBodyContainerReentryTests`).
+- Today the per-model queue job covers a whole SDK call, tool bodies included, so a tool that uses a model deadlocks or starves. In bench24-1023b, django__django-14999, a child agent waited 23 min.
+- Cloud models multiplex, so they need no serialization.
+- **No change to mlx-swift-lm is allowed.**
+
+- [ ] `Sources/FoundationModelsExtras/ModelPool/PooledGeneration.swift` (new): `public enum PooledGeneration` with `public static func run(ref: ModelRef, channel: LanguageModelExecutorGenerationChannel, _ body: @escaping @Sendable (LanguageModelExecutorGenerationChannel) async throws -> Void) async throws`.
+  - `body` is the one call into the model, for one generation.
+  - The helper does NOT open a `GenerateTelemetry` span. The callers keep their own spans, so nothing is recorded two times.
+  - It must fit the three callers: `PooledModel.respond`, `GenerateRelayExecutor.respond` (PooledSession), and Router's `SessionLanguageModel.Executor.respond` → `innerRespond` (`SessionLanguageModel.swift:133-152`, a Router task).
+  - Make `ExecutableLanguageModel` (`PooledModel.swift:214`) public only if a caller needs it.
+- [ ] **In-flight meter.** `Meter(label: ExtrasTelemetry.MetricName.generateInFlight, dimensions: <the model dimensions of ref>)`: `increment()` before `body`, `decrement()` in a `defer`. Add `generateInFlight = "FoundationModelsExtras.generate.in_flight"`.
+- [ ] **Cancel that does not wait for the MLX lock.** MLX's `AsyncMutex` waits with no cancel handler. The helper therefore runs `body` in its own `Task { }`. Use a plain `Task { }`, NOT `Task.detached`, so the task-local `MLXLanguageModel.$promptCacheScope` still reaches it. Relay its output into `channel`. In a `withTaskCancellationHandler`, the `onCancel` cancels that inner task **synchronously**, because MLX's GPU-quiet guarantee needs the cancel at once (`MLXLanguageModel.swift:942-971`). It then stops the relay and throws `CancellationError` to the caller at once.
+- [ ] **The prompt cache after an abandoned call.** MLX checks out the session's prompt cache before it takes the lock (`MLXLanguageModel.swift:1054`). It checks it back in after the call, and that write replaces the entry (`:1197`, `ExecutorPromptCache.swift:657-668`). It also deletes a spilled cache file on exit (`:1060`). An abandoned call that still waits in line therefore holds the session's cache. So the helper keeps the abandoned inner task for each prompt-cache scope (the session). The next call with the same scope first awaits that task's end, then runs. Other sessions never wait for it. The abandoned call leaves at its turn without generating, because it sees the cancel.
+- [ ] `Sources/FoundationModelsExtras/ModelPool/PooledModel.swift:103`: replace `loaded.hold.queue.submit { ... }` with the helper.
+
+## Acceptance Criteria
+
+- [ ] Use a stub model whose generations take a FIFO serial lock (the shape of MLX's `AsyncMutex`) and wait on signals. A call that waits behind a running generation, and is then cancelled, throws `CancellationError` within 100 ms. The running generation is not disturbed, and the next caller in line runs after it.
+- [ ] A cancelled call relays no output into its channel after the cancel.
+- [ ] A cancel, then a new call of the SAME session: the new call starts only after the abandoned call has left. It sees the session's cache, not a cold or stale one (the stub records check-out and check-in per scope).
+- [ ] A call of an OTHER session is not delayed by the abandoned call, beyond its place in the FIFO.
+- [ ] `generate.in_flight` is 2 while one stub generation runs and one waits, and 0 after both end (a test metrics factory).
+- [ ] `PooledModel.respond` contains no `queue.submit`. `generate.duration` and `generate.time_to_first_token` are still recorded once for each call.
+
+## Tests
+
+- [ ] `Tests/FoundationModelsExtrasTests/ModelPool/PooledGenerationTests.swift` (new): the criteria above.
+- [ ] Restate the `PooledModel` tests that expect a queue job (`Tests/FoundationModelsExtrasTests/ModelPool/PooledModelTests.swift`).
+- [ ] `swift test` in FoundationModelsExtras: all tests pass, with no new warnings.
+
+## Workflow
+
+- Use `/tdd`: write the failing tests first, then implement until they pass.

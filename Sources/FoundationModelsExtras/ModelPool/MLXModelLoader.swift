@@ -22,7 +22,7 @@ import Tokenizers
 /// ```
 public struct MLXModelLoader: PooledModelLoader {
     /// The revision of a model reference that names no revision.
-    static let defaultRevision = "main"
+    static let defaultRevision = ModelRef.defaultRevision
 
     /// The file extension of a weight file.
     private static let weightFileExtension = "safetensors"

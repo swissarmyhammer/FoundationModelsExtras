@@ -26,32 +26,52 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
     /// string form.
     private static let revisionSeparator: Character = "@"
 
+    /// The revision that a reference with no revision loads. A reference that
+    /// names this revision is the same reference as one with no revision.
+    /// ``MLXModelLoader`` asks the Hub for this revision.
+    static let defaultRevision = "main"
+
     /// Creates a model reference from an explicit repository id and optional
     /// revision.
+    ///
+    /// The revision `main` and the empty revision become `nil`, because each
+    /// names the default revision. Thus `"org/repo"`, `"org/repo@"` and
+    /// `"org/repo@main"` are one reference, with one hash and one
+    /// ``stringValue``, and the model pool loads them one time.
     ///
     /// - Parameters:
     ///   - repo: The Hugging Face repository id, e.g. `"org/repo"`.
     ///   - revision: The pinned revision, or `nil` to track the default.
     public init(repo: String, revision: String? = nil) {
         self.repo = repo
-        self.revision = revision
+        self.revision = Self.normalized(revision)
     }
 
     /// Parses a model reference from its string form.
     ///
     /// Splits on the first `@`: text before it becomes `repo` and text after it
     /// becomes `revision`. Without an `@`, the whole string is `repo` and
-    /// `revision` is `nil`.
+    /// `revision` is `nil`. The revision `main` and the empty revision also
+    /// become `nil`, as in ``init(repo:revision:)``.
     ///
     /// - Parameter string: The reference, e.g. `"org/repo"` or `"org/repo@rev"`.
     public init(_ string: String) {
         if let separatorIndex = string.firstIndex(of: Self.revisionSeparator) {
-            self.repo = String(string[..<separatorIndex])
-            self.revision = String(string[string.index(after: separatorIndex)...])
+            self.init(
+                repo: String(string[..<separatorIndex]),
+                revision: String(string[string.index(after: separatorIndex)...]))
         } else {
-            self.repo = string
-            self.revision = nil
+            self.init(repo: string)
         }
+    }
+
+    /// Gives `nil` for a revision that names the default revision.
+    ///
+    /// - Parameter revision: The revision as given.
+    /// - Returns: `nil` for `nil`, `""` and `"main"`; otherwise `revision`.
+    private static func normalized(_ revision: String?) -> String? {
+        guard let revision, !revision.isEmpty, revision != defaultRevision else { return nil }
+        return revision
     }
 
     /// Parses a model reference from a string literal, enabling bare literals
