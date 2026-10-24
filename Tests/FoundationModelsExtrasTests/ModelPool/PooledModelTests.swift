@@ -13,9 +13,10 @@ private struct Answer {
 }
 
 /// A ``PooledModel`` loads nothing when you make it. Its first session loads
-/// the LLM into the pool. Each session keeps a hold of the model, and each
-/// respond call is one job in the queue of the model.
-@Suite("Pooled model: sessions of an LLM by name, with one load and one queue")
+/// the LLM into the pool. Each session keeps a hold of the model. Only the
+/// call into the model waits: the stub model holds a FIFO lock for each
+/// generation, as MLX does, and a tool body runs outside each lock.
+@Suite("Pooled model: sessions of an LLM by name, with one load and one lock for each generation")
 struct PooledModelTests {
     /// The key of the LLM that the tests load.
     private static let key = ModelPoolKey(ref: "org/chat", role: .llm)
@@ -32,9 +33,6 @@ struct PooledModelTests {
 
     /// The second prompt of a test.
     private static let secondPrompt = "two"
-
-    /// The third prompt of a test.
-    private static let thirdPrompt = "three"
 
     /// The number in the answer of the typed respond test.
     private static let typedAnswerNumber = 7
@@ -67,8 +65,9 @@ struct PooledModelTests {
         let model: PooledModel
         /// The session.
         let session: PooledSession
-        /// The queue of the model.
-        let queue: GenerationQueue
+        /// The script of the stub model, with the FIFO lock of its
+        /// generations.
+        let script: StubLanguageModelScript
         /// The log of the generation calls of the stub model.
         let log: Recorder<String>
         /// Finish this to end the first call.
@@ -89,11 +88,10 @@ struct PooledModelTests {
         let pool = ModelPool(loader: stubLoader(script: script, log: Recorder()))
         let model = PooledModel(ref: key.ref, pool: pool)
         let session = try await model.session()
-        let queue = try await pool.acquire(key).queue
         let firstCall = Task { try await session.respond(to: firstPrompt) }
         try await waitUntilTheFirstCallRuns(firstCall, log: log)
         return BlockedCall(
-            model: model, session: session, queue: queue, log: log, endFirstCall: endFirstCall, firstCall: firstCall)
+            model: model, session: session, script: script, log: log, endFirstCall: endFirstCall, firstCall: firstCall)
     }
 
     /// Waits until the stub model begins the call of ``firstPrompt``, or until
@@ -255,16 +253,18 @@ struct PooledModelTests {
         #expect(log.values == [Self.loadEntry])
     }
 
-    @Test("two sessions of one model never run respond at the same time, and the calls run in FIFO order")
+    @Test("two sessions of one model never run a generation at the same time, and the generations run in FIFO order")
     func twoSessionsRespondOneAtATime() async throws {
         let blocked = try await Self.startBlockedCall()
         let secondSession = try await blocked.model.session()
 
-        let secondCall = try await TelemetryCapture.run(forbidding: []) { context in
-            await blocked.queue.startQueuedCall(recordingInto: context) {
-                try await secondSession.respond(to: Self.secondPrompt)
-            }
-        }
+        // The stub model holds a FIFO lock for each generation, as MLX does,
+        // thus the second respond waits for that lock.
+        let secondCall = Task { try await secondSession.respond(to: Self.secondPrompt) }
+        await Waits.untilFirstEnds(
+            { await blocked.script.lock.queued.waitUntil { $0.contains(Self.secondPrompt) } },
+            { _ = await secondCall.result })
+        try #require(blocked.script.lock.queued.values == [Self.secondPrompt])
         blocked.endFirstCall.finish()
         let answers = try await [blocked.firstCall.value, secondCall.value]
 
@@ -274,51 +274,79 @@ struct PooledModelTests {
         ])
     }
 
-    @Test("a fork continues the transcript of its parent, and the parent does not see the turns of the fork")
-    func aForkContinuesTheTranscript() async throws {
+    @Test("a PooledSession respond runs in no job of the queue of the model")
+    func aPooledSessionRespondRunsInNoQueueJob() async throws {
         let pool = ModelPool(loader: Self.stubLoader(script: StubLanguageModelScript(), log: Recorder()))
-        let session = try await PooledModel(ref: Self.key.ref, pool: pool).session()
-
-        _ = try await session.respond(to: Self.firstPrompt)
-        let child = try await session.fork()
-        let childAnswer = try await child.respond(to: Self.secondPrompt)
-        let parentAnswer = try await session.respond(to: Self.thirdPrompt)
-
-        #expect(child.model == Self.key.ref)
-        #expect(childAnswer == "\(Self.firstPrompt) \(Self.secondPrompt)")
-        #expect(parentAnswer == "\(Self.firstPrompt) \(Self.thirdPrompt)")
-    }
-
-    @Test("a fork made while a respond of its parent runs waits in the queue, and continues after that turn")
-    func aForkWaitsForTheRunningRespond() async throws {
-        let blocked = try await Self.startBlockedCall()
-
-        let fork = try await TelemetryCapture.run(forbidding: []) { context in
-            await blocked.queue.startQueuedCall(recordingInto: context) { try await blocked.session.fork() }
+        let metrics = try await TelemetryCapture.run(forbidding: []) { context in
+            _ = try await PooledModel(ref: Self.key.ref, pool: pool).session().respond(to: Self.firstPrompt)
+            return context.metricsFactory
         }
-        blocked.endFirstCall.finish()
-        _ = try await blocked.firstCall.value
-        let childAnswer = try await fork.value.respond(to: Self.secondPrompt)
 
-        #expect(childAnswer == "\(Self.firstPrompt) \(Self.secondPrompt)")
+        #expect(throws: TestMetricsError.self) {
+            try QueueMetricExpectations.depth(
+                in: metrics,
+                queue: QueueMetricDimensions.queue(named: QueueName.model.rawValue, model: Self.key.ref.stringValue))
+        }
     }
 
-    @Test("the model stays resident while a session or its fork exists, and is evicted after the last one goes")
+    @Test("a tool body that calls respond on an other PooledSession of the same model gets that answer, and the call ends")
+    func aToolThatUsesTheSameModelCompletes() async throws {
+        let script = StubLanguageModelScript(toolName: AskSessionTool.toolName, toolPrompt: Self.firstPrompt)
+        let model = PooledModel(ref: Self.key.ref, pool: ModelPool(loader: Self.stubLoader(script: script, log: Recorder())))
+        let helper = try await model.session()
+        let toolAnswers = Recorder<String>()
+        let tool = AskSessionTool(session: helper, prompt: Self.secondPrompt, answers: toolAnswers)
+        let session = try await model.session(tools: [tool])
+
+        let answer = try await session.respond(to: Self.firstPrompt)
+
+        #expect(toolAnswers.values == [Self.secondPrompt])
+        #expect(answer == Self.firstPrompt)
+    }
+
+    @Test(
+        "two PooledSessions of one model take turns for each generation: a generation of one runs while a tool body of the other waits",
+        .timeLimit(.minutes(1)))
+    func twoSessionsTakeTurnsForEachGeneration() async throws {
+        let script = StubLanguageModelScript(toolName: WaitingTool.toolName, toolPrompt: Self.firstPrompt)
+        let model = PooledModel(ref: Self.key.ref, pool: ModelPool(loader: Self.stubLoader(script: script, log: Recorder())))
+        let toolLog = Recorder<String>()
+        let (toolMayEnd, endTool) = AsyncStream.makeStream(of: Void.self)
+        defer { endTool.finish() }
+        let first = try await model.session(tools: [WaitingTool(log: toolLog, mayEnd: toolMayEnd)])
+        let second = try await model.session()
+
+        let firstCall = Task { try await first.respond(to: Self.firstPrompt) }
+        await toolLog.waitUntil(holds: WaitingTool.beginEntry, orUntilEndOf: firstCall)
+        try #require(toolLog.values == [WaitingTool.beginEntry])
+        let secondCall = Task { try await second.respond(to: Self.secondPrompt) }
+        // The wait ends at a cancel, thus the time limit ends a call that
+        // waits for the tool body of the other session.
+        await script.log.waitUntil { $0.contains("end \(Self.secondPrompt)") }
+        let secondAnswer = try await secondCall.value
+        let toolWaitedForTheWholeSecondCall = toolLog.values == [WaitingTool.beginEntry]
+        endTool.finish()
+        let firstAnswer = try await firstCall.value
+
+        #expect(secondAnswer == Self.secondPrompt)
+        #expect(toolWaitedForTheWholeSecondCall)
+        #expect(firstAnswer == Self.firstPrompt)
+    }
+
+    @Test("the model stays resident while a session exists, and is evicted after the session goes")
     func theLastSessionEvictsTheModel() async throws {
         let log = Recorder<String>()
         let pool = ModelPool(loader: Self.stubLoader(script: StubLanguageModelScript(), log: log))
         var session: PooledSession? = try await PooledModel(ref: Self.key.ref, pool: pool).session()
-        var child: PooledSession? = try await session?.fork()
 
+        let answer = try await session?.respond(to: Self.firstPrompt)
+        try await pool.waitForTheEarlierAdmissionJobs()
+        let residentWhileTheSessionExists = pool.isResident(Self.key)
         session = nil
         try await pool.waitForTheEarlierAdmissionJobs()
-        let residentWhileTheForkExists = pool.isResident(Self.key)
-        let childAnswer = try await child?.respond(to: Self.firstPrompt)
-        child = nil
-        try await pool.waitForTheEarlierAdmissionJobs()
 
-        #expect(residentWhileTheForkExists)
-        #expect(childAnswer == Self.firstPrompt)
+        #expect(residentWhileTheSessionExists)
+        #expect(answer == Self.firstPrompt)
         #expect(Self.loads(in: log) == [Self.loadEntry])
         #expect(!pool.isResident(Self.key))
     }
@@ -334,7 +362,7 @@ struct PooledModelTests {
         #expect(answer.number == Self.typedAnswerNumber)
     }
 
-    @Test("the README example: a session answers with text and with a Generable type, and a fork continues it")
+    @Test("the README example: a session answers with text and with a Generable type")
     func readmePooledModelExample() async throws {
         let log = Recorder<String>()
         let script = StubLanguageModelScript(answer: { _ in Self.typedAnswerJSON })
@@ -346,12 +374,10 @@ struct PooledModelTests {
         let session = try await qwen.session(instructions: "Answer with one number.")
         let text = try await session.respond(to: "How many legs has a cat?")
         let typed = try await session.respond(to: "And a spider?", generating: Answer.self)
-        let child = try await session.fork()   // continues the transcript, with its own hold
         // README example: end
 
         #expect(text == Self.typedAnswerJSON)
         #expect(typed.number == Self.typedAnswerNumber)
-        #expect(child.model == session.model)
         #expect(Self.loads(in: log) == ["load \(session.model.stringValue) by \(Self.loaderName)"])
     }
 
@@ -506,6 +532,85 @@ private struct SpanProbeTool: Tool {
         try await TracedCall.run(ExtrasTelemetry.SpanName.tool, logger: ExtrasTelemetry.makeLogger()) { _ in
             Self.output
         }
+    }
+}
+
+/// A tool that asks an other ``PooledSession`` one prompt, writes the answer
+/// to a log, and gives the answer. The other session can use the same model
+/// as the session that calls the tool.
+private struct AskSessionTool: Tool {
+    /// The tool takes no argument.
+    @Generable
+    struct Arguments {}
+
+    /// The model-facing name of the tool.
+    static let toolName = "qz_ask"
+
+    /// The model-facing name of the tool.
+    let name = Self.toolName
+
+    /// What the tool does.
+    let description = "Asks an other session."
+
+    /// The session that the tool asks.
+    let session: PooledSession
+
+    /// The prompt that the tool gives to ``session``.
+    let prompt: String
+
+    /// The log of the answers of ``session``.
+    let answers: Recorder<String>
+
+    /// Asks ``session``, writes its answer to ``answers``, and gives it.
+    ///
+    /// - Parameter arguments: No argument.
+    /// - Returns: The answer of ``session``.
+    /// - Throws: The error of the respond call of ``session``.
+    func call(arguments: Arguments) async throws -> String {
+        let answer = try await session.respond(to: prompt)
+        answers.append(answer)
+        return answer
+    }
+}
+
+/// A tool that writes ``beginEntry`` to a log, and then waits until a stream
+/// finishes. A test holds the tool body while other work runs.
+private struct WaitingTool: Tool {
+    /// The tool takes no argument.
+    @Generable
+    struct Arguments {}
+
+    /// The model-facing name of the tool.
+    static let toolName = "qz_wait"
+
+    /// The log entry of the start of the tool body.
+    static let beginEntry = "tool begin"
+
+    /// The text that each call gives.
+    static let output = "waited"
+
+    /// The model-facing name of the tool.
+    let name = Self.toolName
+
+    /// What the tool does.
+    let description = "Waits for the test."
+
+    /// The log that gets ``beginEntry``.
+    let log: Recorder<String>
+
+    /// The tool body ends only after this stream finishes.
+    let mayEnd: AsyncStream<Void>
+
+    /// Writes ``beginEntry``, waits until ``mayEnd`` finishes, and gives
+    /// ``output``.
+    ///
+    /// - Parameter arguments: No argument.
+    /// - Returns: ``output``.
+    /// - Throws: Never. `throws` comes from the `Tool` requirement.
+    func call(arguments: Arguments) async throws -> String {
+        log.append(Self.beginEntry)
+        for await _ in mayEnd {}
+        return Self.output
     }
 }
 

@@ -13,8 +13,8 @@ public protocol PooledEmbedding: Sendable {
 }
 
 /// An embedder that keeps one ``ModelHold``, so the model stays resident while
-/// the embedder exists. Each ``embed(texts:)`` call is one job in the queue of
-/// the hold.
+/// the embedder exists. Each ``embed(texts:)`` call goes to the container of
+/// the hold at once; the container holds its own lock for one embed.
 ///
 /// An embedder made from a name loads nothing when you make it. Its first
 /// ``embed(texts:)`` call acquires the model from the pool, one time only, also
@@ -51,21 +51,18 @@ public struct PooledEmbedder: PooledEmbedding {
         resident = ResidentHold(loaded: try LoadedEmbedding(hold: hold))
     }
 
-    /// Gives one vector for each text. The call waits in the queue of the
-    /// model. The first call of an embedder made from a name loads the model
-    /// first.
+    /// Gives one vector for each text. The call goes to the container at
+    /// once: the embedder container of MLX holds its own lock for one embed,
+    /// thus the embed calls of one model run one at a time. The first call of
+    /// an embedder made from a name loads the model first.
     ///
     /// - Parameter texts: The texts.
     /// - Returns: One vector for each text, in the order of `texts`.
-    /// - Throws: The error of the load, of
-    ///   ``GenerationQueue/submit(isolation:_:)``, or of the model; or
+    /// - Throws: The error of the load or of the model; or
     ///   ``PooledEmbedderError/notAnEmbedding(key:containerType:)`` when the
     ///   loaded container does not conform to ``PooledEmbedding``.
     public func embed(texts: [String]) async throws -> [[Float]] {
-        let loaded = try await resident.loaded()
-        return try await loaded.hold.queue.submit { [embedding = loaded.embedding] in
-            try await embedding.embed(texts: texts)
-        }
+        try await resident.loaded().embedding.embed(texts: texts)
     }
 }
 

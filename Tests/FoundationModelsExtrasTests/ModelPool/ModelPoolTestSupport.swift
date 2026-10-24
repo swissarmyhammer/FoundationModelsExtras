@@ -352,12 +352,19 @@ struct RecordingLoader: PooledModelLoader {
 /// An embedding model that gives one fixed vector for each text, and writes
 /// each call to a log.
 ///
-/// A call writes `"begin <texts>"` and then `"end <texts>"`. The first call
-/// waits between the two writes until `firstCallMayEnd` finishes, and then
-/// throws `CancellationError` when its task is cancelled.
+/// A call holds a FIFO lock while it runs, as the `SerialAccessContainer` of
+/// the embedder container of MLX does for one embed. A call that sees its
+/// cancel when the lock comes throws `CancellationError` at once. Else it
+/// writes `"begin <texts>"` and then `"end <texts>"`. The first call waits
+/// between the two writes until `firstCallMayEnd` finishes, and then throws
+/// `CancellationError` when its task is cancelled.
 struct FakeEmbedding: PooledEmbedding {
     /// The vector of each text.
     let vector: [Float]
+
+    /// The FIFO lock that each call holds. The name of a call in the lock is
+    /// its texts, joined with a space.
+    let lock = StubSerialLock()
 
     /// The log of the calls.
     private let log: Recorder<String>
@@ -389,13 +396,16 @@ struct FakeEmbedding: PooledEmbedding {
     func embed(texts: [String]) async throws -> [[Float]] {
         let call = startedCalls.next()
         let name = texts.joined(separator: " ")
-        log.append("begin \(name)")
-        if call == 1 {
-            for await _ in firstCallMayEnd {}
+        return try await lock.withLock(name) {
+            try Task.checkCancellation()
+            log.append("begin \(name)")
+            if call == 1 {
+                for await _ in firstCallMayEnd {}
+            }
+            try Task.checkCancellation()
+            log.append("end \(name)")
+            return texts.map { _ in vector }
         }
-        try Task.checkCancellation()
-        log.append("end \(name)")
-        return texts.map { _ in vector }
     }
 }
 

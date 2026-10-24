@@ -1,8 +1,13 @@
 ---
+comments:
+- actor: wballard
+  id: 01m5pzt1gmpwce93td54zx1y26
+  text: 'Done. PooledSession.generate runs the SDK respond on the caller''s task (no hold.queue.submit); GenerateRelayExecutor.respond sends each model round (both the slot branch and the no-call branch) through PooledGeneration.run, with the scope from the shared PooledGeneration.cacheScope(of:) (task-local scope, else first transcript entry id) and GenerateRelayModel now carries the ModelRef for the in-flight meter. fork() deleted with its doc example and tests; with it went the fork-only stored pool/tools and PooledSessionStart, and the init is now init(hold:tools:instructions:) (internal). GenerateCallSlot is still correct: it is per PooledSession, and one LanguageModelSession refuses a concurrent call (LanguageModelSession.Error.concurrentRequests); comment names that rule. PooledEmbedder.embed calls the container at once (MLX EmbedderModelContainer lock). Doc comments, GenerateTelemetry/SpanName.generate docs and README updated (fork section and example removed; GenerationQueue section notes the pooled types no longer use it). Integration test aForkRemembersAFactOfItsParent became aSessionRemembersAFactOfAnEarlierTurn (fork gone); IntegrationTests package builds. Tests: aToolThatUsesTheSameModelCompletes, twoSessionsTakeTurnsForEachGeneration (both hang under the old queue, which is the bug), aPooledSessionRespondRunsInNoQueueJob and anEmbedCallRunsInNoQueueJob (clean red before). Embedder FIFO/cancel tests restated on a FIFO lock in FakeEmbedding; ModelPoolTests embed-records-a-queue-task restated as a direct hold.queue.submit (queue metrics stay for Router). swift test: 2223 tests, 0 failures.'
+  timestamp: 2026-10-24T12:57:41.140969+00:00
 depends_on:
 - 01M5PSQ1XBPRF64B1NPTCWS0HJ
-position_column: todo
-position_ordinal: '8280'
+position_column: done
+position_ordinal: ffc780
 title: Remove the queue job from PooledSession and PooledEmbedder, and delete the unused PooledSession.fork()
 ---
 ## What

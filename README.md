@@ -447,9 +447,14 @@ touches no home directory.
 
 ## One model, one queue: `GenerationQueue`
 
+`PooledModel`, `PooledSession` and `PooledEmbedder` do not use this queue:
+they call the model through `PooledGeneration`, and the MLX lock of one
+generation is the only lock (see below). The queue stays for the hosts that
+still submit to it, until they move to `PooledGeneration`.
+
 One GPU runs one generation at a time. Thus each resident model has one
-`GenerationQueue`, and every caller in the process that uses the model
-submits to that queue. An item is one whole call to the model. One worker
+`GenerationQueue`, and a caller can submit to that queue. An item is one whole
+call to the model. One worker
 runs the items one at a time, first in first out. The queue is not a lock: a
 caller waits only for the result of its own item. A cancel of a caller that
 waits removes its item from the queue at once, and a cancel of a caller whose
@@ -650,11 +655,7 @@ kept green by `swift test --filter ModelLoadProgressTests`. The test declares
 `IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/ModelPoolIntegrationTests.swift`
 loads a real model and reads its progress.
 
-### One queue for each model: `PooledEmbedder`
-
-Each resident model has one `GenerationQueue`, and all holds of its key share
-it as `hold.queue`. The queue keeps its guard: a submission from inside an open
-submission on the same queue is refused.
+### An embedding model by name: `PooledEmbedder`
 
 For a key of the `.embedding` role, the loader returns a container that
 conforms to `PooledEmbedding`. `PooledEmbedder(ref: "<Hugging Face name>")` makes
@@ -671,7 +672,9 @@ conforms to it, and so does the container of a loader. Its only requirement is
 `embed(texts:)`. It has no `dimension`: each vector carries its length, so a
 caller does not need a dimension before the first call.
 
-Each `embed(texts:)` call is one job in the queue of the model. The embedder
+Each `embed(texts:)` call goes to the container at once. The embedder container
+of MLX holds its own lock for one embed, so the embed calls of one model run one
+at a time. The embedder
 uses the container only through `PooledEmbedding`, so the container of the first
 loader works for all callers. When the container does not conform,
 `embed(texts:)` throws `PooledEmbedderError.notAnEmbedding`:
@@ -704,10 +707,28 @@ The first generation call acquires the model from the pool with a key of the
 copies of one `PooledModel` share that one hold, and each session keeps a copy.
 Thus the model stays resident while a session or a copy exists, and the pool
 evicts the model after the last one goes. After a failed load, the next call
-loads again. Each generation call is one job in the queue of the model, so the
-calls of all users of one model run one at a time, first in first out. A call
-throws the error of the load, or `PooledSessionError.notALanguageModel` when
-the container of the model is not a FoundationModels `LanguageModel`.
+loads again. Each generation call goes through `PooledGeneration.run`, and
+only the call into the model waits: MLX holds one FIFO lock for one
+generation. The SDK runs each tool body after that call returns, so no lock
+crosses a tool call. `PooledGeneration` counts the calls in flight on
+`generate.in_flight`, and a cancel of a call that waits for the lock throws
+`CancellationError` at once. A call throws the error of the load, or
+`PooledSessionError.notALanguageModel` when the container of the model is not a
+FoundationModels `LanguageModel`.
+
+A host with its own executor sends its call into a local model through the
+same helper:
+
+```swift
+try await PooledGeneration.run(ref: ref, channel: channel) { modelChannel in
+    try await executor.respond(to: request, model: model, streamingInto: modelChannel)
+}
+```
+
+The helper reads `MLXLanguageModel.promptCacheScope` of the caller. A call
+that a cancel abandoned while it waits for the lock still holds the prompt
+cache of its session, so the next call of the same session waits until it
+left; calls of other sessions do not wait for it.
 
 A session reads the capabilities of its model before the model loads. Thus
 `capabilities:` of the initializer gives them. The default is guided
@@ -728,9 +749,9 @@ by `swift test --filter PooledModelTests`. The test declares `pool` (a
 `ModelPool(loader:)` with a test loader that gives a stub `LanguageModel`) and
 `Answer` (a `@Generable` type) before the block.
 
-### Sessions that fork: `PooledSession`
+### Sessions with their own hold: `PooledSession`
 
-Use a `PooledSession` when you must fork a transcript. Each
+Use a `PooledSession` when the session must keep the model resident. Each
 `session(instructions:tools:)` call of a `PooledModel` acquires the model from
 the pool with a key of the `.llm` role: the pool loads the model one time for
 each name, also when
@@ -742,18 +763,13 @@ is not a FoundationModels `LanguageModel`.
 A `PooledSession` is a FoundationModels `LanguageModelSession` over the
 `LanguageModel` of its hold. `model` is the Hugging Face name of the model.
 `respond(to:)` gives the text of the answer, and `respond(to:generating:)`
-decodes the answer as a `Generable` type. Each respond call is one job in the
-queue of the model, so the calls of all sessions of one model run one at a
-time, first in first out. A tool that the model calls in a respond call must
-not wait for a respond call of a session of the same model: the queue refuses
-that call with `GenerationQueueError.waitInsideOpenSubmission`.
-
-`fork()` makes a new session that continues the transcript of its parent, with
-the same tools and its own hold. The fork reads the transcript as one job in
-the queue, so it waits for a respond call that runs. A later turn of one
-session does not change the transcript of the other. The model stays resident
-while a session or a fork exists, and the pool evicts the model after the last
-one goes:
+decodes the answer as a `Generable` type. Each model round of a respond call
+goes through `PooledGeneration.run`, so only the call into the model waits for
+the lock of the model. The SDK runs each tool body between two rounds, outside
+each lock. Thus the sessions of one model take turns for each generation, not
+for each whole respond call, and a tool that the model calls can use a respond
+call of a session of the same model. The model stays resident while a session
+exists, and the pool evicts the model after the last one goes:
 
 ```swift
 // Loads nothing now. The first session loads the model into the pool.
@@ -761,7 +777,6 @@ let qwen = PooledModel(ref: "mlx-community/Qwen3-4B-4bit", pool: pool)
 let session = try await qwen.session(instructions: "Answer with one number.")
 let text = try await session.respond(to: "How many legs has a cat?")
 let typed = try await session.respond(to: "And a spider?", generating: Answer.self)
-let child = try await session.fork()   // continues the transcript, with its own hold
 ```
 
 The loader of a test can return any FoundationModels `LanguageModel` for an

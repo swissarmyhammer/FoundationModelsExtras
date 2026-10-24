@@ -75,7 +75,7 @@ enum ExtrasTelemetry {
         static let embedSubBatch = "FoundationModelsExtras.embed.sub_batch"
 
         /// The span of one generation call of a pooled LLM: the load of the
-        /// model when the call loads it, the wait in the queue of the model,
+        /// model when the call loads it, the wait for the lock of the model,
         /// and the model run. Each tool span of a ``PooledSession`` respond
         /// call is inside this span.
         static let generate = "FoundationModelsExtras.generate"

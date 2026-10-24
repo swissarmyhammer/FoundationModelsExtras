@@ -134,6 +134,19 @@ public enum PooledGeneration {
         }
     }
 
+    /// The prompt cache scope of `request`, as MLX names it.
+    ///
+    /// The scope that the caller set comes first. With no scope, MLX names
+    /// the session by the identifier of the first transcript entry, thus this
+    /// gives that session.
+    ///
+    /// - Parameter request: The generation request.
+    /// - Returns: The scope of the caller, else the session of the first
+    ///   transcript entry, else `nil` for an empty transcript.
+    static func cacheScope(of request: LanguageModelExecutorGenerationRequest) -> MLXLanguageModel.PromptCacheScope? {
+        MLXLanguageModel.promptCacheScope ?? request.transcript.first.map { .session($0.id) }
+    }
+
     /// Starts the task of one call. The task is a plain `Task`, not a
     /// detached task, thus it keeps the task-local values of the caller: the
     /// prompt cache scope of MLX, the metrics factory and the service context.

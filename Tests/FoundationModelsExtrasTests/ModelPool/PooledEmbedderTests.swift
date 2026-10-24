@@ -1,11 +1,13 @@
 @testable import FoundationModelsExtras
+import MetricsTestKit
 import TelemetryTestSupport
 import Testing
 
-/// All holds of one key share one queue, and a ``PooledEmbedder`` runs each
-/// embed call as one job in that queue. An embedder made from a name loads its
-/// model on the first embed call.
-@Suite("Pooled embedder: one queue for each model, and each embed call runs in it")
+/// A ``PooledEmbedder`` calls its container directly. The container holds its
+/// own FIFO lock for each embed, as the embedder container of MLX does, thus
+/// the embed calls of one model run one at a time. An embedder made from a
+/// name loads its model on the first embed call.
+@Suite("Pooled embedder: each embed call runs in the lock of the model, in no queue job")
 struct PooledEmbedderTests {
     /// The key that the tests acquire.
     private static let key = ModelPoolKey(ref: "org/embedder", role: .embedding)
@@ -83,6 +85,8 @@ struct PooledEmbedderTests {
         let hold: ModelHold
         /// The embedder of the hold.
         let embedder: PooledEmbedder
+        /// The container of the hold, with the FIFO lock of its calls.
+        let embedding: FakeEmbedding
         /// The log of the calls.
         let log: Recorder<String>
         /// Finish this to end the first call.
@@ -106,7 +110,25 @@ struct PooledEmbedderTests {
         let firstCall = Task { try await embedder.embed(texts: ["one"]) }
         await log.waitUntil(holds: "begin one", orUntilEndOf: firstCall)
         try #require(log.values == ["begin one"])
-        return BlockedModel(hold: hold, embedder: embedder, log: log, endFirstCall: endFirstCall, firstCall: firstCall)
+        return BlockedModel(
+            hold: hold, embedder: embedder, embedding: embedding, log: log, endFirstCall: endFirstCall,
+            firstCall: firstCall)
+    }
+
+    /// Starts an embed call of `text` on the embedder of `model`, and returns
+    /// when the call waits for the lock of the model.
+    ///
+    /// - Parameters:
+    ///   - text: The one text of the call, which is also its name in the lock.
+    ///   - model: The model whose first call blocks.
+    /// - Returns: The task of the call.
+    /// - Throws: An `ExpectationFailedError` when the call ended before it
+    ///   waited for the lock.
+    private static func startWaitingCall(_ text: String, on model: BlockedModel) async throws -> Task<[[Float]], any Error> {
+        let call = Task { try await model.embedder.embed(texts: [text]) }
+        await model.embedding.lock.queued.waitUntil(holds: text, orUntilEndOf: call)
+        try #require(model.embedding.lock.queued.values.contains(text))
+        return call
     }
 
     @Test("two holds of one key get the same queue instance")
@@ -120,25 +142,35 @@ struct PooledEmbedderTests {
         #expect(first.queue === second.queue)
     }
 
-    @Test("concurrent embed calls on one key run one at a time, in FIFO order")
+    @Test("concurrent embed calls on one key run one at a time, in FIFO order, in the lock of the model")
     func concurrentCallsRunOneAtATimeInOrder() async throws {
         let pool = ModelPool()
         let model = try await Self.startBlockedCall(on: pool)
 
-        let (second, third) = try await TelemetryCapture.run(forbidding: []) { context in
-            let queue = model.hold.queue
-            let second = await queue.startQueuedCall(recordingInto: context) {
-                try await model.embedder.embed(texts: ["two"])
-            }
-            let third = await queue.startQueuedCall(recordingInto: context) {
-                try await model.embedder.embed(texts: ["three"])
-            }
-            return (second, third)
-        }
+        let second = try await Self.startWaitingCall("two", on: model)
+        let third = try await Self.startWaitingCall("three", on: model)
         model.endFirstCall.finish()
         _ = try await (model.firstCall.value, second.value, third.value)
 
         #expect(model.log.values == ["begin one", "end one", "begin two", "end two", "begin three", "end three"])
+    }
+
+    @Test("an embed call runs in no job of the queue of the model")
+    func anEmbedCallRunsInNoQueueJob() async throws {
+        let pool = ModelPool()
+        let loader = FixedLoader(container: FakeEmbedding(vector: Self.vectorA, log: Recorder()))
+        let embedder = try PooledEmbedder(hold: await Self.acquire(from: pool, with: loader))
+
+        let (vectors, metrics) = try await TelemetryCapture.run(forbidding: []) { context in
+            (try await embedder.embed(texts: ["one"]), context.metricsFactory)
+        }
+
+        #expect(vectors == [Self.vectorA])
+        #expect(throws: TestMetricsError.self) {
+            try QueueMetricExpectations.depth(
+                in: metrics,
+                queue: QueueMetricDimensions.queue(named: QueueName.model.rawValue, model: Self.key.ref.stringValue))
+        }
     }
 
     @Test("a caller with loader B gets the container of loader A, and embeds through PooledEmbedding")
@@ -170,24 +202,17 @@ struct PooledEmbedderTests {
         #expect(!pool.isResident(Self.key))
     }
 
-    @Test("a cancelled embed call that waits in the queue does not block the next call")
+    @Test("a cancelled embed call that waits for the lock of the model does not block the next call")
     func aCancelledWaitingCallDoesNotBlockTheNextCall() async throws {
         let pool = ModelPool()
         let model = try await Self.startBlockedCall(on: pool)
 
-        let (cancelled, next) = try await TelemetryCapture.run(forbidding: []) { context in
-            let queue = model.hold.queue
-            let cancelled = await queue.startQueuedCall(recordingInto: context) {
-                try await model.embedder.embed(texts: ["two"])
-            }
-            // A waiting job that is cancelled leaves the queue in the cancel
-            // call, thus the next job waits behind the first call only.
-            cancelled.cancel()
-            let next = await queue.startQueuedCall(recordingInto: context) {
-                try await model.embedder.embed(texts: ["three"])
-            }
-            return (cancelled, next)
-        }
+        let cancelled = try await Self.startWaitingCall("two", on: model)
+        // A cancelled waiter gets the lock at its turn, as in MLX, sees its
+        // cancel, and leaves at once. Thus the next call waits behind the
+        // first call only.
+        cancelled.cancel()
+        let next = try await Self.startWaitingCall("three", on: model)
         model.endFirstCall.finish()
         let vectors = try await next.value
 
@@ -331,7 +356,7 @@ struct PooledEmbedderTests {
         #expect(!pool.isResident(Self.key))
     }
 
-    @Test("an embed call through the pool and the queue carries no embed text in its spans, log records or metrics")
+    @Test("an embed call through the pool carries no embed text in its spans, log records or metrics")
     func anEmbedCallCarriesNoTextInItsTelemetry() async throws {
         let pool = ModelPool(loader: FixedLoader(container: TracedFakeEmbedding(ref: Self.key.ref)))
         let embedder = PooledEmbedder(ref: Self.key.ref, pool: pool)

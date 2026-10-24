@@ -39,6 +39,10 @@ final class StubLanguageModelScript: Sendable {
     /// or `nil` when the model calls no tool.
     fileprivate let toolName: String?
 
+    /// The last prompt of the calls that ask for the tool, or `nil` when each
+    /// call asks for it. A call with an other last prompt answers at once.
+    fileprivate let toolPrompt: String?
+
     /// The number of generation calls that started.
     fileprivate let startedCalls = Counter()
 
@@ -60,6 +64,8 @@ final class StubLanguageModelScript: Sendable {
     ///   - toolName: The name of the tool that the model calls with the
     ///     arguments `{}` before it answers, or `nil` for no tool call. The
     ///     default is `nil`.
+    ///   - toolPrompt: The last prompt of the calls that ask for the tool, or
+    ///     `nil` when each call asks for it. The default is `nil`.
     ///   - answer: Makes the answer from the text of each prompt of the
     ///     transcript, in order. The default joins the prompts with a space,
     ///     thus an answer shows each prompt that the session remembers.
@@ -68,12 +74,14 @@ final class StubLanguageModelScript: Sendable {
         firstCallMayEnd: AsyncStream<Void> = AsyncStream { $0.finish() },
         usages: [StubTokenUsage] = [],
         toolName: String? = nil,
+        toolPrompt: String? = nil,
         answer: @escaping @Sendable (_ prompts: [String]) -> String = { $0.joined(separator: " ") }
     ) {
         self.log = log
         self.firstCallMayEnd = firstCallMayEnd
         self.usages = usages
         self.toolName = toolName
+        self.toolPrompt = toolPrompt
         self.answer = answer
     }
 }
@@ -84,7 +92,8 @@ final class StubLanguageModelScript: Sendable {
 /// A generation call writes `"begin <last prompt>"` and then
 /// `"end <last prompt>"` to the log of the script. The first call waits
 /// between the two writes until the `firstCallMayEnd` stream of the script
-/// finishes. When the script names a tool and the transcript holds no tool
+/// finishes. When the script names a tool, the last prompt is the tool prompt
+/// of the script (or the script names none), and the transcript holds no tool
 /// output yet, the call then asks for that tool. Else the call answers with
 /// the answer of the script. Last, the call gives its usage from the script
 /// when the script has one for it. The call does all of this while it holds
@@ -168,7 +177,9 @@ struct StubLanguageModelExecutor: LanguageModelExecutor {
                 for await _ in script.firstCallMayEnd {}
             }
             script.log.append("end \(name)")
-            if let toolName = script.toolName, !Self.holdsToolOutput(request.transcript) {
+            if let toolName = script.toolName, script.toolPrompt.map({ $0 == name }) ?? true,
+                !Self.holdsToolOutput(request.transcript)
+            {
                 await Self.askForTool(named: toolName, into: channel)
             } else {
                 await channel.send(

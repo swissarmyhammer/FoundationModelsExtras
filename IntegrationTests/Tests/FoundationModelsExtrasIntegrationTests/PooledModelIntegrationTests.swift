@@ -26,13 +26,13 @@ private enum LegCountQuestion {
     static let legCount = 8
 }
 
-/// A fact that the parent session hears, and the question that the fork asks.
+/// A fact that a session hears, and the question that it asks in a later turn.
 private enum RememberedFact {
-    /// The color that the parent session hears.
+    /// The color that the session hears.
     static let color = "teal"
-    /// The prompt that tells the fact to the parent session.
+    /// The prompt that tells the fact to the session.
     static let statement = "My favorite color is \(color). Remember it, and answer only OK."
-    /// The question that the fork asks.
+    /// The question of the later turn.
     static let question = "What is my favorite color? Answer with the color only."
 }
 
@@ -69,9 +69,9 @@ extension RealModelSuites {
             #expect(answer.legs == LegCountQuestion.legCount)
         }
 
-        @Test("a fork of a real session remembers a fact that its parent heard")
-        func aForkRemembersAFactOfItsParent() async throws {
-            let answer = try await Self.askTheForkForTheFact(in: try SharedModels.required().pool)
+        @Test("a real session remembers a fact that it heard in an earlier turn")
+        func aSessionRemembersAFactOfAnEarlierTurn() async throws {
+            let answer = try await Self.askForTheFact(in: try SharedModels.required().pool)
 
             #expect(answer.lowercased().contains(RememberedFact.color), "answer: \(answer)")
         }
@@ -120,17 +120,16 @@ extension RealModelSuites {
             return try await session.respond(to: LegCountQuestion.prompt, generating: LegCount.self)
         }
 
-        /// Tells the fact to a new session, forks the session, and asks the
-        /// fork for the fact. The sessions go when the call returns.
+        /// Tells the fact to a new session, and asks the same session for the
+        /// fact in a later turn. The session goes when the call returns.
         ///
         /// - Parameter pool: The pool of the suite.
-        /// - Returns: The text of the answer of the fork.
+        /// - Returns: The text of the answer of the later turn.
         /// - Throws: The error of a generation.
-        private static func askTheForkForTheFact(in pool: ModelPool) async throws -> String {
-            let parent = try await PooledModel(ref: pooledModelKey.ref, pool: pool).session(instructions: shortAnswers)
-            _ = try await parent.respond(to: RememberedFact.statement)
-            let fork = try await parent.fork()
-            return try await fork.respond(to: RememberedFact.question)
+        private static func askForTheFact(in pool: ModelPool) async throws -> String {
+            let session = try await PooledModel(ref: pooledModelKey.ref, pool: pool).session(instructions: shortAnswers)
+            _ = try await session.respond(to: RememberedFact.statement)
+            return try await session.respond(to: RememberedFact.question)
         }
     }
 

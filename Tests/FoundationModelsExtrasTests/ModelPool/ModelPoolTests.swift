@@ -828,18 +828,19 @@ struct ModelPoolTests {
         withExtendedLifetime(hold) {}
     }
 
-    @Test("an embed call through a hold records one task of the model queue with the model ref of the key")
-    func anEmbedThroughAHoldRecordsAModelTask() async throws {
+    @Test("a job in the queue of a hold records one task of the model queue with the model ref of the key")
+    func aJobInTheQueueOfAHoldRecordsAModelTask() async throws {
         let metrics = TestMetrics()
         let pool = ModelPool()
         let key = ModelPoolKey(ref: "org/embedder", role: .embedding)
         let loader = FixedLoader(container: FakeEmbedding(vector: [1, 0], log: Recorder()))
         let hold = try await pool.acquire(
             key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: loader)
-        let embedder = try PooledEmbedder(hold: hold)
 
-        _ = try await withMetricsFactory(metrics) {
-            try await embedder.embed(texts: ["one"])
+        // The pooled types call the model directly. A host that still submits
+        // to the queue of the model gets the model ref on each queue metric.
+        try await withMetricsFactory(metrics) {
+            try await hold.queue.submit {}
         }
 
         try QueueMetricExpectations.expectCompletedJobs(

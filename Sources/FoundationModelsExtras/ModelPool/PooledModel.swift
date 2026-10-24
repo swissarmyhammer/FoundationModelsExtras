@@ -1,5 +1,4 @@
 import FoundationModels
-import MLXFoundationModels
 
 /// An LLM of a ``ModelPool``, by its Hugging Face name, as a FoundationModels
 /// `LanguageModel`. A pooled model loads nothing when you make it.
@@ -20,7 +19,7 @@ import MLXFoundationModels
 /// ```
 ///
 /// ``session(instructions:tools:)`` makes a ``PooledSession``, which keeps a
-/// hold of its own and can fork its transcript.
+/// hold of its own.
 public struct PooledModel: LanguageModel {
     /// The executor that sends each generation call through
     /// ``PooledGeneration``.
@@ -79,7 +78,7 @@ public struct PooledModel: LanguageModel {
     ///   container of the model is not a FoundationModels `LanguageModel`.
     public func session(instructions: String? = nil, tools: [any Tool] = []) async throws -> PooledSession {
         let hold = try await pool.acquire(key)
-        return try PooledSession(hold: hold, pool: pool, tools: tools, start: .instructions(instructions))
+        return try PooledSession(hold: hold, tools: tools, instructions: instructions)
     }
 
     /// Runs one generation call through ``PooledGeneration``. The first call
@@ -110,27 +109,12 @@ public struct PooledModel: LanguageModel {
             let loaded = try await loaded(markingColdIn: call)
             try await call.relay(into: channel) { modelChannel in
                 try await PooledGeneration.run(
-                    ref: key.ref, cacheScope: Self.cacheScope(of: request), channel: modelChannel
+                    ref: key.ref, cacheScope: PooledGeneration.cacheScope(of: request), channel: modelChannel
                 ) { [model = loaded.model] generationChannel in
                     try await model.respond(to: request, streamingInto: generationChannel)
                 }
             }
         }
-    }
-
-    /// The prompt cache scope of `request`, as MLX names it.
-    ///
-    /// The scope that the caller set comes first. With no scope, MLX names
-    /// the session by the identifier of the first transcript entry, thus this
-    /// gives that session.
-    ///
-    /// - Parameter request: The generation request.
-    /// - Returns: The scope of the caller, else the session of the first
-    ///   transcript entry, else `nil` for an empty transcript.
-    private static func cacheScope(
-        of request: LanguageModelExecutorGenerationRequest
-    ) -> MLXLanguageModel.PromptCacheScope? {
-        MLXLanguageModel.promptCacheScope ?? request.transcript.first.map { .session($0.id) }
     }
 
     /// Gives the loaded model, and gives `call` its cold flag: `true` when

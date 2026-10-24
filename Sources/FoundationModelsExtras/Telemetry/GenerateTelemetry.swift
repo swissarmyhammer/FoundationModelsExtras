@@ -9,11 +9,12 @@ import Tracing
 /// recorder.
 ///
 /// ``traceGenerate(of:guided:_:)`` opens the span through ``TracedCall``
-/// before the load of the model and before the wait in the queue of the
+/// before the load of the model and before the wait for the lock of the
 /// model. Thus a call that hangs shows as an "enter" record with no span that
 /// ends, and the load span and each tool span that opens in the call are
-/// children of the generate span. The queue job restores the trace context of
-/// its submitter, thus a span inside the model run keeps that parent.
+/// children of the generate span. ``PooledGeneration`` runs the model in a
+/// task that keeps the trace context of the caller, thus a span inside the
+/// model run keeps that parent.
 ///
 /// The ``GenerateCall`` of the call relays each model round. The model sends
 /// its events into a new channel, and the relay sends each event on to the
