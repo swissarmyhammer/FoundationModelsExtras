@@ -190,8 +190,5 @@ silently drift out of sync with what actually compiles.
 
 ## Further reading
 
-- [`operations-plan.md`](operations-plan.md) — the full design: goals, the Rust pattern
-  being ported, the decided schema-fusion shape and the evidence behind it,
-  forgiving-input resolution, and the task-by-task build plan.
 - [`OPERATIONS_DESIGN_NOTES.md`](OPERATIONS_DESIGN_NOTES.md) — where the implementation
-  departed from that plan (and from the Rust swissarmyhammer design it ports), and why.
+  departed from its first design (and from the Rust swissarmyhammer design it ports), and why.

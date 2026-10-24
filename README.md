@@ -998,12 +998,6 @@ Add the package to `Package.swift`:
 .package(url: "https://github.com/swissarmyhammer/FoundationModelsExtras.git", branch: "main")
 ```
 
-## Documentation
-
-Design rationale -- the dependency-diamond problem this package solves, all
-six pillars, and the untrusted-template sandbox's threat model -- is in
-[`plan.md`](plan.md).
-
 ## License
 
 No license file is included in this repository.
