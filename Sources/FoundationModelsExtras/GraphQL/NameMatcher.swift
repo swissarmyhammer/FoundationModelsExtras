@@ -217,9 +217,9 @@ private struct NameQuery {
     /// The keys of the singular and plural forms of the name.
     let numberKeys: Set<String>
 
-    /// The keys of step 4, in tiers that the step tries in order. A top-level mutation has one tier: the verbNoun
-    /// forms with the canonical verbs. A root query field has the tiers of its query verb. Each other position has
-    /// no tier.
+    /// The keys of step 4, in tiers that the step tries in order. A top-level mutation has two tiers: the verbNoun
+    /// forms with the canonical verbs and the number as written, then their number forms. A root query field has the
+    /// tiers of its query verb. Each other position has no tier.
     let verbKeyTiers: [Set<String>]
 
     /// Makes the query of a name.
@@ -235,7 +235,7 @@ private struct NameQuery {
         numberKeys = Set(words.numberVariants.map(\.key))
         verbKeyTiers = switch position {
         case .topLevelMutation:
-            [Set(words.mutationVariants(rules: rules).map(\.key))]
+            words.mutationVariants(rules: rules).map { tier in Set(tier.map(\.key)) }
         case .topLevelQuery:
             words.queryKeyTiers(rules: rules)
         case .anyOther:
@@ -290,17 +290,18 @@ private struct NameWords {
     }
 
     /// Gives the forms of a mutation name in the verbNoun order, with the verb synonym changed to the canonical verb,
-    /// and the number forms of each, in the two ``orders``.
+    /// in the two ``orders``, in two tiers that the step tries in order: the forms with the number as written, then
+    /// their number forms. Thus `archiveTasks` gives `deleteTasks` when the schema has it, else `deleteTask`.
     ///
     /// - Parameter rules: The rules that give the verb synonyms.
-    /// - Returns: The forms.
-    func mutationVariants(rules: GraphQLNameRules) -> [NameWords] {
+    /// - Returns: The tiers of forms.
+    func mutationVariants(rules: GraphQLNameRules) -> [[NameWords]] {
         let verbNoun = orders.map { order in
             let noun = Array(order.dropFirst())
             let verb = order.prefix(1).map { verb in Self.canonicalVerb(of: verb, before: noun, rules: rules) }
             return NameWords(words: verb + noun)
         }
-        return verbNoun + verbNoun.flatMap(\.numberVariants)
+        return [verbNoun, verbNoun.flatMap(\.numberVariants)]
     }
 
     /// Gives the keys of a root query field name with a query verb, in the tiers of the verb. Each tier holds the

@@ -114,11 +114,21 @@ struct NameMatcherTests {
             ("removeTask", "deleteTask"), ("archiveTask", "deleteTask"), ("editTask", "updateTask"),
             ("mvTask", "moveTask"), ("doneTask", "completeTask"), ("labelTask", "tagTask"),
             ("restoreTask", "undeleteTask"), ("boardInit", "initBoard"), ("tag_rename", "renameTag"),
-            ("createTasks", "addTask"),
+            ("createTasks", "addTask"), ("archiveTasks", "deleteTask"),
         ]
     )
     func wordOrderAndSynonymsGiveMutation(name: String, expected: String) {
         #expect(Self.mutationMatch(for: name) == .found(canonical: expected))
+    }
+
+    @Test(
+        "with the singular and the plural mutation, the number as written wins over the other number",
+        arguments: [("archiveTask", "deleteTask"), ("archiveTasks", "deleteTasks"), ("tasksArchive", "deleteTasks")]
+    )
+    func numberAsWrittenWinsInMutation(name: String, expected: String) {
+        let candidates = Self.mutations + [Self.candidate("deleteTasks", in: .selection(type: "Mutation"))]
+        let match = NameMatcher.match(for: name, among: candidates, at: .topLevelMutation, rules: Self.boardRules)
+        #expect(match == .found(canonical: expected))
     }
 
     @Test("the standard rules have the general verbs, and no verb of a package")
