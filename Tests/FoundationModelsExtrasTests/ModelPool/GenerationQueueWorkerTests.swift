@@ -5,7 +5,6 @@ import MetricsTestKit
 import TelemetryTestSupport
 import Testing
 import Tracing
-import ULID
 
 /// The generation queue is a work queue with one worker.
 ///
@@ -664,88 +663,6 @@ struct GenerationQueueWorkerTests {
             try QueueMetricExpectations.depth(in: metrics, queue: QueueMetric.queue)
         }
     }
-
-    /// The model the marks of the refusal tests name.
-    private static let markedModel: ModelRef = "org/marked-model"
-
-    /// Submits an item that sets `ran` to `queue`, under `mark`, and gives its
-    /// outcome.
-    ///
-    /// - Parameters:
-    ///   - queue: The queue to submit to.
-    ///   - mark: The model-call mark of the submitting task.
-    ///   - ran: The flag the item sets when it runs.
-    /// - Returns: The outcome of the submission.
-    private static func submitUnderMark(
-        to queue: GenerationQueue, mark: ModelCallMark, ran: Flag
-    ) async -> Result<Int, any Error> {
-        await ModelCallMark.$current.withValue(mark) {
-            do {
-                return .success(
-                    try await queue.submit {
-                        ran.set()
-                        return Self.racedValue
-                    })
-            } catch {
-                return .failure(error)
-            }
-        }
-    }
-
-    @Test("a submission from a task inside an open submission on the same queue is refused at once, and never runs")
-    func aSubmissionInsideAnOpenSubmissionOnTheSameQueueIsRefused() async throws {
-        let queue = GenerationQueue()
-        let ran = Flag()
-        let mark = ModelCallMark(
-            sessionID: ULID(), submission: SubmissionTarget(queue: queue, model: Self.markedModel))
-
-        let outcome = await Self.submitUnderMark(to: queue, mark: mark, ran: ran)
-
-        #expect(throws: GenerationQueueError.waitInsideOpenSubmission(model: Self.markedModel)) {
-            try outcome.get()
-        }
-        #expect(!ran.isSet)
-        #expect(await queue.isRunning == false)
-        #expect(await queue.waitingCount == 0)
-    }
-
-    @Test("a submission under a closed mark, or an open mark of another queue, runs")
-    func aSubmissionOutsideAnOpenSubmissionOnItsQueueRuns() async throws {
-        let queue = GenerationQueue()
-        let otherQueue = GenerationQueue()
-        let closed = ModelCallMark(
-            sessionID: ULID(), submission: SubmissionTarget(queue: queue, model: Self.markedModel))
-        closed.close()
-        let otherModel = ModelCallMark(
-            sessionID: ULID(), submission: SubmissionTarget(queue: otherQueue, model: Self.markedModel))
-        let ranUnderClosed = Flag()
-        let ranUnderOther = Flag()
-
-        let closedOutcome = await Self.submitUnderMark(to: queue, mark: closed, ran: ranUnderClosed)
-        let otherOutcome = await Self.submitUnderMark(to: queue, mark: otherModel, ran: ranUnderOther)
-
-        #expect(try closedOutcome.get() == Self.racedValue)
-        #expect(try otherOutcome.get() == Self.racedValue)
-        #expect(ranUnderClosed.isSet)
-        #expect(ranUnderOther.isSet)
-    }
-
-    @Test("a background run of an open submission is not refused a submission on the same queue")
-    func aBackgroundRunOfAnOpenSubmissionIsNotRefused() async throws {
-        let queue = GenerationQueue()
-        let ran = Flag()
-        let open = ModelCallMark(
-            sessionID: ULID(), submission: SubmissionTarget(queue: queue, model: Self.markedModel))
-
-        let outcome = await ModelCallMark.$current.withValue(open) {
-            await ModelCallMark.withBackgroundRunMark {
-                await Self.submitUnderMark(to: queue, mark: ModelCallMark.current ?? open, ran: ran)
-            }
-        }
-
-        #expect(try outcome.get() == Self.racedValue)
-        #expect(ran.isSet)
-    }
 }
 
 /// An item runs on a task that the worker makes, which inherits no task-local
@@ -853,15 +770,14 @@ struct GenerationQueueWorkerTaskTests {
         #expect(context.metricRecords.contains { $0.label == Self.jobCounterLabel })
     }
 
-    @Test("a job body sees no ModelCallMark of its submitter, also when the submitter binds a tracer and a span")
-    func aJobSeesNoModelCallMarkOfItsSubmitter() async throws {
+    @Test("a job body sees no task-local of its submitter, also when the submitter binds a tracer and a span")
+    func aJobSeesNoTaskLocalOfItsSubmitterUnderATracer() async throws {
         let queue = GenerationQueue()
-        let mark = ModelCallMark(sessionID: ULID())
 
         let markInJob = try await withTracer(W3CInMemoryTracer()) {
             try await withSpan(Self.submitterSpanName) { _ in
-                try await ModelCallMark.$current.withValue(mark) {
-                    try await queue.submit { ModelCallMark.current }
+                try await SubmitterMark.$value.withValue(Self.submitterMark) {
+                    try await queue.submit { SubmitterMark.value }
                 }
             }
         }

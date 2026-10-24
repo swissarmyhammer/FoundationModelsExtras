@@ -739,7 +739,7 @@ struct ModelPoolTests {
         do {
             let firstHold = try await pool.acquire(Self.key)
             let secondHold = try await pool.acquire(Self.key)
-            #expect(firstHold.queue === secondHold.queue)
+            #expect(try Self.model(in: firstHold) === Self.model(in: secondHold))
         }
 
         try await pool.waitForTheEarlierAdmissionJobs()
@@ -826,26 +826,6 @@ struct ModelPoolTests {
             in: metrics, queue: QueueMetricDimensions.queue(of: QueueTelemetry(name: .admission)),
             outcome: .succeeded, ran: true)
         withExtendedLifetime(hold) {}
-    }
-
-    @Test("a job in the queue of a hold records one task of the model queue with the model ref of the key")
-    func aJobInTheQueueOfAHoldRecordsAModelTask() async throws {
-        let metrics = TestMetrics()
-        let pool = ModelPool()
-        let key = ModelPoolKey(ref: "org/embedder", role: .embedding)
-        let loader = FixedLoader(container: FakeEmbedding(vector: [1, 0], log: Recorder()))
-        let hold = try await pool.acquire(
-            key, footprintBytes: Self.footprintBytes, sessionBytes: Self.sessionBytes, loader: loader)
-
-        // The pooled types call the model directly. A host that still submits
-        // to the queue of the model gets the model ref on each queue metric.
-        try await withMetricsFactory(metrics) {
-            try await hold.queue.submit {}
-        }
-
-        try QueueMetricExpectations.expectCompletedJobs(
-            in: metrics, queue: QueueMetricDimensions.queue(of: QueueTelemetry(name: .model, model: key.ref)),
-            outcome: .succeeded, ran: true)
     }
 }
 

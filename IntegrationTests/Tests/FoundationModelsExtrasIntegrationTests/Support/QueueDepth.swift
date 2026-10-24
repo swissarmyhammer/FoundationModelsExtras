@@ -20,22 +20,6 @@ enum QueueDepth {
         last(in: context, queue: [(ExtrasTelemetry.DimensionKey.queueName, QueueName.admission.rawValue)])
     }
 
-    /// The last depth of the queue of the model of `key` in `context`, or
-    /// `nil` when that queue recorded no depth there.
-    ///
-    /// - Parameters:
-    ///   - key: The model whose hold gives the queue.
-    ///   - context: The capture of the test.
-    /// - Returns: The depth after the last change.
-    static func model(_ key: ModelPoolKey, in context: TelemetryCapture.Context) -> Double? {
-        last(
-            in: context,
-            queue: [
-                (ExtrasTelemetry.DimensionKey.queueName, QueueName.model.rawValue),
-                (ExtrasTelemetry.DimensionKey.modelRef, key.ref.stringValue),
-            ])
-    }
-
     /// The last value of the depth meter with the dimensions `queue`.
     ///
     /// - Parameters:

@@ -100,10 +100,6 @@ private let batchCosineFloor: Float = 0.999
 /// division.
 private let oneSubBatch = 1
 
-/// The depth of the queue of the LLM when a second job waits behind the held
-/// generation.
-private let depthWithAJobBehindTheGeneration: Double = 2
-
 /// The step that the overlap test writes when the embed call returned.
 private let embedEnded = "the embed call ended"
 
@@ -157,7 +153,6 @@ extension RealModelSuites {
         func embedDoesNotWaitBehindAGeneration() async throws {
             let outcome = try await Self.embedDuringGeneration(with: try SharedModels.required())
 
-            #expect(!outcome.shareOneQueue)
             let dimension = try #require(outcome.vectors.first).count
             #expect(dimension > 0)
             #expect(outcome.vectors.map(\.count) == [dimension])
@@ -240,34 +235,30 @@ extension RealModelSuites {
             }
         }
 
-        /// Starts a generation on the queue of the shared LLM, holds it after
-        /// its first snapshot, and embeds while it is held. The generation
-        /// continues when the embed call returned, or when a second job waits
-        /// in the queue of the LLM: an embed call that waits behind the
-        /// generation puts that job there, and the test then fails and does
-        /// not hang. The test writes the end of the embed call and the end of
-        /// the generation into one log. The generation ends before this
-        /// function returns, also when the embed call throws.
+        /// Starts a generation on the shared LLM, holds it after its first
+        /// snapshot, and embeds while it is held. The generation continues
+        /// when the embed call returned. The LLM and the embedding model share
+        /// no lock, thus the embed call does not wait for the generation. The
+        /// test writes the end of the embed call and the end of the generation
+        /// into one log. The generation ends before this function returns,
+        /// also when the embed call throws.
         private static func embedDuringGeneration(with shared: SharedModels) async throws -> GenerationOverlapOutcome {
             let llmHold = try shared.hold(of: IntegrationModels.llm)
             let model = try Generation.languageModel(of: llmHold)
-            let embeddingHold = try shared.hold(of: IntegrationModels.embedding)
-            let embedder = try PooledEmbedder(hold: embeddingHold)
+            let embedder = try PooledEmbedder(hold: try shared.hold(of: IntegrationModels.embedding))
             let steps = EventLog<String>()
             let generationIsHeld = Latch()
             let generationMayContinue = Latch()
-            let ends = try await TelemetryCapture.run(forbidding: []) { context in
+            let ends = try await TelemetryCapture.run(forbidding: []) { _ in
                 let generation = Task {
-                    try await llmHold.queue.submit {
-                        _ = try await Generation.stream(
-                            endlessPrompt, with: model, maximumResponseTokens: longGenerationTokens,
-                            into: EventLog<String>()
-                        ) {
-                            generationIsHeld.open()
-                            await generationMayContinue.waitUntilOpen()
-                        }
-                        await steps.append(generationEnded)
+                    _ = try await Generation.stream(
+                        endlessPrompt, with: model, maximumResponseTokens: longGenerationTokens,
+                        into: EventLog<String>()
+                    ) {
+                        generationIsHeld.open()
+                        await generationMayContinue.waitUntilOpen()
                     }
+                    await steps.append(generationEnded)
                 }
                 // A generation that ends before its first snapshot also ends
                 // the wait, and the order check of the test then fails.
@@ -277,16 +268,12 @@ extension RealModelSuites {
                     await steps.append(embedEnded)
                     return vectors
                 }
-                await Waits.untilFirstEnds(
-                    { _ = await embedding.result },
-                    { await context.wait { QueueDepth.model(IntegrationModels.llm, in: $0) == depthWithAJobBehindTheGeneration } })
+                _ = await embedding.result
                 generationMayContinue.open()
                 return (generation: await generation.result, embedding: await embedding.result)
             }
             try ends.generation.get()
-            return GenerationOverlapOutcome(
-                shareOneQueue: llmHold.queue === embeddingHold.queue, vectors: try ends.embedding.get(),
-                steps: await steps.events)
+            return GenerationOverlapOutcome(vectors: try ends.embedding.get(), steps: await steps.events)
         }
 
         /// Embeds ``MixedLengthTexts/all`` in one call through `embedder`, in a
@@ -449,8 +436,6 @@ private struct BatchOutcome {
 
 /// What the test of an embed call during a generation observed.
 private struct GenerationOverlapOutcome {
-    /// Whether the LLM and the embedding model share one queue.
-    let shareOneQueue: Bool
     /// The vectors of the embed call.
     let vectors: [[Float]]
     /// The end of the embed call and the end of the generation, in order.

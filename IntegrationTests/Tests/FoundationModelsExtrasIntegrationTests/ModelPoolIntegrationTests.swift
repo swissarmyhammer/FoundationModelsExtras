@@ -1,4 +1,4 @@
-import FoundationModelsExtras
+@testable import FoundationModelsExtras
 import MLXFoundationModels
 import Testing
 
@@ -140,10 +140,14 @@ extension RealModelSuites {
         private static func acquireTwiceByKey(_ key: ModelPoolKey, in pool: ModelPool) async throws -> ByKeyHolds {
             let first = try await pool.acquire(key)
             let second = try await pool.acquire(key)
-            return ByKeyHolds(
-                shareOneEntry: first.queue === second.queue,
-                residentModelCount: pool.residentModelCount,
-                footprintBytes: pool.footprint.resident[key] ?? 0)
+            // The first hold exists until the reads end, thus the second
+            // acquire finds the model resident.
+            return withExtendedLifetime(first) {
+                ByKeyHolds(
+                    shareOneEntry: second.cacheResult == .hit,
+                    residentModelCount: pool.residentModelCount,
+                    footprintBytes: pool.footprint.resident[key] ?? 0)
+            }
         }
 
         /// Acquires the LLM with concurrent calls, and releases the holds on
@@ -154,7 +158,7 @@ extension RealModelSuites {
             async let second = IntegrationModels.acquire(key: IntegrationModels.llm, in: pool, loader: loader)
             let holds = try await [first, second]
             return SharedHolds(
-                shareOneEntry: holds[0].queue === holds[1].queue,
+                shareOneEntry: holds.filter { $0.cacheResult == .load }.count == 1,
                 modelIDs: try holds.map { try #require($0.container as? MLXLanguageModel).modelID },
                 activeGrowth: ModelMemory.activeBytes - bytesBefore)
         }
@@ -163,8 +167,8 @@ extension RealModelSuites {
 
 /// What the concurrent acquires of one model gave.
 private struct SharedHolds {
-    /// Whether the holds share one pool entry: the pool gives each hold of an
-    /// entry its queue and its container.
+    /// Whether the holds share one pool entry: one acquire loaded the model,
+    /// and the pool gave the other hold from that entry.
     let shareOneEntry: Bool
     /// The model of the container of each hold.
     let modelIDs: [String]
@@ -174,8 +178,8 @@ private struct SharedHolds {
 
 /// What two acquires by key of one model gave.
 private struct ByKeyHolds {
-    /// Whether the holds share one pool entry: the pool gives each hold of an
-    /// entry its queue.
+    /// Whether the holds share one pool entry: the pool gave the second hold
+    /// from the entry of the first, with no load.
     let shareOneEntry: Bool
     /// The number of resident models while the two holds exist.
     let residentModelCount: Int

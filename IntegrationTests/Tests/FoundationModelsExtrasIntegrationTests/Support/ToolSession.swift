@@ -52,8 +52,8 @@ enum ToolSession {
     }
 
     /// Makes one session on the tool-calling LLM of `hold` with `tools` and
-    /// `instructions`, and runs `body` with it in the queue of the hold. The
-    /// job of `body` ends before this function returns.
+    /// `instructions`, and runs `body` with it. The work of `body` ends before
+    /// this function returns.
     ///
     /// - Parameters:
     ///   - instructions: The instructions of the session.
@@ -70,11 +70,9 @@ enum ToolSession {
         _ body: @escaping @Sendable (LanguageModelSession) async throws -> T
     ) async throws -> T {
         let model = try Generation.languageModel(of: hold)
-        return try await hold.queue.submit {
-            let session = LanguageModelSession(
-                model: model, tools: tools, instructions: "\(instructions) \(noReasoningSwitch)")
-            return try await body(session)
-        }
+        let session = LanguageModelSession(
+            model: model, tools: tools, instructions: "\(instructions) \(noReasoningSwitch)")
+        return try await body(session)
     }
 }
 

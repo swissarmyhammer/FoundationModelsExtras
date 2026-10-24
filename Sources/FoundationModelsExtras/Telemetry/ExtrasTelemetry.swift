@@ -322,7 +322,7 @@ enum ExtrasTelemetry {
 
         /// The `ModelRef.stringValue` of the model that the queue, the pool
         /// metric, the model metric, the embed metric or the generate metric
-        /// belongs to. Only a queue of one model, a pool metric of one model,
+        /// belongs to. Only a mail queue of one model, a pool metric of one model,
         /// a model metric, an embed metric and a generate metric have this
         /// dimension.
         static let modelRef = "model.ref"
@@ -606,9 +606,6 @@ enum ExtrasTelemetry {
 /// No other queue name is possible, thus the dimension has a fixed
 /// cardinality.
 enum QueueName: String, Sendable, CaseIterable {
-    /// The work queue of one pooled model.
-    case model
-
     /// The admission queue of the model pool.
     case admission
 

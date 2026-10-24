@@ -11,8 +11,8 @@ templates — `AgentsMd`, discovery of `AGENTS.md`/`AGENT.md`/`CLAUDE.md`
 agent-instructions files with directory-level provenance —
 `MarketplaceStore`, in the separate `Marketplace` product, which fetches a
 remote marketplace into a cached, materialized layer root that a stack
-reads as it reads a local layer — `GenerationQueue`, the one work queue
-of each resident model in a process — `ModelPool`, which loads each model
+reads as it reads a local layer — `GenerationQueue`, a serial job queue
+that runs the admissions of the model pool — `ModelPool`, which loads each model
 one time in a process and shares it through holds — and tool hosting
 (`ToolContext`, `RunPlane`), which runs the tools of a session in band or in
 the background.
@@ -445,67 +445,41 @@ package. The test binds
 `workingDirectory` and `userDirectory` to one temporary folder, thus it
 touches no home directory.
 
-## One model, one queue: `GenerationQueue`
+## A serial job queue: `GenerationQueue`
 
-`PooledModel`, `PooledSession` and `PooledEmbedder` do not use this queue:
-they call the model through `PooledGeneration`, and the MLX lock of one
-generation is the only lock (see below). The queue stays for the hosts that
-still submit to it, until they move to `PooledGeneration`.
+`GenerationQueue` runs jobs one at a time, first in first out. `ModelPool`
+uses one such queue for its admissions: the loads, the evictions and the
+joint fit run in series, and no admission job waits for a generation.
+`PooledModel`, `PooledSession` and `PooledEmbedder` use no queue: they call
+the model through `PooledGeneration`, and the MLX lock of one generation is
+the only lock (see below).
 
-One GPU runs one generation at a time. Thus each resident model has one
-`GenerationQueue`, and a caller can submit to that queue. An item is one whole
-call to the model. One worker
-runs the items one at a time, first in first out. The queue is not a lock: a
-caller waits only for the result of its own item. A cancel of a caller that
-waits removes its item from the queue at once, and a cancel of a caller whose
-item runs cancels the task of that item.
-
-`submit(onQueued:_:)` calls `onQueued` only when the item must wait behind
-another item, thus a session can report the wait. The re-entry guard stops a
-deadlock: a tool body that runs inside an open submission, and that submits
-to the same queue, could never run, because its item waits for the item of
-the tool body. The owner of the model call binds a `ModelCallMark` that
-names the queue and the model (a `SubmissionTarget`), and the queue refuses
-that submission at once with `GenerationQueueError.waitInsideOpenSubmission`:
+The queue is not a lock: a caller waits only for the result of its own job.
+A cancel of a caller that waits removes its job from the queue at once, and
+a cancel of a caller whose job runs cancels the task of that job.
+`submit(onQueued:_:)` calls `onQueued` only when the job must wait behind
+another job, thus a caller can report the wait:
 
 ```swift
-let model: ModelRef = "mlx-community/Qwen3-8B-4bit"
 let queue = GenerationQueue()
 
-// Each call to the model is one item. One worker runs the items one at
-// a time, first in first out. `onQueued` runs only when the item must
-// wait behind another item.
+// One worker runs the jobs one at a time, first in first out. `onQueued`
+// runs only when the job must wait behind another job.
 let answer = try await queue.submit(onQueued: { waits.add(1, ordering: .relaxed) }) {
-    "an answer from \(model.stringValue)"
+    "the answer of one job"
 }
-
-// A tool body inside an open submission must not wait for the same
-// queue: that submission runs only after the tool body ends. The
-// owner of the call binds a mark, and the queue refuses the wait.
-let mark = ModelCallMark(
-    sessionID: ULID(), submission: SubmissionTarget(queue: queue, model: model))
-do {
-    _ = try await ModelCallMark.$current.withValue(mark) {
-        try await queue.submit { "this item never runs" }
-    }
-} catch GenerationQueueError.waitInsideOpenSubmission(let refused) {
-    refusedModel = refused
-}
-mark.close()
 ```
 
-A declared background run is not refused: `ModelCallMark.withBackgroundRunMark`
-gives it a closed mark of the same session, because it does not hold the
-worker. Inside, the queue is one worker loop over an `AsyncStream` of items.
-Each item keeps its state (new, waiting, running, finished) under one lock,
-thus a cancel acts at once on the task that cancels, and only one path
-resumes the caller. Each item runs on a detached task, which inherits no
-task-local of its caller.
+Inside, the queue is one worker loop over an `AsyncStream` of jobs. Each job
+keeps its state (new, waiting, running, finished) under one lock, thus a
+cancel acts at once on the task that cancels, and only one path resumes the
+caller. Each job runs on a detached task, which inherits no task-local of
+its caller.
 
 This example is mirrored in `readmeWorkQueueExample` in
 `Tests/FoundationModelsExtrasTests/ModelPool/GenerationQueuePublicSurfaceTests.swift`,
 kept green by `swift test --filter GenerationQueuePublicSurfaceTests`. The
-test declares `waits` (an `Atomic<Int>`) and `refusedModel` before the block.
+test declares `waits` (an `Atomic<Int>`) before the block.
 
 ## One load for each model: `ModelPool`
 

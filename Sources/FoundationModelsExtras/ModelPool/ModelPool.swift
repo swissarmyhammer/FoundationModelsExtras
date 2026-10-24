@@ -17,10 +17,6 @@ public final class ModelPool: Sendable {
     fileprivate struct Entry {
         let container: any Sendable
         let loader: any PooledModelLoader
-        /// The one work queue of the model. All holds of the key share it. Its
-        /// metrics have the queue name ``QueueName/model`` and the model ref
-        /// of the key.
-        let queue: GenerationQueue
         /// The weights, and the session of each hold.
         var bytes: Int64
         var holds = 1
@@ -424,8 +420,7 @@ public final class ModelPool: Sendable {
     private func makeResident(
         _ key: ModelPoolKey, container: any Sendable, loader: any PooledModelLoader, bytes: Int64, sessionBytes: Int64
     ) -> ModelHold {
-        let queue = GenerationQueue(telemetry: QueueTelemetry(name: .model, model: key.ref))
-        let entry = Entry(container: container, loader: loader, queue: queue, bytes: bytes)
+        let entry = Entry(container: container, loader: loader, bytes: bytes)
         publishToEachStream { state in
             state.loadingBytes = 0
             state.entries[key] = entry
@@ -574,8 +569,6 @@ public final class ModelHold: Sendable {
     public let key: ModelPoolKey
     /// The container that the first loader of the key returned.
     public let container: any Sendable
-    /// The one work queue of the model. All holds of the key share it.
-    public let queue: GenerationQueue
     /// The pool that counts this hold.
     private let pool: ModelPool
     /// The bytes of the session of this hold.
@@ -591,7 +584,6 @@ public final class ModelHold: Sendable {
         self.pool = pool
         self.key = key
         self.container = entry.container
-        self.queue = entry.queue
         self.sessionBytes = sessionBytes
         self.cacheResult = cacheResult
     }

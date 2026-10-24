@@ -165,17 +165,14 @@ struct BackgroundToolRunner<
             tracer: site.tracer
         ) {
             await posted.value
-            // The run goes on beside the model call that started it, not in it.
-            return await ModelCallMark.withBackgroundRunMark {
-                let settlement = await run.execute(arguments: arguments)
-                result.fulfill(settlement.result)
-                // The call still waits, so it answers with this result: the
-                // staged events go back before the run settles.
-                if claim.claimForTheCall() {
-                    await (sink as? any StagedEventWithdrawing)?.withdrawStagedEvents(correlationID: token)
-                }
-                return settlement.terminal
+            let settlement = await run.execute(arguments: arguments)
+            result.fulfill(settlement.result)
+            // The call still waits, so it answers with this result: the
+            // staged events go back before the run settles.
+            if claim.claimForTheCall() {
+                await (sink as? any StagedEventWithdrawing)?.withdrawStagedEvents(correlationID: token)
             }
+            return settlement.terminal
         }
         guard started == .started else {
             return Self.refusedAnswer(completionToken: token, tool: run.context.tool)

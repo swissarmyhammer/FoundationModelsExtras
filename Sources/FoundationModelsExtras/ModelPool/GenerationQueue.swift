@@ -2,11 +2,11 @@ import Metrics
 import Synchronization
 import Tracing
 
-/// A work queue in front of one shared model. One worker runs the jobs one at
-/// a time, first in first out.
+/// A work queue that runs its jobs in series. One worker runs the jobs one at
+/// a time, first in first out. ``ModelPool`` runs its loads, its evictions
+/// and its joint fit in one such queue.
 ///
-/// A job is one call to the model. A submitter waits only for the result of
-/// its own job. When the submitter is cancelled, a waiting job never starts,
+/// A submitter waits only for the result of its own job. When the submitter is cancelled, a waiting job never starts,
 /// and a running job gets the cancel on its task.
 ///
 /// A job runs on a task of its own, which inherits no task-local value of the
@@ -14,7 +14,7 @@ import Tracing
 /// body: the trace context (`ServiceContext.current`), the tracer that
 /// `withTracer` bound, and the metrics factory that `withMetricsFactory`
 /// bound. Thus a span that the body opens has the span of the submitter as
-/// its parent, and ``ModelCallMark/current`` is `nil` in the body.
+/// its parent, and each other task-local of the submitter is unset in the body.
 public final class GenerationQueue: Sendable {
     /// The input of the worker loop.
     private let jobs: AsyncStream<any QueuedJob>.Continuation
@@ -35,7 +35,7 @@ public final class GenerationQueue: Sendable {
     let telemetry: QueueTelemetry
 
     /// Makes an idle queue with the queue name
-    /// ``QueueName/generation`` and no model, and starts its worker loop.
+    /// ``QueueName/generation``, and starts its worker loop.
     public convenience init() {
         self.init(telemetry: QueueTelemetry(name: .generation))
     }
@@ -43,7 +43,7 @@ public final class GenerationQueue: Sendable {
     /// Makes an idle queue and starts its worker loop.
     ///
     /// - Parameter telemetry: The recorder of the metrics of the queue. It
-    ///   gives the queue name and the model of each metric.
+    ///   gives the queue name of each metric.
     init(telemetry: QueueTelemetry) {
         self.telemetry = telemetry
         let (stream, jobs) = AsyncStream.makeStream(of: (any QueuedJob).self)
@@ -77,15 +77,13 @@ public final class GenerationQueue: Sendable {
     ///   - onQueued: Called on the caller when the job must wait.
     ///   - body: The job.
     /// - Returns: What `body` returns.
-    /// - Throws: ``GenerationQueueError/waitInsideOpenSubmission(model:)``,
-    ///   `CancellationError` when the caller is cancelled before the job
-    ///   starts, or what `body` throws.
+    /// - Throws: `CancellationError` when the caller is cancelled before the
+    ///   job starts, or what `body` throws.
     public func submit<T: Sendable>(
         isolation: isolated (any Actor)? = #isolation,
         onQueued: @Sendable () -> Void,
         _ body: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try refuseWaitInsideOpenSubmission()
         let job = Job(queue: self, priority: Task.currentPriority, body: body)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -137,16 +135,6 @@ public final class GenerationQueue: Sendable {
             job.refuse(resume)
         }
         return jobsAhead
-    }
-
-    /// Throws when the current task is inside an open model call on this
-    /// queue. A job from that task waits behind the call that waits for it,
-    /// so it can never start.
-    ///
-    /// - Throws: ``GenerationQueueError/waitInsideOpenSubmission(model:)``.
-    public func refuseWaitInsideOpenSubmission() throws {
-        guard let open = ModelCallMark.current?.openSubmission(on: self) else { return }
-        throw GenerationQueueError.waitInsideOpenSubmission(model: open.model)
     }
 
     /// Whether a job runs or waits.
@@ -294,9 +282,8 @@ private final class Job<T: Sendable>: QueuedJob {
     /// Runs the job on a new detached task, and waits for it. Only the worker
     /// loop calls this.
     ///
-    /// The detached task inherits no task-local of the submitter. Thus
-    /// ``ModelCallMark/current`` and each other task-local of the submitter
-    /// stay out of the job. The task restores only the trace context and the
+    /// The detached task inherits no task-local of the submitter. Thus each
+    /// task-local of the submitter stays out of the job. The task restores only the trace context and the
     /// tracer of ``submitter``, and the metrics factory of the ticket, around
     /// the body.
     func run() async {
@@ -353,8 +340,7 @@ private final class Job<T: Sendable>: QueuedJob {
 /// The trace context and the tracer of the task that submits a job. The job
 /// restores them around its body, on a detached task that inherits neither.
 ///
-/// The job restores no other task-local of the submitter. Thus
-/// ``ModelCallMark/current`` stays `nil` in the body.
+/// The job restores no other task-local of the submitter.
 private struct SubmitterTelemetry: Sendable {
     /// The trace context of the submitter, or `nil` when it had none.
     private let context: ServiceContext?

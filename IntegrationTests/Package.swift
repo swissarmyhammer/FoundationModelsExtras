@@ -38,8 +38,8 @@ let package = Package(
         .package(url: "https://github.com/huggingface/\(huggingFacePackage)", from: "0.9.0"),
         // The same floor as the root package.
         .package(url: "https://github.com/huggingface/\(transformersPackage)", from: "1.3.0"),
-        // The session id of a `ModelCallMark` is a ULID. The same floor as the
-        // root package.
+        // The session id of a tool host is a ULID. The same floor as the root
+        // package.
         .package(url: "https://github.com/yaslab/\(ulidPackage).git", from: "1.3.1"),
         // The load telemetry test reads the spans of a capture. The same floor
         // as the root package.

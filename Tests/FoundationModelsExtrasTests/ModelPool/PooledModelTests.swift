@@ -274,21 +274,6 @@ struct PooledModelTests {
         ])
     }
 
-    @Test("a PooledSession respond runs in no job of the queue of the model")
-    func aPooledSessionRespondRunsInNoQueueJob() async throws {
-        let pool = ModelPool(loader: Self.stubLoader(script: StubLanguageModelScript(), log: Recorder()))
-        let metrics = try await TelemetryCapture.run(forbidding: []) { context in
-            _ = try await PooledModel(ref: Self.key.ref, pool: pool).session().respond(to: Self.firstPrompt)
-            return context.metricsFactory
-        }
-
-        #expect(throws: TestMetricsError.self) {
-            try QueueMetricExpectations.depth(
-                in: metrics,
-                queue: QueueMetricDimensions.queue(named: QueueName.model.rawValue, model: Self.key.ref.stringValue))
-        }
-    }
-
     @Test("a tool body that calls respond on an other PooledSession of the same model gets that answer, and the call ends")
     func aToolThatUsesTheSameModelCompletes() async throws {
         let script = StubLanguageModelScript(toolName: AskSessionTool.toolName, toolPrompt: Self.firstPrompt)

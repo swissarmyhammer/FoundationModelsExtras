@@ -1,8 +1,17 @@
 ---
+comments:
+- actor: wballard
+  id: 01m5q7n7sa0mm177k846ewx9xt
+  text: 'Done: removed ModelHold.queue, the per-entry queue and QueueName.model (the per-model QueueTelemetry path); deleted GenerationReentry.swift (ModelCallMark, SubmissionTarget, withBackgroundRunMark), GenerationQueue.refuseWaitInsideOpenSubmission and GenerationQueueError (no other case, so the type is gone); removed the withBackgroundRunMark wrapper in BackgroundToolRunner. GenerationQueue stays for ModelPool.admissions. Tests: deleted ModelCallMarkTests and the re-entry cases; the hold-shares-a-queue checks now check the shared container (unit) or the cache result (integration). README queue section rewritten. Extras swift test: 1561 tests in 160 suites passed. IntegrationTests package builds with no warnings.'
+  timestamp: 2026-10-24T15:14:52.330316+00:00
+- actor: wballard
+  id: 01m5q86ckdm4h0whk9bps6ahvn
+  text: 'Dependents against local Extras (swift package edit, swift build --build-tests, whole swift test, unedit): Router e8012983 2107 tests/266 suites passed (9 known issues); Agents c033147 670/93 passed (Router also edited to local main, because the Agents Package.resolved pins Router d1528d72, which still uses GenerationQueueError); Multitool 37d7f3d 2831/247 passed; ACP agent f377c38 1269/141 passed (1 known issue). No build warnings. Package.swift and Package.resolved unchanged in all four.'
+  timestamp: 2026-10-24T15:24:14.317413+00:00
 depends_on:
 - 01M5PSQ2E2FKQ6SKK5T5E33SPG
-position_column: todo
-position_ordinal: '8380'
+position_column: done
+position_ordinal: ffc880
 title: Delete the per-model generation queue and ModelCallMark, after Router stops using them
 ---
 ## What

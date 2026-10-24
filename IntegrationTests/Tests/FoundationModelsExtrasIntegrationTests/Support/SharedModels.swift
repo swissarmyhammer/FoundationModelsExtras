@@ -36,10 +36,10 @@ struct SharedModel: Sendable {
 /// the pool that holds them.
 ///
 /// The trait holds one hold of each model while the tests of its suite run.
-/// A test uses the queue and the container of a hold, or makes more holds in
-/// ``pool``, and keeps nothing after it returns. A job that a test puts in the
-/// queue of a shared hold ends before the test returns, also when the test
-/// throws. Thus the next test finds an idle queue.
+/// A test uses the container of a hold, or makes more holds in ``pool``, and
+/// keeps nothing after it returns. A generation that a test starts on a
+/// shared hold ends before the test returns, also when the test throws. Thus
+/// the next test finds an idle model.
 struct SharedModels: Sendable {
     /// The shared models of the running suite, or `nil` outside a suite with
     /// the trait.

@@ -23,7 +23,7 @@ private let farBelowTheLimitDivisor = 4
 /// A question that the model answers until its token limit.
 private let endlessPrompt = "Count upward from 1, one number per line, without stopping."
 
-/// The short question of the job after the cancel, and the city that its
+/// The short question of the generation after the cancel, and the city that its
 /// answer names.
 private enum FranceQuestion {
     /// The question.
@@ -33,26 +33,19 @@ private enum FranceQuestion {
 }
 
 extension RealModelSuites {
-    /// The `GenerationQueue` of a hold of the real LLM: the cancel of the
-    /// running generation stops the decode on the GPU.
-    ///
-    /// The unit tests of the queue prove the order of the jobs, the cancel of
-    /// a waiting job and the refusal of a job that could never start. These
-    /// need no real model.
-    @Suite("Generation queue with a real model", .sharedLoads(SharedModel(IntegrationModels.llm)))
-    struct GenerationQueueIntegrationTests {
-        @Test("a cancel of the running real generation stops it well before its token limit, and the next job then runs")
+    /// A cancel of a running generation of the real LLM: the cancel stops the
+    /// decode on the GPU.
+    @Suite("Generation cancel with a real model", .sharedLoads(SharedModel(IntegrationModels.llm)))
+    struct GenerationCancelIntegrationTests {
+        @Test("a cancel of the running real generation stops it well before its token limit, and the next generation then runs")
         func cancelledRunningGenerationStopsEarly() async throws {
             let hold = try SharedModels.required().hold(of: IntegrationModels.llm)
             let model = try Generation.languageModel(of: hold)
-            let queue = hold.queue
             let snapshots = EventLog<String>()
 
             let running = Task {
-                try await queue.submit {
-                    try await Generation.stream(
-                        endlessPrompt, with: model, maximumResponseTokens: cancelledGenerationTokens, into: snapshots)
-                }
+                try await Generation.stream(
+                    endlessPrompt, with: model, maximumResponseTokens: cancelledGenerationTokens, into: snapshots)
             }
             // The decode runs when the stream gave some snapshots. A
             // generation that ends first also ends the wait.
@@ -63,10 +56,8 @@ extension RealModelSuites {
             running.cancel()
             let cancelled = await running.result
             let generatedText = await snapshots.events.last ?? ""
-            let nextAnswer = try await queue.submit {
-                try await Generation.respond(
-                    to: FranceQuestion.prompt, with: model, maximumResponseTokens: shortAnswerTokens)
-            }
+            let nextAnswer = try await Generation.respond(
+                to: FranceQuestion.prompt, with: model, maximumResponseTokens: shortAnswerTokens)
 
             #expect(snapshotsAtCancel >= snapshotsBeforeCancel)
             #expect(throws: CancellationError.self) { try cancelled.get() }

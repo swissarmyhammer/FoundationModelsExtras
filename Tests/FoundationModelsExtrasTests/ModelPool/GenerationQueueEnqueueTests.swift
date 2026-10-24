@@ -89,9 +89,6 @@ struct GenerationQueueEnqueueTests {
         #expect(log.values == ["ran"])
     }
 
-    /// The model of the queue in the test of a model queue.
-    private static let model: ModelRef = "org/queued-model"
-
     /// The depth values of one job: up at the enqueue, down at the end.
     private static let depthOfOneJob: [Double] = [1, 0]
 
@@ -108,21 +105,6 @@ struct GenerationQueueEnqueueTests {
         // The empty job runs outside the factory, thus it records nothing in
         // `metrics`.
         try await Self.waitForTheEarlierJobs(of: queue)
-        try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: dimensions, outcome: .succeeded, ran: true)
-        #expect(try QueueMetricExpectations.depth(in: metrics, queue: dimensions) == Self.depthOfOneJob)
-    }
-
-    @Test("a queue made with a recorder of one model records its queue name and the model ref")
-    func aModelQueueRecordsItsNameAndModel() async throws {
-        let metrics = TestMetrics()
-        let telemetry = QueueTelemetry(name: .model, model: Self.model)
-        let queue = GenerationQueue(telemetry: telemetry)
-        let dimensions = QueueMetricDimensions.queue(of: telemetry)
-
-        try await withMetricsFactory(metrics) {
-            try await queue.submit {}
-        }
-
         try QueueMetricExpectations.expectCompletedJobs(in: metrics, queue: dimensions, outcome: .succeeded, ran: true)
         #expect(try QueueMetricExpectations.depth(in: metrics, queue: dimensions) == Self.depthOfOneJob)
     }

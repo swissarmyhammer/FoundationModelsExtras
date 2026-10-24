@@ -131,15 +131,17 @@ struct PooledEmbedderTests {
         return call
     }
 
-    @Test("two holds of one key get the same queue instance")
-    func twoHoldsShareOneQueue() async throws {
+    @Test("two holds of one key get the same model instance")
+    func twoHoldsShareOneModel() async throws {
         let pool = ModelPool()
         let loader = FixedLoader(container: FakeEmbedding(vector: Self.vectorA, log: Recorder()))
 
         let first = try await Self.acquire(from: pool, with: loader)
         let second = try await Self.acquire(from: pool, with: loader)
 
-        #expect(first.queue === second.queue)
+        let firstModel = try #require(first.container as? FakeEmbedding)
+        let secondModel = try #require(second.container as? FakeEmbedding)
+        #expect(firstModel.lock === secondModel.lock)
     }
 
     @Test("concurrent embed calls on one key run one at a time, in FIFO order, in the lock of the model")
@@ -153,24 +155,6 @@ struct PooledEmbedderTests {
         _ = try await (model.firstCall.value, second.value, third.value)
 
         #expect(model.log.values == ["begin one", "end one", "begin two", "end two", "begin three", "end three"])
-    }
-
-    @Test("an embed call runs in no job of the queue of the model")
-    func anEmbedCallRunsInNoQueueJob() async throws {
-        let pool = ModelPool()
-        let loader = FixedLoader(container: FakeEmbedding(vector: Self.vectorA, log: Recorder()))
-        let embedder = try PooledEmbedder(hold: await Self.acquire(from: pool, with: loader))
-
-        let (vectors, metrics) = try await TelemetryCapture.run(forbidding: []) { context in
-            (try await embedder.embed(texts: ["one"]), context.metricsFactory)
-        }
-
-        #expect(vectors == [Self.vectorA])
-        #expect(throws: TestMetricsError.self) {
-            try QueueMetricExpectations.depth(
-                in: metrics,
-                queue: QueueMetricDimensions.queue(named: QueueName.model.rawValue, model: Self.key.ref.stringValue))
-        }
     }
 
     @Test("a caller with loader B gets the container of loader A, and embeds through PooledEmbedding")
