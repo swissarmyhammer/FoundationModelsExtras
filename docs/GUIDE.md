@@ -49,8 +49,8 @@ registry can mix many operation types together. `OperationTool<Context>` fuses a
 `parameters` schema is the flat union `SchemaFusion` builds — one required `op` string
 enum (every operation's `"verb noun"` string) plus the union of every operation's fields,
 all declared optional, deduplicated by name across operations. Per-operation
-requiredness and value constraints are enforced at dispatch instead of by the schema (see
-[`OPERATIONS_DESIGN_NOTES.md`](OPERATIONS_DESIGN_NOTES.md) for why). `OperationTool.call(arguments:)`
+requiredness and value constraints are enforced at dispatch instead of by the schema.
+`OperationTool.call(arguments:)`
 forgivingly resolves a payload's `op` and parameter keys (case, `_`/`-`/space separators
 or none in a multi-word verb or noun, `"noun verb"` reordering, verb aliases, noun
 aliases, camelCase/snake_case key aliasing) to the
@@ -187,8 +187,3 @@ declaration in `Sources/Operations` and `Sources/OperationsCLI` as part of `swif
 block in this guide (marked by a `<!-- doc-snippet -->` comment) is a real,
 contiguous excerpt of the source file it cites — not hand-written pseudocode that could
 silently drift out of sync with what actually compiles.
-
-## Further reading
-
-- [`OPERATIONS_DESIGN_NOTES.md`](OPERATIONS_DESIGN_NOTES.md) — where the implementation
-  departed from its first design (and from the Rust swissarmyhammer design it ports), and why.
