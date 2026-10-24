@@ -1,4 +1,5 @@
 import FoundationModels
+import MLXFoundationModels
 
 /// An LLM of a ``ModelPool``, by its Hugging Face name, as a FoundationModels
 /// `LanguageModel`. A pooled model loads nothing when you make it.
@@ -7,8 +8,10 @@ import FoundationModels
 /// session acquires the model from the pool, one time only, also when first
 /// calls run at the same time. All copies of one pooled model share that one
 /// hold, thus the model stays resident while a copy exists, for example the
-/// copy in a session. Each generation call is one job in the queue of the
-/// model, so the calls of all users of one model run one at a time.
+/// copy in a session. Each generation call goes through
+/// ``PooledGeneration``: only the call into the model waits, for the lock
+/// that the model holds for one generation, as MLX does. A tool body of the
+/// session runs outside each lock.
 ///
 /// ```swift
 /// let qwen = PooledModel(ref: "mlx-community/Qwen3-4B-4bit")   // loads nothing
@@ -19,7 +22,8 @@ import FoundationModels
 /// ``session(instructions:tools:)`` makes a ``PooledSession``, which keeps a
 /// hold of its own and can fork its transcript.
 public struct PooledModel: LanguageModel {
-    /// The executor that sends each generation call to the queue of the model.
+    /// The executor that sends each generation call through
+    /// ``PooledGeneration``.
     public typealias Executor = PooledModelExecutor
 
     /// The pool that loads the model.
@@ -78,20 +82,24 @@ public struct PooledModel: LanguageModel {
         return try PooledSession(hold: hold, pool: pool, tools: tools, start: .instructions(instructions))
     }
 
-    /// Runs one generation call as one job in the queue of the model. The
-    /// first call loads the model first.
+    /// Runs one generation call through ``PooledGeneration``. The first call
+    /// loads the model first.
+    ///
+    /// Only the call into the model waits: the model holds its own lock for
+    /// one generation, as MLX does. The SDK runs each tool body after this
+    /// call returns, thus no tool body runs under that lock.
     ///
     /// The call runs in one generate span of ``GenerateTelemetry``, which
-    /// opens before the load and the wait in the queue. Thus the load span is
-    /// a child of the generate span. The span is guided when the request has
-    /// a generation schema, and cold when the call waited for a load that
-    /// the pool ran.
+    /// opens before the load and the wait for the lock of the model. Thus the
+    /// load span is a child of the generate span. The span is guided when the
+    /// request has a generation schema, and cold when the call waited for a
+    /// load that the pool ran.
     ///
     /// - Parameters:
     ///   - request: The generation request.
     ///   - channel: The channel that the events of the answer go into.
-    /// - Throws: The error of the load, of
-    ///   ``GenerationQueue/submit(isolation:_:)``, or of the model; or
+    /// - Throws: The error of the load or of the model, `CancellationError`
+    ///   when the task is cancelled, or
     ///   ``PooledSessionError/notALanguageModel(key:containerType:)`` when the
     ///   container of the model is not a FoundationModels `LanguageModel`.
     func respond(
@@ -100,12 +108,29 @@ public struct PooledModel: LanguageModel {
     ) async throws {
         try await GenerateTelemetry.traceGenerate(of: key.ref, guided: request.schema != nil) { call in
             let loaded = try await loaded(markingColdIn: call)
-            try await loaded.hold.queue.submit { [model = loaded.model] in
-                try await call.relay(into: channel) { modelChannel in
-                    try await model.respond(to: request, streamingInto: modelChannel)
+            try await call.relay(into: channel) { modelChannel in
+                try await PooledGeneration.run(
+                    ref: key.ref, cacheScope: Self.cacheScope(of: request), channel: modelChannel
+                ) { [model = loaded.model] generationChannel in
+                    try await model.respond(to: request, streamingInto: generationChannel)
                 }
             }
         }
+    }
+
+    /// The prompt cache scope of `request`, as MLX names it.
+    ///
+    /// The scope that the caller set comes first. With no scope, MLX names
+    /// the session by the identifier of the first transcript entry, thus this
+    /// gives that session.
+    ///
+    /// - Parameter request: The generation request.
+    /// - Returns: The scope of the caller, else the session of the first
+    ///   transcript entry, else `nil` for an empty transcript.
+    private static func cacheScope(
+        of request: LanguageModelExecutorGenerationRequest
+    ) -> MLXLanguageModel.PromptCacheScope? {
+        MLXLanguageModel.promptCacheScope ?? request.transcript.first.map { .session($0.id) }
     }
 
     /// Gives the loaded model, and gives `call` its cold flag: `true` when
@@ -168,13 +193,14 @@ public struct PooledModelExecutor: LanguageModelExecutor {
         model.prewarm(transcript: transcript)
     }
 
-    /// Runs one generation call as one job in the queue of the model.
+    /// Runs one generation call through ``PooledGeneration``.
     ///
     /// - Parameters:
     ///   - request: The generation request.
     ///   - model: The pooled model.
     ///   - channel: The channel that the events of the answer go into.
-    /// - Throws: The error of the load, of the queue, or of the model.
+    /// - Throws: The error of the load or of the model, or
+    ///   `CancellationError` when the task is cancelled.
     public func respond(
         to request: LanguageModelExecutorGenerationRequest,
         model: PooledModel,

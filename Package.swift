@@ -182,6 +182,10 @@ let package = Package(
                 // The download progress tests of `MLXModelLoader` give a fake
                 // `Downloader` to the downloader that reports the progress.
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                // The pooled generation tests bind the prompt cache scope of
+                // `MLXLanguageModel` around each call, and the stub model
+                // reads it, as MLX does.
+                .product(name: "MLXFoundationModels", package: "mlx-swift-lm"),
                 // The GraphQL toolkit tests build an example schema with
                 // Graphiti and give variables as GraphQL `Map` values.
                 .product(name: "GraphQL", package: "GraphQL"),

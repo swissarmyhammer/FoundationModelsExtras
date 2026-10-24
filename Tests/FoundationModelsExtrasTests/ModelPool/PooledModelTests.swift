@@ -403,16 +403,15 @@ struct PooledModelTests {
         let script = StubLanguageModelScript(log: log, firstCallMayEnd: firstCallMayEnd)
         let pool = ModelPool(loader: Self.stubLoader(script: script, log: Recorder()))
         let model = PooledModel(ref: Self.key.ref, pool: pool)
-        // The test keeps this hold, so the model and its queue stay the same during the test.
-        let hold = try await pool.acquire(Self.key)
 
+        // The stub model holds a FIFO lock for each generation, as MLX does,
+        // thus the second respond waits for that lock.
         let firstCall = Task { try await LanguageModelSession(model: model).respond(to: Self.firstPrompt).content }
         try await Self.waitUntilTheFirstCallRuns(firstCall, log: log)
-        let secondCall = try await TelemetryCapture.run(forbidding: []) { context in
-            await hold.queue.startQueuedCall(recordingInto: context) {
-                try await LanguageModelSession(model: model).respond(to: Self.secondPrompt).content
-            }
-        }
+        let secondCall = Task { try await LanguageModelSession(model: model).respond(to: Self.secondPrompt).content }
+        await Waits.untilFirstEnds(
+            { await script.lock.queued.waitUntil { $0.contains(Self.secondPrompt) } }, { _ = await secondCall.result })
+        try #require(script.lock.queued.values == [Self.secondPrompt])
         endFirstCall.finish()
         let answers = try await [firstCall.value, secondCall.value]
 
@@ -613,6 +612,19 @@ extension PooledModelTests {
             _ = try await session.respond(to: telemetryPrompt)
             _ = try await session.respond(to: secondTelemetryPrompt)
         }
+    }
+
+    /// The values of `generate.in_flight` after two responds that run one
+    /// after the other: each counts while it runs, and then ends.
+    private static let twoCallsInFlight: [Double] = [1, 0, 1, 0]
+
+    @Test("each respond over a pooled model counts on generate.in_flight while it runs")
+    func eachRespondCountsInFlight() async throws {
+        let context = try await Self.captureTwoResponds()
+
+        let inFlight = try context.metricsFactory.expectMeter(
+            ExtrasTelemetry.MetricName.generateInFlight, ModelMetricDimensions.model(Self.key.ref))
+        #expect(inFlight.values == Self.twoCallsInFlight)
     }
 
     @Test("each respond over a pooled model opens one generate span and writes one enter record")

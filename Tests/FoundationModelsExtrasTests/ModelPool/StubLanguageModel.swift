@@ -42,6 +42,11 @@ final class StubLanguageModelScript: Sendable {
     /// The number of generation calls that started.
     fileprivate let startedCalls = Counter()
 
+    /// The FIFO lock that each generation call holds, as the
+    /// `SerialAccessContainer` of MLX does. The name of a call in the lock is
+    /// its last prompt.
+    let lock = StubSerialLock()
+
     /// Makes a script.
     ///
     /// - Parameters:
@@ -82,7 +87,8 @@ final class StubLanguageModelScript: Sendable {
 /// finishes. When the script names a tool and the transcript holds no tool
 /// output yet, the call then asks for that tool. Else the call answers with
 /// the answer of the script. Last, the call gives its usage from the script
-/// when the script has one for it.
+/// when the script has one for it. The call does all of this while it holds
+/// the FIFO lock of the script, as MLX holds its lock for one generation.
 struct StubLanguageModel: LanguageModel {
     /// The executor that plays the script.
     typealias Executor = StubLanguageModelExecutor
@@ -155,20 +161,22 @@ struct StubLanguageModelExecutor: LanguageModelExecutor {
         let script = model.script
         let prompts = Self.promptTexts(in: request.transcript)
         let name = prompts.last ?? ""
-        script.log.append("begin \(name)")
-        let call = script.startedCalls.next()
-        if call == Self.firstCall {
-            for await _ in script.firstCallMayEnd {}
-        }
-        script.log.append("end \(name)")
-        if let toolName = script.toolName, !Self.holdsToolOutput(request.transcript) {
-            await Self.askForTool(named: toolName, into: channel)
-        } else {
-            await channel.send(
-                .response(action: .appendText(script.answer(prompts), tokenCount: Self.emittedTokenCount)))
-        }
-        if let usage = script.usages.dropFirst(call - Self.firstCall).first {
-            await Self.send(usage, into: channel)
+        await script.lock.withLock(name) {
+            script.log.append("begin \(name)")
+            let call = script.startedCalls.next()
+            if call == Self.firstCall {
+                for await _ in script.firstCallMayEnd {}
+            }
+            script.log.append("end \(name)")
+            if let toolName = script.toolName, !Self.holdsToolOutput(request.transcript) {
+                await Self.askForTool(named: toolName, into: channel)
+            } else {
+                await channel.send(
+                    .response(action: .appendText(script.answer(prompts), tokenCount: Self.emittedTokenCount)))
+            }
+            if let usage = script.usages.dropFirst(call - Self.firstCall).first {
+                await Self.send(usage, into: channel)
+            }
         }
     }
 

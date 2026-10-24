@@ -280,6 +280,18 @@ enum ExtrasTelemetry {
         /// pooled LLM, with the ``ModelOperationOutcome`` of the call.
         static let generateDuration = "FoundationModelsExtras.generate.duration"
 
+        /// The meter of the calls into a pooled LLM that run now, by model:
+        /// each ``PooledGeneration`` call from its start to its end, also
+        /// while it waits for the lock of the model.
+        static let generateInFlight = "FoundationModelsExtras.generate.in_flight"
+
+        /// The counter that counts each call into a pooled LLM that waited
+        /// for an abandoned call of its prompt cache scope before it ran, by
+        /// model. A cancelled call that still waits for the lock of the model
+        /// holds the prompt cache of its session, thus the next call of that
+        /// session waits until it left.
+        static let generateAbandonedWaits = "FoundationModelsExtras.generate.abandoned_waits"
+
         /// The counter that adds the output token count of each generation
         /// call whose model gives token counts.
         static let generateOutputTokens = "FoundationModelsExtras.generate.output_tokens"

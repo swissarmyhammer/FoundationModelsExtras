@@ -1,6 +1,11 @@
 ---
-position_column: todo
-position_ordinal: '8180'
+comments:
+- actor: wballard
+  id: 01m5pygahbs5rqhj71k58kxxzg
+  text: 'Done. New public PooledGeneration.run(ref:channel:_:) in ModelPool/PooledGeneration.swift: in-flight Meter (generate.in_flight, model.ref dim) increment/decrement in the caller; body runs in a plain Task {} (task locals reach MLX); withTaskCancellationHandler onCancel cancels the inner task synchronously and stops the relay, caller throws CancellationError at once. Relay reader of the model channel is its own unstructured task, so a model that still sends after the cancel never blocks while it holds the MLX lock. Prompt cache: a process-wide registry keyed by (ModelRef, .session id) keeps the last call per scope; a new call of the same scope awaits that task first (other sessions never wait); a cancelled call that never ran skips body. Additions beyond the card: (1) internal overload run(ref:cacheScope:channel:_:) so PooledModel can pass MLX''s fallback scope (no task-local scope -> .session(firstTranscriptEntry.id), the same key MLX uses); the public run reads MLXLanguageModel.promptCacheScope. (2) counter FoundationModelsExtras.generate.abandoned_waits (each call that waited for an earlier call of its scope) -- needed to make the same-session test deterministic, and useful telemetry. Note: the chain also orders two concurrent calls of one scope; the SDK runs one call per session, so this only bites when a host shares one scope across sessions. PooledModel.respond uses the helper, no queue.submit; its GenerateTelemetry span/relay is unchanged. Tests: PooledGenerationTests (5), PooledModelTests.eachRespondCountsInFlight, the FIFO LanguageModelSession test restated on the stub''s FIFO lock (StubLanguageModel now holds StubSerialLock per generation). Test target gains the MLXFoundationModels product. swift test: 2221 tests, 0 failures.'
+  timestamp: 2026-10-24T12:34:54.123064+00:00
+position_column: done
+position_ordinal: ffc680
 title: Call the MLX model directly, with an in-flight meter and a cancel that does not wait for the MLX lock
 ---
 ## What
