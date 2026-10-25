@@ -68,7 +68,7 @@ struct VaultCodeTool: Tool {
 
 /// A background tool: each call starts a scan that works until the test opens
 /// a gate. Its pending envelope has the default `next` text, which ends with
-/// ``PendingRunEnvelope/pendingWorkInstruction``.
+/// the status line `Waiting on <op> (<token>).`
 struct ArchiveScanTool: Tool, BackgroundTool {
     /// The code of the report of each scan.
     static let code = "COPPER-HERON-58"

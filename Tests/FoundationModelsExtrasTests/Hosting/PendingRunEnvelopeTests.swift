@@ -57,7 +57,8 @@ struct PendingRunEnvelopeTests {
     /// The text shapes the default sentence must not carry: a `runCode`
     /// snippet, the snippet-level `wait` call, any call syntax, the
     /// run-plane state names no host reports on the wire, and the old
-    /// wait-tool text that made the model loop.
+    /// wait-tool text that made the model loop, the turn language of the
+    /// old text, and the empty output that the old text asked for.
     private static let forbiddenDefaultCollectInstructionFragments = [
         "runCode",
         "return await wait",
@@ -68,34 +69,106 @@ struct PendingRunEnvelopeTests {
         "wait tool",
         "call wait",
         "Do not answer yet",
+        "starts you working again",
+        "end your answer",
+        "do nothing",
+        "write no text",
     ]
+
+    /// Asserts that `text` has none of the forbidden fragments, and not the
+    /// word "turn".
+    private static func expectNoTurnLanguage(in text: String) {
+        for fragment in forbiddenDefaultCollectInstructionFragments {
+            #expect(!text.contains(fragment), "text must not say \(fragment): \(text)")
+        }
+        let words = text.lowercased().split { !$0.isLetter }
+        #expect(!words.contains("turn"), "text must not say turn: \(text)")
+        #expect(!words.contains("turns"), "text must not say turns: \(text)")
+    }
 
     /// The pending-work text that the user approved, word for word.
     private static let approvedPendingWorkInstruction =
-        "This is not the result. When the work finishes, the session injects its result into this "
-        + "conversation as a new message. That message starts you working again, so you do not need to "
-        + "wait, to check, or to ask for it. Do not call a tool to wait or to check. If you have other "
-        + "work that does not need this result, do that work now. If no other work can be done until "
-        + "the result comes back, do nothing: write no text and call no tool. When the injected result "
-        + "arrives, continue the task from it."
+        "Its result will arrive in this conversation as a message when it is ready. You do not need "
+        + "to wait for it or check on it, and no tool can make it come sooner. Go on with any work "
+        + "that does not need it. If none is left, post your status as plain text: what you wait on "
+        + "and its completion token."
 
     @Test("pendingWorkInstruction is the approved text, word for word")
     func pendingWorkInstructionIsTheApprovedText() {
         #expect(PendingRunEnvelope.pendingWorkInstruction == Self.approvedPendingWorkInstruction)
+        Self.expectNoTurnLanguage(in: PendingRunEnvelope.pendingWorkInstruction)
     }
 
-    @Test("the default next sentence is the token sentence, one space, then pendingWorkInstruction")
-    func defaultCollectInstructionIsTheTokenSentenceThenThePendingWorkInstruction() {
+    @Test("the waiting text of one call names it with its token, and its status line is Waiting on the call")
+    func waitingStatusInstructionOfOneCallIsTheApprovedText() {
+        let completionToken = ULID().ulidString
+
+        let text = PendingRunEnvelope.waitingStatusInstruction(
+            for: [(description: "execute python tests/runtests.py", completionToken: completionToken)])
+
+        #expect(
+            text
+                == "Running in the background: execute python tests/runtests.py (completion token "
+                + "\"\(completionToken)\"). Its result will arrive in this conversation as a message when "
+                + "it is ready. You do not need to wait for it or check on it, and no tool can make it come "
+                + "sooner. Go on with any work that does not need it. If none is left, post your status as "
+                + "plain text: `Waiting on execute python tests/runtests.py (\(completionToken)).`"
+        )
+        Self.expectNoTurnLanguage(in: text)
+    }
+
+    @Test("the waiting text of several calls names each with its token, in order, and its status line lists them all")
+    func waitingStatusInstructionOfSeveralCallsNamesEachCall() {
+        let first = ULID().ulidString
+        let second = ULID().ulidString
+
+        let text = PendingRunEnvelope.waitingStatusInstruction(
+            for: [(description: "agent coder", completionToken: first), (description: "execute make", completionToken: second)])
+
+        #expect(
+            text
+                == "Running in the background: agent coder (completion token \"\(first)\"); execute make "
+                + "(completion token \"\(second)\"). Their results will arrive in this conversation as "
+                + "messages when they are ready. You do not need to wait for them or check on them, and no "
+                + "tool can make them come sooner. Go on with any work that does not need them. If none is "
+                + "left, post your status as plain text: `Waiting on agent coder (\(first)); execute make "
+                + "(\(second)).`"
+        )
+        Self.expectNoTurnLanguage(in: text)
+    }
+
+    @Test("the waiting text of no open call says nothing runs in the background and asks for a status")
+    func waitingStatusInstructionOfNoCallSaysNothingRuns() {
+        let text = PendingRunEnvelope.waitingStatusInstruction(for: [])
+
+        #expect(
+            text == "Nothing is running in the background. If no work is left, post your status as plain text.")
+        Self.expectNoTurnLanguage(in: text)
+    }
+
+    @Test("the default next sentence is the waiting text of the one call it describes")
+    func defaultCollectInstructionIsTheWaitingTextOfItsCall() {
+        let completionToken = ULID().ulidString
+
+        #expect(
+            PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken, describing: "agent coder")
+                == PendingRunEnvelope.waitingStatusInstruction(
+                    for: [(description: "agent coder", completionToken: completionToken)])
+        )
+    }
+
+    @Test("with only a token, the default next sentence names the call as this call")
+    func defaultCollectInstructionWithOnlyATokenNamesThisCall() {
         let completionToken = ULID().ulidString
 
         #expect(
             PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken)
-                == "This run continues in the background, with completion token \"\(completionToken)\". "
-                + PendingRunEnvelope.pendingWorkInstruction
+                == PendingRunEnvelope.waitingStatusInstruction(
+                    for: [(description: "this call", completionToken: completionToken)])
         )
     }
 
-    @Test("the default next sentence says: the run continues in the background with its token, this is not the result, the session injects the result, call no tool to wait, and do nothing when no other work remains")
+    @Test("the default next sentence says: the call runs in the background with its token, the result arrives as a message, no tool makes it come sooner, and a status names what it waits on")
     func defaultCollectInstructionTellsTheModelNotToWait() throws {
         let completionToken = ULID().ulidString
         let rendered = PendingRunEnvelope(completionToken: completionToken).rendered
@@ -107,22 +180,19 @@ struct PendingRunEnvelopeTests {
         Self.expect(
             next,
             saysInOrder: [
-                // The run goes on behind the answer, under its real token.
-                "continues in the background",
+                // The call goes on behind the answer, under its real token.
+                "Running in the background",
                 completionToken,
-                // The envelope is not the result.
-                "not the result",
-                // The session injects the result as a new message.
-                "injects its result",
-                // No tool call to wait or to check.
-                "Do not call a tool to wait or to check",
-                // With no other work, the model does nothing.
-                "do nothing",
+                // The result comes in as a message.
+                "will arrive in this conversation as a message",
+                // No tool makes it come sooner.
+                "no tool can make it come sooner",
+                // With no other work, the model posts a status, not nothing.
+                "post your status as plain text",
+                "Waiting on this call (\(completionToken)).",
             ]
         )
-        for fragment in Self.forbiddenDefaultCollectInstructionFragments {
-            #expect(!next.contains(fragment), "default sentence must not say \(fragment)")
-        }
+        Self.expectNoTurnLanguage(in: next)
     }
 
     @Test("an envelope is recognized whatever collect sentence it carries: the default, a tool's own, and one that needs JSON escaping")

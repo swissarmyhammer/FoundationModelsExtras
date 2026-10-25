@@ -112,7 +112,8 @@ extension RealModelSuites {
 
             let envelope = try #require(Self.envelopes(in: answer).first, "tool outputs: \(answer.toolOutputs)")
             #expect(envelope.pending)
-            #expect(envelope.next.contains(PendingRunEnvelope.pendingWorkInstruction), "next: \(envelope.next)")
+            #expect(envelope.next.contains("Waiting on"), "next: \(envelope.next)")
+            #expect(envelope.next.contains(envelope.completionToken), "next: \(envelope.next)")
             #expect(!answer.text.contains(ArchiveScanTool.code), "answer: \(answer.text)")
             let terminal = try await Self.terminal(of: envelope.completionToken, in: host)
             #expect(terminal.outcome == .succeeded)

@@ -25,7 +25,8 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
     /// - Parameters:
     ///   - completionToken: The completion token of the run.
     ///   - next: The collect sentence, or `nil` for
-    ///     ``defaultCollectInstruction(forCompletionToken:)``.
+    ///     ``defaultCollectInstruction(forCompletionToken:describing:)``
+    ///     with no description.
     init(completionToken: String, next: String? = nil) {
         self.pending = true
         self.completionToken = completionToken
@@ -33,30 +34,74 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
     }
 
     /// What the model must do while work continues in the background, as
-    /// plain text.
+    /// plain text. It names no call: it follows a text that names the work.
     ///
-    /// The session injects the result into the conversation as a new message
-    /// when the work finishes. Thus the text tells the model not to call a
-    /// tool to wait or to check, and to do nothing when no other work can be
-    /// done. This package owns the one copy of this text. Other packages that
-    /// tell the model about pending work use this property.
+    /// The model works without turns. A result and mail come in as messages,
+    /// and text that the model writes is a status message to whoever started
+    /// it. So the text tells the model that the result arrives as a message,
+    /// that no tool makes it come sooner, and that with no other work left it
+    /// posts its status. It never asks for an empty output, which the model
+    /// cannot give. This package owns this text and
+    /// ``waitingStatusInstruction(for:)``. Other packages that tell the model
+    /// about pending work use them.
     public static let pendingWorkInstruction: String =
-        "This is not the result. When the work finishes, the session injects its result into this "
-        + "conversation as a new message. That message starts you working again, so you do not need to "
-        + "wait, to check, or to ask for it. Do not call a tool to wait or to check. If you have other "
-        + "work that does not need this result, do that work now. If no other work can be done until "
-        + "the result comes back, do nothing: write no text and call no tool. When the injected result "
-        + "arrives, continue the task from it."
+        singleResultInstruction
+        + " If none is left, post your status as plain text: what you wait on and its completion token."
 
-    /// The default `next` text of a pending envelope: one sentence that names
-    /// the run by its completion token, one space, then
-    /// ``pendingWorkInstruction``.
+    /// The default description of a call that has only its token.
+    static let fallbackCallDescription = "this call"
+
+    /// What the model must do while one call runs: the result arrives as a
+    /// message, and other work goes on.
+    private static let singleResultInstruction =
+        "Its result will arrive in this conversation as a message when it is ready. You do not need "
+        + "to wait for it or check on it, and no tool can make it come sooner. Go on with any work "
+        + "that does not need it."
+
+    /// What the model must do while several calls run.
+    private static let severalResultsInstruction =
+        "Their results will arrive in this conversation as messages when they are ready. You do not "
+        + "need to wait for them or check on them, and no tool can make them come sooner. Go on with "
+        + "any work that does not need them."
+
+    /// What the model must do while `calls` run in the background, as plain
+    /// text: each call by its description and completion token, what to do
+    /// meanwhile, and the status line to post when no other work is left,
+    /// `Waiting on <description> (<token>).`
     ///
-    /// - Parameter completionToken: The completion token of the run.
-    /// - Returns: The text for `completionToken`.
-    public static func defaultCollectInstruction(forCompletionToken completionToken: String) -> String {
-        "This run continues in the background, with completion token \"\(completionToken)\". "
-            + pendingWorkInstruction
+    /// A pending envelope gives this text for its one call. A tool that
+    /// answers a call that does nothing, while calls are open, gives it for
+    /// each open call.
+    ///
+    /// - Parameter calls: The open calls, in order: a short description of
+    ///   each, such as `execute python tests/runtests.py`, and its completion
+    ///   token.
+    /// - Returns: The text. With no call, it says that nothing runs and asks
+    ///   for a status.
+    public static func waitingStatusInstruction(for calls: [(description: String, completionToken: String)]) -> String {
+        guard !calls.isEmpty else {
+            return "Nothing is running in the background. If no work is left, post your status as plain text."
+        }
+        let named = calls.map { "\($0.description) (completion token \"\($0.completionToken)\")" }
+        let status = calls.map { "\($0.description) (\($0.completionToken))" }
+        let instruction = calls.count == 1 ? singleResultInstruction : severalResultsInstruction
+        return "Running in the background: \(named.joined(separator: "; ")). \(instruction) "
+            + "If none is left, post your status as plain text: `Waiting on \(status.joined(separator: "; ")).`"
+    }
+
+    /// The default `next` text of a pending envelope:
+    /// ``waitingStatusInstruction(for:)`` of its one call.
+    ///
+    /// - Parameters:
+    ///   - completionToken: The completion token of the run.
+    ///   - description: A short description of the call, such as
+    ///     `agent coder`, or `nil` to name it "this call".
+    /// - Returns: The text for the call.
+    public static func defaultCollectInstruction(
+        forCompletionToken completionToken: String, describing description: String? = nil
+    ) -> String {
+        waitingStatusInstruction(
+            for: [(description: description ?? fallbackCallDescription, completionToken: completionToken)])
     }
 
     /// The envelope as JSON, with the fields always in this order:

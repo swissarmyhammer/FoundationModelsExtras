@@ -803,10 +803,14 @@ questions that those runs ask the user.
   call: the output of the tool, or the error that the tool threw. Only a run
   that continues past the settle period answers with a `PendingRunEnvelope`:
   `pending` (always `true`), the completion token of the run, and what the
-  model must do next (`next`). The default `next` names the run by its
-  completion token, then gives `PendingRunEnvelope.pendingWorkInstruction`:
-  the session injects the result into the conversation as a new message, so
-  the model calls no tool to wait or to check. The host sets the settle
+  model must do next (`next`). The default `next` is
+  `PendingRunEnvelope.waitingStatusInstruction(for:)` of the call. It names
+  the call by `BackgroundTool.callDescription(for:)` (or its op) and its
+  completion token. It says that the result arrives in the conversation as
+  a message, that no tool makes it come sooner, and that with no other work
+  left the model posts the status `Waiting on <call> (<token>).` The text
+  has no turns in it. A tool that answers a call that does nothing gives the
+  same text for each open call. The host sets the settle
   period on the `MountSite` (`inlineSettleGrace`). The default is
   `ToolMount.defaultInlineSettleGrace` (6 seconds), and `0` answers with the
   envelope at once. A tool that states its own `inlineSettleGrace` wins over

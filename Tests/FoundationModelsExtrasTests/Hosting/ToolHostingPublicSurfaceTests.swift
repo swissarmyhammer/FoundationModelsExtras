@@ -440,7 +440,10 @@ struct ToolHostingPublicSurfaceTests {
         let pending = try Self.envelope(of: try await mounted.call(arguments: ProbeArguments(value: "x")))
 
         #expect(pending.pending)
-        #expect(pending.next == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: pending.completionToken))
+        #expect(
+            pending.next
+                == PendingRunEnvelope.defaultCollectInstruction(
+                    forCompletionToken: pending.completionToken, describing: "gated_background_tool"))
         gate.open()
         _ = await runPlane.sweep()
     }

@@ -667,8 +667,25 @@ enum MountFixtures {
             return "collected: \(arguments.value)"
         }
 
-        func collectInstruction(forCompletionToken completionToken: String) -> String {
+        func collectInstruction(forCompletionToken completionToken: String, describing _: String) -> String {
             Self.collectInstruction(forCompletionToken: completionToken)
+        }
+    }
+
+    /// Waits on its gate, and describes each call from its arguments.
+    struct DescribedCallTool: Tool, BackgroundTool {
+        let name = "described_call_tool"
+        let description = "describes each call by its arguments"
+        let gate: RunLatch
+
+        func call(arguments: MountArguments) async throws -> String {
+            await gate.waitUntilOpen()
+            return "described: \(arguments.value)"
+        }
+
+        func callDescription(for arguments: GeneratedContent) -> String? {
+            guard let value = try? arguments.value(String.self, forProperty: "value") else { return nil }
+            return "execute python \(value)"
         }
     }
 

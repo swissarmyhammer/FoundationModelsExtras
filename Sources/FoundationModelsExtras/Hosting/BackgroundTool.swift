@@ -33,12 +33,23 @@ public protocol BackgroundTool {
     /// - Returns: The timeout in seconds, or `nil` to use the mount's timeout.
     func timeout(from arguments: GeneratedContent) -> TimeInterval?
 
+    /// A short description of one call, read from its arguments, such as
+    /// `execute python tests/runtests.py`. The pending envelope names the call
+    /// by it.
+    ///
+    /// - Parameter arguments: The arguments of the call.
+    /// - Returns: The description, or `nil` to use the op of the call.
+    func callDescription(for arguments: GeneratedContent) -> String?
+
     /// The `next` sentence of a pending envelope. It must name
     /// `completionToken`.
     ///
-    /// - Parameter completionToken: The completion token of the run.
+    /// - Parameters:
+    ///   - completionToken: The completion token of the run.
+    ///   - description: The description of the call: ``callDescription(for:)``,
+    ///     or the op of the call.
     /// - Returns: The sentence as plain text. The envelope escapes it.
-    func collectInstruction(forCompletionToken completionToken: String) -> String
+    func collectInstruction(forCompletionToken completionToken: String, describing description: String) -> String
 
     /// How long a call waits for its own run before it answers, in seconds.
     ///
@@ -74,12 +85,17 @@ public protocol BackgroundTool {
 }
 
 extension BackgroundTool {
-    /// The default: ``PendingRunEnvelope/defaultCollectInstruction(forCompletionToken:)``.
-    /// It names the run by its completion token, then gives
-    /// ``PendingRunEnvelope/pendingWorkInstruction``: the session injects the
-    /// result as a new message, so the model calls no tool to wait or to check.
-    public func collectInstruction(forCompletionToken completionToken: String) -> String {
-        PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken)
+    /// The default: ``PendingRunEnvelope/defaultCollectInstruction(forCompletionToken:describing:)``.
+    /// It names the call by its description and completion token: the result
+    /// arrives as a message, and with no other work left the model posts
+    /// `Waiting on <description> (<token>).`
+    public func collectInstruction(forCompletionToken completionToken: String, describing description: String) -> String {
+        PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken, describing: description)
+    }
+
+    /// The default: `nil`, so the call is named by its op.
+    public func callDescription(for arguments: GeneratedContent) -> String? {
+        nil
     }
 
     /// The default: no declared mount.

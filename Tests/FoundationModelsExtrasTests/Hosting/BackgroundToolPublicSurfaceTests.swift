@@ -41,9 +41,13 @@ struct BackgroundToolPublicSurfaceTests {
         #expect(tool.timeout(from: GeneratedContent(properties: [:])) == nil)
         #expect(tool.runKind == .swiftTask)
         #expect(tool.canceler(forCompletionToken: completionToken) == nil)
+        #expect(tool.callDescription(for: GeneratedContent(properties: [:])) == nil)
         #expect(
-            tool.collectInstruction(forCompletionToken: completionToken)
-                == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken))
+            tool.collectInstruction(forCompletionToken: completionToken, describing: "agent coder")
+                == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken, describing: "agent coder"))
+        #expect(
+            PendingRunEnvelope.waitingStatusInstruction(for: [(description: "agent coder", completionToken: completionToken)])
+                == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: completionToken, describing: "agent coder"))
     }
 
     @Test("the default settle period is 6 seconds")

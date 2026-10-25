@@ -113,6 +113,25 @@ struct BackgroundToolRunnerTests {
         #expect(terminal.detail == "collected: own sentence")
     }
 
+    @Test("a tool that describes its call gets the default next sentence that names the call by that description")
+    func toolSuppliedCallDescriptionNamesTheCall() async throws {
+        let gate = RunLatch()
+        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.DescribedCallTool(gate: gate), timeout: nil)
+
+        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "tests/runtests.py"))
+
+        let envelope = try Fixtures.decodeEnvelope(rendered)
+        #expect(envelope.isPending)
+        #expect(
+            envelope.next
+                == PendingRunEnvelope.defaultCollectInstruction(
+                    forCompletionToken: envelope.completionToken, describing: "execute python tests/runtests.py"))
+        #expect(envelope.next.contains("`Waiting on execute python tests/runtests.py (\(envelope.completionToken)).`"))
+
+        gate.open()
+        _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
+    }
+
     // MARK: - The settle period of each call
 
     @Test("a tool that states no grace reads the settle period that its mount site configured")
@@ -402,8 +421,11 @@ struct BackgroundToolRunnerTests {
         let rendered = try await clock.elapse(Self.configuredSiteGrace, endingWait: calling)
         let envelope = try Fixtures.decodeEnvelope(rendered)
         #expect(envelope.isPending)
-        #expect(envelope.next == PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: envelope.completionToken))
-        #expect(rendered == PendingRunEnvelope(completionToken: envelope.completionToken).rendered)
+        // A tool that gives no description of its call is named by its op.
+        let next = PendingRunEnvelope.defaultCollectInstruction(
+            forCompletionToken: envelope.completionToken, describing: "site_grace_tool")
+        #expect(envelope.next == next)
+        #expect(rendered == PendingRunEnvelope(completionToken: envelope.completionToken, next: next).rendered)
 
         gate.open()
         let terminal = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
