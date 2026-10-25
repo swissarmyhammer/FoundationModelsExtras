@@ -49,6 +49,9 @@ public actor RunPlane {
         /// The `"verb noun"` op of the run.
         let op: String
 
+        /// The description of the call of the run.
+        let description: String
+
         /// The kind of work of the run.
         let kind: RunKind
 
@@ -312,6 +315,8 @@ public actor RunPlane {
     /// - Parameters:
     ///   - tool: The name of the tool that owns the run.
     ///   - op: The `"verb noun"` op of the run.
+    ///   - description: A short description of the call of the run, or `nil`
+    ///     for `op`. The default is `nil`.
     ///   - kind: The kind of work of the run.
     ///   - completionToken: The completion token of the run.
     ///   - canceler: Asks the run to stop and reports the outcome, or `nil`
@@ -327,6 +332,7 @@ public actor RunPlane {
     public func start(
         tool: String,
         op: String,
+        description: String? = nil,
         kind: RunKind,
         completionToken: String,
         canceler: (@Sendable () async -> OperationOutcome)?,
@@ -356,7 +362,8 @@ public actor RunPlane {
         }
         runs.append(
             Run(
-                token: completionToken, tool: tool, op: op, kind: kind, canceler: canceler ?? cooperative,
+                token: completionToken, tool: tool, op: op, description: description ?? op, kind: kind,
+                canceler: canceler ?? cooperative,
                 ticket: ticket, lease: lease))
         return .started
     }
@@ -427,6 +434,7 @@ public actor RunPlane {
             completionToken: run.token,
             tool: run.tool,
             op: run.op,
+            description: run.description,
             kind: run.kind,
             latestProgressDetail: run.latestProgressDetail
         )

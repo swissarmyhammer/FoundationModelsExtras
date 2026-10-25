@@ -132,6 +132,38 @@ struct BackgroundToolRunnerTests {
         _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
     }
 
+    @Test("the run plane lists a run of a tool that describes its call under that description")
+    func backgroundRunCarriesTheCallDescription() async throws {
+        let gate = RunLatch()
+        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.DescribedCallTool(gate: gate), timeout: nil)
+
+        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "tests/runtests.py"))
+        let envelope = try Fixtures.decodeEnvelope(rendered)
+
+        let run = try #require(await harness.runPlane.backgroundRuns().first)
+        #expect(run.completionToken == envelope.completionToken)
+        #expect(run.description == "execute python tests/runtests.py")
+
+        gate.open()
+        _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
+    }
+
+    @Test("the run plane lists a run of a tool that gives no description under its op")
+    func backgroundRunWithNoDescriptionCarriesItsOp() async throws {
+        let gate = RunLatch()
+        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.GatedTool(gate: gate))
+
+        let rendered = try await harness.mounted.call(arguments: MountArguments(value: "slow"))
+        let envelope = try Fixtures.decodeEnvelope(rendered)
+
+        let run = try #require(await harness.runPlane.backgroundRuns().first)
+        #expect(run.description == run.op)
+        #expect(run.description == "gated_tool")
+
+        gate.open()
+        _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: harness.runPlane)
+    }
+
     // MARK: - The settle period of each call
 
     @Test("a tool that states no grace reads the settle period that its mount site configured")

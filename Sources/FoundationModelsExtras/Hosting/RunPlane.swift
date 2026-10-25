@@ -24,6 +24,13 @@ public struct BackgroundRun: Sendable, Equatable {
     /// The `"verb noun"` op string of the run.
     public let op: String
 
+    /// A short description of the call of the run, such as
+    /// `execute python tests/runtests.py`: the
+    /// ``BackgroundTool/callDescription(for:)`` of the call, or ``op`` when
+    /// the tool gives none. A waiting status names the run by it, through
+    /// ``PendingRunEnvelope/waitingStatusInstruction(for:)``.
+    public let description: String
+
     /// The kind of work of the run.
     public let kind: RunKind
 

@@ -97,21 +97,30 @@ struct BackgroundToolRunner<
         wrapped as? any BackgroundTool
     }
 
-    /// The `next` text of the pending envelope of `run`. It names the call by
-    /// the description that the tool gives for `arguments`, or by the op of
-    /// the call.
+    /// The description of the call of `run`: what the tool gives for
+    /// `arguments`, or the op of the call.
     ///
     /// - Parameters:
     ///   - arguments: The arguments of the call.
     ///   - run: The run of the call.
+    /// - Returns: The description.
+    private func callDescription(of arguments: Arguments, in run: ToolRun<Arguments>) -> String {
+        let declaration = ToolMounting.backgroundDeclaration(of: wrapped, for: arguments)
+        return declaration.flatMap { $0.tool.callDescription(for: $0.content) } ?? run.context.op
+    }
+
+    /// The `next` text of the pending envelope of the run `token`, for the
+    /// call that `description` names.
+    ///
+    /// - Parameters:
+    ///   - token: The completion token of the run.
+    ///   - description: The description of the call.
     /// - Returns: The text.
-    private func collectInstruction(of arguments: Arguments, in run: ToolRun<Arguments>) -> String {
-        let token = run.context.completionToken
-        guard let declaration = ToolMounting.backgroundDeclaration(of: wrapped, for: arguments) else {
-            return PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: token, describing: run.context.op)
+    private func collectInstruction(forCompletionToken token: String, describing description: String) -> String {
+        guard let declared else {
+            return PendingRunEnvelope.defaultCollectInstruction(forCompletionToken: token, describing: description)
         }
-        let description = declaration.tool.callDescription(for: declaration.content) ?? run.context.op
-        return declaration.tool.collectInstruction(forCompletionToken: token, describing: description)
+        return declared.collectInstruction(forCompletionToken: token, describing: description)
     }
 
     /// The settle period of this call, in seconds.
@@ -165,7 +174,9 @@ struct BackgroundToolRunner<
         // this run.
         let run = makeRun(arguments: arguments, on: site.held(by: nil, settlingBy: deadline))
         let token = run.context.completionToken
-        let pending = PendingRunEnvelope(completionToken: token, next: collectInstruction(of: arguments, in: run))
+        let description = callDescription(of: arguments, in: run)
+        let pending = PendingRunEnvelope(
+            completionToken: token, next: collectInstruction(forCompletionToken: token, describing: description))
         let result = Promise<Result<String, any Error>>()
         let claim = InlineAnswerClaim(callWaits: grace > 0)
         let sink = site.sink
@@ -175,6 +186,7 @@ struct BackgroundToolRunner<
         let started = await site.runPlane.start(
             tool: run.context.tool,
             op: run.context.op,
+            description: description,
             kind: declared?.runKind ?? .swiftTask,
             completionToken: token,
             canceler: canceler(of: run),
