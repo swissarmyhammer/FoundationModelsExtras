@@ -25,6 +25,9 @@ struct MLXModelLoaderTests {
     /// The repository of the key that each test measures.
     private static let repository = "org/model"
 
+    /// The repository of the MTP drafter of a key that names one.
+    private static let drafter = "org/model-mtp"
+
     /// The commit that the ref file of the default revision names.
     private static let mainCommit = "0123456789abcdef"
 
@@ -100,6 +103,58 @@ struct MLXModelLoaderTests {
         let bytes = try await loader.footprintBytes(of: key)
 
         #expect(bytes == Int64(Self.firstWeightBytes + Self.secondWeightBytes))
+    }
+
+    @Test("the footprint of a key whose ref names an MTP drafter adds the weight files of the drafter")
+    func footprintAddsTheDrafter() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = HubCache(cacheDirectory: root)
+        try Self.writeSnapshot(in: cache, ref: MLXModelLoader.defaultRevision, commit: Self.mainCommit)
+        try Self.writeSnapshot(
+            in: cache, ref: MLXModelLoader.defaultRevision, commit: Self.pinnedCommit, repository: Self.drafter)
+        let loader = MLXModelLoader(cache: cache)
+        let ref = ModelRef(repo: Self.repository, drafter: ModelRef(Self.drafter))
+
+        let bytes = try await loader.footprintBytes(of: ModelPoolKey(ref: ref, role: .llm))
+
+        #expect(bytes == 2 * Int64(Self.firstWeightBytes + Self.secondWeightBytes))
+    }
+
+    @Test("an LLM key with no drafter speculates with nothing")
+    func noDrafterNoSpeculation() throws {
+        let loader = MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")))
+
+        #expect(try loader.speculativeDecoding(for: ModelPoolKey(ref: ModelRef(Self.repository), role: .llm)) == nil)
+    }
+
+    @Test("an LLM key whose ref names a drafter speculates with that drafter at its revision")
+    func drafterSpeculates() throws {
+        let loader = MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")))
+        let ref = ModelRef(repo: Self.repository, drafter: ModelRef(repo: Self.drafter, revision: Self.pinnedCommit))
+
+        let speculation = try #require(try loader.speculativeDecoding(for: ModelPoolKey(ref: ref, role: .llm)))
+
+        guard case .id(let id, let revision) = speculation.drafterConfiguration.id else {
+            Issue.record("the drafter configuration is not a model id")
+            return
+        }
+        #expect(id == Self.drafter)
+        #expect(revision == Self.pinnedCommit)
+    }
+
+    @Test("a drafter with no revision speculates with the main revision of the drafter")
+    func drafterDefaultRevision() throws {
+        let loader = MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")))
+        let ref = ModelRef(repo: Self.repository, drafter: ModelRef(Self.drafter))
+
+        let speculation = try #require(try loader.speculativeDecoding(for: ModelPoolKey(ref: ref, role: .llm)))
+
+        guard case .id(_, let revision) = speculation.drafterConfiguration.id else {
+            Issue.record("the drafter configuration is not a model id")
+            return
+        }
+        #expect(revision == MLXModelLoader.defaultRevision)
     }
 
     @Test("the footprint of a key that the cache does not hold throws notInCache")
@@ -347,7 +402,7 @@ struct MLXModelLoaderTests {
         if let value { setenv(name, value, 1) } else { unsetenv(name) }
     }
 
-    /// Writes one snapshot of ``repository`` in `cache`: two weight files and
+    /// Writes one snapshot of `repository` in `cache`: two weight files and
     /// one configuration file, each a link to a blob.
     ///
     /// - Parameters:
@@ -355,8 +410,12 @@ struct MLXModelLoaderTests {
     ///   - ref: The ref file to write, which names `commit`, or `nil` for no
     ///     ref file.
     ///   - commit: The commit of the snapshot.
+    ///   - repository: The repository of the snapshot, ``repository`` when
+    ///     not given.
     /// - Throws: The error of a file write.
-    private static func writeSnapshot(in cache: HubCache, ref: String?, commit: String) throws {
+    private static func writeSnapshot(
+        in cache: HubCache, ref: String?, commit: String, repository: String = repository
+    ) throws {
         let repo = try #require(Repo.ID(rawValue: repository))
         if let ref {
             try cache.updateRef(repo: repo, kind: .model, ref: ref, commit: commit)

@@ -48,6 +48,10 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The tokenizer loader of each load, of an LLM and of an embedding model.
     let tokenizerLoader: any TokenizerLoader
 
+    /// The factory that loads the MTP drafter of a reference that names one,
+    /// and the registration of its drafter model types.
+    private let drafterRegistration: MTPDrafterRegistration
+
     /// Makes a loader over a Hugging Face cache. The download writes to this
     /// cache, the load reads the weights from it, and the footprint measures
     /// the weights in it.
@@ -84,13 +88,20 @@ public struct MLXModelLoader: PooledModelLoader {
     ///     of an embedding model. For example, a loader that gives a chat
     ///     template with a pinned date. `nil` uses the Hugging Face tokenizer
     ///     loader.
+    ///   - drafterRegistration: The factory that loads the MTP drafter of a
+    ///     reference that names one (``ModelRef/drafter``). It must match the
+    ///     factory that loaded the target: `loadModelContainer` loads a
+    ///     Qwen3.5-family target as a vision-language model whenever MLXVLM is
+    ///     linked, so a host that links MLXVLM passes
+    ///     `.matchingTarget(.qwen35Text, .qwen35VLM)`. A drafter that cannot
+    ///     draft for the target leaves each call to plain decode.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
-        tokenizerLoader: (any TokenizerLoader)? = nil
+        tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text
     ) {
         self.init(
             cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenProvider: tokenProvider,
-            tokenizerLoader: tokenizerLoader)
+            tokenizerLoader: tokenizerLoader, drafterRegistration: drafterRegistration)
     }
 
     /// Makes a loader over `cache`.
@@ -102,12 +113,15 @@ public struct MLXModelLoader: PooledModelLoader {
     ///     `.environment` reads `HF_TOKEN` and `~/.cache/huggingface/token`.
     ///   - tokenizerLoader: The tokenizer loader of each load. `nil` uses the
     ///     Hugging Face tokenizer loader.
+    ///   - drafterRegistration: The factory that loads an MTP drafter.
     init(
-        cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil
+        cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil,
+        drafterRegistration: MTPDrafterRegistration = .qwen35Text
     ) {
         self.cache = cache
         self.tokenProvider = tokenProvider
         self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
+        self.drafterRegistration = drafterRegistration
     }
 
     /// Downloads the model of `key` when the cache does not hold it, and loads
@@ -148,6 +162,7 @@ public struct MLXModelLoader: PooledModelLoader {
         case .llm:
             return try await Self.loadLanguageModel(
                 configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader,
+                speculativeDecoding: try speculativeDecoding(for: key),
                 weightsLocation: { [cache] id in Self.weightsDirectory(of: id, in: cache) })
         case .embedding:
             return try await MLXEmbedding.load(
@@ -169,11 +184,41 @@ public struct MLXModelLoader: PooledModelLoader {
     /// these files as one MLX array, thus this is about the memory of the
     /// model.
     ///
+    /// A key whose reference names an MTP drafter also counts the weight
+    /// files of the drafter, which the model loads beside its own.
+    ///
     /// - Parameter key: A model that ``load(_:)`` loaded.
-    /// - Returns: The sum of the sizes of the weight files.
+    /// - Returns: The sum of the sizes of the weight files, of the drafter
+    ///   too.
+    /// - Throws: ``MLXModelLoaderError`` when the cache does not hold the
+    ///   model or its drafter, or the error of a file read.
+    public func footprintBytes(of key: ModelPoolKey) async throws -> Int64 {
+        let drafterBytes = try key.ref.drafter.map { try weightBytes(of: ModelPoolKey(ref: $0, role: key.role)) } ?? 0
+        return try weightBytes(of: key) + drafterBytes
+    }
+
+    /// The MTP speculative decoding of the model of `key`: the drafter that
+    /// its reference names, loaded by the drafter registration of the loader
+    /// with the downloader and the tokenizer loader of the loader.
+    ///
+    /// - Parameter key: The model and its role.
+    /// - Returns: The speculative decoding, or `nil` for an embedding key or
+    ///   a reference with no drafter.
+    /// - Throws: The error of `MLXSpeculativeDecoding` for a bad block size.
+    func speculativeDecoding(for key: ModelPoolKey) throws -> MLXSpeculativeDecoding? {
+        guard key.role == .llm, let drafter = key.ref.drafter else { return nil }
+        return try MLXSpeculativeDecoding(
+            drafterConfiguration: ModelConfiguration(id: drafter.repo, revision: Self.revision(of: drafter)),
+            from: #hubDownloader(hubClient()), using: tokenizerLoader, registration: drafterRegistration)
+    }
+
+    /// The sum of the sizes of the weight files of `key` alone.
+    ///
+    /// - Parameter key: The model.
+    /// - Returns: The sum of the sizes of its weight files.
     /// - Throws: ``MLXModelLoaderError`` when the cache does not hold the
     ///   model, or the error of a file read.
-    public func footprintBytes(of key: ModelPoolKey) async throws -> Int64 {
+    private func weightBytes(of key: ModelPoolKey) throws -> Int64 {
         let snapshot = try snapshotDirectory(of: key)
         let files = try FileManager.default.contentsOfDirectory(at: snapshot, includingPropertiesForKeys: nil)
         return try files.filter { $0.pathExtension == Self.weightFileExtension }.reduce(0) { total, file in
@@ -216,7 +261,12 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The revision of `key` that the loader loads. The load span of the pool
     /// records this revision.
     static func revision(of key: ModelPoolKey) -> String {
-        key.ref.revision ?? defaultRevision
+        revision(of: key.ref)
+    }
+
+    /// The revision of `ref` that the loader loads.
+    static func revision(of ref: ModelRef) -> String {
+        ref.revision ?? defaultRevision
     }
 
     /// Finds the snapshot folder of `key` in the cache. The revision is a ref,
@@ -264,16 +314,19 @@ public struct MLXModelLoader: PooledModelLoader {
     ///   - configuration: The model and its revision.
     ///   - downloader: The downloader of the files of the model.
     ///   - tokenizerLoader: The loader of the tokenizer of the model.
+    ///   - speculativeDecoding: The MTP drafter of the model, or `nil` for
+    ///     plain decode. The model loads the drafter on its first generation.
     ///   - weightsLocation: Gives the folder of the weights of a model.
     /// - Returns: The loaded model.
     /// - Throws: The error of the download or of the load.
     private static func loadLanguageModel(
         configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
-        tokenizerLoader: any TokenizerLoader, weightsLocation: @escaping @Sendable (String) -> URL
+        tokenizerLoader: any TokenizerLoader, speculativeDecoding: MLXSpeculativeDecoding?,
+        weightsLocation: @escaping @Sendable (String) -> URL
     ) async throws -> MLXLanguageModel {
         let model = MLXLanguageModel(
             configuration: configuration, capabilities: languageModelCapabilities,
-            weightsLocation: weightsLocation
+            speculativeDecoding: speculativeDecoding, weightsLocation: weightsLocation
         ) { configuration, progress in
             try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
                 try await loadModelContainer(

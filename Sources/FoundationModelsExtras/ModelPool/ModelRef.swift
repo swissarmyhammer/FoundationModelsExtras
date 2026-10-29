@@ -10,9 +10,20 @@
 /// `ModelRef` is `ExpressibleByStringLiteral`: a bare string literal such as
 /// `"mlx-community/Qwen2.5-Coder-32B-Instruct-8bit"` is a valid `ModelRef`.
 ///
+/// A reference can also name the MTP drafter of the model: a second
+/// checkpoint that drafts tokens for the target to verify. A drafter is part
+/// of the identity of the reference, because the model it loads speculates.
+///
 /// The type is a value type with no dependency on MLX. It is `Sendable`,
-/// `Hashable`, and `Codable`. It encodes to and decodes from its canonical
-/// string form (`repo` or `repo@revision`).
+/// `Hashable`, and `Codable`. A reference with no drafter encodes to and
+/// decodes from its canonical string form (`repo` or `repo@revision`). A
+/// reference with a drafter encodes to a mapping, which a YAML profile writes
+/// as:
+///
+/// ```yaml
+/// - repo: mlx-community/Qwen3.8-27B-4bit
+///   drafter: mlx-community/Qwen3.8-27B-MTP-4bit
+/// ```
 public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable {
     /// The Hugging Face repository id, e.g. `"org/repo"`. Never includes the
     /// revision suffix.
@@ -21,6 +32,18 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
     /// The pinned revision (commit hash, tag, or branch), or `nil` when the
     /// reference tracks the repository's default revision.
     public let revision: String?
+
+    /// The repository of the MTP drafter, or `nil` for plain decode. Stored
+    /// as its parts, because a struct cannot hold a value of its own type.
+    private let drafterRepo: String?
+
+    /// The pinned revision of the MTP drafter.
+    private let drafterRevision: String?
+
+    /// The keys of the mapping form.
+    private enum CodingKeys: String, CodingKey {
+        case repo, drafter
+    }
 
     /// The separator between repository id and revision in the canonical
     /// string form.
@@ -42,9 +65,18 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
     /// - Parameters:
     ///   - repo: The Hugging Face repository id, e.g. `"org/repo"`.
     ///   - revision: The pinned revision, or `nil` to track the default.
-    public init(repo: String, revision: String? = nil) {
+    ///   - drafter: The MTP drafter of the model, or `nil` for plain decode.
+    public init(repo: String, revision: String? = nil, drafter: ModelRef? = nil) {
         self.repo = repo
         self.revision = Self.normalized(revision)
+        self.drafterRepo = drafter?.repo
+        self.drafterRevision = drafter?.revision
+    }
+
+    /// The MTP drafter of the model, or `nil` for plain decode. The drafter
+    /// of a drafter is never kept.
+    public var drafter: ModelRef? {
+        drafterRepo.map { ModelRef(repo: $0, revision: drafterRevision) }
     }
 
     /// Parses a model reference from its string form.
@@ -89,21 +121,36 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
         return "\(repo)\(Self.revisionSeparator)\(revision)"
     }
 
-    /// Encodes the reference as its canonical string form.
+    /// Encodes the reference as its canonical string form, or as the mapping
+    /// `{repo, drafter}` when it names a drafter.
     ///
-    /// - Parameter encoder: The encoder to write the string into.
+    /// - Parameter encoder: The encoder to write into.
     /// - Throws: What the encoder throws.
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(stringValue)
+        guard let drafter else {
+            var container = encoder.singleValueContainer()
+            try container.encode(stringValue)
+            return
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stringValue, forKey: .repo)
+        try container.encode(drafter.stringValue, forKey: .drafter)
     }
 
-    /// Decodes a reference from its canonical string form.
+    /// Decodes a reference from its canonical string form, or from the
+    /// mapping `{repo, drafter}`, whose `drafter` is optional. Each value of
+    /// the mapping is a string form.
     ///
-    /// - Parameter decoder: The decoder to read the string from.
+    /// - Parameter decoder: The decoder to read from.
     /// - Throws: What the decoder throws.
     public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        self.init(try container.decode(String.self))
+        if let string = try? decoder.singleValueContainer().decode(String.self) {
+            self.init(string)
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let target = ModelRef(try container.decode(String.self, forKey: .repo))
+        let drafter = try container.decodeIfPresent(String.self, forKey: .drafter).map(ModelRef.init(_:))
+        self.init(repo: target.repo, revision: target.revision, drafter: drafter)
     }
 }

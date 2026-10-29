@@ -112,4 +112,56 @@ struct ModelRefTests {
         let decoded = try JSONDecoder().decode(ModelRef.self, from: JSONEncoder().encode(pinned))
         #expect(decoded == pinned)
     }
+
+    @Test("a ModelRef with no drafter names none")
+    func noDrafter() {
+        #expect(ModelRef("org/repo").drafter == nil)
+    }
+
+    @Test("ModelRef.init(repo:revision:drafter:) keeps the MTP drafter beside the target")
+    func memberwiseInitWithDrafter() {
+        let ref = ModelRef(repo: "org/target", revision: "abc123", drafter: "org/drafter@def456")
+
+        #expect(ref.repo == "org/target")
+        #expect(ref.revision == "abc123")
+        #expect(ref.drafter == ModelRef("org/drafter@def456"))
+        #expect(ref.stringValue == "org/target@abc123")
+    }
+
+    @Test("a drafter makes a different ModelRef from the same target with no drafter")
+    func drafterIsPartOfTheIdentity() {
+        let plain = ModelRef("org/target")
+        let speculating = ModelRef(repo: "org/target", drafter: "org/drafter")
+
+        #expect(speculating != plain)
+        #expect(Set([plain, speculating]).count == 2)
+    }
+
+    @Test("a mapping with repo and drafter decodes to a ModelRef with a drafter")
+    func mappingDecodesTheDrafter() throws {
+        let json = #"{"repo": "org/target@abc123", "drafter": "org/drafter@def456"}"#
+
+        let decoded = try JSONDecoder().decode(ModelRef.self, from: Data(json.utf8))
+
+        #expect(decoded == ModelRef(repo: "org/target", revision: "abc123", drafter: "org/drafter@def456"))
+    }
+
+    @Test("a mapping with repo alone decodes to the ModelRef of the string form")
+    func mappingWithoutDrafterIsTheStringForm() throws {
+        let decoded = try JSONDecoder().decode(ModelRef.self, from: Data(#"{"repo": "org/target"}"#.utf8))
+
+        #expect(decoded == ModelRef("org/target"))
+    }
+
+    @Test("a ModelRef with a drafter round-trips through the mapping form")
+    func drafterCodableRoundTrip() throws {
+        let ref = ModelRef(repo: "org/target", drafter: "org/drafter@def456")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
+
+        let data = try encoder.encode(ref)
+
+        #expect(String(decoding: data, as: UTF8.self) == #"{"drafter":"org/drafter@def456","repo":"org/target"}"#)
+        #expect(try JSONDecoder().decode(ModelRef.self, from: data) == ref)
+    }
 }
