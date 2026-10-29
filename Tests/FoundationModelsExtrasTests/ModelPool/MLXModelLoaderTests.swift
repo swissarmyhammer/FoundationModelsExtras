@@ -143,6 +143,42 @@ struct MLXModelLoaderTests {
         #expect(revision == Self.pinnedCommit)
     }
 
+    @Test("an MTP drafter loads under the recommended working set, which falls back to plain decode when it does not fit")
+    func drafterHasAMemoryPolicy() throws {
+        let loader = MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")))
+        let ref = ModelRef(repo: Self.repository, drafter: ModelRef(Self.drafter))
+
+        let speculation = try #require(try loader.speculativeDecoding(for: ModelPoolKey(ref: ref, role: .llm)))
+
+        #expect(speculation.memoryPolicy == .recommendedWorkingSet)
+        #expect(speculation.memoryPolicy?.action == .fallbackToDefault)
+    }
+
+    @Test("a cached MTP drafter states its weight bytes, so the memory policy weighs it before it loads")
+    func cachedDrafterStatesItsBytes() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = HubCache(cacheDirectory: root)
+        try Self.writeSnapshot(
+            in: cache, ref: MLXModelLoader.defaultRevision, commit: Self.mainCommit, repository: Self.drafter)
+        let loader = MLXModelLoader(cache: cache)
+        let ref = ModelRef(repo: Self.repository, drafter: ModelRef(Self.drafter))
+
+        let speculation = try #require(try loader.speculativeDecoding(for: ModelPoolKey(ref: ref, role: .llm)))
+
+        #expect(speculation.drafterBytes == Self.firstWeightBytes + Self.secondWeightBytes)
+    }
+
+    @Test("a drafter that the cache does not hold yet states no bytes, so the policy weighs it after it loads")
+    func uncachedDrafterStatesNoBytes() throws {
+        let loader = MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")))
+        let ref = ModelRef(repo: Self.repository, drafter: ModelRef(Self.drafter))
+
+        let speculation = try #require(try loader.speculativeDecoding(for: ModelPoolKey(ref: ref, role: .llm)))
+
+        #expect(speculation.drafterBytes == nil)
+    }
+
     @Test("a drafter with no revision speculates with the main revision of the drafter")
     func drafterDefaultRevision() throws {
         let loader = MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")))

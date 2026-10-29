@@ -201,15 +201,25 @@ public struct MLXModelLoader: PooledModelLoader {
     /// its reference names, loaded by the drafter registration of the loader
     /// with the downloader and the tokenizer loader of the loader.
     ///
+    /// The drafter loads under the recommended working set of the GPU
+    /// (`SpeculativeDecodingMemoryPolicy.recommendedWorkingSet`): a drafter
+    /// that does not fit leaves each call to plain decode, and the call
+    /// reports the fallback reason `memoryBudgetExceeded`. When the cache
+    /// holds the drafter, its weight bytes go with it, so the policy weighs a
+    /// drafter before it loads it. A drafter that is not downloaded yet is
+    /// weighed after it loads.
+    ///
     /// - Parameter key: The model and its role.
     /// - Returns: The speculative decoding, or `nil` for an embedding key or
     ///   a reference with no drafter.
     /// - Throws: The error of `MLXSpeculativeDecoding` for a bad block size.
     func speculativeDecoding(for key: ModelPoolKey) throws -> MLXSpeculativeDecoding? {
         guard key.role == .llm, let drafter = key.ref.drafter else { return nil }
+        let drafterBytes = (try? weightBytes(of: ModelPoolKey(ref: drafter, role: .llm))).map { Int($0) }
         return try MLXSpeculativeDecoding(
             drafterConfiguration: ModelConfiguration(id: drafter.repo, revision: Self.revision(of: drafter)),
-            from: #hubDownloader(hubClient()), using: tokenizerLoader, registration: drafterRegistration)
+            from: #hubDownloader(hubClient()), using: tokenizerLoader, registration: drafterRegistration,
+            drafterBytes: drafterBytes, memoryPolicy: .recommendedWorkingSet)
     }
 
     /// The sum of the sizes of the weight files of `key` alone.
