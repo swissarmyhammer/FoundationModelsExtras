@@ -319,7 +319,7 @@ import Testing
 
   // MARK: - README example
 
-  /// Mirrored in README.md's IgnoreProcessor section — keep in sync.
+  /// Mirrored in docs/REFERENCE.md's IgnoreProcessor section — keep in sync.
   ///
   /// Loads a `.gitignore` and a `.reviewignore` from disk, combines them
   /// with `+`, and checks the resulting verdict's `description` -- the

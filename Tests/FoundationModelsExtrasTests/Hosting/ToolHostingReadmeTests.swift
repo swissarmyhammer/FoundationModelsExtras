@@ -29,7 +29,7 @@ private struct RunTests: Tool, BackgroundTool {
 
 // README example: end (the tool)
 
-/// Keeps the "Tool hosting" example of `README.md` correct. The tool and the
+/// Keeps the "Tool hosting" example of `docs/REFERENCE.md` correct. The tool and the
 /// mount code are the same as in the README. The test calls the mounted tool
 /// as the model does, then collects the result from the run plane as the host
 /// does.

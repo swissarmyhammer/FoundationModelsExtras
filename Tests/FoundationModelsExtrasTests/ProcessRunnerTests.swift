@@ -485,7 +485,7 @@ import Testing
 
   // MARK: - README example
 
-  /// Mirrored in the `ProcessRunner` section of README.md. Keep the two in
+  /// Mirrored in the `ProcessRunner` section of docs/REFERENCE.md. Keep the two in
   /// sync.
   ///
   /// Makes the one call the README shows, with the README's script, and
