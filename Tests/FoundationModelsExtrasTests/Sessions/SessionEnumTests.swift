@@ -27,7 +27,7 @@ struct SessionEnumTests {
     @Test(
         "each send outcome survives a JSON round trip",
         arguments: [
-            SessionSendReceipt.Outcome.delivered, .queued, .started, .refused,
+            SessionSendReceipt.Outcome.delivered, .queued, .started, .refused, .sent,
         ])
     func eachOutcomeSurvivesARoundTrip(outcome: SessionSendReceipt.Outcome) throws {
         #expect(try SessionFixtures.roundTrip(outcome) == outcome)

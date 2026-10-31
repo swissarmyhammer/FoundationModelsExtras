@@ -16,6 +16,11 @@ public struct SessionSendReceipt: Sendable, Codable, Equatable {
 
         /// A loop guard, an archived target or no match refused the message.
         case refused
+
+        /// The message is written where the target reads it, but it is not in
+        /// the queue of the target yet. The send does not tell if the target
+        /// starts a turn. A later delivery event tells that.
+        case sent
     }
 
     /// The id of the mail that carries the message, or `nil` when no mail

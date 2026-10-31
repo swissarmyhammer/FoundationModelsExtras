@@ -12,6 +12,7 @@ struct SessionSendReceiptTests {
             SessionSendReceipt(messageID: MailID(), target: ULID(), outcome: .delivered),
             SessionSendReceipt(messageID: MailID(), target: ULID(), outcome: .queued),
             SessionSendReceipt(messageID: MailID(), target: ULID(), outcome: .started),
+            SessionSendReceipt(messageID: MailID(), target: ULID(), outcome: .sent),
             SessionSendReceipt(outcome: .refused, reason: "no live root session has this working folder"),
         ])
     func eachReceiptSurvivesARoundTrip(receipt: SessionSendReceipt) throws {
