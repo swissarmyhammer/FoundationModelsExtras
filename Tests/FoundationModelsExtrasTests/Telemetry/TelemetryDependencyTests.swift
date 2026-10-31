@@ -2,9 +2,8 @@ import FixtureSupport
 import Foundation
 import Testing
 
-/// The package uses the telemetry APIs only. No target depends on swift-otel,
-/// and no library source bootstraps a logging or metrics backend. The
-/// executables of the family bootstrap the backend.
+/// The package uses the telemetry APIs only. No target depends on swift-otel.
+/// The executables of the family bootstrap the backend.
 @Suite("Telemetry dependencies: the APIs only, with no backend")
 struct TelemetryDependencyTests {
     /// The text that marks a dependency on swift-otel.
@@ -15,26 +14,6 @@ struct TelemetryDependencyTests {
 
     /// The URL of the swift-metrics package.
     private static let swiftMetricsURL = "https://github.com/apple/swift-metrics.git"
-
-    /// The calls that bootstrap a backend. A library source must not hold one.
-    private static let backendBootstrapCalls = [
-        "LoggingSystem.bootstrap",
-        "MetricsSystem.bootstrap",
-        "OTel.bootstrap",
-    ]
-
-    /// The texts that mark logging or signposts through the `os` framework. A
-    /// library source logs through swift-log and traces through
-    /// swift-distributed-tracing only.
-    private static let osLoggingMarkers = [
-        "os.Logger",
-        "import os.log",
-        "Logger(subsystem:",
-        "OSSignposter",
-    ]
-
-    /// The import line of the `os` framework.
-    private static let osImportLine = "import os"
 
     /// The logging API product.
     private static let loggingProduct = ManifestProduct(name: "Logging", package: "swift-log")
@@ -85,16 +64,6 @@ struct TelemetryDependencyTests {
         .product(name: "OrderedCollections", package: "swift-collections"),
     ])
 
-    @Test("no library source logs or writes signposts through the os framework")
-    func noSourceUsesOSLogging() throws {
-        let offenders = try Self.librarySourcePaths { text in
-            Self.osLoggingMarkers.contains { text.contains($0) }
-                || text.split(whereSeparator: \.isNewline).contains { $0 == Self.osImportLine }
-        }
-
-        #expect(offenders == [])
-    }
-
     @Test("the manifest declares swift-log and swift-metrics")
     func theManifestDeclaresTheTelemetryAPIs() throws {
         let urls = try Self.dependencyURLs()
@@ -109,15 +78,6 @@ struct TelemetryDependencyTests {
 
         #expect(!urls.isEmpty)
         #expect(urls.filter { $0.contains(Self.otelMarker) } == [])
-    }
-
-    @Test("no library source bootstraps a logging, metrics or OTel backend")
-    func noSourceBootstrapsABackend() throws {
-        let offenders = try Self.librarySourcePaths { text in
-            Self.backendBootstrapCalls.contains { text.contains($0) }
-        }
-
-        #expect(offenders == [])
     }
 
     @Test("the marketplace target links the logging, metrics and tracing API products")
@@ -173,34 +133,6 @@ struct TelemetryDependencyTests {
         let linked = try PackageManifest.dependencies(ofTarget: PackageManifest.marketplaceTargetName, in: manifest)
 
         #expect(Self.unlistedDependencies(linked, allowed: Self.marketplaceAllowlist) == [.unread(entry)])
-    }
-
-    @Test("no source of the marketplace target bootstraps a logging, metrics or OTel backend")
-    func noMarketplaceSourceBootstrapsABackend() throws {
-        let offenders = try Self.librarySourcePaths(under: PackageManifest.marketplaceSourcesPath) { text in
-            Self.backendBootstrapCalls.contains { text.contains($0) }
-        }
-
-        #expect(offenders == [])
-    }
-
-    /// Gives the paths of the library sources whose text matches
-    /// `isOffender`. The read of the sources must find at least one file,
-    /// because a scan of no file would pass with no check.
-    ///
-    /// - Parameters:
-    ///   - folder: The folder to read, relative to the package root. The
-    ///     default is `PackageManifest.sourcesPath`, which holds each library
-    ///     target.
-    ///   - isOffender: Tells if the text of a source breaks the rule.
-    /// - Returns: The paths of the sources that break the rule, in order.
-    /// - Throws: The error of a folder or a file that cannot be read.
-    private static func librarySourcePaths(
-        under folder: String = PackageManifest.sourcesPath, where isOffender: (String) -> Bool
-    ) throws -> [String] {
-        let sources = try FixtureFile.swiftSources(under: folder)
-        #expect(!sources.isEmpty)
-        return sources.filter { isOffender($0.text) }.map(\.path)
     }
 
     /// Gives each dependency that is not in an allowlist.

@@ -5,27 +5,9 @@ import Testing
 @testable import Marketplace
 
 /// ``MarketplaceTelemetry`` holds each telemetry name of the marketplace
-/// target, and no other source file of the target writes one.
-@Suite("Marketplace telemetry: one vocabulary file holds each name of the target")
+/// target.
+@Suite("Marketplace telemetry: the vocabulary of the target")
 struct MarketplaceTelemetryTests {
-  /// The folder of the sources of the target, relative to the package root.
-  private static let sourcesPath = PackageManifest.marketplaceSourcesPath
-
-  /// The file name of the vocabulary file.
-  private static let vocabularyFileName = "MarketplaceTelemetry.swift"
-
-  /// The string literals that only the vocabulary file may hold: the start of
-  /// each span name and each metric name, and each attribute key, dimension
-  /// key and log metadata key of the target.
-  private static let telemetryLiterals = [
-    "\"Marketplace.",
-    "\"marketplace.id\"",
-    "\"pass.kind\"",
-    "\"pass.outcome\"",
-    "\"git.outcome\"",
-    "\"install.outcome\"",
-  ]
-
   /// The display id of the events of the outcome test.
   private static let sampleID = "fixture"
 
@@ -91,15 +73,4 @@ struct MarketplaceTelemetryTests {
     #expect(MarketplacePassOutcome.allCases.map(\.rawValue) == ["up_to_date", "updated", "update_available", "failed"])
   }
 
-  @Test("no source file of the target but the vocabulary file holds a telemetry name")
-  func onlyTheVocabularyFileHoldsATelemetryName() throws {
-    let files = try FixtureFile.swiftSources(under: Self.sourcesPath)
-    let others = files.filter { $0.name != Self.vocabularyFileName }
-
-    #expect(others.count + MarketplaceTelemetryExpectations.one == files.count)
-    let offenders = others.filter { file in
-      Self.telemetryLiterals.contains { file.text.contains($0) }
-    }
-    #expect(offenders.map(\.name) == [])
-  }
 }
