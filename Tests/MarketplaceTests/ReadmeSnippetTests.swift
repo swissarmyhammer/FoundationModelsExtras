@@ -5,14 +5,14 @@ import Marketplace
 import MarketplaceFixtures
 import Testing
 
-/// The contract test of the `MarketplaceStore` example of `README.md`.
+/// The contract test of the `MarketplaceStore` example of `docs/REFERENCE.md`.
 ///
 /// The example is real code in
 /// ``theExampleReadsAMarketplaceSkillThroughTheStack()``, between two marker
 /// comments. That test runs it over a repository that `GitFixtureRepository`
 /// builds, and reads the fixture skill through the stack.
 /// ``theReadmeBlockAndTheTestCopyAreTheSameText()`` reads this file and
-/// `README.md` as text, and proves that the fenced block of the README
+/// `docs/REFERENCE.md` as text, and proves that the fenced block of the README
 /// section and the code between the markers are the same text, line for
 /// line. The comparison removes the leading and trailing whitespace of each
 /// line, thus the README can indent the example in its own style, but it

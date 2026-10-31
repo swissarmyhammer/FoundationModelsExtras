@@ -162,7 +162,7 @@ struct SeedFixture {
 /// proves can pass while both are wrong.
 enum MarketplaceTestSupport {
   /// The README, relative to the package root.
-  static let readmePath = "README.md"
+  static let readmePath = "docs/REFERENCE.md"
 
   /// The heading of the README section that documents the marketplace.
   static let readmeMarketplaceHeading = "## Remote layers: `MarketplaceStore`"

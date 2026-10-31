@@ -17,7 +17,7 @@ enum ReadmeExample {
   private static let fenceClosing = "```"
 
   /// The lines of the first fenced Swift block under `heading` in
-  /// `README.md`, with the whitespace of each line trimmed.
+  /// `docs/REFERENCE.md`, with the whitespace of each line trimmed.
   ///
   /// - Parameter heading: The heading line of the README section.
   /// - Returns: The lines between the fence that opens the block and the

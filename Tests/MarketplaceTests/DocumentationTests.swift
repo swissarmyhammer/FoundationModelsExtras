@@ -2,7 +2,7 @@ import FixtureSupport
 import Foundation
 import Testing
 
-/// Guards the document that describes the marketplace: `README.md` holds
+/// Guards the document that describes the marketplace: `docs/REFERENCE.md` holds
 /// the section, and it names no marketplace grant, because there is no
 /// per-marketplace permission.
 ///
