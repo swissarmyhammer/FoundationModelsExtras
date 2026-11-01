@@ -69,8 +69,9 @@ struct CoreMLEmbedding: PooledEmbedding {
         ref: ModelRef, snapshot: URL, cacheDirectory: URL, tokenizerLoader: any TokenizerLoader
     ) async throws -> CoreMLEmbedding {
         let package = try CoreMLPackage.locate(in: snapshot, repository: ref.repo)
-        let compiled = CoreMLPackage.compiledModel(
-            in: cacheDirectory, repository: ref.repo, commit: snapshot.lastPathComponent)
+        let commit =
+            ref.localDirectory == nil ? snapshot.lastPathComponent : CoreMLPackage.localRevision(of: package)
+        let compiled = CoreMLPackage.compiledModel(in: cacheDirectory, repository: ref.repo, commit: commit)
         let model = try await loadModel(package: package, compiled: compiled)
         let contract = try CoreMLEmbeddingContract(description: model.modelDescription)
         let tokenizer = try await CoreMLPackage.withTokenizerFolder(of: snapshot) { folder in

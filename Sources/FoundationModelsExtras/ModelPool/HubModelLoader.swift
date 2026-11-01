@@ -65,9 +65,11 @@ public enum HubModelFormat: Equatable, Sendable {
 ///
 /// An `.llm` key always loads with MLX, because Core ML loads embedding models
 /// only. For an `.embedding` key, the loader decides the format in this order:
-/// 1. When the cache holds the snapshot of the model, the top-level names of
+/// 1. When the reference is the path of an existing folder, the top-level names
+///    of the folder decide, and the loaders load the folder with no download.
+/// 2. When the cache holds the snapshot of the model, the top-level names of
 ///    the snapshot decide. This needs no network.
-/// 2. Otherwise, the file list of the repository on the Hub decides.
+/// 3. Otherwise, the file list of the repository on the Hub decides.
 ///
 /// Both loaders share one cache, one token provider and one `HF_ENDPOINT`.
 public struct HubModelLoader: PooledModelLoader {
@@ -163,12 +165,15 @@ public struct HubModelLoader: PooledModelLoader {
     ///
     /// - Parameter key: The model and its role.
     /// - Returns: ``HubModelFormat/mlx`` for an `.llm` key. For an
-    ///   `.embedding` key, the format of the cached snapshot, or the format of
-    ///   the files on the Hub.
+    ///   `.embedding` key, the format of the local folder, of the cached
+    ///   snapshot, or of the files on the Hub.
     /// - Throws: The error of the file list of the Hub, when the cache holds
     ///   no snapshot.
     func format(of key: ModelPoolKey) async throws -> HubModelFormat {
         guard key.role == .embedding else { return .mlx }
+        if let folder = key.ref.localDirectory {
+            return HubModelFormat.detect(paths: try FileManager.default.contentsOfDirectory(atPath: folder.path))
+        }
         let revision = key.ref.revision ?? ModelRef.defaultRevision
         if let snapshot = hub.snapshotDirectory(of: key.ref.repo, revision: revision),
             let names = try? FileManager.default.contentsOfDirectory(atPath: snapshot.path), !names.isEmpty

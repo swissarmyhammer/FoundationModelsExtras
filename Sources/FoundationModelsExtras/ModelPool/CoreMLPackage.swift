@@ -148,6 +148,22 @@ enum CoreMLPackage {
     /// class reads the rules of the tokenizer from `tokenizer.json`.
     static let standInTokenizerConfig = #"{"tokenizer_class":"PreTrainedTokenizer"}"#
 
+    /// The name of the manifest file inside a model package.
+    private static let manifestName = "Manifest.json"
+
+    /// The stand-in for a commit of a package in a local folder, which has no
+    /// commit. It names the time of the last change of the manifest of the
+    /// package, thus a package that changes in place compiles again.
+    ///
+    /// - Parameter package: The folder of the model package.
+    /// - Returns: A name for the state of the package.
+    static func localRevision(of package: URL) -> String {
+        let manifest = package.appending(path: manifestName)
+        let changed = (try? manifest.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        return "local-\(Int((changed ?? .distantPast).timeIntervalSince1970))"
+    }
+
     /// The place of the compiled form of a model package. It is below the
     /// cache folder and outside the snapshot, and it names the repository and
     /// the commit, thus a new commit of a repository compiles again and an old

@@ -1,5 +1,17 @@
 ---
-position_column: todo
+comments:
+- actor: claude-code
+  id: 01m6bywygw322q240s5tgs6rky
+  text: |-
+    ### implement — changed
+    - evidence: swift test exit 0, 1642 + 401 tests pass. New suite LocalModelPathTests (10 tests; red was a compile failure on the missing ModelRef.localDirectory).
+    - files: Sources/FoundationModelsExtras/ModelPool/{ModelRef,HubModelLoader,MLXModelLoader,CoreMLModelLoader,CoreMLEmbedding,CoreMLPackage}.swift, Tests/FoundationModelsExtrasTests/ModelPool/LocalModelPathTests.swift, docs/REFERENCE.md
+    - design choice: a reference is local when its repo string is the path of an existing directory (as the card says). A Hub name that equals a folder relative to the working directory would load as local. A path with an @ splits as a revision.
+    - Core ML compiled cache for a local folder is keyed by path plus manifest mtime.
+    - Router tests use Hub names only; no old-behavior expectation found.
+    - next: /review
+  timestamp: 2026-11-01T16:25:50.876749+00:00
+position_column: doing
 position_ordinal: '80'
 title: HubModelLoader detects the model format from a local path
 ---

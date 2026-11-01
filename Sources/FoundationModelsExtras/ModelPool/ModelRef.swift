@@ -1,3 +1,5 @@
+import Foundation
+
 /// A reference to a model on the Hugging Face Hub, optionally pinned to a
 /// specific revision.
 ///
@@ -95,6 +97,18 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
         } else {
             self.init(repo: string)
         }
+    }
+
+    /// The folder on the disk that the reference names, or `nil` for a
+    /// reference to the Hub. A reference is local when its `repo` is the path of
+    /// an existing folder. The loaders of ``ModelPool`` load such a folder with
+    /// no download and no cache, and they ignore the revision.
+    var localDirectory: URL? {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: repo, isDirectory: &isFolder), isFolder.boolValue else {
+            return nil
+        }
+        return URL(filePath: repo, directoryHint: .isDirectory)
     }
 
     /// Gives `nil` for a revision that names the default revision.

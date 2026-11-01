@@ -11,6 +11,8 @@ import Tokenizers
 
 /// The built-in loader of ``ModelPool``: it loads an MLX model from its
 /// Hugging Face name, and downloads the model when the cache does not hold it.
+/// A reference that is the path of an existing folder loads from that folder,
+/// with no download.
 ///
 /// An `.llm` key gives an `MLXLanguageModel`, which is a FoundationModels
 /// `LanguageModel` with guided output, tool calls and a reasoning trace. An
@@ -148,14 +150,16 @@ public struct MLXModelLoader: PooledModelLoader {
         try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadMetalInstall) { _ in
             try MetalLibraryBootstrap.install()
         }
-        let configuration = ModelConfiguration(id: key.ref.repo, revision: Self.revision(of: key))
+        let configuration = Self.configuration(of: key.ref)
         let downloader = ProgressReportingDownloader(upstream: #hubDownloader(hubClient()), report: progressHandler)
         switch key.role {
         case .llm:
             return try await Self.loadLanguageModel(
                 configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader,
                 speculativeDecoding: try speculativeDecoding(for: key),
-                weightsLocation: { [cache = hub.cache] id in Self.weightsDirectory(of: id, in: cache) })
+                weightsLocation: { [cache = hub.cache, folder = key.ref.localDirectory] id in
+                    folder ?? Self.weightsDirectory(of: id, in: cache)
+                })
         case .embedding:
             return try await MLXEmbedding.load(
                 ref: key.ref, configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
@@ -209,7 +213,7 @@ public struct MLXModelLoader: PooledModelLoader {
         guard key.role == .llm, let drafter = key.ref.drafter else { return nil }
         let drafterBytes = (try? weightBytes(of: ModelPoolKey(ref: drafter, role: .llm))).map { Int($0) }
         return try MLXSpeculativeDecoding(
-            drafterConfiguration: ModelConfiguration(id: drafter.repo, revision: Self.revision(of: drafter)),
+            drafterConfiguration: Self.configuration(of: drafter),
             from: #hubDownloader(hubClient()), using: tokenizerLoader, registration: drafterRegistration,
             drafterBytes: drafterBytes, memoryPolicy: .recommendedWorkingSet)
     }
@@ -248,6 +252,17 @@ public struct MLXModelLoader: PooledModelLoader {
         cache.repoDirectory(repo: "\(id)", kind: .model)
     }
 
+    /// The configuration that loads `ref`: the folder of a local reference, or
+    /// the repository and the revision of a Hub reference. A configuration of
+    /// a folder needs no download.
+    ///
+    /// - Parameter ref: The model.
+    /// - Returns: The configuration.
+    static func configuration(of ref: ModelRef) -> ModelConfiguration {
+        if let folder = ref.localDirectory { return ModelConfiguration(directory: folder) }
+        return ModelConfiguration(id: ref.repo, revision: revision(of: ref))
+    }
+
     /// The revision of `key` that the loader loads. The load span of the pool
     /// records this revision.
     static func revision(of key: ModelPoolKey) -> String {
@@ -259,14 +274,16 @@ public struct MLXModelLoader: PooledModelLoader {
         ref.revision ?? defaultRevision
     }
 
-    /// Finds the snapshot folder of `key` in the cache. The revision is a ref,
-    /// such as `main`, that a ref file names, or a commit.
+    /// Finds the snapshot folder of `key` in the cache, or the folder of a local
+    /// reference. The revision is a ref, such as `main`, that a ref file names,
+    /// or a commit.
     ///
     /// - Parameter key: The model.
     /// - Returns: The snapshot folder.
     /// - Throws: ``MLXModelLoaderError`` when the cache does not hold the
     ///   revision of the model.
     private func snapshotDirectory(of key: ModelPoolKey) throws -> URL {
+        if let folder = key.ref.localDirectory { return folder }
         let revision = Self.revision(of: key)
         guard let snapshot = hub.snapshotDirectory(of: key.ref.repo, revision: revision) else {
             throw MLXModelLoaderError.notInCache(key: key, revision: revision)

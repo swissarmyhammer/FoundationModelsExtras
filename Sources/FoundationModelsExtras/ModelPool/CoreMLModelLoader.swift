@@ -29,6 +29,11 @@ import Tokenizers
 /// starts with `task: search result | query: ` and a document starts with
 /// `title: none | text: `. The weights of that model have the Gemma license.
 ///
+/// A reference that is the path of an existing folder loads from that folder,
+/// with no download. The folder must hold one `.mlpackage` folder and a
+/// `tokenizer.json`, as a repository does. The compiled model of such a folder is
+/// kept by the path and by the time of the last change of the manifest.
+///
 /// The first load of a commit compiles the package, which takes some time.
 /// The loader keeps the compiled model in the folder `coreml-compiled` of the
 /// cache folder, by repository and commit, and each later load reads it.
@@ -109,9 +114,14 @@ public struct CoreMLModelLoader: PooledModelLoader {
         guard key.role == .embedding else { throw CoreMLModelLoaderError.unsupportedRole(key.role) }
         let downloader = ProgressReportingDownloader(upstream: #hubDownloader(hubClient()), report: progressHandler)
         return try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
-            let snapshot = try await downloader.download(
-                id: key.ref.repo, revision: Self.revision(of: key), matching: CoreMLPackage.downloadPatterns,
-                useLatest: false) { _ in }
+            let snapshot: URL
+            if let folder = key.ref.localDirectory {
+                snapshot = folder
+            } else {
+                snapshot = try await downloader.download(
+                    id: key.ref.repo, revision: Self.revision(of: key), matching: CoreMLPackage.downloadPatterns,
+                    useLatest: false) { _ in }
+            }
             return try await CoreMLEmbedding.load(
                 ref: key.ref, snapshot: snapshot, cacheDirectory: hub.cache.cacheDirectory,
                 tokenizerLoader: tokenizerLoader)
@@ -136,9 +146,8 @@ public struct CoreMLModelLoader: PooledModelLoader {
     public func footprintBytes(of key: ModelPoolKey) async throws -> Int64 {
         guard key.role == .embedding else { throw CoreMLModelLoaderError.unsupportedRole(key.role) }
         let revision = Self.revision(of: key)
-        guard let snapshot = hub.snapshotDirectory(of: key.ref.repo, revision: revision) else {
-            throw CoreMLModelLoaderError.notInCache(key: key, revision: revision)
-        }
+        guard let snapshot = key.ref.localDirectory ?? hub.snapshotDirectory(of: key.ref.repo, revision: revision)
+        else { throw CoreMLModelLoaderError.notInCache(key: key, revision: revision) }
         let package = try CoreMLPackage.locate(in: snapshot, repository: key.ref.repo)
         return try CoreMLPackage.weightFiles(in: package).reduce(0) { total, file in
             guard let size = try HubSource.blobBytes(of: file) else {

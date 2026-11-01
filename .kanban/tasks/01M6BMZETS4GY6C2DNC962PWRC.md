@@ -38,8 +38,24 @@ comments:
     - Not committed.
     - next: /review
   timestamp: 2026-11-01T16:20:37.857168+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m6bynmmsa0dz1j2myfd3arp9
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD; findings 0, confirmed 0, refuted 1; all prior items checked
+    - next: none; task moved to done
+  timestamp: 2026-11-01T16:21:51.385262+00:00
+- actor: claude-code
+  id: 01m6bynsy0k9rpc62ag4fzxtz2
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 4 files
+    - test: skipped — only the integration package changed; Core ML integration suite passed 10 tests
+    - commit: 0136cbb
+    - review: clean — 0 findings
+  timestamp: 2026-11-01T16:21:56.800889+00:00
+position_column: done
+position_ordinal: ffcc80
 title: Check that the Core ML tokenizer gives the same token ids as the Python tokenizers library
 ---
 CoreMLEmbedding tokenizes with swift-transformers and a stand-in tokenizer_config.json (the PreTrainedTokenizer class), because erjigit17/embeddinggemma-300m-ane-coreml has no tokenizer_config.json. A text that is longer than the model length keeps its first tokens and its end token. Compare the ids for 5 or more sample texts (short, long, non-English, with the query and document prefixes) with the ids that the Python tokenizers library gives for the same tokenizer.json with padding to 128 and truncation to 128. Add a fixture-based unit test or an integration test with the expected ids. Fix any difference in the start token, the end token or the truncation.
