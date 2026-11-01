@@ -98,8 +98,24 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/LocalModelPathTests.swift. The three compiled-place tests now call one private helper, expectRevisionChange, with their own change closure. Two other copied blocks left the file: setDate(of:) and emptyHub(in:). Full swift test: 1650 tests in 162 suites passed.
     - next: review
   timestamp: 2026-11-01T16:39:01.296331+00:00
-position_column: review
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m6bzqg37kz3136xaaxk64z94
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD, 0 findings (0 confirmed, 0 refuted); all prior findings are checked
+    - next: none, task moved to done
+  timestamp: 2026-11-01T16:40:20.839919+00:00
+- actor: claude-code
+  id: 01m6bzqnhp1fmpp1pbqhf4kj1e
+  text: |-
+    ### finish iteration 4 — clean
+    - implement: changed — 1 file
+    - test: green — swift test, 1650 passed
+    - commit: c27475b
+    - review: clean — 0 findings
+  timestamp: 2026-11-01T16:40:26.422052+00:00
+position_column: done
+position_ordinal: ffcd80
 title: HubModelLoader detects the model format from a local path
 ---
 The agent config must accept a local path as a model reference and find the format by itself: a .mlpackage folder is CoreML, safetensors files are MLX. HubModelFormat.detect works on the files of a Hub repository only. HubModelLoader.format(of:) looks in the Hub cache or asks the Hub. Add a local-path branch: when the reference is an existing directory, list its top-level names and call HubModelFormat.detect. Make MLXModelLoader and CoreMLModelLoader load from that directory with no download. Add tests for a CoreML folder, an MLX folder, and a folder with both. Coordinated with: FoundationModelsRouter ^y18w1dp (ModelRef accepts a local model path), FoundationModelsRouter ^zpcsp86 (LiveModelLoader uses HubModelLoader), FoundationModelsACPAgent ^gsxzx6h (default embedding and config path).
