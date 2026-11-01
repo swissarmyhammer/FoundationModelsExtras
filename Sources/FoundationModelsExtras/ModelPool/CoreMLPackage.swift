@@ -1,5 +1,6 @@
 import CoreML
 import Foundation
+import MLXLMCommon
 
 /// The files of a Core ML model in a Hugging Face snapshot: where the model
 /// package is, which files hold its weights, and where the compiled form of
@@ -312,6 +313,53 @@ struct CoreMLTokenRow: Equatable {
         ids = (kept + Array(repeating: padToken, count: paddingCount)).map { Int32($0) }
         mask = Array(repeating: Int32(EmbeddingBatchPadding.realToken), count: kept.count)
             + Array(repeating: Int32(EmbeddingBatchPadding.padding), count: paddingCount)
+    }
+
+    /// The token that pads a text when the tokenizer has no pad token.
+    private static let fallbackPadToken = 0
+
+    /// The pad token of the Gemma tokenizer family.
+    private static let padTokenName = "<pad>"
+
+    /// The end token of the Gemma tokenizer family. A tokenizer that loads with
+    /// the stand-in config names no end token, but its vocabulary holds this
+    /// one, and a cut row must keep it.
+    private static let endTokenName = "<eos>"
+
+    /// Tokenizes a text as the model expects: with the special tokens that the
+    /// tokenizer adds, which are the start token and the end token.
+    ///
+    /// - Parameters:
+    ///   - text: The text.
+    ///   - tokenizer: The tokenizer of the model.
+    /// - Returns: The tokens of the text.
+    static func encode(_ text: String, with tokenizer: any MLXLMCommon.Tokenizer) -> [Int] {
+        tokenizer.encode(text: text, addSpecialTokens: true)
+    }
+
+    /// Cuts or pads the tokens of a text. The pad token and the end token come
+    /// from the tokenizer: the end token is the one that its config names, else
+    /// the Gemma end token.
+    ///
+    /// - Parameters:
+    ///   - tokens: The tokens of one text.
+    ///   - tokenizer: The tokenizer that made the tokens.
+    ///   - length: The fixed token count of the model.
+    init(tokens: [Int], tokenizer: any MLXLMCommon.Tokenizer, length: Int) {
+        self.init(
+            tokens: tokens, length: length,
+            padToken: tokenizer.convertTokenToId(Self.padTokenName) ?? Self.fallbackPadToken,
+            endToken: tokenizer.convertTokenToId(tokenizer.eosToken ?? Self.endTokenName))
+    }
+
+    /// Tokenizes a text, then cuts or pads the tokens.
+    ///
+    /// - Parameters:
+    ///   - text: The text.
+    ///   - tokenizer: The tokenizer of the model.
+    ///   - length: The fixed token count of the model.
+    init(text: String, tokenizer: any MLXLMCommon.Tokenizer, length: Int) {
+        self.init(tokens: Self.encode(text, with: tokenizer), tokenizer: tokenizer, length: length)
     }
 
     /// Cuts `tokens` to at most `length` items.

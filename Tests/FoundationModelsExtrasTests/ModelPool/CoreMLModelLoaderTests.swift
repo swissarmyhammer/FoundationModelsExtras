@@ -294,6 +294,15 @@ struct CoreMLModelLoaderTests {
         #expect(row.ids == [5, 6, 7, 8, 9, 10])
     }
 
+    @Test("a long row of a tokenizer with no configured end token keeps the end token that the vocabulary names")
+    func longRowKeepsTheVocabularyEndToken() {
+        let tokenizer = ConfiglessTokenizer(tokens: [5, 6, 7, 8, 9, 10, 11, ConfiglessTokenizer.endTokenID])
+
+        let row = CoreMLTokenRow(text: "any", tokenizer: tokenizer, length: Self.sequenceLength)
+
+        #expect(row.ids == [5, 6, 7, 8, 9, ConfiglessTokenizer.endTokenID].map(Int32.init))
+    }
+
     @Test("the pad token fills a short row, also when it is not zero")
     func padTokenIsTheGivenToken() {
         let row = CoreMLTokenRow(tokens: [5], length: 3, padToken: 9, endToken: nil)
@@ -591,4 +600,37 @@ private struct MarkedLoader: TokenizerLoader {
     func load(from directory: URL) async throws -> any MLXLMCommon.Tokenizer {
         throw FakeLoadError()
     }
+}
+
+/// A tokenizer whose config names no end token, as the stand-in config of a
+/// repository with no `tokenizer_config.json` does. Its vocabulary holds the
+/// pad token and the end token of the Gemma family.
+private struct ConfiglessTokenizer: MLXLMCommon.Tokenizer {
+    /// The id of the pad token.
+    static let padTokenID = 0
+
+    /// The id of the end token.
+    static let endTokenID = 1
+
+    /// The tokens that every text gives.
+    let tokens: [Int]
+
+    let bosToken: String? = nil
+    let eosToken: String? = nil
+    let unknownToken: String? = nil
+
+    func encode(text: String, addSpecialTokens: Bool) -> [Int] { tokens }
+
+    func decode(tokenIds: [Int], skipSpecialTokens: Bool) -> String { "" }
+
+    func convertTokenToId(_ token: String) -> Int? {
+        ["<pad>": Self.padTokenID, "<eos>": Self.endTokenID][token]
+    }
+
+    func convertIdToToken(_ id: Int) -> String? { nil }
+
+    func applyChatTemplate(
+        messages: [[String: any Sendable]], tools: [[String: any Sendable]]?,
+        additionalContext: [String: any Sendable]?
+    ) throws -> [Int] { [] }
 }

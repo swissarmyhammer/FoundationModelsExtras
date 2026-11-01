@@ -95,6 +95,20 @@ extension RealModelSuites {
             #expect(vectors.first?.count == vectorDimension)
         }
 
+        @Test("the token ids of each reference text equal the ids of the Python tokenizers library")
+        func tokenIdsEqualPythonTokenizers() async throws {
+            let tokenizer = try #require(await sharedTokenizerLoader.tokenizers.events.first)
+
+            for reference in referenceTokenCases {
+                let row = CoreMLTokenRow(text: reference.text, tokenizer: tokenizer, length: referenceLength)
+
+                let realIds = zip(row.ids, row.mask).filter { $1 == 1 }.map(\.0)
+                #expect(realIds == reference.ids, "text: \(reference.text.prefix(40))")
+                #expect(row.ids.count == referenceLength)
+                #expect(row.ids.suffix(row.ids.count - realIds.count).allSatisfy { $0 == referencePadToken })
+            }
+        }
+
         @Test("the batch of several texts gives the vector of each text embedded alone")
         func batchEqualsSingles() async throws {
             let embedder = try Self.embedder()

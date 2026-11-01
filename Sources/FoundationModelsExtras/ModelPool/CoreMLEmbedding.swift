@@ -33,12 +33,6 @@ actor CoreMLEmbedLock {
 /// CPU and the Apple Neural Engine, one text at a time, because its inputs
 /// have a fixed size of one row.
 struct CoreMLEmbedding: PooledEmbedding {
-    /// The token that pads a text when the tokenizer has no pad token.
-    private static let fallbackPadToken = 0
-
-    /// The pad token of the Gemma tokenizer family.
-    private static let padTokenName = "<pad>"
-
     /// The model of the key that loaded this model. The embed telemetry of
     /// each call records it.
     private let ref: ModelRef
@@ -52,12 +46,6 @@ struct CoreMLEmbedding: PooledEmbedding {
 
     /// The tokenizer of the model.
     private let tokenizer: any MLXLMCommon.Tokenizer
-
-    /// The token that fills a row after its last real token.
-    private let padToken: Int
-
-    /// The end token of the tokenizer, which a cut row keeps.
-    private let endToken: Int?
 
     /// The lock that runs the embed calls of this model one at a time.
     private let lock = CoreMLEmbedLock()
@@ -97,8 +85,6 @@ struct CoreMLEmbedding: PooledEmbedding {
         self.model = model
         self.contract = contract
         self.tokenizer = tokenizer
-        padToken = tokenizer.convertTokenToId(Self.padTokenName) ?? Self.fallbackPadToken
-        endToken = tokenizer.eosToken.flatMap { tokenizer.convertTokenToId($0) }
     }
 
     /// Gives one vector for each text. The call waits for each earlier call of
@@ -119,7 +105,7 @@ struct CoreMLEmbedding: PooledEmbedding {
         try await lock.run {
             try await EmbedTelemetry.traceEmbed(
                 of: ref, texts: texts, tokenBudget: contract.sequenceLength,
-                tokenize: { tokenizer.encode(text: $0, addSpecialTokens: true) },
+                tokenize: { CoreMLTokenRow.encode($0, with: tokenizer) },
                 vectors: { try $0.map(vector(of:)) })
         }
     }
@@ -132,8 +118,7 @@ struct CoreMLEmbedding: PooledEmbedding {
     ///   ``CoreMLModelLoaderError/unsupportedModel(reason:)`` when the model
     ///   gives no array.
     private func vector(of tokens: [Int]) throws -> [Float] {
-        let row = CoreMLTokenRow(
-            tokens: tokens, length: contract.sequenceLength, padToken: padToken, endToken: endToken)
+        let row = CoreMLTokenRow(tokens: tokens, tokenizer: tokenizer, length: contract.sequenceLength)
         let inputs = try MLDictionaryFeatureProvider(dictionary: [
             CoreMLEmbeddingContract.inputIDsName: Self.array(of: row.ids),
             CoreMLEmbeddingContract.attentionMaskName: Self.array(of: row.mask),
