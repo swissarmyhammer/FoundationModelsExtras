@@ -681,8 +681,9 @@ the reference is the path of an existing folder, the top-level names of the
 folder decide, and `MLXModelLoader` and `CoreMLModelLoader` load the folder
 with no download and no cache. A `ModelRef` has no revision for a folder. The
 footprint of a folder is the size of its weight files. Core ML keeps the
-compiled model of a folder by its path and by the time of the last change of
-the package manifest. Else, when the Hugging Face cache holds a snapshot of the
+compiled model of a folder by its path and by the size and the time of the last
+change of each file of the package, thus a change of a weight file compiles
+again. An empty or unreadable folder throws `HubModelLoaderError`. Else, when the Hugging Face cache holds a snapshot of the
 model, the names in the snapshot decide, with no network. Otherwise the file list of the repository on the Hub
 decides. A repository is Core ML when it holds a `.mlpackage` folder and no
 `safetensors` file. A repository with both formats, or with neither, loads with

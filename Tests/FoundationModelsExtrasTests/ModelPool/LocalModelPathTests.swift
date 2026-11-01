@@ -1,5 +1,6 @@
 import FixtureSupport
 import Foundation
+import HuggingFace
 @testable import FoundationModelsExtras
 import Testing
 
@@ -104,6 +105,36 @@ struct LocalModelPathTests {
         #expect(bytes == Int64(Self.weightBytes))
     }
 
+    // MARK: The model folder
+
+    @Test("the model folder of a local reference is its local directory")
+    func modelFolderOfLocalReference() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hub = HubSource(cache: HubCache(cacheDirectory: Self.emptyCache(in: root)), tokenProvider: .none)
+
+        #expect(hub.modelFolder(of: ModelRef(repo: root.path), revision: "main")?.path == root.path)
+    }
+
+    @Test("the model folder of a Hub reference that the cache lacks is nil")
+    func modelFolderOfMissingHubReference() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hub = HubSource(cache: HubCache(cacheDirectory: Self.emptyCache(in: root)), tokenProvider: .none)
+
+        #expect(hub.modelFolder(of: ModelRef(repo: "org/no-such-model"), revision: "main") == nil)
+    }
+
+    @Test("an empty local folder has no format and the Hub loader throws")
+    func emptyLocalFolderThrows() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        await #expect(throws: HubModelLoaderError.unreadableLocalFolder(path: root.path)) {
+            try await Self.format(of: root, role: .embedding)
+        }
+    }
+
     // MARK: The compiled model
 
     @Test("the compiled model of a local package gets a new place when its manifest changes")
@@ -113,11 +144,35 @@ struct LocalModelPathTests {
         try Self.writeCoreMLFolder(in: root)
         let package = root.appendingPathComponent("model.mlpackage", isDirectory: true)
         let manifest = package.appendingPathComponent("Manifest.json")
-        let before = CoreMLPackage.localRevision(of: package)
+        let before = try CoreMLPackage.localRevision(of: package)
 
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: manifest.path)
 
-        #expect(CoreMLPackage.localRevision(of: package) != before)
+        #expect(try CoreMLPackage.localRevision(of: package) != before)
+    }
+
+    @Test("the compiled model of a local package gets a new place when a weight file changes in place")
+    func compiledPlaceChangesWithAWeightFile() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.writeCoreMLFolder(in: root)
+        let package = root.appendingPathComponent("model.mlpackage", isDirectory: true)
+        let before = try CoreMLPackage.localRevision(of: package)
+
+        try Data(count: Self.weightBytes + 1).write(to: try #require(CoreMLPackage.weightFiles(in: package).first))
+
+        #expect(try CoreMLPackage.localRevision(of: package) != before)
+    }
+
+    @Test("the compiled model of a package that cannot be read has no place and throws")
+    func unreadablePackageThrows() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = root.appendingPathComponent("missing.mlpackage", isDirectory: true)
+
+        #expect(throws: CoreMLModelLoaderError.unreadablePackage(path: package.path)) {
+            try CoreMLPackage.localRevision(of: package)
+        }
     }
 
     // MARK: Helpers

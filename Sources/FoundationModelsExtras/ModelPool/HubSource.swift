@@ -56,6 +56,21 @@ struct HubSource: Sendable {
         return snapshot
     }
 
+    /// Finds the folder that holds the files of a model: the local folder when
+    /// the reference names one, else the snapshot folder in the cache. This is
+    /// the one place that decides where the files of a model are, thus each
+    /// loader finds the same folder for the same reference.
+    ///
+    /// - Parameters:
+    ///   - ref: The reference of the model.
+    ///   - revision: The ref or the commit of the cache snapshot. A local
+    ///     folder ignores it.
+    /// - Returns: The folder, or `nil` when the reference is not local and the
+    ///   cache holds no snapshot of the revision.
+    func modelFolder(of ref: ModelRef, revision: String) -> URL? {
+        ref.localDirectory ?? snapshotDirectory(of: ref.repo, revision: revision)
+    }
+
     /// The size of the blob that a snapshot file links to.
     ///
     /// - Parameter file: A file of a snapshot.

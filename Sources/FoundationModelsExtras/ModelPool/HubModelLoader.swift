@@ -67,6 +67,7 @@ public enum HubModelFormat: Equatable, Sendable {
 /// only. For an `.embedding` key, the loader decides the format in this order:
 /// 1. When the reference is the path of an existing folder, the top-level names
 ///    of the folder decide, and the loaders load the folder with no download.
+///    An empty or unreadable folder throws ``HubModelLoaderError``.
 /// 2. When the cache holds the snapshot of the model, the top-level names of
 ///    the snapshot decide. This needs no network.
 /// 3. Otherwise, the file list of the repository on the Hub decides.
@@ -167,21 +168,35 @@ public struct HubModelLoader: PooledModelLoader {
     /// - Returns: ``HubModelFormat/mlx`` for an `.llm` key. For an
     ///   `.embedding` key, the format of the local folder, of the cached
     ///   snapshot, or of the files on the Hub.
-    /// - Throws: The error of the file list of the Hub, when the cache holds
-    ///   no snapshot.
+    /// - Throws: ``HubModelLoaderError/unreadableLocalFolder(path:)`` for an
+    ///   empty or unreadable local folder; else the error of the file list of
+    ///   the Hub, when the cache holds no snapshot.
     func format(of key: ModelPoolKey) async throws -> HubModelFormat {
         guard key.role == .embedding else { return .mlx }
-        if let folder = key.ref.localDirectory {
-            return HubModelFormat.detect(paths: try FileManager.default.contentsOfDirectory(atPath: folder.path))
-        }
         let revision = key.ref.revision ?? ModelRef.defaultRevision
-        if let snapshot = hub.snapshotDirectory(of: key.ref.repo, revision: revision),
-            let names = try? FileManager.default.contentsOfDirectory(atPath: snapshot.path), !names.isEmpty
-        {
-            return HubModelFormat.detect(paths: names)
+        let isLocal = key.ref.localDirectory != nil
+        if let folder = hub.modelFolder(of: key.ref, revision: revision) {
+            let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
+            if let names, !names.isEmpty { return HubModelFormat.detect(paths: names) }
+            if isLocal { throw HubModelLoaderError.unreadableLocalFolder(path: folder.path) }
         }
         guard let repo = Repo.ID(rawValue: key.ref.repo) else { return .mlx }
         let entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
         return HubModelFormat.detect(paths: entries.map(\.path))
+    }
+}
+
+/// An error of ``HubModelLoader``.
+public enum HubModelLoaderError: Error, Equatable, LocalizedError {
+    /// The reference names the folder at `path`, and the folder is empty or
+    /// cannot be read, thus its format is not known.
+    case unreadableLocalFolder(path: String)
+
+    /// A message that tells what is wrong.
+    public var errorDescription: String? {
+        switch self {
+        case .unreadableLocalFolder(let path):
+            return "The model folder \(path) is empty or cannot be read."
+        }
     }
 }

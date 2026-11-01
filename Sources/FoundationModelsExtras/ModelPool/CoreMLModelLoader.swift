@@ -32,7 +32,8 @@ import Tokenizers
 /// A reference that is the path of an existing folder loads from that folder,
 /// with no download. The folder must hold one `.mlpackage` folder and a
 /// `tokenizer.json`, as a repository does. The compiled model of such a folder is
-/// kept by the path and by the time of the last change of the manifest.
+/// kept by the path and by the size and the time of the last change of each file
+/// of the package, thus a package that changes in place compiles again.
 ///
 /// The first load of a commit compiles the package, which takes some time.
 /// The loader keeps the compiled model in the folder `coreml-compiled` of the
@@ -146,7 +147,7 @@ public struct CoreMLModelLoader: PooledModelLoader {
     public func footprintBytes(of key: ModelPoolKey) async throws -> Int64 {
         guard key.role == .embedding else { throw CoreMLModelLoaderError.unsupportedRole(key.role) }
         let revision = Self.revision(of: key)
-        guard let snapshot = key.ref.localDirectory ?? hub.snapshotDirectory(of: key.ref.repo, revision: revision)
+        guard let snapshot = hub.modelFolder(of: key.ref, revision: revision)
         else { throw CoreMLModelLoaderError.notInCache(key: key, revision: revision) }
         let package = try CoreMLPackage.locate(in: snapshot, repository: key.ref.repo)
         return try CoreMLPackage.weightFiles(in: package).reduce(0) { total, file in
@@ -187,6 +188,9 @@ public enum CoreMLModelLoaderError: Error, Equatable, LocalizedError {
     case severalPackages(repository: String, names: [String])
     /// The model does not fit the embedding contract, for `reason`.
     case unsupportedModel(reason: String)
+    /// The file system could not read the package folder at `path` or a file
+    /// in it, thus the loader cannot tell if the package changed.
+    case unreadablePackage(path: String)
 
     /// A message that tells what is wrong.
     public var errorDescription: String? {
@@ -203,6 +207,8 @@ public enum CoreMLModelLoaderError: Error, Equatable, LocalizedError {
             return "The snapshot of \(repository) holds more than one .mlpackage folder: \(names.joined(separator: ", "))."
         case .unsupportedModel(let reason):
             return "The Core ML model is not an embedding model that this loader can run: \(reason)."
+        case .unreadablePackage(let path):
+            return "The file system could not read the model package \(path)."
         }
     }
 }

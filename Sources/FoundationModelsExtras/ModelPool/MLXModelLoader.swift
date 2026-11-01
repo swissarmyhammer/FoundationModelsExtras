@@ -283,9 +283,8 @@ public struct MLXModelLoader: PooledModelLoader {
     /// - Throws: ``MLXModelLoaderError`` when the cache does not hold the
     ///   revision of the model.
     private func snapshotDirectory(of key: ModelPoolKey) throws -> URL {
-        if let folder = key.ref.localDirectory { return folder }
         let revision = Self.revision(of: key)
-        guard let snapshot = hub.snapshotDirectory(of: key.ref.repo, revision: revision) else {
+        guard let snapshot = hub.modelFolder(of: key.ref, revision: revision) else {
             throw MLXModelLoaderError.notInCache(key: key, revision: revision)
         }
         return snapshot

@@ -1,4 +1,5 @@
 import CoreML
+import CryptoKit
 import Foundation
 import MLXLMCommon
 
@@ -148,20 +149,43 @@ enum CoreMLPackage {
     /// class reads the rules of the tokenizer from `tokenizer.json`.
     static let standInTokenizerConfig = #"{"tokenizer_class":"PreTrainedTokenizer"}"#
 
-    /// The name of the manifest file inside a model package.
-    private static let manifestName = "Manifest.json"
+    /// The number of hexadecimal digits of a local revision. It is enough to
+    /// tell two states of one package apart.
+    private static let revisionDigits = 16
 
     /// The stand-in for a commit of a package in a local folder, which has no
-    /// commit. It names the time of the last change of the manifest of the
-    /// package, thus a package that changes in place compiles again.
+    /// commit. It is a digest of the relative path, the size and the time of
+    /// the last change of each file of the package, the weight files too, thus
+    /// a package that changes in place, in the manifest or in a weight file,
+    /// compiles again.
     ///
     /// - Parameter package: The folder of the model package.
     /// - Returns: A name for the state of the package.
-    static func localRevision(of package: URL) -> String {
-        let manifest = package.appending(path: manifestName)
-        let changed = (try? manifest.resourceValues(forKeys: [.contentModificationDateKey]))?
-            .contentModificationDate
-        return "local-\(Int((changed ?? .distantPast).timeIntervalSince1970))"
+    /// - Throws: ``CoreMLModelLoaderError/unreadablePackage(path:)`` when the
+    ///   folder or a file in it cannot be read. A revision that is the same
+    ///   for each state would keep an old compiled model, thus there is no
+    ///   fallback value.
+    static func localRevision(of package: URL) throws -> String {
+        let files = FileManager.default
+        guard files.fileExists(atPath: package.path),
+            let entries = files.enumerator(at: package, includingPropertiesForKeys: nil)
+        else { throw CoreMLModelLoaderError.unreadablePackage(path: package.path) }
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        var lines: [String] = []
+        for case let entry as URL in entries {
+            let values: URLResourceValues
+            do {
+                values = try entry.resolvingSymlinksInPath().resourceValues(forKeys: keys)
+            } catch {
+                throw CoreMLModelLoaderError.unreadablePackage(path: entry.path)
+            }
+            guard values.isRegularFile == true else { continue }
+            let changed = values.contentModificationDate?.timeIntervalSince1970 ?? 0
+            let relative = String(entry.path.dropFirst(package.path.count))
+            lines.append("\(relative):\(values.fileSize ?? 0):\(changed)")
+        }
+        let digest = SHA256.hash(data: Data(lines.sorted().joined(separator: "\n").utf8))
+        return "local-" + digest.map { String(format: "%02x", $0) }.joined().prefix(revisionDigits)
     }
 
     /// The place of the compiled form of a model package. It is below the
