@@ -81,7 +81,10 @@ let package = Package(
                 // from the `TestMetrics` factory of a capture.
                 .product(name: "MetricsTestKit", package: metricsPackage),
             ],
-            path: "Tests/\(extrasPackage)IntegrationTests"
+            path: "Tests/\(extrasPackage)IntegrationTests",
+            // The ids that the Python tokenizers library gives for the
+            // reference texts of the Core ML tokenizer test.
+            resources: [.copy("Support/ReferenceTokenIds.json")]
         )
     ]
 )

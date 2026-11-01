@@ -99,7 +99,7 @@ extension RealModelSuites {
         func tokenIdsEqualPythonTokenizers() async throws {
             let tokenizer = try #require(await sharedTokenizerLoader.tokenizers.events.first)
 
-            for reference in referenceTokenCases {
+            for reference in try loadReferenceTokenCases() {
                 let row = CoreMLTokenRow(text: reference.text, tokenizer: tokenizer, length: referenceLength)
 
                 let realIds = zip(row.ids, row.mask).filter { $1 == 1 }.map(\.0)
