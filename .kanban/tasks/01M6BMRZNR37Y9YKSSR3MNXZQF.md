@@ -40,6 +40,41 @@ comments:
     - files: ModelPool/{HubSource,MLXModelLoader,CoreMLModelLoader,CoreMLPackage,CoreMLEmbedding,HubModelLoader}.swift, Tests/.../LocalModelPathTests.swift, docs/REFERENCE.md
     - next: /review
   timestamp: 2026-11-01T16:30:55.984126+00:00
+- actor: claude-code
+  id: 01m6bza8atyjed3pgsrrebaw73
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD; 2 findings — CoreMLPackage.swift:183, HubModelLoader.swift:181
+    - next: the implementer fixes both open items, then the task is reviewed again
+  timestamp: 2026-11-01T16:33:06.906280+00:00
+- actor: claude-code
+  id: 01m6bzagjypb8wy7xmcrpnygc1
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 8 files
+    - test: green — swift test, 1647 passed
+    - commit: 6b5f6dd
+    - review: findings — CoreMLPackage.swift:183, HubModelLoader.swift:181
+  timestamp: 2026-11-01T16:33:15.358312+00:00
+- actor: claude-code
+  id: 01m6bzg2bktgeq8whbq9gqm4eg
+  text: |-
+    ### implement — changed
+    - evidence: swift test exit 0, 1650 + 401 tests pass, no warning from the code. New tests red first (compile failure on the missing revisionLine), then green.
+    - fix 1: CoreMLPackage.revisionLine(relative:size:changed:path:) is the one place that builds the digest line of a file. It throws unreadablePackage(path:) when the size or the date is nil. localRevision calls it, so no "?? 0" fallback is left in the file. Tests: missing date throws, missing size throws, only the date of a weight file changes.
+    - fix 2: HubModelLoader.format(of:) resolves the folder and the names first. A separate guard throws unreadableLocalFolder for a local reference with no names, before the Hub branch.
+    - discovery: a real file system always reports size and date, so the nil path is tested through the revisionLine seam.
+    - files: ModelPool/CoreMLPackage.swift, ModelPool/HubModelLoader.swift, Tests/.../LocalModelPathTests.swift
+    - both findings flipped to [x]. Not committed.
+    - next: /review
+  timestamp: 2026-11-01T16:36:17.395091+00:00
+- actor: claude-code
+  id: 01m6bzgj6k3dxnhs3dysk0ekgv
+  text: |-
+    ### commit — changed
+    - evidence: e2f3007 fix(model-pool): a local revision needs a real size and a real date
+    - next: none
+  timestamp: 2026-11-01T16:36:33.619117+00:00
 position_column: doing
 position_ordinal: '80'
 title: HubModelLoader detects the model format from a local path
@@ -60,3 +95,16 @@ The agent config must accept a local path as a model reference and find the form
 - [x] `Sources/FoundationModelsExtras/ModelPool/CoreMLPackage.swift:160` `completeness/invariant-propagation` — The compiled-model key for a local package changes only when Manifest.json changes. The doc comment says a package that changes in place compiles again, but a change to the weight files without a manifest change keeps the old compiled model. The stated guarantee is wider than the code. Either include the modification dates or sizes of the weight files in `localRevision`, or narrow the doc comment and the change description so they say only a manifest change triggers a new compile. Add a test that changes a weight file in place and checks that the revision changes.
 - [x] `Sources/FoundationModelsExtras/ModelPool/CoreMLPackage.swift:162` `swift/preconditions` — The manifest date read uses `try?` and falls back to `.distantPast` with no `assertionFailure` and no log. If the manifest cannot be read, every later state of the package gets the same revision string, so a package that changes in place is not compiled again. This is the defect the change exists to prevent, and the failure is silent. When the read fails, call `assertionFailure` and write a log line that names the manifest path, then keep the fallback. Alternatively, make `localRevision` throw a typed error and let `CoreMLModelLoader` report it.
 - [x] `Sources/FoundationModelsExtras/ModelPool/HubModelLoader.swift:175` `reuse/reuse` — The new local-folder branch in format(of:) repeats the snapshot branch below it (contentsOfDirectory, then HubModelFormat.detect(paths:)). Two copies of the same folder-to-format step can diverge. The local branch also omits the non-empty check and the try? handling that the snapshot branch uses, so the two paths already differ. Resolve one folder first, then run the listing and detect once. For example: let folder = key.ref.localDirectory ?? hub.snapshotDirectory(of:revision:); if let folder, let names = try? contentsOfDirectory(...), !names.isEmpty { return detect(names) }. Decide in one place whether an empty or unreadable local folder should throw.
+
+## Review Findings (2026-11-01 10:31)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 7 file(s) reviewed, 3 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `docs/REFERENCE.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/CoreMLPackage.swift:183` `completeness/public-output-contract` — The local revision replaces a missing modification date with 0 (`values.contentModificationDate?.timeIntervalSince1970 ?? 0`), and line 185 does the same for a missing file size with `?? 0`. The doc comment on `localRevision` says there is no fallback value, because a fallback keeps an old compiled model. With this fallback, a file whose date the file system does not report adds the same digest entry in every state, so an in-place change to that file would not be seen and the stale compiled model would load. The code silently does what the new `unreadablePackage` throw was meant to prevent. Throw `CoreMLModelLoaderError.unreadablePackage(path: entry.path)` when `contentModificationDate` or `fileSize` is nil, as the code already does for a failed `resourceValues` read. This keeps the no-fallback rule the doc states. Optionally add a test where the weight file keeps its size but gets a new modification date, so the date path is exercised on its own.
+- [x] `Sources/FoundationModelsExtras/ModelPool/HubModelLoader.swift:181` `swift/preconditions` — The requirement that a local folder must not be empty or unreadable sits as a nested `if isLocal { throw ... }` inside the `if let folder` branch. The check is hidden inside the branch it protects, so a reader must enter the outer branch to find it. Keep the `if let` at line 178, because a nil folder must fall through to the Hub lookup and a `guard` cannot express that. Move the local-folder requirement to the head of the block as a separate `guard` that runs when `isLocal` is true and the names are empty or unreadable, so the throw is stated before the Hub branch is read.

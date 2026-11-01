@@ -180,12 +180,33 @@ enum CoreMLPackage {
                 throw CoreMLModelLoaderError.unreadablePackage(path: entry.path)
             }
             guard values.isRegularFile == true else { continue }
-            let changed = values.contentModificationDate?.timeIntervalSince1970 ?? 0
-            let relative = String(entry.path.dropFirst(package.path.count))
-            lines.append("\(relative):\(values.fileSize ?? 0):\(changed)")
+            lines.append(
+                try revisionLine(
+                    relative: String(entry.path.dropFirst(package.path.count)),
+                    size: values.fileSize,
+                    changed: values.contentModificationDate,
+                    path: entry.path))
         }
         let digest = SHA256.hash(data: Data(lines.sorted().joined(separator: "\n").utf8))
         return "local-" + digest.map { String(format: "%02x", $0) }.joined().prefix(revisionDigits)
+    }
+
+    /// The line of one file in the digest of a local revision.
+    ///
+    /// - Parameters:
+    ///   - relative: The path of the file inside the package.
+    ///   - size: The size of the file in bytes, as the file system reports it.
+    ///   - changed: The time of the last change of the file, as the file
+    ///     system reports it.
+    ///   - path: The full path of the file, for the error.
+    /// - Returns: A line that holds the path, the size and the time.
+    /// - Throws: ``CoreMLModelLoaderError/unreadablePackage(path:)`` when the
+    ///   file system reports no size or no time. A line with a stand-in value
+    ///   is the same for each state of the file, thus it would keep an old
+    ///   compiled model.
+    static func revisionLine(relative: String, size: Int?, changed: Date?, path: String) throws -> String {
+        guard let size, let changed else { throw CoreMLModelLoaderError.unreadablePackage(path: path) }
+        return "\(relative):\(size):\(changed.timeIntervalSince1970)"
     }
 
     /// The place of the compiled form of a model package. It is below the

@@ -174,12 +174,12 @@ public struct HubModelLoader: PooledModelLoader {
     func format(of key: ModelPoolKey) async throws -> HubModelFormat {
         guard key.role == .embedding else { return .mlx }
         let revision = key.ref.revision ?? ModelRef.defaultRevision
-        let isLocal = key.ref.localDirectory != nil
-        if let folder = hub.modelFolder(of: key.ref, revision: revision) {
-            let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
-            if let names, !names.isEmpty { return HubModelFormat.detect(paths: names) }
-            if isLocal { throw HubModelLoaderError.unreadableLocalFolder(path: folder.path) }
+        let folder = hub.modelFolder(of: key.ref, revision: revision)
+        let names = folder.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) } ?? []
+        guard key.ref.localDirectory == nil || !names.isEmpty else {
+            throw HubModelLoaderError.unreadableLocalFolder(path: folder?.path ?? key.ref.repo)
         }
+        if !names.isEmpty { return HubModelFormat.detect(paths: names) }
         guard let repo = Repo.ID(rawValue: key.ref.repo) else { return .mlx }
         let entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
         return HubModelFormat.detect(paths: entries.map(\.path))

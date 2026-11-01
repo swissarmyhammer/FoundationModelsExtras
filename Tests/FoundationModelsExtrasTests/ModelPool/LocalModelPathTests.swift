@@ -164,6 +164,34 @@ struct LocalModelPathTests {
         #expect(try CoreMLPackage.localRevision(of: package) != before)
     }
 
+    @Test("the compiled model of a local package gets a new place when only the date of a weight file changes")
+    func compiledPlaceChangesWithTheDateOfAWeightFile() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.writeCoreMLFolder(in: root)
+        let package = root.appendingPathComponent("model.mlpackage", isDirectory: true)
+        let weight = try #require(CoreMLPackage.weightFiles(in: package).first)
+        let before = try CoreMLPackage.localRevision(of: package)
+
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: weight.path)
+
+        #expect(try CoreMLPackage.localRevision(of: package) != before)
+    }
+
+    @Test("a file that reports no modification date has no revision line and throws")
+    func missingDateThrows() {
+        #expect(throws: CoreMLModelLoaderError.unreadablePackage(path: "/model/weight.bin")) {
+            try CoreMLPackage.revisionLine(relative: "/weight.bin", size: 4, changed: nil, path: "/model/weight.bin")
+        }
+    }
+
+    @Test("a file that reports no size has no revision line and throws")
+    func missingSizeThrows() {
+        #expect(throws: CoreMLModelLoaderError.unreadablePackage(path: "/model/weight.bin")) {
+            try CoreMLPackage.revisionLine(relative: "/weight.bin", size: nil, changed: Date(), path: "/model/weight.bin")
+        }
+    }
+
     @Test("the compiled model of a package that cannot be read has no place and throws")
     func unreadablePackageThrows() throws {
         let root = try TemporaryDirectory.make()
