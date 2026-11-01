@@ -111,7 +111,7 @@ struct LocalModelPathTests {
     func modelFolderOfLocalReference() throws {
         let root = try TemporaryDirectory.make()
         defer { try? FileManager.default.removeItem(at: root) }
-        let hub = HubSource(cache: HubCache(cacheDirectory: Self.emptyCache(in: root)), tokenProvider: .none)
+        let hub = Self.emptyHub(in: root)
 
         #expect(hub.modelFolder(of: ModelRef(repo: root.path), revision: "main")?.path == root.path)
     }
@@ -120,7 +120,7 @@ struct LocalModelPathTests {
     func modelFolderOfMissingHubReference() throws {
         let root = try TemporaryDirectory.make()
         defer { try? FileManager.default.removeItem(at: root) }
-        let hub = HubSource(cache: HubCache(cacheDirectory: Self.emptyCache(in: root)), tokenProvider: .none)
+        let hub = Self.emptyHub(in: root)
 
         #expect(hub.modelFolder(of: ModelRef(repo: "org/no-such-model"), revision: "main") == nil)
     }
@@ -139,43 +139,23 @@ struct LocalModelPathTests {
 
     @Test("the compiled model of a local package gets a new place when its manifest changes")
     func compiledPlaceChangesWithTheManifest() throws {
-        let root = try TemporaryDirectory.make()
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Self.writeCoreMLFolder(in: root)
-        let package = root.appendingPathComponent("model.mlpackage", isDirectory: true)
-        let manifest = package.appendingPathComponent("Manifest.json")
-        let before = try CoreMLPackage.localRevision(of: package)
-
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: manifest.path)
-
-        #expect(try CoreMLPackage.localRevision(of: package) != before)
+        try Self.expectRevisionChange { package in
+            try Self.setDate(of: package.appendingPathComponent("Manifest.json"))
+        }
     }
 
     @Test("the compiled model of a local package gets a new place when a weight file changes in place")
     func compiledPlaceChangesWithAWeightFile() throws {
-        let root = try TemporaryDirectory.make()
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Self.writeCoreMLFolder(in: root)
-        let package = root.appendingPathComponent("model.mlpackage", isDirectory: true)
-        let before = try CoreMLPackage.localRevision(of: package)
-
-        try Data(count: Self.weightBytes + 1).write(to: try #require(CoreMLPackage.weightFiles(in: package).first))
-
-        #expect(try CoreMLPackage.localRevision(of: package) != before)
+        try Self.expectRevisionChange { package in
+            try Data(count: Self.weightBytes + 1).write(to: try #require(CoreMLPackage.weightFiles(in: package).first))
+        }
     }
 
     @Test("the compiled model of a local package gets a new place when only the date of a weight file changes")
     func compiledPlaceChangesWithTheDateOfAWeightFile() throws {
-        let root = try TemporaryDirectory.make()
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Self.writeCoreMLFolder(in: root)
-        let package = root.appendingPathComponent("model.mlpackage", isDirectory: true)
-        let weight = try #require(CoreMLPackage.weightFiles(in: package).first)
-        let before = try CoreMLPackage.localRevision(of: package)
-
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: weight.path)
-
-        #expect(try CoreMLPackage.localRevision(of: package) != before)
+        try Self.expectRevisionChange { package in
+            try Self.setDate(of: #require(CoreMLPackage.weightFiles(in: package).first))
+        }
     }
 
     @Test("a file that reports no modification date has no revision line and throws")
@@ -204,6 +184,33 @@ struct LocalModelPathTests {
     }
 
     // MARK: Helpers
+
+    /// Writes a Core ML folder, takes the revision of its package, runs `change`
+    /// on the package, and expects that the revision is not the same after.
+    private static func expectRevisionChange(
+        _ change: (URL) throws -> Void,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeCoreMLFolder(in: root)
+        let package = root.appendingPathComponent("model.mlpackage", isDirectory: true)
+        let before = try CoreMLPackage.localRevision(of: package)
+
+        try change(package)
+
+        #expect(try CoreMLPackage.localRevision(of: package) != before, sourceLocation: sourceLocation)
+    }
+
+    /// Sets the modification date of the file `file` to a fixed old date.
+    private static func setDate(of file: URL) throws {
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: file.path)
+    }
+
+    /// A Hub source whose cache folder does not exist, beside `folder`.
+    private static func emptyHub(in folder: URL) -> HubSource {
+        HubSource(cache: HubCache(cacheDirectory: emptyCache(in: folder)), tokenProvider: .none)
+    }
 
     /// Decides the format of the local folder `folder` with a Hub loader whose
     /// cache is empty, thus a Hub lookup would fail.

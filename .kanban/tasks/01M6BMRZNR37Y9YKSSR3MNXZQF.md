@@ -75,7 +75,30 @@ comments:
     - evidence: e2f3007 fix(model-pool): a local revision needs a real size and a real date
     - next: none
   timestamp: 2026-11-01T16:36:33.619117+00:00
-position_column: doing
+- actor: claude-code
+  id: 01m6bzk1wn381eztmrxd22a8bh
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD, 1 finding: Tests/FoundationModelsExtrasTests/ModelPool/LocalModelPathTests.swift:168
+    - next: remove the copied test body with one shared helper that takes the mutation as a closure, then review again
+  timestamp: 2026-11-01T16:37:55.221093+00:00
+- actor: claude-code
+  id: 01m6bzk8vts8h0mmrv95m8y8j4
+  text: |-
+    ### finish iteration 3 — findings
+    - implement: changed — 3 files
+    - test: green — swift test, 1650 passed
+    - commit: b09a63a
+    - review: findings — LocalModelPathTests.swift:168
+  timestamp: 2026-11-01T16:38:02.362581+00:00
+- actor: claude-code
+  id: 01m6bzn2dgthy1csntv9ak64gj
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/LocalModelPathTests.swift. The three compiled-place tests now call one private helper, expectRevisionChange, with their own change closure. Two other copied blocks left the file: setDate(of:) and emptyHub(in:). Full swift test: 1650 tests in 162 suites passed.
+    - next: review
+  timestamp: 2026-11-01T16:39:01.296331+00:00
+position_column: review
 position_ordinal: '80'
 title: HubModelLoader detects the model format from a local path
 ---
@@ -108,3 +131,12 @@ The agent config must accept a local path as a model reference and find the form
 
 - [x] `Sources/FoundationModelsExtras/ModelPool/CoreMLPackage.swift:183` `completeness/public-output-contract` — The local revision replaces a missing modification date with 0 (`values.contentModificationDate?.timeIntervalSince1970 ?? 0`), and line 185 does the same for a missing file size with `?? 0`. The doc comment on `localRevision` says there is no fallback value, because a fallback keeps an old compiled model. With this fallback, a file whose date the file system does not report adds the same digest entry in every state, so an in-place change to that file would not be seen and the stale compiled model would load. The code silently does what the new `unreadablePackage` throw was meant to prevent. Throw `CoreMLModelLoaderError.unreadablePackage(path: entry.path)` when `contentModificationDate` or `fileSize` is nil, as the code already does for a failed `resourceValues` read. This keeps the no-fallback rule the doc states. Optionally add a test where the weight file keeps its size but gets a new modification date, so the date path is exercised on its own.
 - [x] `Sources/FoundationModelsExtras/ModelPool/HubModelLoader.swift:181` `swift/preconditions` — The requirement that a local folder must not be empty or unreadable sits as a nested `if isLocal { throw ... }` inside the `if let folder` branch. The check is hidden inside the branch it protects, so a reader must enter the outer branch to find it. Keep the `if let` at line 178, because a nil folder must fall through to the Hub lookup and a `guard` cannot express that. Move the local-folder requirement to the head of the block as a separate `guard` that runs when `isLocal` is true and the names are empty or unreadable, so the throw is stated before the Hub branch is read.
+
+## Review Findings (2026-11-01 10:36)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 3 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/LocalModelPathTests.swift:168` `reuse/reuse` — The new test compiledPlaceChangesWithTheDateOfAWeightFile copies the body of the existing test compiledPlaceChangesWithAWeightFile. Both write the Core ML folder, locate the package, take `before`, mutate one weight file, and assert the revision changed. Only the mutation line differs. A second copy means the setup can drift between the two tests. Extract a private static helper that takes the mutation as a closure, for example `assertRevisionChanges(after mutate: (URL) throws -> Void)`. Both tests then call the helper with their own mutation. Keep the two mutations as separate, visible arguments at each call site.
