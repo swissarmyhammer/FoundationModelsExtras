@@ -4,8 +4,11 @@ import MLXLLM
 import MLXLMCommon
 import Tokenizers
 
-/// The format of the files of a model on the Hugging Face Hub.
-enum HubModelFormat: Equatable, Sendable {
+/// The format of the files of a model on the Hugging Face Hub. ``HubModelLoader``
+/// uses ``detect(paths:)`` to pick its loader, and a caller that sizes or lists
+/// repositories can use the same rule, thus the caller and the loader cannot
+/// disagree.
+public enum HubModelFormat: Equatable, Sendable {
     /// Safetensors weights, which ``MLXModelLoader`` loads.
     case mlx
     /// A `.mlpackage` folder, which ``CoreMLModelLoader`` loads.
@@ -24,11 +27,16 @@ enum HubModelFormat: Equatable, Sendable {
     /// MLX loads each role. A repository that holds neither is MLX, thus the
     /// MLX loader gives the error about the missing files.
     ///
+    /// Only a `.mlpackage` folder counts as Core ML. ``CoreMLModelLoader``
+    /// compiles a package itself, and it does not load a compiled `.mlmodelc`
+    /// folder, thus a repository with only a `.mlmodelc` folder is MLX here.
+    /// A `safetensors` file at any depth makes the repository MLX.
+    ///
     /// - Parameter paths: The paths of the files of the repository, relative
     ///   to its root. A folder of a package can appear as a path or as a
     ///   component of the path of a file.
     /// - Returns: The format of the repository.
-    static func detect(paths: [String]) -> HubModelFormat {
+    public static func detect(paths: [String]) -> HubModelFormat {
         var hasPackage = false
         for path in paths {
             let components = path.split(separator: "/").map(String.init)

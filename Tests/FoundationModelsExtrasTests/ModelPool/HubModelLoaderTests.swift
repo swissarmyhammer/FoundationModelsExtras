@@ -55,6 +55,13 @@ struct HubModelLoaderTests {
         #expect(HubModelFormat.detect(paths: []) == .mlx)
     }
 
+    @Test("a repository with only a compiled mlmodelc folder is MLX, because the Core ML loader compiles a package itself")
+    func compiledFolderAloneIsMLX() {
+        let paths = ["model.mlmodelc/coremldata.bin", "model.mlmodelc/weights/weight.bin", "tokenizer.json"]
+
+        #expect(HubModelFormat.detect(paths: paths) == .mlx)
+    }
+
     @Test("a name that only contains the text mlpackage is not a package")
     func lookalikeNameIsNotAPackage() {
         #expect(HubModelFormat.detect(paths: ["my-mlpackage-notes.md", "mlpackage"]) == .mlx)
