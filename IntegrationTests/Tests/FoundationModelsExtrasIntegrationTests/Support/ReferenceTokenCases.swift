@@ -21,7 +21,7 @@ let referenceLength = 128
 /// model length, thus the text is cut.
 private let longTextWordCount = 400
 
-/// The error when the file of reference ids is not in the test bundle.
+/// The error when a case has no ids in the file of reference ids.
 struct ReferenceTokenIdsMissing: Error {}
 
 /// The reference cases, made by this Python code on the `tokenizer.json` of
@@ -33,7 +33,7 @@ struct ReferenceTokenIdsMissing: Error {}
 ///     encoding = tokenizer.encode(text)
 ///     ids = [i for i, m in zip(encoding.ids, encoding.attention_mask) if m]
 ///
-/// The ids are in the resource `ReferenceTokenIds.json`, a map from the name
+/// The ids are in the file `ReferenceTokenIds.json`, beside this source file, a map from the name
 /// of a case to its ids. The texts are here, with the same names.
 private let referenceTexts: [(name: String, text: String)] = [
     ("short", "hello"),
@@ -51,11 +51,9 @@ private let referenceTexts: [(name: String, text: String)] = [
     ("whitespace", "  leading and trailing spaces  \n\ttab and newline "),
 ]
 
-/// Reads the reference cases: each text with the ids from the resource.
+/// Reads the reference cases: each text with the ids from the file.
 func loadReferenceTokenCases() throws -> [ReferenceTokenCase] {
-    guard let url = Bundle.module.url(forResource: "ReferenceTokenIds", withExtension: "json") else {
-        throw ReferenceTokenIdsMissing()
-    }
+    let url = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "ReferenceTokenIds.json")
     let idsByName = try JSONDecoder().decode([String: [Int32]].self, from: Data(contentsOf: url))
     return try referenceTexts.map { reference in
         guard let ids = idsByName[reference.name] else { throw ReferenceTokenIdsMissing() }

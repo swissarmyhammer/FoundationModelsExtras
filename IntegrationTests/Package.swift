@@ -83,8 +83,12 @@ let package = Package(
             ],
             path: "Tests/\(extrasPackage)IntegrationTests",
             // The ids that the Python tokenizers library gives for the
-            // reference texts of the Core ML tokenizer test.
-            resources: [.copy("Support/ReferenceTokenIds.json")]
+            // reference texts of the Core ML tokenizer test. The test reads the
+            // file by its path in the source tree. The file is not a resource:
+            // a resource changes the layout of the test bundle, and then the
+            // second build of `swift test` cannot sign the bundle after CI
+            // copies the shader library into it.
+            exclude: ["Support/ReferenceTokenIds.json"]
         )
     ]
 )
