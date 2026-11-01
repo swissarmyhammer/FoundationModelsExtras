@@ -27,10 +27,6 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The file extension of a weight file.
     private static let weightFileExtension = "safetensors"
 
-    /// The environment variable that names the Hugging Face endpoint, as the
-    /// Hugging Face client reads it.
-    private static let endpointVariable = "HF_ENDPOINT"
-
     /// The capabilities of each `MLXLanguageModel` that the loader makes: the
     /// capabilities that the FoundationModelsRouter declares for each LLM.
     /// ``PooledModel`` declares them too when you give no capabilities.
@@ -38,12 +34,9 @@ public struct MLXModelLoader: PooledModelLoader {
         .guidedGeneration, .toolCalling, .reasoning,
     ]
 
-    /// The Hugging Face cache that holds the downloaded weights.
-    private let cache: HubCache
-
-    /// The token provider of each download, which gives the Hugging Face
-    /// token that the download sends.
-    private let tokenProvider: TokenProvider
+    /// The Hugging Face cache and token provider of the loader: the source of
+    /// its hub client, its snapshot lookup and its blob sizes.
+    private let hub: HubSource
 
     /// The tokenizer loader of each load, of an LLM and of an embedding model.
     let tokenizerLoader: any TokenizerLoader
@@ -118,8 +111,7 @@ public struct MLXModelLoader: PooledModelLoader {
         cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil,
         drafterRegistration: MTPDrafterRegistration = .qwen35Text
     ) {
-        self.cache = cache
-        self.tokenProvider = tokenProvider
+        hub = HubSource(cache: cache, tokenProvider: tokenProvider)
         self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
         self.drafterRegistration = drafterRegistration
     }
@@ -163,7 +155,7 @@ public struct MLXModelLoader: PooledModelLoader {
             return try await Self.loadLanguageModel(
                 configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader,
                 speculativeDecoding: try speculativeDecoding(for: key),
-                weightsLocation: { [cache] id in Self.weightsDirectory(of: id, in: cache) })
+                weightsLocation: { [cache = hub.cache] id in Self.weightsDirectory(of: id, in: cache) })
         case .embedding:
             return try await MLXEmbedding.load(
                 ref: key.ref, configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
@@ -236,25 +228,13 @@ public struct MLXModelLoader: PooledModelLoader {
         }
     }
 
-    /// The Hugging Face client of each download. Its cache is the cache of the
-    /// loader, thus the download writes to the folder of the loader. Its token
-    /// comes from the token provider of the loader.
+    /// The Hugging Face client of each download, over the cache and the token
+    /// provider of the loader. The download writes to the folder of the
+    /// loader.
     ///
-    /// - Returns: A client over the cache and the token provider of the
-    ///   loader, at the host of ``hubHost()``.
+    /// - Returns: A client at the host of `HF_ENDPOINT` or the Hugging Face Hub.
     func hubClient() -> HubClient {
-        HubClient(host: Self.hubHost(), tokenProvider: tokenProvider, cache: cache)
-    }
-
-    /// The host of each download: the endpoint that `HF_ENDPOINT` names, or
-    /// the Hugging Face Hub. The Hugging Face client reads this variable only
-    /// in its init with no token provider, thus the loader reads it for the
-    /// init that takes one.
-    ///
-    /// - Returns: The URL of `HF_ENDPOINT`, or `HubClient.defaultHost` when
-    ///   the variable is not set or is not a URL.
-    private static func hubHost() -> URL {
-        ProcessInfo.processInfo.environment[endpointVariable].flatMap { URL(string: $0) } ?? HubClient.defaultHost
+        hub.client()
     }
 
     /// The folder of the model `id` in `cache`, where `MLXLanguageModel` looks
@@ -288,12 +268,7 @@ public struct MLXModelLoader: PooledModelLoader {
     ///   revision of the model.
     private func snapshotDirectory(of key: ModelPoolKey) throws -> URL {
         let revision = Self.revision(of: key)
-        guard let repo = Repo.ID(rawValue: key.ref.repo) else {
-            throw MLXModelLoaderError.notInCache(key: key, revision: revision)
-        }
-        let commit = cache.resolveRevision(repo: repo, kind: .model, ref: revision) ?? revision
-        let snapshot = try cache.snapshotPath(repo: repo, kind: .model, commitHash: commit)
-        guard FileManager.default.fileExists(atPath: snapshot.path) else {
+        guard let snapshot = hub.snapshotDirectory(of: key.ref.repo, revision: revision) else {
             throw MLXModelLoaderError.notInCache(key: key, revision: revision)
         }
         return snapshot
@@ -305,11 +280,10 @@ public struct MLXModelLoader: PooledModelLoader {
     /// - Returns: The size of the blob.
     /// - Throws: The error of the read of the file size.
     private static func blobBytes(of file: URL) throws -> Int64 {
-        let blob = file.resolvingSymlinksInPath()
-        guard let size = try blob.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
-            throw MLXModelLoaderError.unknownFileSize(path: blob.path)
+        guard let size = try HubSource.blobBytes(of: file) else {
+            throw MLXModelLoaderError.unknownFileSize(path: file.resolvingSymlinksInPath().path)
         }
-        return Int64(size)
+        return size
     }
 
     /// Makes an `MLXLanguageModel` with ``languageModelCapabilities`` and
