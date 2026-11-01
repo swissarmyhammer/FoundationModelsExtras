@@ -16,6 +16,11 @@ public protocol PooledEmbedding: Sendable {
 /// the embedder exists. Each ``embed(texts:)`` call goes to the container of
 /// the hold at once; the container holds its own lock for one embed.
 ///
+/// The container can be an MLX model, which ``MLXModelLoader`` loads, or a
+/// Core ML model, which ``CoreMLModelLoader`` loads. The embedder uses the
+/// container only through ``PooledEmbedding``, thus it does not know the
+/// difference. The loader of the pool decides it.
+///
 /// An embedder made from a name loads nothing when you make it. Its first
 /// ``embed(texts:)`` call acquires the model from the pool, one time only, also
 /// when first calls run at the same time. All copies of one embedder share
@@ -24,6 +29,16 @@ public protocol PooledEmbedding: Sendable {
 /// ```swift
 /// let embedder = PooledEmbedder(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")   // loads nothing
 /// let vectors = try await embedder.embed(texts: ["save my work"])                     // loads the model
+/// ```
+///
+/// A Core ML model that runs on the Apple Neural Engine needs a pool with the
+/// Core ML loader. A model that expects a prefix needs it in the texts: the
+/// loader adds none.
+///
+/// ```swift
+/// let pool = ModelPool(loader: CoreMLModelLoader())
+/// let embedder = PooledEmbedder(ref: "erjigit17/embeddinggemma-300m-ane-coreml", pool: pool)
+/// let vectors = try await embedder.embed(texts: ["task: search result | query: save my work"])
 /// ```
 public struct PooledEmbedder: PooledEmbedding {
     /// The hold of the model, which all copies of this embedder share.
@@ -35,7 +50,8 @@ public struct PooledEmbedder: PooledEmbedding {
     /// - Parameters:
     ///   - ref: The Hugging Face name of the embedding model.
     ///   - pool: The pool that loads the model with its loader. The default is
-    ///     ``ModelPool/shared``.
+    ///     ``ModelPool/shared``, which loads MLX models. Give a pool with a
+    ///     ``CoreMLModelLoader`` for a Core ML model.
     public init(ref: ModelRef, pool: ModelPool = .shared) {
         let key = ModelPoolKey(ref: ref, role: .embedding)
         resident = ResidentHold { try LoadedEmbedding(hold: try await pool.acquire(key)) }
@@ -52,9 +68,10 @@ public struct PooledEmbedder: PooledEmbedding {
     }
 
     /// Gives one vector for each text. The call goes to the container at
-    /// once: the embedder container of MLX holds its own lock for one embed,
-    /// thus the embed calls of one model run one at a time. The first call of
-    /// an embedder made from a name loads the model first.
+    /// once: the container holds its own lock for one embed, thus the embed
+    /// calls of one model run one at a time. The embedder container of MLX
+    /// and the Core ML container both do this. The first call of an embedder
+    /// made from a name loads the model first.
     ///
     /// - Parameter texts: The texts.
     /// - Returns: One vector for each text, in the order of `texts`.

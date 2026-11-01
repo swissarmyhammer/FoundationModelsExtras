@@ -12,6 +12,11 @@ enum IntegrationModels {
     /// A small embedding model, about 0.3 GB of weights.
     static let embedding = ModelPoolKey(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", role: .embedding)
 
+    /// A Core ML embedding model that runs on the Apple Neural Engine, about
+    /// 0.3 GB of weights. Only `CoreMLModelLoader` loads it, thus a test
+    /// gives that loader to the pool.
+    static let coreMLEmbedding = ModelPoolKey(ref: "erjigit17/embeddinggemma-300m-ane-coreml", role: .embedding)
+
     /// A 4B instruct LLM that calls tools, about 2.3 GB of weights.
     ///
     /// The tool-hosting suite uses it, because the 1B ``llm`` does not call
@@ -21,7 +26,8 @@ enum IntegrationModels {
     static let toolCallingLLM = ModelPoolKey(ref: "mlx-community/Qwen3-4B-4bit", role: .llm)
 
     /// The bytes that the pool counts for the weights and one session of each
-    /// model. This is a rough upper limit for ``llm`` and ``embedding``.
+    /// model. This is a rough upper limit for ``llm``, ``embedding`` and
+    /// ``coreMLEmbedding``.
     static let footprintBytes: Int64 = 1 << 30
 
     /// The bytes that the pool counts for the weights and one session of

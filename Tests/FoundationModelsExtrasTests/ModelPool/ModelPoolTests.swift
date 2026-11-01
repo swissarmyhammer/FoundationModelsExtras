@@ -771,10 +771,10 @@ struct ModelPoolTests {
         #expect(pool.footprint == ModelPoolFootprint(resident: [:], loadingBytes: 0))
     }
 
-    @Test("a pool made with init() and the shared pool load with MLXModelLoader")
-    func theDefaultLoaderIsTheMLXLoader() {
-        #expect(ModelPool().loader is MLXModelLoader)
-        #expect(ModelPool.shared.loader is MLXModelLoader)
+    @Test("a pool made with init() and the shared pool load with HubModelLoader")
+    func theDefaultLoaderIsTheHubLoader() {
+        #expect(ModelPool().loader is HubModelLoader)
+        #expect(ModelPool.shared.loader is HubModelLoader)
     }
 
     @Test("the README example: acquire a model, then admit an embedder that fits the budget")

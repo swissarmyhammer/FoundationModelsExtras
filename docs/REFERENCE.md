@@ -510,7 +510,11 @@ loads a real LLM and a real embedding model with a tokenizer loader that
 records each call.
 
 `ModelPool(loader:)` sets the loader of the pool. The default is
-`MLXModelLoader()`, and `ModelPool.shared` uses it. `acquire(_ key:)` loads
+`HubModelLoader()`, and `ModelPool.shared` uses it. `HubModelLoader` loads a
+model from its Hugging Face name in the format that the repository holds: MLX
+for `safetensors` weights with `MLXModelLoader`, and Core ML for a `.mlpackage`
+folder with `CoreMLModelLoader` (see "A Core ML embedding model on the Neural
+Engine"). `acquire(_ key:)` loads
 with the loader of the pool, and needs no loader and no byte count. After the
 load, the loader measures the model with `footprintBytes(of:)`, and the pool
 counts that footprint. `MLXModelLoader` measures the weight files of the model
@@ -658,6 +662,54 @@ loader works for all callers. When the container does not conform,
 let embedder = PooledEmbedder(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", pool: pool)
 let vectors = try await embedder.embed(texts: ["save my work"])
 ```
+
+### A Core ML embedding model on the Neural Engine
+
+A repository with a `.mlpackage` folder loads as a Core ML model that runs on the
+Apple Neural Engine. The default pool picks the loader by itself, so the same
+`PooledEmbedder` works for both formats:
+
+```swift
+let pool = ModelPool()
+let mlx = PooledEmbedder(ref: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ", pool: pool)
+let ane = PooledEmbedder(ref: "erjigit17/embeddinggemma-300m-ane-coreml", pool: pool)
+let vectors = try await ane.embed(texts: ["task: search result | query: save my work"])
+```
+
+`HubModelLoader` decides the format of an `.embedding` key in this order. When
+the Hugging Face cache holds a snapshot of the model, the names in the snapshot
+decide, with no network. Otherwise the file list of the repository on the Hub
+decides. A repository is Core ML when it holds a `.mlpackage` folder and no
+`safetensors` file. A repository with both formats, or with neither, loads with
+MLX. An `.llm` key always loads with MLX. To use the Core ML loader alone, give
+`ModelPool(loader: CoreMLModelLoader())`.
+
+`CoreMLModelLoader` downloads the files of the package and the tokenizer, and
+no script or document. It compiles the package one time for each commit and
+keeps the compiled model in the folder `coreml-compiled` of the cache, thus
+each later load skips the compile. It copies the package to a temporary folder
+before the compile, because the Core ML compiler fails on the links of a
+snapshot. It loads the model with `computeUnits` set to `.cpuAndNeuralEngine`.
+The package must take the inputs `input_ids` and `attention_mask`, each an
+`int32` array of the shape `[1, length]`, and give one vector. The length comes
+from the model: a longer text is cut, and a shorter text is padded. The model
+does the pooling and the normalizing. A repository with no
+`tokenizer_config.json` gets a stand-in config that names the generic tokenizer
+class, and the tokenizer follows `tokenizer.json`.
+
+The loader adds no prefix to a text. `erjigit17/embeddinggemma-300m-ane-coreml`
+expects `task: search result | query: ` before a query and
+`title: none | text: ` before a document. The weights have the Gemma license.
+The embed calls of one model run one at a time, in order. The pool counts the
+bytes of the weight files of the package as the footprint of the model.
+
+The integration test `CoreMLPooledEmbedderIntegrationTests` in
+`IntegrationTests/Tests/FoundationModelsExtrasIntegrationTests/` loads the real
+model. It checks unit vectors of 768 values, that a query is closer to its
+answer than to an unrelated text, the cut of a long text, and that two
+embedders of one name cause one load. It also reports the share of the
+operations that run on the Neural Engine: 2013 of 2025 on the machine that
+wrote this text.
 
 `PooledEmbedder(hold:)` stays, for a caller that acquires the model with its
 own byte counts. It throws `PooledEmbedderError.notAnEmbedding` at once when

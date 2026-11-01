@@ -6,7 +6,7 @@ import Synchronization
 /// Each load and each eviction runs as one job in one admission queue. Thus a
 /// job that reads the footprint and then loads sees no other change of memory.
 public final class ModelPool: Sendable {
-    /// The pool of the process. It loads with ``MLXModelLoader``.
+    /// The pool of the process. It loads with ``HubModelLoader``.
     public static let shared = ModelPool()
 
     /// An acquire by key counts no session bytes: the loader measures the
@@ -147,8 +147,9 @@ public final class ModelPool: Sendable {
     /// Makes an empty pool.
     ///
     /// - Parameter loader: The loader of ``acquire(_:)``. The default is
-    ///   ``MLXModelLoader``, which loads a model from its Hugging Face name.
-    public init(loader: any PooledModelLoader = MLXModelLoader()) {
+    ///   ``HubModelLoader``, which loads a model from its Hugging Face name, as
+    ///   MLX weights or as a Core ML package.
+    public init(loader: any PooledModelLoader = HubModelLoader()) {
         self.loader = loader
         self.deliveryProbe = nil
     }
