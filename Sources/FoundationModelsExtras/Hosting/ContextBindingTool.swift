@@ -92,13 +92,13 @@ struct ContextBindingTool<
             closeRecord: closeRecord)
     }
 
-    /// The final result of a call: succeeded for an output, failed for an
-    /// error, and failed with the reported value when the tool reported a
-    /// failure.
+    /// The final result of a call: succeeded for an output, the outcome of
+    /// ``OperationOutcome/init(thrown:)`` for an error, and failed with the
+    /// reported value when the tool reported a failure.
     private static func result(of outcome: Result<Output, any Error>, state: ToolCallState) -> OperationResult {
         switch outcome {
         case .success: state.result(ofBodyEndingAs: .succeeded)
-        case .failure: state.result(ofBodyEndingAs: .failed)
+        case .failure(let error): state.result(ofBodyEndingAs: OperationOutcome(thrown: error))
         }
     }
 

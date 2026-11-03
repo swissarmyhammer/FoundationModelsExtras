@@ -48,28 +48,57 @@ struct ToolCallWitnessTests {
     /// The result of a call that reported nothing and returned.
     private static let plainResult = OperationResult(outcome: .succeeded, value: nil)
 
-    /// A `String` tool that reports a failure with ``exitCode``, then returns.
-    struct FailingTool: Tool {
-        let name = "failing_tool"
-        let description = "reports a failure with an exit code, then returns"
+    /// A tool that reports a failure with ``exitCode``, then returns its
+    /// output. The output type tells the case: `String` gets a runner, any
+    /// other output gets only a bound context.
+    struct FailingTool<Output: FailingToolOutput>: Tool {
+        let name = Output.toolName
+        let description = Output.toolDescription
 
-        func call(arguments: MountArguments) async throws -> String {
+        func call(arguments: MountArguments) async throws -> Output {
             ToolContext.current?.reportFailure(value: .int(ToolCallWitnessTests.exitCode))
-            return "failed output"
+            return Output.failedOutput
         }
     }
 
-    /// A tool whose output is not `String`. It reports a failure with
-    /// ``exitCode``, then returns.
-    struct FailingNonStringTool: Tool {
-        let name = "failing_non_string_tool"
-        let description = "reports a failure, then returns a non-String output"
+    /// A tool whose output is not `String`. It throws `error` at once.
+    struct ThrowingNonStringTool: Tool {
+        let name = "throwing_non_string_tool"
+        let description = "throws an error, with an output that is not String"
+
+        /// The error that each call throws.
+        let error: any Error
 
         func call(arguments: MountArguments) async throws -> NonStringToolOutput {
-            ToolContext.current?.reportFailure(value: .int(ToolCallWitnessTests.exitCode))
-            return NonStringToolOutput(text: "failed output")
+            throw error
         }
     }
+
+    /// An error that settles a run as lost.
+    struct DroppedTransport: LostRunError {}
+
+    /// An error that a tool throws, and the outcome that the end of its call
+    /// has to carry.
+    struct ThrownCase: Sendable, CustomTestStringConvertible {
+        /// What the case tells.
+        let testDescription: String
+
+        /// The error that the tool throws.
+        let error: any Error
+
+        /// The outcome of the end of the call.
+        let outcome: OperationOutcome
+    }
+
+    /// Each kind of error that ``OperationOutcome/init(thrown:)`` tells apart.
+    private static let thrownCases = [
+        ThrownCase(testDescription: "a cancel", error: CancellationError(), outcome: .cancelled),
+        ThrownCase(
+            testDescription: "a timeout", error: ToolMountError.timedOut(tool: "t", timeoutSeconds: 1),
+            outcome: .timedOut),
+        ThrownCase(testDescription: "a lost run", error: DroppedTransport(), outcome: .lost),
+        ThrownCase(testDescription: "any other error", error: Fixtures.FixtureError(), outcome: .failed),
+    ]
 
     /// An outer tool whose body makes its inner calls through the context of
     /// its own call.
@@ -131,6 +160,21 @@ struct ToolCallWitnessTests {
         /// - Returns: The output of the outer call.
         func callOuter(_ body: @escaping @Sendable (ToolContext) async throws -> String) async throws -> String {
             try await Self.call(MountingTool(body: body), on: site)
+        }
+
+        /// Mounts `tool` in the background through an outer call, and waits for
+        /// its run to settle.
+        ///
+        /// - Parameter tool: The tool to run.
+        /// - Returns: The envelope that the outer call returned.
+        func runBackgroundCall(of tool: some Tool<MountArguments, String>) async throws -> Fixtures.DecodedEnvelope {
+            let rendered = try await callOuter { context in
+                try await context.mount(tool, as: ToolMount(mode: .background))
+                    .call(arguments: ToolCallWitnessTests.innerArguments)
+            }
+            let envelope = try Fixtures.decodeEnvelope(rendered)
+            _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: runPlane)
+            return envelope
         }
 
         /// Mounts `tool` on `site`, as a host does, and makes one call of it.
@@ -219,12 +263,7 @@ struct ToolCallWitnessTests {
     func anInnerBackgroundCallIsReportedOnce() async throws {
         let session = Session()
 
-        let rendered = try await session.callOuter { context in
-            try await context.mount(Fixtures.FastTool(), as: ToolMount(mode: .background))
-                .call(arguments: Self.innerArguments)
-        }
-        let envelope = try Fixtures.decodeEnvelope(rendered)
-        _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: session.runPlane)
+        _ = try await session.runBackgroundCall(of: Fixtures.FastTool())
 
         #expect(session.reportedTools == [Fixtures.FastTool().name])
     }
@@ -289,11 +328,11 @@ struct ToolCallWitnessTests {
         let session = Session()
 
         _ = try await session.callOuter { context in
-            try await context.mount(FailingTool()).call(arguments: Self.innerArguments)
+            try await context.mount(FailingTool<String>()).call(arguments: Self.innerArguments)
         }
 
         let ended = try #require(session.witness.endedCalls.values.first)
-        #expect(ended.call.tool == FailingTool().name)
+        #expect(ended.call.tool == FailingTool<String>().name)
         #expect(ended.result == Self.reportedResult)
     }
 
@@ -323,22 +362,33 @@ struct ToolCallWitnessTests {
         let session = Session()
 
         _ = try await session.callOuter { context in
-            try await context.mount(FailingNonStringTool()).call(arguments: Self.innerArguments).text
+            try await context.mount(FailingTool<NonStringToolOutput>()).call(arguments: Self.innerArguments).text
         }
 
         #expect(session.endedResults.first == Self.reportedResult)
+    }
+
+    @Test("an inner call of a tool whose output is not String ends with the outcome of the error that it threw",
+          arguments: ToolCallWitnessTests.thrownCases)
+    func anInnerNonStringThrowEndsWithTheOutcomeOfTheError(thrown: ThrownCase) async throws {
+        let session = Session()
+
+        _ = try await session.callOuter { context in
+            _ = try? await context.mount(ThrowingNonStringTool(error: thrown.error))
+                .call(arguments: Self.innerArguments)
+            return Self.outerValue
+        }
+
+        let ended = try #require(
+            session.witness.endedCalls.values.first { $0.call.tool == ThrowingNonStringTool(error: thrown.error).name })
+        #expect(ended.result == OperationResult(outcome: thrown.outcome, value: nil))
     }
 
     @Test("an inner background call ends with its result when its run settles")
     func anInnerBackgroundCallEndsWithTheResult() async throws {
         let session = Session()
 
-        let rendered = try await session.callOuter { context in
-            try await context.mount(FailingTool(), as: ToolMount(mode: .background))
-                .call(arguments: Self.innerArguments)
-        }
-        let envelope = try Fixtures.decodeEnvelope(rendered)
-        _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: session.runPlane)
+        _ = try await session.runBackgroundCall(of: FailingTool<String>())
         // The end of the run goes to the witness after the run settles.
         await session.witness.endedCalls.waitUntil { $0.contains { $0.result == Self.reportedResult } }
 
@@ -359,7 +409,7 @@ struct ToolCallWitnessTests {
     func anOuterReportedFailureEndsWithTheResult() async throws {
         let session = Session()
 
-        let output = try await Session.call(FailingTool(), on: session.site)
+        let output = try await Session.call(FailingTool<String>(), on: session.site)
 
         #expect(output == "failed output")
         #expect(session.endedResults == [Self.reportedResult])
@@ -390,15 +440,10 @@ struct ToolCallWitnessTests {
     func aBackgroundCallStartAndEndShareACorrelationID() async throws {
         let session = Session()
 
-        let rendered = try await session.callOuter { context in
-            try await context.mount(FailingTool(), as: ToolMount(mode: .background))
-                .call(arguments: Self.innerArguments)
-        }
-        let envelope = try Fixtures.decodeEnvelope(rendered)
-        _ = try await Fixtures.settledTerminal(of: envelope.completionToken, in: session.runPlane)
-        await session.witness.endedCalls.waitUntil { $0.contains { $0.call.tool == FailingTool().name } }
+        let envelope = try await session.runBackgroundCall(of: FailingTool<String>())
+        await session.witness.endedCalls.waitUntil { $0.contains { $0.call.tool == FailingTool<String>().name } }
 
-        let ended = try #require(session.witness.endedCalls.values.first { $0.call.tool == FailingTool().name })
+        let ended = try #require(session.witness.endedCalls.values.first { $0.call.tool == FailingTool<String>().name })
         #expect(session.witness.calls.values.first?.correlationID == envelope.completionToken)
         #expect(ended.call.correlationID == envelope.completionToken)
     }
@@ -408,12 +453,12 @@ struct ToolCallWitnessTests {
         let session = Session()
 
         _ = try await session.callOuter { context in
-            try await context.mount(FailingNonStringTool()).call(arguments: Self.innerArguments).text
+            try await context.mount(FailingTool<NonStringToolOutput>()).call(arguments: Self.innerArguments).text
         }
 
         let started = try #require(session.witness.calls.values.first?.correlationID)
         let ended = try #require(
-            session.witness.endedCalls.values.first { $0.call.tool == FailingNonStringTool().name }?.call.correlationID)
+            session.witness.endedCalls.values.first { $0.call.tool == FailingTool<NonStringToolOutput>().name }?.call.correlationID)
         #expect(started == ended)
     }
 
@@ -467,4 +512,29 @@ struct ToolCallWitnessTests {
         #expect(await unwitnessed.sink.events.map(\.kind) == witnessed.sink.events.map(\.kind))
         #expect(unwitnessed.reportedTools.isEmpty)
     }
+}
+
+/// The output of a ``ToolCallWitnessTests/FailingTool``, with the name and the description that
+/// tell its case.
+protocol FailingToolOutput: PromptRepresentable, Sendable {
+    /// The name of the tool of this output.
+    static var toolName: String { get }
+
+    /// The description of the tool of this output.
+    static var toolDescription: String { get }
+
+    /// The output that the tool returns after it reports its failure.
+    static var failedOutput: Self { get }
+}
+
+extension String: FailingToolOutput {
+    static var toolName: String { "failing_tool" }
+    static var toolDescription: String { "reports a failure with an exit code, then returns" }
+    static var failedOutput: String { "failed output" }
+}
+
+extension NonStringToolOutput: FailingToolOutput {
+    static var toolName: String { "failing_non_string_tool" }
+    static var toolDescription: String { "reports a failure, then returns a non-String output" }
+    static var failedOutput: NonStringToolOutput { NonStringToolOutput(text: "failed output") }
 }
