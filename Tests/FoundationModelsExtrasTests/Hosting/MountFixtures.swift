@@ -536,13 +536,17 @@ enum MountFixtures {
         }
     }
 
-    /// Throws ``FixtureError`` at once.
-    struct ThrowingTool: Tool {
+    /// Throws `error` at once. The arguments type and the output type are
+    /// parameters, thus one fixture serves each tool shape.
+    struct ThrowingTool<Arguments: Generable, Output: PromptRepresentable & Sendable>: Tool {
         let name = "throwing_tool"
         let description = "throws immediately"
 
-        func call(arguments: MountArguments) async throws -> String {
-            throw FixtureError()
+        /// The error that each call throws.
+        var error: any Error = FixtureError()
+
+        func call(arguments: Arguments) async throws -> Output {
+            throw error
         }
     }
 

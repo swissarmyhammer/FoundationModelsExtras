@@ -119,7 +119,7 @@ struct RunPlaneWorkTests {
     @Test("a mounted background call that throws holds the session until its run settles")
     func aThrowingBackgroundCallEndsItsLease() async throws {
         let plane = Plane()
-        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.ThrowingTool(), runPlane: plane.runPlane)
+        let harness = Fixtures.backgroundHarness(wrapping: Fixtures.ThrowingTool<MountArguments, String>(), runPlane: plane.runPlane)
 
         let rendered = try await harness.mounted.call(arguments: MountArguments(value: "x"))
         let token = try Fixtures.decodeEnvelope(rendered).completionToken

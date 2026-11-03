@@ -240,7 +240,7 @@ struct RunToCompletionRunnerTests {
 
     @Test("a tool that throws throws again in band and gets one terminal event with outcome failed")
     func throwingToolYieldsOneFailedTerminal() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ThrowingTool())
+        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ThrowingTool<MountArguments, String>())
 
         await #expect(throws: Fixtures.FixtureError.self) {
             _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))
@@ -371,7 +371,7 @@ struct RunToCompletionRunnerTests {
 
     @Test("with no timeout, only the error of the tool reaches the model")
     func clocklessCallReportsOnlyRealErrors() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ThrowingTool(), timeout: nil)
+        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ThrowingTool<MountArguments, String>(), timeout: nil)
 
         await #expect(throws: Fixtures.FixtureError()) {
             _ = try await harness.mounted.call(arguments: MountArguments(value: "x"))

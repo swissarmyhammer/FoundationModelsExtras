@@ -128,7 +128,7 @@ struct ReportedFailureTests {
 
     @Test("a tool that throws and does not report gives a failed terminal event with no value")
     func anUnreportedThrowGivesNoValue() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ThrowingTool())
+        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ThrowingTool<MountArguments, String>())
 
         _ = try? await harness.mounted.call(arguments: MountArguments(value: "x"))
 

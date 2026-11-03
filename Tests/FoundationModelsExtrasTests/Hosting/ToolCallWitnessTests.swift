@@ -61,17 +61,11 @@ struct ToolCallWitnessTests {
         }
     }
 
-    /// A tool whose output is not `String`. It throws `error` at once.
-    struct ThrowingNonStringTool: Tool {
-        let name = "throwing_non_string_tool"
-        let description = "throws an error, with an output that is not String"
-
-        /// The error that each call throws.
-        let error: any Error
-
-        func call(arguments: MountArguments) async throws -> NonStringToolOutput {
-            throw error
-        }
+    /// The shared throwing fixture, with an output that is not `String`.
+    private static func throwingNonStringTool(
+        throwing error: any Error
+    ) -> Fixtures.ThrowingTool<MountArguments, NonStringToolOutput> {
+        Fixtures.ThrowingTool(error: error)
     }
 
     /// An error that settles a run as lost.
@@ -313,12 +307,12 @@ struct ToolCallWitnessTests {
 
         _ = try await session.callOuter { context in
             await #expect(throws: Fixtures.FixtureError()) {
-                try await context.mount(Fixtures.ThrowingTool()).call(arguments: Self.innerArguments)
+                try await context.mount(Fixtures.ThrowingTool<MountArguments, String>()).call(arguments: Self.innerArguments)
             }
             return Self.outerValue
         }
 
-        #expect(session.reportedTools == [Fixtures.ThrowingTool().name])
+        #expect(session.reportedTools == [Fixtures.ThrowingTool<MountArguments, String>().name])
     }
 
     // MARK: - The end of a call
@@ -350,7 +344,7 @@ struct ToolCallWitnessTests {
         let session = Session()
 
         _ = try await session.callOuter { context in
-            _ = try? await context.mount(Fixtures.ThrowingTool()).call(arguments: Self.innerArguments)
+            _ = try? await context.mount(Fixtures.ThrowingTool<MountArguments, String>()).call(arguments: Self.innerArguments)
             return Self.outerValue
         }
 
@@ -374,13 +368,13 @@ struct ToolCallWitnessTests {
         let session = Session()
 
         _ = try await session.callOuter { context in
-            _ = try? await context.mount(ThrowingNonStringTool(error: thrown.error))
+            _ = try? await context.mount(Self.throwingNonStringTool(throwing: thrown.error))
                 .call(arguments: Self.innerArguments)
             return Self.outerValue
         }
 
         let ended = try #require(
-            session.witness.endedCalls.values.first { $0.call.tool == ThrowingNonStringTool(error: thrown.error).name })
+            session.witness.endedCalls.values.first { $0.call.tool == Self.throwingNonStringTool(throwing: thrown.error).name })
         #expect(ended.result == OperationResult(outcome: thrown.outcome, value: nil))
     }
 

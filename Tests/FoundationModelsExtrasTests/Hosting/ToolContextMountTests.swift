@@ -234,7 +234,7 @@ struct ToolContextMountTests {
 
     @Test("a mounted call that fails and is caught leaves the one terminal event to the mounting run")
     func caughtMountedFailureLeavesTheTerminalToTheMountingRun() async throws {
-        let run = await Self.nestingRun(around: Fixtures.ThrowingTool())
+        let run = await Self.nestingRun(around: Fixtures.ThrowingTool<MountArguments, String>())
 
         #expect(run.settled.outcome == .succeeded)
         // The sink gets one terminal event: the terminal of the mounting run,
@@ -252,7 +252,7 @@ struct ToolContextMountTests {
 
     @Test("the terminal event of a mounted call reaches the sink as progress of the mounting run")
     func mountedTerminalReachesTheSinkAsProgress() async throws {
-        let run = await Self.nestingRun(around: Fixtures.ThrowingTool())
+        let run = await Self.nestingRun(around: Fixtures.ThrowingTool<MountArguments, String>())
 
         // The end of the mounted call is progress of the mounting run, with
         // the detail of the mounted call.

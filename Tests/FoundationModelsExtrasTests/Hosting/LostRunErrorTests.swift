@@ -52,7 +52,7 @@ struct LostRunErrorTests {
 
     @Test("a background run whose body throws a plain error still settles failed")
     func plainErrorSettlesFailed() async throws {
-        let terminal = try await Self.terminal(ofBackgroundCallOf: Fixtures.ThrowingTool())
+        let terminal = try await Self.terminal(ofBackgroundCallOf: Fixtures.ThrowingTool<MountArguments, String>())
 
         #expect(terminal.outcome == .failed)
     }

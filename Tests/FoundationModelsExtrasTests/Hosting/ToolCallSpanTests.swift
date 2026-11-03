@@ -216,7 +216,7 @@ struct ToolCallSpanTests {
 
     @Test("a run-to-completion call that fails gives one count and one duration of failure")
     func aFailedCallGivesItsMetrics() async throws {
-        let tool = Fixtures.ThrowingTool()
+        let tool = Fixtures.ThrowingTool<MountArguments, String>()
         let harness = Fixtures.runToCompletionHarness(wrapping: tool)
 
         let context = try await TelemetryCapture.run(forbidding: []) { context in
@@ -332,7 +332,7 @@ struct ToolCallSpanTests {
 
     @Test("a background run that fails inside the settle period records one count and one duration of failed, and throws the error")
     func aBackgroundRunThatFailsInlineRecordsFailed() async throws {
-        let tool = Fixtures.ThrowingTool()
+        let tool = Fixtures.ThrowingTool<MountArguments, String>()
         let plane = await ManualSettlePlane.make()
         let harness = Fixtures.backgroundHarness(
             wrapping: tool, inlineSettleGrace: Self.inlineSettleGrace, runPlane: plane.runPlane)
@@ -448,7 +448,7 @@ struct ToolCallSpanTests {
     @Test("a background call puts no tool output and no terminal detail on the telemetry")
     func aBackgroundCallCarriesNoToolContent() async throws {
         let succeeding = Fixtures.FastTool()
-        let failing = Fixtures.ThrowingTool()
+        let failing = Fixtures.ThrowingTool<MountArguments, String>()
         let plane = await ManualSettlePlane.make()
         let succeedingHarness = Fixtures.backgroundHarness(
             wrapping: succeeding, inlineSettleGrace: Self.inlineSettleGrace, runPlane: plane.runPlane)

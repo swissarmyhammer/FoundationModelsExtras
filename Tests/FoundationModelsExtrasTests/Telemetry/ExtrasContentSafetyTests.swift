@@ -32,6 +32,10 @@ struct ExtrasContentSafetyTests {
     /// the case name, never the payload.
     private static let contentErrorType = "\(String(reflecting: ContentError.self)).carrying"
 
+    /// The error that the throwing fixture throws: it carries the output and
+    /// the argument of the call.
+    private static let contentError = ContentError.carrying("\(output) for \(argument)")
+
     @Test("a run-to-completion call carries no content in its telemetry")
     func aRunToCompletionCallCarriesNoContent() async throws {
         let harness = Fixtures.runToCompletionHarness(wrapping: DistinctOutputTool())
@@ -78,7 +82,7 @@ struct ExtrasContentSafetyTests {
 
     @Test("a run-to-completion call of a tool that throws an error with content carries no content in its telemetry")
     func aThrowingCallCarriesNoContent() async throws {
-        let harness = Fixtures.runToCompletionHarness(wrapping: ContentThrowingTool())
+        let harness = Fixtures.runToCompletionHarness(wrapping: Fixtures.ThrowingTool<MountArguments, String>(error: Self.contentError))
 
         let context = try await TelemetryCapture.run(forbidding: Self.forbidden) { context in
             await #expect(throws: ContentError.self) {
@@ -145,20 +149,9 @@ private struct DistinctNonStringOutputTool: Tool {
     }
 }
 
-/// The error of ``ContentThrowingTool``. Its description holds the content
-/// of the call.
+/// The error that the throwing fixture throws. Its description holds the
+/// content of the call.
 private enum ContentError: Error {
     /// A failure that carries the output and the argument of the call.
     case carrying(String)
-}
-
-/// Throws an error whose description holds the distinctive output of the
-/// suite and the argument of the call.
-private struct ContentThrowingTool: Tool {
-    let name = "content_throwing_tool"
-    let description = "throws an error that holds content"
-
-    func call(arguments: MountArguments) async throws -> String {
-        throw ContentError.carrying("\(ExtrasContentSafetyTests.output) for \(arguments.value)")
-    }
 }

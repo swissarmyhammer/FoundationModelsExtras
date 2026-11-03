@@ -105,15 +105,8 @@ struct ToolHostingPublicSurfaceTests {
     /// The error of ``ThrowingTool``.
     private struct ProbeFailure: Error {}
 
-    /// Throws at once.
-    private struct ThrowingTool: Tool {
-        let name = "throwing_tool"
-        let description = "throws at once"
-
-        func call(arguments: ProbeArguments) async throws -> String {
-            throw ProbeFailure()
-        }
-    }
+    /// The shared throwing fixture, with the arguments of the fixture tools.
+    private typealias ThrowingTool = MountFixtures.ThrowingTool<ProbeArguments, String>
 
     /// Counts each boundary.
     private actor BoundaryCounter {
@@ -392,7 +385,7 @@ struct ToolHostingPublicSurfaceTests {
 
     @Test("the failure decorator gives a failure to the model as text, and the tool beneath still throws")
     func theFailureDecoratorGivesTheFailureAsText() async throws {
-        let delivering = ToolFailureDelivery.makeWrapped(tool: ThrowingTool())
+        let delivering = ToolFailureDelivery.makeWrapped(tool: ThrowingTool(error: ProbeFailure()))
         let text = try #require(delivering as? any Tool<ProbeArguments, String>)
         let beneath = try #require(ToolFailureDelivery.throwingTool(of: delivering) as? ThrowingTool)
 
