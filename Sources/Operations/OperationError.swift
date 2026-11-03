@@ -24,7 +24,11 @@ public enum OperationError: Error, Sendable {
     /// `String(data:encoding:)` returned `nil`).
     case encodingFailed
 
-    /// The operation's `execute(in:)` threw.
+    /// The operation's `execute(in:)` threw an error other than
+    /// `CancellationError` or a `LostRunError`.
+    ///
+    /// `AnyOperation.run` does not wrap those two errors: it rethrows them as
+    /// they are, so the run ends as cancelled or lost, not as failed.
     ///
     /// `cause` is the error that `execute(in:)` threw. The description of
     /// this case includes the text of `cause`, so a log or a transcript

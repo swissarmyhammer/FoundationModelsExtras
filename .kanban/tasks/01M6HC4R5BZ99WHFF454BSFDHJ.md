@@ -1,7 +1,16 @@
 ---
 assignees:
 - claude-code
-position_column: todo
+comments:
+- actor: claude-code
+  id: 01m6hjmk05hq6hh67g0kn10t57
+  text: |-
+    ### implement — changed
+    - evidence: files Sources/Operations/AnyOperation.swift, OperationError.swift, OperationTool.swift, Tests/OperationsTests/CoreTypesTests.swift. RED: 3 of 4 new tests failed (cancel, lost, unwrapped). GREEN: swift test filter OperationsTests|OperationsCLITests|OperationsMacrosTests|NotesToolTests passes (135, 40, 44, 26 tests), no warnings from this change.
+    - callers: OperationTool.call catches only decodingFailed, so a cancel or lost error now passes through. No other caller or test expects the wrapped form of these two errors. OperationsCLI, Notes example and the other packages only use executionFailed for other errors.
+    - next: review. No commit, no push.
+  timestamp: 2026-11-03T20:47:00.613067+00:00
+position_column: doing
 position_ordinal: '8180'
 title: An operation that throws CancellationError ends cancelled, and LostRunError ends lost
 ---

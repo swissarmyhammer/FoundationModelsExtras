@@ -1,4 +1,5 @@
 import FoundationModels
+import FoundationModelsExtras
 import Foundation
 
 /// A type-erased `OperationDefinition`, keyed to a shared `Context`.
@@ -56,11 +57,13 @@ public struct AnyOperation<Context: Sendable>: Sendable {
     /// against `context`, and returns the JSON-encoded result.
     ///
     /// Throws `OperationError.decodingFailed` if the concrete operation's
-    /// `init(_:)` throws; throws `OperationError.executionFailed(cause:)`,
-    /// with the error that `execute(in:)` threw, if `execute(in:)` throws;
-    /// throws `OperationError.encodingFailed` if
-    /// JSON-encoding its `Output` throws, or if the encoded JSON isn't valid
-    /// UTF-8.
+    /// `init(_:)` throws. If `execute(in:)` throws `CancellationError` or an
+    /// error that conforms to `LostRunError`, `run` rethrows that error as it
+    /// is, so the outcome rule of the run settles it as cancelled or lost.
+    /// If `execute(in:)` throws any other error, `run` throws
+    /// `OperationError.executionFailed(cause:)` with that error. `run` throws
+    /// `OperationError.encodingFailed` if JSON-encoding its `Output` throws,
+    /// or if the encoded JSON isn't valid UTF-8.
     internal let run: @Sendable (GeneratedContent, Context) async throws -> String
 
     /// Erases `O` into an `AnyOperation` sharing `O`'s `Context`.
@@ -83,6 +86,8 @@ public struct AnyOperation<Context: Sendable>: Sendable {
             let output: O.Output
             do {
                 output = try await operation.execute(in: context)
+            } catch let error where error is CancellationError || error is any LostRunError {
+                throw error
             } catch {
                 throw OperationError.executionFailed(cause: error)
             }

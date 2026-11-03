@@ -1,4 +1,5 @@
 import FoundationModels
+import FoundationModelsExtras
 import Testing
 
 @testable import Operations
@@ -125,7 +126,56 @@ struct FixtureOperation: OperationDefinition {
     }
 }
 
+/// Context of `ThrowingOperation`: the error that its `execute(in:)` throws.
+struct ThrowingContext: Sendable {
+    /// The error that `ThrowingOperation.execute(in:)` throws.
+    let error: any Error
+}
+
+/// An error that conforms to `LostRunError`, so the outcome rule settles a
+/// run that throws it as lost.
+private struct FixtureLostError: LostRunError {}
+
+/// A hand-conformed `OperationDefinition` whose `execute(in:)` always throws
+/// the error of its context, so a test can choose what the body throws.
+struct ThrowingOperation: OperationDefinition {
+    typealias Context = ThrowingContext
+    typealias Output = FixtureOutput
+
+    static let verb = "throw"
+    static let noun = "error"
+    static let operationDescription = "Always throws the error of its context"
+    static let parameterMetadata: [ParamMeta] = []
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(type: ThrowingOperation.self, description: operationDescription, properties: [])
+    }
+
+    init(_ content: GeneratedContent) throws {}
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [:])
+    }
+
+    func execute(in context: ThrowingContext) async throws -> FixtureOutput {
+        throw context.error
+    }
+}
+
 @Suite struct CoreTypesTests {
+
+    /// The outcome that a run settles with when the erased `ThrowingOperation`
+    /// throws `error`: the outcome rule applied to what `AnyOperation.run`
+    /// throws.
+    private func outcomeOfRun(throwing error: any Error) async -> OperationOutcome? {
+        let anyOp = AnyOperation(ThrowingOperation.self)
+        do {
+            _ = try await anyOp.run(GeneratedContent(properties: [:]), ThrowingContext(error: error))
+            return nil
+        } catch {
+            return OperationOutcome(thrown: error)
+        }
+    }
 
     // MARK: - ParamMeta
 
@@ -228,6 +278,26 @@ struct FixtureOperation: OperationDefinition {
             #expect(error.description == "This operation failed while executing. Cause: The fixture store is offline.")
         } catch {
             Issue.record("unexpected error type: \(error)")
+        }
+    }
+
+    @Test func anOperationThatThrowsCancellationErrorEndsCancelled() async {
+        #expect(await outcomeOfRun(throwing: CancellationError()) == .cancelled)
+    }
+
+    @Test func anOperationThatThrowsALostRunErrorEndsLost() async {
+        #expect(await outcomeOfRun(throwing: FixtureLostError()) == .lost)
+    }
+
+    @Test func anOperationThatThrowsAnotherErrorEndsFailed() async {
+        #expect(await outcomeOfRun(throwing: FixtureExecutionError()) == .failed)
+    }
+
+    @Test func anOperationThatThrowsCancellationErrorThrowsItUnwrapped() async {
+        let anyOp = AnyOperation(ThrowingOperation.self)
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await anyOp.run(GeneratedContent(properties: [:]), ThrowingContext(error: CancellationError()))
         }
     }
 

@@ -176,7 +176,9 @@ public struct OperationTool<Context: Sendable>: Tool {
     ///   `.encodingFailed` from the dispatched operation: failures in the
     ///   operation's own logic or output, not the resolver, which the host
     ///   app must handle. The description of `.executionFailed(cause:)`
-    ///   names the error that the operation threw.
+    ///   names the error that the operation threw. A `CancellationError` or
+    ///   a `LostRunError` that the operation threw is not wrapped: it is
+    ///   rethrown as it is.
     public func call(arguments: GeneratedContent) async throws -> String {
         let resolved: ResolvedOperation
         do {
@@ -323,7 +325,9 @@ extension OperationTool: OperationDescribing {
     ///   parameter is absent, `OperationError.decodingFailed` when the
     ///   operation cannot decode the payload, and
     ///   `OperationError.executionFailed(cause:)` or
-    ///   `OperationError.encodingFailed` from the operation.
+    ///   `OperationError.encodingFailed` from the operation. A
+    ///   `CancellationError` or a `LostRunError` that the operation threw is
+    ///   not wrapped: it is rethrown as it is.
     public func perform(_ arguments: GeneratedContent) async throws -> String {
         let resolved = try resolve(arguments)
         return try await resolved.operation.run(resolved.content, context)
