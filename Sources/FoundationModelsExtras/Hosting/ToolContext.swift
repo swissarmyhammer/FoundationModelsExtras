@@ -127,6 +127,8 @@ public struct ToolContext: Sendable {
     ///   - inlineSettleGrace: The settle period of each background call that
     ///     this context mounts, in seconds. The default is
     ///     ``ToolMount/defaultInlineSettleGrace``.
+    ///   - transcriptReader: The reader of the recorded events of a session,
+    ///     or `nil` for none. The default is `nil`.
     public init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -136,10 +138,13 @@ public struct ToolContext: Sendable {
         completionToken: String,
         isCancelled: @escaping @Sendable () -> Bool,
         attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void = { _ in },
-        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace
+        inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace,
+        transcriptReader: (any SessionTranscriptReader)? = nil
     ) {
         self.init(
-            site: MountSite(sessionID: sessionID, runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace),
+            site: MountSite(
+                sessionID: sessionID, runPlane: runPlane, sink: sink, inlineSettleGrace: inlineSettleGrace,
+                transcriptReader: transcriptReader),
             sink: sink,
             tool: tool,
             op: op,
@@ -561,6 +566,26 @@ public struct ToolContext: Sendable {
     /// - Returns: The ``CancelOutcome``.
     public func cancel(completionToken: String) async -> CancelOutcome {
         await runPlane.cancel(completionToken: completionToken)
+    }
+
+    // MARK: - Transcript
+
+    /// Reads the recorded events of a session from the transcript source that
+    /// the host gave.
+    ///
+    /// The host decides which sessions it can give. This call checks no
+    /// session id, and it applies no rule about the tree of sessions. The
+    /// reader gives only what the host has on disk, so the transcript of a
+    /// running session can lack its latest events.
+    ///
+    /// - Parameter sessionID: The session to read.
+    /// - Returns: The transcript of the session.
+    /// - Throws: ``SessionTranscriptError/noSource`` when the host gave no
+    ///   reader. ``SessionTranscriptError/notFound(_:)`` when the reader does
+    ///   not know `sessionID`.
+    public func transcript(of sessionID: ULID) async throws -> SessionTranscript {
+        guard let reader = runSite.transcriptReader else { throw SessionTranscriptError.noSource }
+        return try await reader.transcript(of: sessionID)
     }
 
     // MARK: - Background work

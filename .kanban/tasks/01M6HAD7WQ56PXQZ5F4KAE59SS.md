@@ -1,8 +1,18 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '80'
+comments:
+- actor: claude-code
+  id: 01m6hja7fgtewjrpwnxqjdwbfj
+  text: |-
+    ### implement — changed
+    - evidence: 7 files. New: Sessions/SessionTranscript.swift (SessionTranscript, SessionTranscriptEntry), Sessions/SessionTranscriptReader.swift, Sessions/SessionTranscriptError.swift (notFound(ULID), noSource), Tests/.../Hosting/SessionTranscriptTests.swift (8 tests). Edited: Hosting/ToolMounting.swift (MountSite gets transcriptReader; child site keeps it), Hosting/ToolContext.swift (transcriptReader init param, transcript(of:)).
+    - RED: tests failed to compile (types missing). GREEN: 8 of 8 pass. Full swift test: 1692 tests in 166 suites pass, no warnings.
+    - Note: public inits of MountSite and ToolContext gain a defaulted parameter, source compatible. Host part (Router reader) is not done, as the card says.
+    - next: /review
+  timestamp: 2026-11-03T20:41:21.136644+00:00
+position_column: doing
+position_ordinal: '8180'
 title: A tool can read the transcript of a session from ToolContext
 ---
 A tool must be able to read the recorded events of a session through ToolContext. This is a second task. Do not mix it with the failure value task. Start it after that task is done.

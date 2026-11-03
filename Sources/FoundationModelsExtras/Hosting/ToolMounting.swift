@@ -77,6 +77,10 @@ public struct MountSite: Sendable {
     /// keeps `false`, so the start of an outer call is never reported.
     private(set) var witnessesCalls: Bool
 
+    /// The reader of the recorded events of a session, or `nil` when the host
+    /// gave none. See ``ToolContext/transcript(of:)``.
+    let transcriptReader: (any SessionTranscriptReader)?
+
     /// Makes a mount site. Each value must belong to the same session.
     ///
     /// The start of a call that a host mounts on this site is an outer call,
@@ -97,6 +101,8 @@ public struct MountSite: Sendable {
     ///     ``ToolMount/defaultInlineSettleGrace``.
     ///   - callWitness: The witness of each inner call, or `nil` for none.
     ///     The default is `nil`.
+    ///   - transcriptReader: The reader of the recorded events of a session,
+    ///     or `nil` for none. The default is `nil`.
     public init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -104,11 +110,12 @@ public struct MountSite: Sendable {
         op: String? = nil,
         tracer: (any Tracer)? = nil,
         inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace,
-        callWitness: (any ToolCallWitness)? = nil
+        callWitness: (any ToolCallWitness)? = nil,
+        transcriptReader: (any SessionTranscriptReader)? = nil
     ) {
         self.init(
             sessionID: sessionID, runPlane: runPlane, parent: nil, sink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, callWitness: callWitness)
+            inlineSettleGrace: inlineSettleGrace, callWitness: callWitness, transcriptReader: transcriptReader)
     }
 
     /// Makes the mount site of a child session: a session that a call of the
@@ -142,6 +149,8 @@ public struct MountSite: Sendable {
     ///     seconds. A negative value acts as `0`.
     ///   - callWitness: The witness of each inner call, or `nil` for none.
     ///     The default is `nil`.
+    ///   - transcriptReader: The reader of the recorded events of a session,
+    ///     or `nil` for none. The default is `nil`.
     public init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -152,12 +161,13 @@ public struct MountSite: Sendable {
         op: String? = nil,
         tracer: (any Tracer)? = nil,
         inlineSettleGrace: TimeInterval = ToolMount.defaultInlineSettleGrace,
-        callWitness: (any ToolCallWitness)? = nil
+        callWitness: (any ToolCallWitness)? = nil,
+        transcriptReader: (any SessionTranscriptReader)? = nil
     ) {
         self.init(
             sessionID: sessionID, runPlane: runPlane,
             parent: (parentSessionID, rootSessionID, rootRunPlane), sink: sink, op: op, tracer: tracer,
-            inlineSettleGrace: inlineSettleGrace, callWitness: callWitness)
+            inlineSettleGrace: inlineSettleGrace, callWitness: callWitness, transcriptReader: transcriptReader)
     }
 
     /// Makes a mount site at the root (`parent` is `nil`) or in a child
@@ -173,6 +183,8 @@ public struct MountSite: Sendable {
     ///   - tracer: The tracer of the session, or `nil`.
     ///   - inlineSettleGrace: The settle period of each background call.
     ///   - callWitness: The witness of each inner call, or `nil`.
+    ///   - transcriptReader: The reader of the recorded events of a session,
+    ///     or `nil`.
     private init(
         sessionID: ULID,
         runPlane: RunPlane,
@@ -181,7 +193,8 @@ public struct MountSite: Sendable {
         op: String?,
         tracer: (any Tracer)?,
         inlineSettleGrace: TimeInterval,
-        callWitness: (any ToolCallWitness)?
+        callWitness: (any ToolCallWitness)?,
+        transcriptReader: (any SessionTranscriptReader)?
     ) {
         self.sessionID = sessionID
         self.runPlane = runPlane
@@ -197,18 +210,21 @@ public struct MountSite: Sendable {
         self.holdingRunToken = nil
         self.callWitness = callWitness
         self.witnessesCalls = false
+        self.transcriptReader = transcriptReader
     }
 
     /// The site of a child session that a call on this site starts, for
     /// example a subagent. This session is the parent of the child, and the
     /// root of this session is the root of the child. The child keeps the
-    /// tracer and the configured settle period of this site.
+    /// tracer, the configured settle period and the transcript reader of this
+    /// site: the reader decides which sessions it gives, so a child reads the
+    /// same sessions as its parent.
     ///
     /// The child drops the ``callWitness`` of this site: it gets none, and it
     /// does not witness its calls. Thus no inner call of the child goes to
     /// the witness of this session. A host that wants the inner calls of the
     /// child makes the child site with
-    /// ``init(sessionID:runPlane:parentSessionID:rootSessionID:rootRunPlane:sink:op:tracer:inlineSettleGrace:callWitness:)``.
+    /// ``init(sessionID:runPlane:parentSessionID:rootSessionID:rootRunPlane:sink:op:tracer:inlineSettleGrace:callWitness:transcriptReader:)``.
     ///
     /// - Parameters:
     ///   - sessionID: The child session.
@@ -218,7 +234,8 @@ public struct MountSite: Sendable {
     public func childSite(sessionID: ULID, runPlane: RunPlane, sink: any OperationEventSink) -> MountSite {
         MountSite(
             sessionID: sessionID, runPlane: runPlane, parentSessionID: self.sessionID, rootSessionID: rootSessionID,
-            rootRunPlane: rootRunPlane, sink: sink, tracer: tracer, inlineSettleGrace: inlineSettleGrace)
+            rootRunPlane: rootRunPlane, sink: sink, tracer: tracer, inlineSettleGrace: inlineSettleGrace,
+            transcriptReader: transcriptReader)
     }
 
     /// This site, with the sink of the session as the sink of each call.
