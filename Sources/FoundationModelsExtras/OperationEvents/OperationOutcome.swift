@@ -80,6 +80,24 @@ public enum OperationOutcome: Sendable, Equatable {
     }
 }
 
+extension OperationOutcome {
+    /// The outcome of a call that threw `error`.
+    ///
+    /// A `CancellationError` is ``cancelled``. The timeout of a mounted call
+    /// (``ToolMountError/timedOut(tool:timeoutSeconds:)``) is ``timedOut``.
+    /// A ``LostRunError`` is ``lost``. Each other error is ``failed``.
+    ///
+    /// - Parameter error: The error that the call threw.
+    public init(thrown error: any Error) {
+        switch error {
+        case is CancellationError: self = .cancelled
+        case ToolMountError.timedOut: self = .timedOut
+        case is any LostRunError: self = .lost
+        default: self = .failed
+        }
+    }
+}
+
 extension OperationOutcome: Codable {
     /// Decodes an outcome from a bare wire-format string.
     public init(from decoder: any Decoder) throws {

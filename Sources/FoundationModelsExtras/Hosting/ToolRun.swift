@@ -12,6 +12,9 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
     /// The sink of the session: it gets the records and the report.
     private let sink: any OperationEventSink
 
+    /// The mount site of the call: its witness gets the end of the call.
+    private let site: MountSite
+
     /// The context that the body runs in. Its completion token names the run.
     let context: ToolContext
 
@@ -38,16 +41,20 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
     ///     Its holding run is the run that holds this call, or `nil` for a
     ///     call that is a run of its own.
     ///   - mountTimeout: The timeout of the mount, or `nil` for none.
+    ///   - completionToken: The completion token of the run, or `nil` for a
+    ///     new token of the run plane of `site`.
     init(
         wrapped: any Tool<Arguments, String>,
         arguments: Arguments,
         site: MountSite,
-        mountTimeout: TimeInterval?
+        mountTimeout: TimeInterval?,
+        completionToken: String? = nil
     ) {
-        let token = site.runPlane.makeRunToken()
+        let token = completionToken ?? site.runPlane.makeRunToken()
         let funnel = RunEventFunnel(upstream: site.sink, runPlane: site.runPlane, completionToken: token)
         let state = ToolCallState()
         self.wrapped = wrapped
+        self.site = site
         self.sink = site.sink
         self.funnel = funnel
         self.state = state
@@ -95,8 +102,9 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
     }
 
     /// Runs the body in the context, settles the run with one terminal event,
-    /// posts the close record, and then posts the report of the call when
-    /// the call attached a record.
+    /// posts the close record, posts the report of the call when the call
+    /// attached a record, and then gives the final result to the
+    /// ``ToolCallWitness`` of the site.
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: How the run ended.
@@ -107,6 +115,9 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
         let closeRecord = openRecord.closed(at: Date())
         await sink.post(invocation: closeRecord)
         await sink.postToolCallReport(closing: closeRecord, attachments: settlement.attachments)
+        site.witnessEnd(
+            ofCallTo: wrapped.name, arguments: arguments, correlationID: context.completionToken,
+            result: settlement.finalResult)
         return settlement
     }
 
@@ -123,17 +134,19 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
         // A record that the tool attaches after this point belongs to no
         // settlement, and is dropped.
         let attachments = state.drainAttachments()
-        let (outcome, detail) = Self.outcomeAndDetail(of: result, stoppedAs: await state.stopOutcome)
+        let (final, detail) = Self.resultAndDetail(
+            of: result, state: state, stoppedAs: await state.stopOutcome)
         let terminal = OperationEvent(
             tool: context.tool,
             op: context.op,
             correlationID: context.completionToken,
             kind: .completed,
             detail: detail,
-            outcome: outcome
+            outcome: final.outcome,
+            value: final.value
         )
         await funnel.settleRun(with: terminal)
-        return RunSettlement(result: result, terminal: terminal, attachments: attachments)
+        return RunSettlement(result: result, finalResult: final, terminal: terminal, attachments: attachments)
     }
 
     /// The result of `call`, or a timeout failure when a full timeout window
@@ -168,35 +181,34 @@ struct ToolRun<Arguments: ConvertibleFromGeneratedContent & Sendable>: Sendable 
         return result
     }
 
-    /// The outcome and the detail of the terminal event. The outcome of a
-    /// stop wins over the outcome of the result; the detail stays.
-    private static func outcomeAndDetail(
+    /// The result and the detail of the terminal event. The outcome of a
+    /// stop wins over the outcome of the body, and the outcome of the body
+    /// wins over a reported failure; the detail stays.
+    private static func resultAndDetail(
         of result: Result<String, any Error>,
+        state: ToolCallState,
         stoppedAs stop: OperationOutcome?
-    ) -> (OperationOutcome, String) {
+    ) -> (OperationResult, String) {
         switch result {
         case .success(let output):
-            return (stop ?? .succeeded, output)
+            return (state.result(ofBodyEndingAs: .succeeded, stoppedAs: stop), output)
         case .failure(let error):
-            return (stop ?? outcome(of: error), String(describing: error))
+            return (
+                state.result(ofBodyEndingAs: OperationOutcome(thrown: error), stoppedAs: stop),
+                String(describing: error)
+            )
         }
     }
 
-    /// The outcome of a call that threw `error`.
-    private static func outcome(of error: any Error) -> OperationOutcome {
-        switch error {
-        case is CancellationError: .cancelled
-        case ToolMountError.timedOut: .timedOut
-        case is any LostRunError: .lost
-        default: .failed
-        }
-    }
 }
 
 /// How the body of one run ended.
 struct RunSettlement: Sendable {
     /// The output of the tool, or the error that ended the call.
     let result: Result<String, any Error>
+
+    /// The outcome of the run and the value that the tool reported.
+    let finalResult: OperationResult
 
     /// The terminal event of the run, already sent to the funnel.
     let terminal: OperationEvent
@@ -206,13 +218,18 @@ struct RunSettlement: Sendable {
 }
 
 /// The state that one call shares with the task of the tool: the cancel flag,
-/// the attached records, and the stop of a process canceler.
+/// the attached records, the reported failure, and the stop of a process
+/// canceler.
 final class ToolCallState: Sendable {
     /// Whether a cancel was asked. It is never cleared.
     private let cancelRequested = Atomic(false)
 
     /// The attached records, in call order.
     private let attachments = Mutex<[ToolCallAttachment]>([])
+
+    /// The value of the last reported failure, or `nil` when the tool reported
+    /// none.
+    private let reportedFailure = Mutex<OperationValue?>(nil)
 
     /// The first stop, or `nil` when no stop started.
     private let stopTask = Mutex<Task<OperationOutcome, Never>?>(nil)
@@ -242,6 +259,36 @@ final class ToolCallState: Sendable {
             defer { records.removeAll() }
             return records
         }
+    }
+
+    /// Keeps `value` as the reported failure. A later report replaces it.
+    ///
+    /// - Parameter value: The value of the failure.
+    func reportFailure(value: OperationValue) {
+        reportedFailure.withLock { $0 = value }
+    }
+
+    /// The final result of a call whose body ended.
+    ///
+    /// A stop wins over each other outcome. A reported failure turns a
+    /// returned output into ``OperationOutcome/failed``, unless a cancel
+    /// was asked: then the outcome is ``OperationOutcome/cancelled``. A
+    /// thrown error keeps its own outcome, so a timeout wins over a report.
+    /// The value is the reported value, and only when the outcome is
+    /// ``OperationOutcome/failed``.
+    ///
+    /// - Parameters:
+    ///   - ended: The outcome of the body: `.succeeded` for a returned output,
+    ///     or the outcome of the error that the body threw.
+    ///   - stop: The outcome of the stop, or `nil` when no stop started.
+    /// - Returns: The outcome and the value.
+    func result(ofBodyEndingAs ended: OperationOutcome, stoppedAs stop: OperationOutcome? = nil) -> OperationResult {
+        let failure = reportedFailure.withLock { $0 }
+        var outcome = stop ?? ended
+        if stop == nil, ended == .succeeded, failure != nil {
+            outcome = isCancelRequested ? .cancelled : .failed
+        }
+        return OperationResult(outcome: outcome, value: outcome == .failed ? failure : nil)
     }
 
     /// The task of the first stop. The first call starts it with `canceler`.

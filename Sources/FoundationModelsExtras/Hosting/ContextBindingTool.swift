@@ -36,19 +36,23 @@ struct ContextBindingTool<
     /// both include the time of the report.
     ///
     /// An inner call that ``ToolContext/mount(_:op:as:)`` mounted goes to the
-    /// ``ToolCallWitness`` of the site first.
+    /// ``ToolCallWitness`` of the site first. The end of each call, with its
+    /// final result, goes to the witness after the report.
     ///
     /// - Parameter arguments: The arguments of the call.
     /// - Returns: The output of the tool, as is.
     /// - Throws: The error of the tool, as is.
     func call(arguments: Arguments) async throws -> Output {
-        site.witnessStart(ofCallTo: wrapped.name, arguments: arguments)
+        let token = RunPlane.makeCompletionToken()
+        site.witnessStart(ofCallTo: wrapped.name, arguments: arguments, correlationID: token)
         return try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { call in
-            let settlement = await settle(arguments: arguments)
+            let settlement = await settle(arguments: arguments, completionToken: token)
             await site.sink.postToolCallReport(closing: settlement.closeRecord, attachments: settlement.attachments)
-            ToolCallSpan.record(outcome: settlement.recordedOutcome, on: call)
+            ToolCallSpan.record(outcome: settlement.result.outcome, on: call)
+            site.witnessEnd(
+                ofCallTo: wrapped.name, arguments: arguments, correlationID: token, result: settlement.result)
             return try settlement.outcome.get()
         }
     }
@@ -56,12 +60,17 @@ struct ContextBindingTool<
     /// Runs one call in a new context, between an open and a close record,
     /// and takes the records that the call attached.
     ///
-    /// - Parameter arguments: The arguments of the call.
+    /// - Parameters:
+    ///   - arguments: The arguments of the call.
+    ///   - completionToken: The completion token of the call. The default is a
+    ///     new token.
     /// - Returns: How the call ended, and what it attached.
-    func settle(arguments: Arguments) async -> BindingSettlement<Output> {
+    func settle(
+        arguments: Arguments, completionToken: String = RunPlane.makeCompletionToken()
+    ) async -> BindingSettlement<Output> {
         let state = ToolCallState()
         let context = ToolContext(
-            calling: wrapped, on: site, sink: site.sink, completionToken: RunPlane.makeCompletionToken(), state: state)
+            calling: wrapped, on: site, sink: site.sink, completionToken: completionToken, state: state)
         let openRecord = ToolInvocationRecord(opening: context)
         await site.sink.post(invocation: openRecord)
         let outcome = await withTaskCancellationHandler {
@@ -78,7 +87,19 @@ struct ContextBindingTool<
         let attachments = state.drainAttachments()
         let closeRecord = openRecord.closed(at: Date())
         await site.sink.post(invocation: closeRecord)
-        return BindingSettlement(outcome: outcome, attachments: attachments, closeRecord: closeRecord)
+        return BindingSettlement(
+            outcome: outcome, result: Self.result(of: outcome, state: state), attachments: attachments,
+            closeRecord: closeRecord)
+    }
+
+    /// The final result of a call: succeeded for an output, failed for an
+    /// error, and failed with the reported value when the tool reported a
+    /// failure.
+    private static func result(of outcome: Result<Output, any Error>, state: ToolCallState) -> OperationResult {
+        switch outcome {
+        case .success: state.result(ofBodyEndingAs: .succeeded)
+        case .failure: state.result(ofBodyEndingAs: .failed)
+        }
     }
 
     /// The output of `call`, or its error. A `Result` keeps the error, so the
@@ -97,17 +118,13 @@ struct BindingSettlement<Output> {
     /// The output of the tool, or the error that ended the call.
     let outcome: Result<Output, any Error>
 
+    /// The final result of the call: its outcome, and the value of a
+    /// reported failure. The outcome goes on the span.
+    let result: OperationResult
+
     /// The records that the tool attached, in call order.
     let attachments: [ToolCallAttachment]
 
     /// The close record of the call, already posted.
     let closeRecord: ToolInvocationRecord
-
-    /// The outcome on the span: succeeded for an output, failed for an error.
-    var recordedOutcome: OperationOutcome {
-        switch outcome {
-        case .success: .succeeded
-        case .failure: .failed
-        }
-    }
 }

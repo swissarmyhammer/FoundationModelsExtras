@@ -74,14 +74,15 @@ public struct MountSite: Sendable {
     /// ``ToolContext/mount(_:op:as:)`` mounted, and thus goes to
     /// ``callWitness``. Only the site that a mount makes sets it. The site
     /// that a host gives to ``ToolMounting/makeWrapped(tool:site:configuration:)``
-    /// keeps `false`, so an outer call is never reported.
+    /// keeps `false`, so the start of an outer call is never reported.
     private(set) var witnessesCalls: Bool
 
     /// Makes a mount site. Each value must belong to the same session.
     ///
-    /// A call that a host mounts on this site is an outer call, and never
-    /// goes to `callWitness`. Each inner call that such a call mounts through
-    /// ``ToolContext/mount(_:op:as:)`` goes to `callWitness` at its start.
+    /// The start of a call that a host mounts on this site is an outer call,
+    /// and never goes to `callWitness`; its end does. Each inner call that
+    /// such a call mounts through ``ToolContext/mount(_:op:as:)`` goes to
+    /// `callWitness` at its start and at its end.
     ///
     /// - Parameters:
     ///   - sessionID: The session of each call.
@@ -121,10 +122,10 @@ public struct MountSite: Sendable {
     /// ``ToolContext/childSite(sessionID:runPlane:sink:)`` makes this site
     /// from the context of the call that starts the child.
     ///
-    /// As at the root, a call that a host mounts on this site is an outer
-    /// call, and never goes to `callWitness`. Each inner call that such a call
-    /// mounts through ``ToolContext/mount(_:op:as:)`` goes to `callWitness` at
-    /// its start.
+    /// As at the root, the start of a call that a host mounts on this site is
+    /// an outer call, and never goes to `callWitness`; its end does. Each inner
+    /// call that such a call mounts through ``ToolContext/mount(_:op:as:)``
+    /// goes to `callWitness` at its start and at its end.
     ///
     /// - Parameters:
     ///   - sessionID: The child session.
@@ -288,11 +289,47 @@ public struct MountSite: Sendable {
     /// - Parameters:
     ///   - tool: The name of the called tool.
     ///   - arguments: The arguments of the call.
-    func witnessStart(ofCallTo tool: String, arguments: some ConvertibleFromGeneratedContent) {
+    ///   - correlationID: The completion token of the run of the call.
+    func witnessStart(
+        ofCallTo tool: String,
+        arguments: some ConvertibleFromGeneratedContent,
+        correlationID: String
+    ) {
         guard witnessesCalls, let callWitness else { return }
+        callWitness.toolCallWillBegin(witnessedCall(to: tool, arguments: arguments, correlationID: correlationID))
+    }
+
+    /// Gives the end of one call to ``callWitness``, when this site has a
+    /// witness. Unlike the start, the end goes to the witness for an outer
+    /// call too: the site that a host gives to
+    /// ``ToolMounting/makeWrapped(tool:site:configuration:)`` reports the end
+    /// of its own calls. Each entry point of a call calls this one time, after
+    /// the call ran and its events and records went out.
+    ///
+    /// - Parameters:
+    ///   - tool: The name of the called tool.
+    ///   - arguments: The arguments of the call.
+    ///   - correlationID: The completion token of the run of the call.
+    ///   - result: How the call ended.
+    func witnessEnd(
+        ofCallTo tool: String,
+        arguments: some ConvertibleFromGeneratedContent,
+        correlationID: String,
+        result: OperationResult
+    ) {
+        callWitness?.toolCallDidEnd(
+            witnessedCall(to: tool, arguments: arguments, correlationID: correlationID), result: result)
+    }
+
+    /// The record of one call on this site, for the witness.
+    private func witnessedCall(
+        to tool: String,
+        arguments: some ConvertibleFromGeneratedContent,
+        correlationID: String
+    ) -> WitnessedToolCall {
         let content = (arguments as? any ConvertibleToGeneratedContent)?.generatedContent
-        callWitness.toolCallWillBegin(
-            WitnessedToolCall(tool: tool, op: op ?? tool, arguments: content, sessionID: sessionID))
+        return WitnessedToolCall(
+            tool: tool, op: op ?? tool, arguments: content, sessionID: sessionID, correlationID: correlationID)
     }
 }
 
@@ -366,10 +403,13 @@ extension MountRunner where Arguments: Sendable {
     ///   - arguments: The arguments of the call.
     ///   - site: The site of the run, with its settle deadline and its holding
     ///     run.
+    ///   - completionToken: The completion token of the run, or `nil` for a
+    ///     new token of the run plane.
     /// - Returns: The run of the call. Call `open()`, then
     ///   `execute(arguments:)`.
-    func makeRun(arguments: Arguments, on site: MountSite) -> ToolRun<Arguments> {
-        ToolRun(wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout)
+    func makeRun(arguments: Arguments, on site: MountSite, completionToken: String? = nil) -> ToolRun<Arguments> {
+        ToolRun(
+            wrapped: wrapped, arguments: arguments, site: site, mountTimeout: timeout, completionToken: completionToken)
     }
 }
 
@@ -445,16 +485,17 @@ public enum ToolMounting {
         site: MountSite,
         mount: ToolMount
     ) async throws -> String {
-        site.witnessStart(ofCallTo: wrapped.name, arguments: arguments)
+        let token = site.runPlane.makeRunToken()
+        site.witnessStart(ofCallTo: wrapped.name, arguments: arguments, correlationID: token)
         let declared = backgroundDeclaration(of: wrapped, for: arguments)
         let chosen = declared.flatMap { $0.tool.mount(for: $0.content) } ?? mount
         switch chosen.mode {
         case .background:
             let runner = BackgroundToolRunner(wrapping: wrapped, site: site.postingToSession, timeout: chosen.timeout)
-            return try await runner.callInBackground(arguments: arguments)
+            return try await runner.callInBackground(arguments: arguments, completionToken: token)
         case .runToCompletion:
             let runner = RunToCompletionRunner(wrapping: wrapped, site: site, timeout: chosen.timeout)
-            return try await runner.callToCompletion(arguments: arguments)
+            return try await runner.callToCompletion(arguments: arguments, completionToken: token)
         }
     }
 

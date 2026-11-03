@@ -29,6 +29,9 @@ public struct ToolContext: Sendable {
     /// Gets each record that the tool attaches.
     private let attachmentSink: @Sendable (ToolCallAttachment) -> Void
 
+    /// Gets each failure that the tool reports.
+    private let failureSink: @Sendable (OperationValue) -> Void
+
     /// The tool name on each event of the run. Never empty.
     public let tool: String
 
@@ -142,7 +145,8 @@ public struct ToolContext: Sendable {
             op: op,
             completionToken: completionToken,
             isCancelled: isCancelled,
-            attachmentSink: attachmentSink
+            attachmentSink: attachmentSink,
+            failureSink: { _ in }
         )
     }
 
@@ -162,6 +166,7 @@ public struct ToolContext: Sendable {
     ///   - completionToken: The completion token of the run.
     ///   - isCancelled: Tells if a cancel of the run was asked.
     ///   - attachmentSink: Gets each attached record.
+    ///   - failureSink: Gets each reported failure.
     private init(
         site: MountSite,
         sink: any OperationEventSink,
@@ -169,7 +174,8 @@ public struct ToolContext: Sendable {
         op: String,
         completionToken: String,
         isCancelled: @escaping @Sendable () -> Bool,
-        attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void
+        attachmentSink: @escaping @Sendable (ToolCallAttachment) -> Void,
+        failureSink: @escaping @Sendable (OperationValue) -> Void
     ) {
         precondition(!tool.isEmpty, "the tool name of a ToolContext must not be empty")
         precondition(!op.isEmpty, "the op of a ToolContext must not be empty")
@@ -181,6 +187,7 @@ public struct ToolContext: Sendable {
         self.completionToken = completionToken
         self.cancellationProbe = isCancelled
         self.attachmentSink = attachmentSink
+        self.failureSink = failureSink
     }
 
     /// Makes the context of one call of `tool` on `site`, with the name of
@@ -209,7 +216,8 @@ public struct ToolContext: Sendable {
             op: site.op.flatMap { $0.isEmpty ? nil : $0 } ?? name,
             completionToken: completionToken,
             isCancelled: { state.isCancelRequested },
-            attachmentSink: { state.attach($0) }
+            attachmentSink: { state.attach($0) },
+            failureSink: { state.reportFailure(value: $0) }
         )
     }
 
@@ -221,15 +229,15 @@ public struct ToolContext: Sendable {
     // MARK: - Events
 
     /// Posts `event` with the `tool`, `op` and `completionToken` of this run.
-    /// Only the kind, the detail, the outcome, the elicitation and the plan of
-    /// `event` stay.
+    /// Only the kind, the detail, the outcome, the elicitation, the plan and
+    /// the value of `event` stay.
     ///
     /// - Parameter event: The event to post.
     public func post(_ event: OperationEvent) async {
         await sink.post(
             event: stamped(
                 event.kind, detail: event.detail, outcome: event.outcome,
-                elicitation: event.elicitation, plan: event.plan
+                elicitation: event.elicitation, plan: event.plan, value: event.value
             )
         )
     }
@@ -333,6 +341,28 @@ public struct ToolContext: Sendable {
     /// - Parameter attachment: The record.
     public func attach(_ attachment: ToolCallAttachment) {
         attachmentSink(attachment)
+    }
+
+    /// Reports that the call failed, with a value, and lets the tool return
+    /// its output text as usual.
+    ///
+    /// A tool that throws gives the model a tool failure and not its output.
+    /// This call ends the run as ``OperationOutcome/failed`` and keeps the
+    /// output: the detail of the terminal event stays the output text, and
+    /// `value` goes on the terminal event and in the ``OperationResult`` that
+    /// a ``ToolCallWitness`` gets. The return to the model does not change.
+    ///
+    /// A stop, a timeout and a cancel of the run win over this report. A
+    /// second report replaces the first. A context that a host made with
+    /// the public init drops the report.
+    ///
+    /// A tool calls it as `ToolContext.current?.reportFailure(value: .int(2))`,
+    /// so a call with no bound context does nothing.
+    ///
+    /// - Parameter value: The value of the failure, for example an exit code
+    ///   as `.int(n)`.
+    public func reportFailure(value: OperationValue) {
+        failureSink(value)
     }
 
     /// Asks the user a question while the run continues.
@@ -709,11 +739,12 @@ public struct ToolContext: Sendable {
         detail: String,
         outcome: OperationOutcome? = nil,
         elicitation: ElicitationRequest? = nil,
-        plan: PlanSnapshot? = nil
+        plan: PlanSnapshot? = nil,
+        value: OperationValue? = nil
     ) -> OperationEvent {
         OperationEvent(
             tool: tool, op: op, correlationID: completionToken, kind: kind,
-            detail: detail, outcome: outcome, elicitation: elicitation, plan: plan
+            detail: detail, outcome: outcome, elicitation: elicitation, plan: plan, value: value
         )
     }
 }

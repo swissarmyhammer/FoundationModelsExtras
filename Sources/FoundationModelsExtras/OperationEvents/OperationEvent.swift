@@ -57,6 +57,12 @@ public struct OperationEvent: Codable, Sendable, Equatable {
     /// Decoded with `decodeIfPresent`, so older recorded events decode unchanged.
     public let plan: PlanSnapshot?
 
+    /// The value that the tool gave with the end of the run, for example an
+    /// exit code. Only a `.completed` event carries it. It is `nil` when the
+    /// tool gave none.
+    /// Decoded with `decodeIfPresent`, so older recorded events decode unchanged.
+    public let value: OperationValue?
+
     /// Creates an event with the given fields.
     /// - Parameters:
     ///   - tool: The name of the posting tool.
@@ -67,6 +73,8 @@ public struct OperationEvent: Codable, Sendable, Equatable {
     ///   - outcome: How the run ended; non-nil only when `kind == .completed`.
     ///   - elicitation: The request for user input; non-nil only when `kind == .elicitation`.
     ///   - plan: The agent plan for the host; non-nil only when `kind == .progress`.
+    ///   - value: The value that the tool gave with the end of the run; only
+    ///     for `kind == .completed`. The default is `nil`.
     public init(
         tool: String,
         op: String,
@@ -75,7 +83,8 @@ public struct OperationEvent: Codable, Sendable, Equatable {
         detail: String,
         outcome: OperationOutcome? = nil,
         elicitation: ElicitationRequest? = nil,
-        plan: PlanSnapshot? = nil
+        plan: PlanSnapshot? = nil,
+        value: OperationValue? = nil
     ) {
         self.tool = tool
         self.op = op
@@ -85,5 +94,6 @@ public struct OperationEvent: Codable, Sendable, Equatable {
         self.outcome = outcome
         self.elicitation = elicitation
         self.plan = plan
+        self.value = value
     }
 }

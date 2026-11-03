@@ -36,11 +36,14 @@ struct RunToCompletionRunner<
     /// ``ToolCallSpan/outcomeOfTerminalWithNoOutcome``, which is
     /// ``OperationOutcome/lost``.
     ///
-    /// - Parameter arguments: The arguments of the call.
+    /// - Parameters:
+    ///   - arguments: The arguments of the call.
+    ///   - completionToken: The completion token of the run, or `nil` for a
+    ///     new token.
     /// - Returns: The output of the tool.
     /// - Throws: The error of the tool, or
     ///   ``ToolMountError/timedOut(tool:timeoutSeconds:)``.
-    func callToCompletion(arguments: Arguments) async throws -> String {
+    func callToCompletion(arguments: Arguments, completionToken: String? = nil) async throws -> String {
         let result = try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .foreground
         ) { call in
@@ -48,7 +51,7 @@ struct RunToCompletionRunner<
             // keeps the settle period of its caller, so an inner background
             // call of this run stops its wait in time too. It also runs inside
             // the run that holds it, so its questions stop that run.
-            let run = makeRun(arguments: arguments, on: site)
+            let run = makeRun(arguments: arguments, on: site, completionToken: completionToken)
             await run.open()
             let settlement = await run.execute(arguments: arguments)
             ToolCallSpan.record(outcomeOf: settlement.terminal, on: call)

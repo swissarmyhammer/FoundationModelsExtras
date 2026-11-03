@@ -68,11 +68,11 @@ struct BackgroundToolRunner<
     ///   only that run ended, or the rendered envelope.
     /// - Throws: The error of a run that ended inside the settle period. A
     ///   `CancellationError` only when the task of this call is cancelled.
-    func callInBackground(arguments: Arguments) async throws -> String {
+    func callInBackground(arguments: Arguments, completionToken: String? = nil) async throws -> String {
         let result = try await ToolCallSpan.withSpan(
             tracer: site.tracer, toolName: wrapped.name, sessionID: site.sessionID, runKind: .background
         ) { call in
-            let answer = await start(arguments: arguments)
+            let answer = await start(arguments: arguments, completionToken: completionToken)
             ToolCallSpan.record(settledTerminal: answer.settledTerminal, on: call)
             return try ToolCallSpan.spanResult(of: answer.result)
         }
@@ -162,17 +162,21 @@ struct BackgroundToolRunner<
     /// runs (a sweep, or a stop of a process) has no claim of the body, so
     /// the call takes the events back after its wait.
     ///
-    /// - Parameter arguments: The arguments of the call.
+    /// - Parameters:
+    ///   - arguments: The arguments of the call.
+    ///   - completionToken: The completion token of the run, or `nil` for a
+    ///     new token.
     /// - Returns: The output of the tool, the error of a run that ended
     ///   inside the settle period, the text of a run that a cancel of only
     ///   that run ended there, or the rendered pending envelope, with the
     ///   terminal event of a run that settled.
-    private func start(arguments: Arguments) async -> Answer {
+    private func start(arguments: Arguments, completionToken: String?) async -> Answer {
         let grace = grace
         let deadline = site.runPlane.clock.now.advanced(by: .seconds(grace))
         // A background call is a run of its own, so its questions stop only
         // this run.
-        let run = makeRun(arguments: arguments, on: site.held(by: nil, settlingBy: deadline))
+        let run = makeRun(
+            arguments: arguments, on: site.held(by: nil, settlingBy: deadline), completionToken: completionToken)
         let token = run.context.completionToken
         let description = callDescription(of: arguments, in: run)
         let pending = PendingRunEnvelope(
