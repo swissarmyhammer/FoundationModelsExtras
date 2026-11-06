@@ -1,4 +1,5 @@
-/// The client that makes one GraphQL call: the client id, the trust of the client, and the sessions that it owns.
+/// The client that makes one GraphQL call: the client id, the trust of the client, the sessions that it owns, and the
+/// person who uses it.
 ///
 /// The host fills a viewer for each call that a client sends through the GraphQL tunnel. A resolver reads it for its
 /// visibility and owner rules: for example, an ``Trust/external`` client acts only on the sessions that it owns. A
@@ -31,6 +32,13 @@ public struct GraphQLViewer: Codable, Hashable, Sendable {
     /// stay here.
     public var startedSessions: Set<String>
 
+    /// The person who uses this client, or `nil`.
+    ///
+    /// The actor is `nil` for a model tool call, which has no viewer, and for a client with no accepted claim. Only a
+    /// ``Trust/userDevice`` client can claim a person. An endpoint writes as this actor, or as the agent of the session
+    /// when it is `nil`.
+    public var actor: GraphQLActor?
+
     /// Makes the viewer of a call.
     ///
     /// - Parameters:
@@ -40,21 +48,25 @@ public struct GraphQLViewer: Codable, Hashable, Sendable {
     ///   - clientOwnedSessions: The ids of the sessions that any client owns. The set holds each id of
     ///     `ownedSessions` also when the caller does not give it.
     ///   - startedSessions: The ids of the sessions that the connection of this client started.
+    ///   - actor: The person who uses this client, or `nil` when the client has no accepted claim.
     public init(
         clientId: String,
         trust: Trust,
         ownedSessions: Set<String> = [],
         clientOwnedSessions: Set<String> = [],
-        startedSessions: Set<String> = []
+        startedSessions: Set<String> = [],
+        actor: GraphQLActor? = nil
     ) {
         self.clientId = clientId
         self.trust = trust
         self.ownedSessions = ownedSessions
         self.clientOwnedSessions = clientOwnedSessions.union(ownedSessions)
         self.startedSessions = startedSessions
+        self.actor = actor
     }
 
-    /// Decodes a viewer. A payload with no `startedSessions` key, from before the field, gives an empty set.
+    /// Decodes a viewer. A payload with no `startedSessions` key, from before the field, gives an empty set. A payload
+    /// with no `actor` key gives `nil`.
     ///
     /// - Parameter decoder: The decoder to read from.
     /// - Throws: `DecodingError` when a field that the viewer needs is missing or has the wrong type.
@@ -65,6 +77,7 @@ public struct GraphQLViewer: Codable, Hashable, Sendable {
         ownedSessions = try container.decode(Set<String>.self, forKey: .ownedSessions)
         clientOwnedSessions = try container.decode(Set<String>.self, forKey: .clientOwnedSessions)
         startedSessions = try container.decodeIfPresent(Set<String>.self, forKey: .startedSessions) ?? []
+        actor = try container.decodeIfPresent(GraphQLActor.self, forKey: .actor)
     }
 
     /// Tells if this client owns a session.
