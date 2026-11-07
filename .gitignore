@@ -9,3 +9,6 @@
 .ralph/
 
 Package.resolved
+
+# SAH tool folder (auto-created)
+.sah/
