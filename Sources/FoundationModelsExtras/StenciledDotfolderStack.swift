@@ -44,6 +44,13 @@ import Foundation
 /// The process environment is not a rung of this stack: a consumer that
 /// wants an environment variable in a template puts it in `variables`.
 ///
+/// `values` is the same rung for structured values: a boolean, a number, a
+/// list, or a dictionary with nested keys. A template can test them, for
+/// example `{% if tools.kanban.enabled %}`, where the text `"false"` of
+/// `variables` would be true. A key of `values` wins over the same key of
+/// `variables`. An included partial, and the text of the include resolver,
+/// render with the same values.
+///
 /// ## Partials
 ///
 /// An `{% include %}` finds a partial in `partialLocations`, the
@@ -117,6 +124,10 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   /// The values that the render interpolates, above the well-known values.
   public let variables: [String: String]
 
+  /// The structured values that the render interpolates, at the rung of
+  /// `variables`. A key here wins over the same key of `variables`.
+  public let values: [String: TemplateValue]
+
   /// The well-known values of each render, or `nil` to read the current
   /// values at the time of each render.
   public let wellKnownValues: WellKnownValues?
@@ -128,7 +139,8 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   /// The hook that receives each render failure.
   private let onDiagnostic: DiagnosticHandler
 
-  /// The explicit context of each render, built once from `variables`.
+  /// The explicit context of each render, built once from `variables` and
+  /// `values`.
   private let context: TemplateContext
 
   /// Creates a stenciled stack over `base`.
@@ -140,6 +152,10 @@ public struct StenciledDotfolderStack: DotfolderStacking {
   ///     `defaultPartialLocations`.
   ///   - variables: The values that the render interpolates. A value here
   ///     wins over a well-known value of the same name. Defaults to none.
+  ///   - values: The structured values that the render interpolates, at the
+  ///     rung of `variables`: a boolean, a number, a list, or a dictionary
+  ///     with nested keys. A key here wins over the same key of
+  ///     `variables`. Defaults to none.
   ///   - wellKnownValues: The well-known values of each render. `nil`, the
   ///     default, reads the current values at the time of each render, thus
   ///     `date` is the date of the render. A consumer that must pin these
@@ -153,6 +169,7 @@ public struct StenciledDotfolderStack: DotfolderStacking {
     base: DotfolderStack,
     partialLocations: [String] = defaultPartialLocations,
     variables: [String: String] = [:],
+    values: [String: TemplateValue] = [:],
     wellKnownValues: WellKnownValues? = nil,
     includeResolver: IncludeResolver? = nil,
     onDiagnostic: @escaping DiagnosticHandler = { _ in }
@@ -160,10 +177,12 @@ public struct StenciledDotfolderStack: DotfolderStacking {
     self.base = base
     self.partialLocations = partialLocations
     self.variables = variables
+    self.values = values
     self.wellKnownValues = wellKnownValues
     self.includeResolver = includeResolver
     self.onDiagnostic = onDiagnostic
-    self.context = TemplateContext(values: variables.mapValues { .string($0) })
+    self.context = TemplateContext(
+      values: variables.mapValues { .string($0) }.merging(values) { _, structured in structured })
   }
 
   /// The layers of the base stack, lowest to highest precedence.

@@ -72,6 +72,7 @@ import Testing
     over base: DotfolderStack,
     partialLocations: [String] = ["_partials"],
     variables: [String: String] = variables,
+    values: [String: TemplateValue] = [:],
     includeResolver: StenciledDotfolderStack.IncludeResolver? = nil,
     log: DiagnosticLog = DiagnosticLog()
   ) -> StenciledDotfolderStack {
@@ -79,9 +80,21 @@ import Testing
       base: base,
       partialLocations: partialLocations,
       variables: variables,
+      values: values,
       includeResolver: includeResolver,
       onDiagnostic: { log.record($0) }
     )
+  }
+
+  /// A body that writes `K` only when the kanban tool is on.
+  private static let kanbanBody = "{% if tools.kanban.enabled %}K{% endif %}"
+
+  /// The structured values of a session whose kanban tool is on or off.
+  ///
+  /// - Parameter enabled: `true` when the kanban tool is on.
+  /// - Returns: The values, with `tools.kanban.enabled` set to `enabled`.
+  private static func toolValues(kanbanEnabled enabled: Bool) -> [String: TemplateValue] {
+    ["tools": .dictionary(["kanban": .dictionary(["enabled": .bool(enabled)])])]
   }
 
   /// A marketplace layer rooted in `fixture`, placed below the local
@@ -241,6 +254,72 @@ import Testing
     #expect(stenciled.content("review/SKILL.md") == nil)
     #expect(log.diagnostics.count == 1)
     #expect(log.diagnostics.first?.message.contains("header") == true)
+  }
+
+  // MARK: - Structured values
+
+  @Test(
+    "a structured value decides a condition of the text",
+    arguments: [
+      (toolValues(kanbanEnabled: true), "K"),
+      (toolValues(kanbanEnabled: false), ""),
+      ([:], ""),
+    ])
+  func aStructuredValueDecidesACondition(values: [String: TemplateValue], expected: String) {
+    let fixture = Fixture()
+    fixture.write(Self.kanbanBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack(), values: values)
+
+    #expect(stenciled.content("review/SKILL.md") == expected)
+  }
+
+  @Test(
+    "a structured value decides a condition of a partial",
+    arguments: [
+      (toolValues(kanbanEnabled: true), "K"),
+      (toolValues(kanbanEnabled: false), ""),
+      ([:], ""),
+    ])
+  func aStructuredValueDecidesAConditionOfAPartial(values: [String: TemplateValue], expected: String) {
+    let fixture = Fixture()
+    fixture.write(Self.kanbanBody, to: "_partials/header.md", in: fixture.projectDirectory)
+    fixture.write(Self.includeHeaderBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack(), values: values)
+
+    #expect(stenciled.content("review/SKILL.md") == expected)
+  }
+
+  @Test(
+    "a structured value decides a condition of the resolver text",
+    arguments: [
+      (toolValues(kanbanEnabled: true), "K"),
+      (toolValues(kanbanEnabled: false), ""),
+      ([:], ""),
+    ])
+  func aStructuredValueDecidesAConditionOfTheResolverText(values: [String: TemplateValue], expected: String) {
+    let fixture = Fixture()
+    fixture.write(Self.includeReferenceBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(
+      over: fixture.makeStack(), values: values, includeResolver: Self.referenceResolver(giving: Self.kanbanBody))
+
+    #expect(stenciled.content("review/SKILL.md") == expected)
+  }
+
+  @Test func aStructuredValueWinsOverAVariableOfTheSameName() {
+    let fixture = Fixture()
+    fixture.write(Self.projectBody, to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(over: fixture.makeStack(), values: ["project": .string("structured")])
+
+    #expect(stenciled.content("review/SKILL.md") == "Project structured")
+  }
+
+  @Test func theVariablesStayAboveTheWellKnownValuesNextToTheStructuredValues() {
+    let fixture = Fixture()
+    fixture.write("{{ project }} {{ hostname }}", to: "review/SKILL.md", in: fixture.projectDirectory)
+    let stenciled = Self.makeStenciled(
+      over: fixture.makeStack(), variables: ["project": "acme", "hostname": "mine"], values: Self.toolValues(kanbanEnabled: true))
+
+    #expect(stenciled.content("review/SKILL.md") == "acme mine")
   }
 
   // MARK: - Include resolver
