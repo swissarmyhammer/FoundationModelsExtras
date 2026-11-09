@@ -715,6 +715,18 @@ it, is the image projector. `GGUFSource` downloads only those files, not the
 whole repository. A local reference can name a folder or a `.gguf` file. With
 no GGUF loader, a GGUF model throws `HubModelLoaderError.noGGUFLoader`.
 
+A model with MTP layers decodes speculatively with no drafter: llama.cpp reads
+the layers from the GGUF file. The `drafter` of the reference names a draft
+model, which `GGUFSource` finds and downloads the same way as the model. A
+drafter that holds no GGUF model throws
+`LlamaCppModelLoaderError.drafterNotGGUF(ref:)`. The response metadata gives
+`speculativeDecoding` and the drafted and accepted token counts.
+`LlamaLanguageModel.Options(speculativeDecoding: false)` in the options of the
+loader turns both off. The footprint of the model is the llama.cpp estimate
+`LlamaLanguageModel.footprintBytes(gguf:projector:drafter:options:)`: each
+shard, the projector, the drafter, the KV cache at the context size, and the
+compute buffers. It reads the headers of the files on the disk, after the load.
+
 `CoreMLModelLoader` downloads the files of the package and the tokenizer, and
 no script or document. It compiles the package one time for each commit and
 keeps the compiled model in the folder `coreml-compiled` of the cache, thus

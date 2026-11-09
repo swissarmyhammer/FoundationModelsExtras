@@ -39,20 +39,33 @@ struct LlamaCppModelLoaderTests {
         #expect(container is LlamaLanguageModel)
     }
 
-    @Test("the footprint is the size of each shard")
-    func footprintIsTheSizeOfTheFiles() async throws {
+    @Test("the footprint is the llama.cpp estimate of every shard of the model")
+    func footprintIsTheLlamaEstimate() async throws {
         let root = try TemporaryDirectory.make()
         defer { try? FileManager.default.removeItem(at: root) }
         let folder = root.appendingPathComponent("Q8_0", isDirectory: true)
         let first = try Self.copyVocabulary(to: folder, as: "m-00001-of-00002.gguf")
-        let second = try Self.copyVocabulary(to: folder, as: "m-00002-of-00002.gguf")
-        let expected = try [first, second].reduce(Int64(0)) { total, file in
-            total + Int64(try #require(file.resourceValues(forKeys: [.fileSizeKey]).fileSize))
-        }
+        try Self.copyVocabulary(to: folder, as: "m-00002-of-00002.gguf")
+        let expected = Int64(try LlamaLanguageModel.footprintBytes(gguf: first))
 
         let bytes = try await LlamaCppModelLoader(cacheDirectory: root).footprintBytes(of: Self.key(folder.path, .llm))
 
         #expect(bytes == expected)
+    }
+
+    @Test("the footprint of a model with a drafter counts the drafter")
+    func footprintCountsTheDrafter() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = try Self.copyVocabulary(to: root.appendingPathComponent("target"), as: "model.gguf")
+        let drafter = try Self.copyVocabulary(to: root.appendingPathComponent("drafter"), as: "drafter.gguf")
+        let ref = ModelRef(repo: model.path, drafter: ModelRef(drafter.path))
+        let expected = Int64(try LlamaLanguageModel.footprintBytes(gguf: model, drafter: drafter))
+
+        let bytes = try await LlamaCppModelLoader(cacheDirectory: root).footprintBytes(of: ModelPoolKey(ref: ref, role: .llm))
+
+        #expect(bytes == expected)
+        #expect(bytes > Int64(try LlamaLanguageModel.footprintBytes(gguf: model)))
     }
 
     @Test("an embedding key is refused")
@@ -66,15 +79,36 @@ struct LlamaCppModelLoaderTests {
         }
     }
 
-    @Test("a reference with a drafter is refused until the GGUF drafter lands")
-    func drafterIsRefused() async throws {
+    @Test("a local GGUF drafter in a folder loads with the model")
+    func drafterLoads() async throws {
         let root = try TemporaryDirectory.make()
         defer { try? FileManager.default.removeItem(at: root) }
-        let model = try Self.copyVocabulary(to: root, as: "model.gguf")
-        let ref = ModelRef(repo: model.path, drafter: ModelRef(model.path))
+        let model = try Self.copyVocabulary(to: root.appendingPathComponent("target"), as: "model.gguf")
+        let folder = root.appendingPathComponent("drafter", isDirectory: true)
+        try Self.copyVocabulary(to: folder, as: "drafter-Q8_0.gguf")
+        let ref = ModelRef(repo: model.path, drafter: ModelRef(folder.path))
 
-        await #expect(throws: LlamaCppModelLoaderError.drafterNotSupported(ref: ref.stringValue)) {
+        let container = try await LlamaCppModelLoader(cacheDirectory: root).load(ModelPoolKey(ref: ref, role: .llm))
+
+        #expect(container is LlamaLanguageModel)
+    }
+
+    @Test("a drafter that holds no GGUF model is refused")
+    func drafterThatIsNotGGUFIsRefused() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = try Self.copyVocabulary(to: root.appendingPathComponent("target"), as: "model.gguf")
+        let folder = root.appendingPathComponent("mlx-drafter", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(count: 16).write(to: folder.appendingPathComponent("model.safetensors"))
+        let drafter = ModelRef(folder.path)
+        let ref = ModelRef(repo: model.path, drafter: drafter)
+
+        await #expect(throws: LlamaCppModelLoaderError.drafterNotGGUF(ref: drafter.stringValue)) {
             try await LlamaCppModelLoader(cacheDirectory: root).load(ModelPoolKey(ref: ref, role: .llm))
+        }
+        await #expect(throws: LlamaCppModelLoaderError.drafterNotGGUF(ref: drafter.stringValue)) {
+            try await LlamaCppModelLoader(cacheDirectory: root).footprintBytes(of: ModelPoolKey(ref: ref, role: .llm))
         }
     }
 
