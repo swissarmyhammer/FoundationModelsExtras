@@ -1,13 +1,15 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '80'
-title: 'GGUF: wire the drafter and the LlamaCpp footprint helper when they land'
+position_column: done
+position_ordinal: ffd880
+title: 'GGUF: a drafter and the llama.cpp footprint estimate in LlamaCppModelLoader'
 ---
-Blocked on FoundationModelsLlamaCpp (foundationmodelsllamacpp-f1) pushing to main:
-- [ ] `LlamaLanguageModel(gguf:projector:drafter:options:)`: resolve `key.ref.drafter` through GGUFSource and pass its model file. Remove `LlamaCppModelLoaderError.drafterNotSupported`.
-- [ ] Footprint: add the drafter files, then switch to `LlamaLanguageModel.footprintBytes(gguf:projector:drafter:options:)` when it lands
-- [ ] Load one real split set once LlamaCpp confirms that loading from the first shard works
+FoundationModelsLlamaCpp c4ae2ab (llama-cpp-swift fb9d182) has `drafter:` and `LlamaLanguageModel.footprintBytes(gguf:projector:drafter:options:)`.
+- [ ] Remove `drafterNotSupported`. Resolve `key.ref.drafter` (Hub path or local) through GGUFSource/GGUFFileSet and pass its first shard as `drafter:`
+- [ ] A drafter that holds no GGUF model fails with `drafterNotGGUF(ref:)`
+- [ ] Footprint = `LlamaLanguageModel.footprintBytes` over the cached files of the target and the drafter (the pool measures after the load)
+- [ ] Resolve FoundationModelsLlamaCpp at c4ae2ab or later
+- [ ] Real-model tests: Qwen3.5-0.8B-Q8_0 with no drafter gives metadata speculativeDecoding == true (MTP); the same model as its own drafter speculates
 
 #gguf
