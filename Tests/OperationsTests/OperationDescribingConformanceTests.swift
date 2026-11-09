@@ -30,6 +30,7 @@ private struct ParameterTypesFixture: OperationDefinition {
         ParamMeta(name: "enabled", type: .boolean, required: false, description: "Whether the widget is on"),
         ParamMeta(name: "grid", type: .array(of: .array(of: .integer)), required: false, description: "The cell grid"),
         ParamMeta(name: "mode", type: .string, required: false, description: "The run mode", allowedValues: ["fast", "slow"]),
+        ParamMeta(name: "settings", type: .object, required: false, description: "The widget settings"),
     ]
 
     static var generationSchema: GenerationSchema {
@@ -195,6 +196,10 @@ struct OperationDescribingConformanceTests {
                 OperationParameterDescriptor(
                     name: "mode", type: .string, required: false, description: "The run mode", aliases: [],
                     allowedValues: ["fast", "slow"]
+                ),
+                OperationParameterDescriptor(
+                    name: "settings", type: .object, required: false, description: "The widget settings", aliases: [],
+                    allowedValues: nil
                 ),
             ]
         )

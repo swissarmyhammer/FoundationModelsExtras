@@ -114,6 +114,8 @@ public indirect enum OperationParameterType: Sendable, Equatable {
     case number
     /// A `true` or `false` value.
     case boolean
+    /// A JSON object with any members. A payload can also give the object as text that holds one JSON object.
+    case object
     /// A list of values. All the values have the given element type.
     case array(of: OperationParameterType)
 }

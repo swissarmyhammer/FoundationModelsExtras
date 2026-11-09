@@ -16,6 +16,11 @@ public enum ParamType: Sendable, Equatable {
     /// A Boolean primitive type.
     case boolean
 
+    /// A JSON object with any members. A caller can also send the object as
+    /// text that holds one JSON object, because a model writes an object of
+    /// unknown members only as text.
+    case object
+
     /// A repeatable value of the given element type (a Swift `Array`).
     indirect case array(of: ParamType)
 }

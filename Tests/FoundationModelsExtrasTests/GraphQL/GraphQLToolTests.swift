@@ -21,6 +21,14 @@ struct GraphQLToolTests {
         GraphQLTool(description: "Reads the notes.", endpoint: try ExampleGraph(), subscriptionHint: subscriptionHint)
     }
 
+    @Test("the parameter descriptors give the query text, the variables object, and the operation name")
+    func parameterDescriptors() {
+        #expect(GraphQLArguments.parameterDescriptors.map(\.name) == ["query", "variables", "operationName"])
+        #expect(GraphQLArguments.parameterDescriptors.map(\.type) == [.string, .object, .string])
+        #expect(GraphQLArguments.parameterDescriptors.map(\.required) == [true, false, false])
+        #expect(GraphQLArguments.parameterDescriptors.allSatisfy { descriptor in !descriptor.description.isEmpty })
+    }
+
     @Test(
         "the variables decode from an object, a JSON string, or a fenced JSON string",
         arguments: [

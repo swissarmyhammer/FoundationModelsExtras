@@ -383,6 +383,8 @@ extension OperationParameterType {
             self = .number
         case .boolean:
             self = .boolean
+        case .object:
+            self = .object
         case .array(let element):
             self = .array(of: OperationParameterType(element))
         }

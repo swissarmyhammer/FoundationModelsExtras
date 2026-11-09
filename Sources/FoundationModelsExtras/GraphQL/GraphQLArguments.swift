@@ -103,6 +103,36 @@ public struct GraphQLArguments: ConvertibleFromGeneratedContent, Sendable {
         }
     }()
 
+    /// The descriptors of the parameters of a GraphQL operation, so that each GraphQL tool that describes its operation
+    /// uses this one definition. `variables` is ``OperationParameterType/object``, so a script can send a plain object,
+    /// and a model can send text that holds the object.
+    public static let parameterDescriptors: [OperationParameterDescriptor] = [
+        OperationParameterDescriptor(
+            name: Key.query,
+            type: .string,
+            required: true,
+            description: "The GraphQL document: a query or a mutation.",
+            aliases: [],
+            allowedValues: nil
+        ),
+        OperationParameterDescriptor(
+            name: Key.variables,
+            type: .object,
+            required: false,
+            description: "The values of the variables: a JSON object, or text that holds a JSON object.",
+            aliases: [],
+            allowedValues: nil
+        ),
+        OperationParameterDescriptor(
+            name: Key.operationName,
+            type: .string,
+            required: false,
+            description: "The operation of the document to run, when the document has more than one.",
+            aliases: [],
+            allowedValues: nil
+        ),
+    ]
+
     /// Makes the arguments of a call in code.
     ///
     /// - Parameters:

@@ -156,6 +156,24 @@ fileprivate struct FirstSeenField {
 /// type-level documentation) would make an `allowedValues`-derived `anyOf`
 /// here just as unenforced. Closed-set values are still validated at
 /// dispatch time, where `ParamMeta` remains available.
+/// The schema of a `.object` field: `anyOf` a string and an object with no
+/// properties, so the field has no `type` of its own.
+///
+/// A host that checks the `type` of each argument does not check a field
+/// with no `type`, so a script can send a plain object. The model can make
+/// only an empty object from the object choice, so the guide of the string
+/// choice asks it for one JSON object in text.
+private var objectSchema: DynamicGenerationSchema {
+    DynamicGenerationSchema(
+        name: "JSONObject",
+        description: "one JSON object in text",
+        anyOf: [
+            DynamicGenerationSchema(type: String.self),
+            DynamicGenerationSchema(name: "JSONObjectMembers", properties: []),
+        ]
+    )
+}
+
 private func dynamicSchema(for type: ParamType) -> DynamicGenerationSchema {
     switch type {
     case .string:
@@ -166,6 +184,8 @@ private func dynamicSchema(for type: ParamType) -> DynamicGenerationSchema {
         return DynamicGenerationSchema(type: Double.self)
     case .boolean:
         return DynamicGenerationSchema(type: Bool.self)
+    case .object:
+        return objectSchema
     case .array(let element):
         return DynamicGenerationSchema(arrayOf: dynamicSchema(for: element))
     }

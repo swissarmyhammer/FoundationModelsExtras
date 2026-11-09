@@ -111,7 +111,9 @@ private struct ArchiveNoteCLIOutput: Encodable, Sendable, Equatable {
 /// matching stored property here — a nested-array (`[[String]]`) parameter
 /// can never successfully convert (see `convertedArray`'s documented
 /// contract), so it exercises that always-omitted branch without needing a
-/// decode target. All only reachable through `FallbackPayloadBuilder`, never
+/// decode target. `metadata` is likewise declared only in
+/// `parameterMetadata`, and exercises the `.object` conversion of JSON text.
+/// All only reachable through `FallbackPayloadBuilder`, never
 /// a macro-generated `@Option`/`@Flag`.
 private struct ArchiveNoteCLIFixture: OperationDefinition {
     typealias Context = NotesFixtureContext
@@ -150,6 +152,7 @@ private struct ArchiveNoteCLIFixture: OperationDefinition {
             name: "relatedNoteIdGroups", type: .array(of: .array(of: .string)), required: false,
             description: "Nested groups of related note ids (unsupported by the CLI leaf; always omitted)"
         ),
+        ParamMeta(name: "metadata", type: .object, required: false, description: "Extra facts about the archive"),
     ]
 
     static var generationSchema: GenerationSchema {
@@ -533,6 +536,33 @@ private func captureStandardOutput(_ body: () async throws -> Void) async throws
         let payloadJSON = command.operationPayload().jsonString
 
         #expect(payloadJSON.contains("relatedNoteIdGroups") == false)
+    }
+
+    @Test func objectParameterConvertsJSONTextToAnObject() throws {
+        var command = FallbackOperationCommand<ArchiveNoteCLIFixture>()
+        command.rawArguments = ["--id", "note-1", "--metadata", #"{"source": "cli", "count": 2}"#]
+
+        guard case .structure(let properties, _) = command.operationPayload().kind,
+            case .structure(let metadata, _)? = properties["metadata"]?.kind
+        else {
+            Issue.record("The metadata is not an object in the payload")
+            return
+        }
+
+        #expect(metadata["source"]?.kind == .string("cli"))
+        #expect(metadata["count"]?.kind == .number(2))
+    }
+
+    @Test func objectParameterKeepsTextThatIsNotAJSONObject() throws {
+        var command = FallbackOperationCommand<ArchiveNoteCLIFixture>()
+        command.rawArguments = ["--id", "note-1", "--metadata", "not json"]
+
+        guard case .structure(let properties, _) = command.operationPayload().kind else {
+            Issue.record("The payload is not an object")
+            return
+        }
+
+        #expect(properties["metadata"]?.kind == .string("not json"))
     }
 }
 

@@ -166,11 +166,23 @@ internal enum FallbackPayloadBuilder {
             return convertedIfLastElementParses(rawValues: rawValues, using: Int.init)
         case .number:
             return convertedIfLastElementParses(rawValues: rawValues, using: Double.init)
+        case .object:
+            return rawValues.last.map(convertedObject)
         case .array(let element):
             return convertedArray(rawValues: rawValues, elementType: element)
         default:
             preconditionFailure("convertedValue handles .boolean before calling convertedScalarOrArray")
         }
+    }
+
+    /// Converts JSON text to the object it holds, or keeps the text when it
+    /// does not hold a JSON object, so that the operation's own decode
+    /// reports what is wrong with it.
+    private static func convertedObject(text: String) -> any ConvertibleToGeneratedContent {
+        guard let content = try? GeneratedContent(json: text), case .structure = content.kind else {
+            return text
+        }
+        return content
     }
 
     /// Converts `rawValues`' last element with `parse`, or `nil` if there is
@@ -197,6 +209,8 @@ internal enum FallbackPayloadBuilder {
             return convertedIfEveryElementParses(rawValues: rawValues, using: Double.init)
         case .boolean:
             return convertedIfEveryElementParses(rawValues: rawValues, using: { Bool($0) })
+        case .object:
+            return rawValues.map(convertedObject).map(\.generatedContent)
         case .array:
             return nil
         }
@@ -240,6 +254,7 @@ internal enum FallbackParameterFormatting {
         case .integer: return "int"
         case .number: return "number"
         case .boolean: return "flag"
+        case .object: return "json"
         case .array(let element): return "\(typeName(type: element))..."
         }
     }

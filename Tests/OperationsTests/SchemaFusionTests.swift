@@ -123,6 +123,32 @@ private struct FixtureRateItem: OperationDefinition {
     }
 }
 
+/// `run query` fixture: an optional `variables` object, exercising the
+/// `.object` `ParamType` case.
+private struct FixtureRunQuery: OperationDefinition {
+    typealias Context = FusionFixtureContext
+    typealias Output = FusionFixtureOutput
+
+    static let verb = "run"
+    static let noun = "query"
+    static let operationDescription = "Run a query"
+    static let parameterMetadata: [ParamMeta] = [
+        ParamMeta(name: "variables", type: .object, required: false, description: "The values of the variables")
+    ]
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(type: FixtureRunQuery.self, description: operationDescription, properties: [])
+    }
+
+    init(_ content: GeneratedContent) throws {}
+
+    var generatedContent: GeneratedContent { GeneratedContent(properties: [:]) }
+
+    func execute(in context: FusionFixtureContext) async throws -> FusionFixtureOutput {
+        FusionFixtureOutput()
+    }
+}
+
 /// A fixture operation that illegally declares a parameter literally named
 /// `"op"`, proving fusion rejects the collision with a descriptive error.
 private struct FixtureReservedOpLiteral: OperationDefinition {
@@ -272,6 +298,32 @@ private struct FixtureReservedOpNormalized: OperationDefinition {
         let scoreSchema = try #require(properties["score"] as? [String: Any])
 
         #expect(scoreSchema["type"] as? String == "number")
+    }
+
+    /// The `.object` case is `anyOf` a string and an object, so the field
+    /// has no `type` of its own: a host that checks the `type` of each
+    /// argument lets a script send a plain object, and the model can send
+    /// the object as JSON text.
+    @Test func objectParameterIsRenderedAsAnyOfStringAndObject() throws {
+        let object = try fusedJSONObject([AnyOperation(FixtureRunQuery.self)])
+        let properties = try #require(object["properties"] as? [String: Any])
+        let variablesSchema = try #require(properties["variables"] as? [String: Any])
+        let reference = try #require(variablesSchema["$ref"] as? String)
+        let definitions = try #require(object["$defs"] as? [String: Any])
+        let objectSchema = try #require(definitions[String(reference.dropFirst("#/$defs/".count))] as? [String: Any])
+        let choices = try #require(objectSchema["anyOf"] as? [[String: Any]])
+        let choiceTypes = try choices.map { choice in
+            if let type = choice["type"] as? String {
+                return type
+            }
+            let choiceReference = try #require(choice["$ref"] as? String)
+            let choiceSchema = try #require(definitions[String(choiceReference.dropFirst("#/$defs/".count))] as? [String: Any])
+            return try #require(choiceSchema["type"] as? String)
+        }
+
+        #expect(variablesSchema["type"] == nil)
+        #expect(objectSchema["type"] == nil)
+        #expect(choiceTypes.sorted() == ["object", "string"])
     }
 
     // MARK: - reserved `op` parameter name
