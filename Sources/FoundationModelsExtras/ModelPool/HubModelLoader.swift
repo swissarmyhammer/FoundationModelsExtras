@@ -27,11 +27,11 @@ public enum HubModelFormat: Equatable, Sendable {
     /// Decides the format of a repository from the paths of its files.
     ///
     /// A repository with a `safetensors` file is MLX. Else a repository with a
-    /// GGUF model file is GGUF: an `mmproj*.gguf` projector alone is not a
-    /// model. Else a repository with a `.mlpackage` folder is Core ML. A
-    /// repository that holds none of these is MLX, thus the MLX loader gives
-    /// the error about the missing files. MLX wins over Core ML because MLX
-    /// loads each role.
+    /// GGUF model file is GGUF: a shard of a split set is a model file, and
+    /// an `mmproj*.gguf` projector alone is not a model. Else a repository
+    /// with a `.mlpackage` folder is Core ML. A repository that holds none of
+    /// these is MLX, thus the MLX loader gives the error about the missing
+    /// files. MLX wins over Core ML because MLX loads each role.
     ///
     /// Only a `.mlpackage` folder counts as Core ML. ``CoreMLModelLoader``
     /// compiles a package itself, and it does not load a compiled `.mlmodelc`
@@ -53,7 +53,7 @@ public enum HubModelFormat: Equatable, Sendable {
             if let last = components.last, URL(filePath: last).pathExtension == weightFileExtension {
                 return .mlx
             }
-            if (try? GGUFFileSet.select(from: [path], under: nil)) != nil {
+            if GGUFFileSet.isModelFile(path) {
                 hasGGUF = true
             }
         }

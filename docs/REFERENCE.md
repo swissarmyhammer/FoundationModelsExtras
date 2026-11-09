@@ -708,7 +708,9 @@ let model = PooledModel(ref: "unsloth/Qwen3.8-27B-GGUF/Q4_K_M", pool: pool)
 ```
 
 `GGUFFileSet` chooses the files: a folder loads its one GGUF file, or the
-first shard of its one split set (`*-00001-of-0000N.gguf`). A folder that holds
+first shard of its one split set (`*-00001-of-0000N.gguf`). `GGUFSource`
+downloads each shard, and llama.cpp opens the other shards from the first one.
+A folder of shards alone is GGUF. A folder that holds
 more than one model fails with an error that lists the choices. An
 `mmproj*.gguf` file in the folder of the model, or in the nearest folder above
 it, is the image projector. `GGUFSource` downloads only those files, not the

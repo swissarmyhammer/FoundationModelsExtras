@@ -67,6 +67,15 @@ struct HubModelLoaderTests {
         #expect(HubModelFormat.detect(paths: ["Q4_K_M/model-Q4_K_M.gguf", "README.md"]) == .gguf)
     }
 
+    @Test("a repository with the shards of a split set and no other GGUF file is GGUF")
+    func splitSetIsGGUF() {
+        let paths = [
+            "Q4_0/model-Q4_0-00001-of-00002.gguf", "Q4_0/model-Q4_0-00002-of-00002.gguf", "README.md",
+        ]
+
+        #expect(HubModelFormat.detect(paths: paths) == .gguf)
+    }
+
     @Test("a repository with GGUF files and safetensors weights is MLX")
     func ggufAndSafetensorsIsMLX() {
         #expect(HubModelFormat.detect(paths: ["model.gguf", "model.safetensors"]) == .mlx)

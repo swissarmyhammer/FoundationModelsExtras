@@ -92,11 +92,12 @@ public struct GGUFFileSet: Equatable, Sendable {
         return GGUFFileSet(model: key.model, shards: shards, projector: projector(for: key.model, in: paths))
     }
 
-    /// Whether `path` is a GGUF file that is not a projector.
+    /// Whether `path` is a GGUF file that is not a projector. A shard of a
+    /// split set is a model file, whether or not its other shards are listed.
     ///
     /// - Parameter path: A path of the list.
     /// - Returns: `true` for a model file or a shard.
-    private static func isModelFile(_ path: String) -> Bool {
+    static func isModelFile(_ path: String) -> Bool {
         URL(filePath: path).pathExtension == fileExtension && !isProjector(path)
     }
 
