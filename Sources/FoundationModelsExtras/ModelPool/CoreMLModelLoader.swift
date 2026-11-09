@@ -29,8 +29,8 @@ import Tokenizers
 /// starts with `task: search result | query: ` and a document starts with
 /// `title: none | text: `. The weights of that model have the Gemma license.
 ///
-/// A reference that is the path of an existing folder loads from that folder,
-/// with no download. The folder must hold one `.mlpackage` folder and a
+/// A local reference (one that starts with `/`, `~` or `.`) to an existing
+/// folder loads from that folder, with no download. The folder must hold one `.mlpackage` folder and a
 /// `tokenizer.json`, as a repository does. The compiled model of such a folder is
 /// kept by the path and by the size and the time of the last change of each file
 /// of the package, thus a package that changes in place compiles again.

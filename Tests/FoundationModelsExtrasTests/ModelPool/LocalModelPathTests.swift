@@ -30,6 +30,42 @@ struct LocalModelPathTests {
         #expect(ModelRef(repo: "org/no-such-folder-here").localDirectory == nil)
     }
 
+    @Test("a reference to a GGUF file has that file as its local location, and no local directory")
+    func ggufFileIsLocal() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("model.gguf")
+        try Data().write(to: file)
+
+        #expect(ModelRef(file.path).localLocation?.path == file.path)
+        #expect(ModelRef(file.path).localDirectory == nil)
+    }
+
+    @Test("a reference to an existing folder has that folder as its local location")
+    func existingFolderIsTheLocalLocation() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(ModelRef(root.path).localLocation?.path == root.path)
+    }
+
+    @Test("a local reference expands ~ to the home folder")
+    func tildeIsTheHomeFolder() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+
+        #expect(ModelRef("~").localLocation?.path == home)
+    }
+
+    @Test("a reference to a file that is not a GGUF file has no local location")
+    func otherFileIsNotALocalLocation() throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("model.safetensors")
+        try Data().write(to: file)
+
+        #expect(ModelRef(file.path).localLocation == nil)
+    }
+
     @Test("a reference to a file is not a local directory")
     func fileIsNotLocal() throws {
         let root = try TemporaryDirectory.make()

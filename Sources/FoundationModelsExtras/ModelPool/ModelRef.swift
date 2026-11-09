@@ -1,13 +1,17 @@
 import Foundation
 
-/// A reference to a model on the Hugging Face Hub, optionally pinned to a
-/// specific revision.
+/// A reference to a model on the Hugging Face Hub or on the disk, optionally
+/// pinned to a specific revision.
 ///
-/// A `ModelRef` names a repository (e.g. `"mlx-community/Qwen2.5-Coder-32B"`)
-/// and, when revision-pinned, a particular commit, tag, or branch within it.
-/// The pinned form uses an `@` separator: `"org/repo@rev"` parses into the
-/// `repo` `"org/repo"` and the `revision` `"rev"`. Without an `@`, the whole
-/// string is the `repo` and `revision` is `nil`.
+/// The string form is `owner/name[/path][@revision]`. A Hub repository id is
+/// always exactly two segments, thus each segment after the second `/` is a
+/// path inside the repository: a folder, such as a quantization folder of a
+/// GGUF repository, or one file. `"unsloth/Qwen3.8-27B-GGUF/Q4_K_M@rev"`
+/// parses into the `repo` `"unsloth/Qwen3.8-27B-GGUF"`, the `path`
+/// `"Q4_K_M"`, and the `revision` `"rev"`.
+///
+/// A reference whose text starts with `/`, `~` or `.` is local: its whole
+/// text is the `repo`, and it names a folder or a `.gguf` file on the disk.
 ///
 /// `ModelRef` is `ExpressibleByStringLiteral`: a bare string literal such as
 /// `"mlx-community/Qwen2.5-Coder-32B-Instruct-8bit"` is a valid `ModelRef`.
@@ -18,7 +22,7 @@ import Foundation
 ///
 /// The type is a value type with no dependency on MLX. It is `Sendable`,
 /// `Hashable`, and `Codable`. A reference with no drafter encodes to and
-/// decodes from its canonical string form (`repo` or `repo@revision`). A
+/// decodes from its canonical string form (`owner/name[/path][@revision]`). A
 /// reference with a drafter encodes to a mapping, which a YAML profile writes
 /// as:
 ///
@@ -27,9 +31,15 @@ import Foundation
 ///   drafter: mlx-community/Qwen3.8-27B-MTP-4bit
 /// ```
 public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable {
-    /// The Hugging Face repository id, e.g. `"org/repo"`. Never includes the
-    /// revision suffix.
+    /// The Hugging Face repository id, e.g. `"org/repo"`, or the whole
+    /// location of a local reference. Never includes the path inside the
+    /// repository or the revision suffix.
     public let repo: String
+
+    /// The path inside the repository, e.g. `"Q4_K_M"` or
+    /// `"Q4_K_M/model-q4_k_m.gguf"`, or `nil` for the repository root. A local
+    /// reference has no path.
+    public let path: String?
 
     /// The pinned revision (commit hash, tag, or branch), or `nil` when the
     /// reference tracks the repository's default revision.
@@ -38,6 +48,9 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
     /// The repository of the MTP drafter, or `nil` for plain decode. Stored
     /// as its parts, because a struct cannot hold a value of its own type.
     private let drafterRepo: String?
+
+    /// The path inside the repository of the MTP drafter.
+    private let drafterPath: String?
 
     /// The pinned revision of the MTP drafter.
     private let drafterRevision: String?
@@ -50,6 +63,19 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
     /// The separator between repository id and revision in the canonical
     /// string form.
     private static let revisionSeparator: Character = "@"
+
+    /// The separator of the segments of the repository id and of the path.
+    private static let segmentSeparator: Character = "/"
+
+    /// The number of segments of a Hub repository id: the owner and the name.
+    private static let repositorySegmentCount = 2
+
+    /// The first characters of the text of a local reference: an absolute
+    /// path, a path from the home folder, or a path from the current folder.
+    private static let localPrefixes: [Character] = ["/", "~", "."]
+
+    /// The extension of a model file that a local reference can name.
+    private static let ggufExtension = "gguf"
 
     /// The revision that a reference with no revision loads. A reference that
     /// names this revision is the same reference as one with no revision.
@@ -64,51 +90,100 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
     /// `"org/repo@main"` are one reference, with one hash and one
     /// ``stringValue``, and the model pool loads them one time.
     ///
+    /// The path `nil`, the empty path and the path `/` all name the
+    /// repository root, and a trailing `/` is not part of the path.
+    ///
     /// - Parameters:
-    ///   - repo: The Hugging Face repository id, e.g. `"org/repo"`.
+    ///   - repo: The Hugging Face repository id, e.g. `"org/repo"`, or the
+    ///     location of a local reference.
+    ///   - path: The path inside the repository, or `nil` for its root.
     ///   - revision: The pinned revision, or `nil` to track the default.
     ///   - drafter: The MTP drafter of the model, or `nil` for plain decode.
-    public init(repo: String, revision: String? = nil, drafter: ModelRef? = nil) {
+    public init(repo: String, path: String? = nil, revision: String? = nil, drafter: ModelRef? = nil) {
         self.repo = repo
+        self.path = Self.normalized(path: path)
         self.revision = Self.normalized(revision)
         self.drafterRepo = drafter?.repo
+        self.drafterPath = drafter?.path
         self.drafterRevision = drafter?.revision
     }
 
     /// The MTP drafter of the model, or `nil` for plain decode. The drafter
     /// of a drafter is never kept.
     public var drafter: ModelRef? {
-        drafterRepo.map { ModelRef(repo: $0, revision: drafterRevision) }
+        drafterRepo.map { ModelRef(repo: $0, path: drafterPath, revision: drafterRevision) }
+    }
+
+    /// `true` when the reference names a location on the disk, not a
+    /// repository on the Hub: its text starts with `/`, `~` or `.`.
+    public var isLocal: Bool {
+        repo.first.map(Self.localPrefixes.contains) ?? false
     }
 
     /// Parses a model reference from its string form.
     ///
-    /// Splits on the first `@`: text before it becomes `repo` and text after it
-    /// becomes `revision`. Without an `@`, the whole string is `repo` and
-    /// `revision` is `nil`. The revision `main` and the empty revision also
-    /// become `nil`, as in ``init(repo:revision:)``.
+    /// Splits on the first `@`: text before it is the location and text after
+    /// it becomes `revision`. Without an `@`, `revision` is `nil`. The
+    /// revision `main` and the empty revision also become `nil`, as in
+    /// ``init(repo:path:revision:drafter:)``. The first two segments of the
+    /// location of a Hub reference are `repo`, and the rest is `path`. The
+    /// whole location of a local reference is `repo`.
     ///
-    /// - Parameter string: The reference, e.g. `"org/repo"` or `"org/repo@rev"`.
+    /// - Parameter string: The reference, e.g. `"org/repo"`,
+    ///   `"org/repo/Q4_K_M@rev"` or `"~/models/x.gguf"`.
     public init(_ string: String) {
+        let location: Substring
+        let revision: String?
         if let separatorIndex = string.firstIndex(of: Self.revisionSeparator) {
-            self.init(
-                repo: String(string[..<separatorIndex]),
-                revision: String(string[string.index(after: separatorIndex)...]))
+            location = string[..<separatorIndex]
+            revision = String(string[string.index(after: separatorIndex)...])
         } else {
-            self.init(repo: string)
+            location = string[...]
+            revision = nil
         }
+        guard let first = location.first, !Self.localPrefixes.contains(first) else {
+            self.init(repo: String(location), revision: revision)
+            return
+        }
+        let segments = location.split(
+            separator: Self.segmentSeparator, maxSplits: Self.repositorySegmentCount,
+            omittingEmptySubsequences: false)
+        let repo = segments.prefix(Self.repositorySegmentCount).joined(separator: String(Self.segmentSeparator))
+        let path = segments.count > Self.repositorySegmentCount ? String(segments[Self.repositorySegmentCount]) : nil
+        self.init(repo: repo, path: path, revision: revision)
     }
 
-    /// The folder on the disk that the reference names, or `nil` for a
-    /// reference to the Hub. A reference is local when its `repo` is the path of
-    /// an existing folder. The loaders of ``ModelPool`` load such a folder with
-    /// no download and no cache, and they ignore the revision.
-    var localDirectory: URL? {
+    /// The folder or the `.gguf` file on the disk that a local reference
+    /// names, or `nil` for a reference to the Hub, or for a local reference
+    /// whose location is not an existing folder or `.gguf` file. A leading
+    /// `~` is the home folder. The loaders of ``ModelPool`` load such a
+    /// location with no download and no cache, and they ignore the revision.
+    var localLocation: URL? {
+        guard isLocal else { return nil }
+        let expanded = (repo as NSString).expandingTildeInPath
         var isFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: repo, isDirectory: &isFolder), isFolder.boolValue else {
-            return nil
-        }
-        return URL(filePath: repo, directoryHint: .isDirectory)
+        guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isFolder) else { return nil }
+        if isFolder.boolValue { return URL(filePath: expanded, directoryHint: .isDirectory) }
+        let file = URL(filePath: expanded, directoryHint: .notDirectory)
+        return file.pathExtension == Self.ggufExtension ? file : nil
+    }
+
+    /// The folder on the disk that a local reference names, or `nil` when the
+    /// reference is not local or its location is not a folder.
+    var localDirectory: URL? {
+        localLocation.flatMap { $0.hasDirectoryPath ? $0 : nil }
+    }
+
+    /// Gives `nil` for a path that names the repository root, and drops the
+    /// `/` at either end of a path.
+    ///
+    /// - Parameter path: The path as given.
+    /// - Returns: `nil` for `nil`, `""` and `"/"`; otherwise the path with no
+    ///   `/` at either end.
+    private static func normalized(path: String?) -> String? {
+        guard let path else { return nil }
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: String(segmentSeparator)))
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Gives `nil` for a revision that names the default revision.
@@ -128,11 +203,12 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
         self.init(value)
     }
 
-    /// The canonical string form: `repo` when unpinned, or `repo@revision` when
-    /// a revision is set.
+    /// The canonical string form: `repo`, then `/path` when the reference has
+    /// a path, then `@revision` when a revision is set.
     public var stringValue: String {
-        guard let revision else { return repo }
-        return "\(repo)\(Self.revisionSeparator)\(revision)"
+        let location = path.map { "\(repo)\(Self.segmentSeparator)\($0)" } ?? repo
+        guard let revision else { return location }
+        return "\(location)\(Self.revisionSeparator)\(revision)"
     }
 
     /// Encodes the reference as its canonical string form, or as the mapping
@@ -165,6 +241,6 @@ public struct ModelRef: Sendable, Hashable, ExpressibleByStringLiteral, Codable 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let target = ModelRef(try container.decode(String.self, forKey: .repo))
         let drafter = try container.decodeIfPresent(String.self, forKey: .drafter).map(ModelRef.init(_:))
-        self.init(repo: target.repo, revision: target.revision, drafter: drafter)
+        self.init(repo: target.repo, path: target.path, revision: target.revision, drafter: drafter)
     }
 }

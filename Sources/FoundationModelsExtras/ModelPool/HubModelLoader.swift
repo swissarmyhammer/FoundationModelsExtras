@@ -13,6 +13,9 @@ public enum HubModelFormat: Equatable, Sendable {
     case mlx
     /// A `.mlpackage` folder, which ``CoreMLModelLoader`` loads.
     case coreML
+    /// GGUF files, which the GGUF loader of ``HubModelLoader`` loads. See
+    /// ``GGUFFileSet`` for the files of one model.
+    case gguf
 
     /// The extension of a Core ML package folder.
     private static let packageExtension = "mlpackage"
@@ -22,10 +25,12 @@ public enum HubModelFormat: Equatable, Sendable {
 
     /// Decides the format of a repository from the paths of its files.
     ///
-    /// A repository is Core ML when it holds a `.mlpackage` folder and no
-    /// `safetensors` file. A repository that holds both formats is MLX, because
-    /// MLX loads each role. A repository that holds neither is MLX, thus the
-    /// MLX loader gives the error about the missing files.
+    /// A repository with a `safetensors` file is MLX. Else a repository with a
+    /// GGUF model file is GGUF: an `mmproj*.gguf` projector alone is not a
+    /// model. Else a repository with a `.mlpackage` folder is Core ML. A
+    /// repository that holds none of these is MLX, thus the MLX loader gives
+    /// the error about the missing files. MLX wins over Core ML because MLX
+    /// loads each role.
     ///
     /// Only a `.mlpackage` folder counts as Core ML. ``CoreMLModelLoader``
     /// compiles a package itself, and it does not load a compiled `.mlmodelc`
@@ -38,6 +43,7 @@ public enum HubModelFormat: Equatable, Sendable {
     /// - Returns: The format of the repository.
     public static func detect(paths: [String]) -> HubModelFormat {
         var hasPackage = false
+        var hasGGUF = false
         for path in paths {
             let components = path.split(separator: "/").map(String.init)
             if components.contains(where: { URL(filePath: $0).pathExtension == packageExtension }) {
@@ -46,7 +52,11 @@ public enum HubModelFormat: Equatable, Sendable {
             if let last = components.last, URL(filePath: last).pathExtension == weightFileExtension {
                 return .mlx
             }
+            if (try? GGUFFileSet.select(from: [path], under: nil)) != nil {
+                hasGGUF = true
+            }
         }
+        if hasGGUF { return .gguf }
         return hasPackage ? .coreML : .mlx
     }
 }
@@ -63,16 +73,25 @@ public enum HubModelFormat: Equatable, Sendable {
 /// let ane = PooledEmbedder(ref: "erjigit17/embeddinggemma-300m-ane-coreml", pool: pool)
 /// ```
 ///
-/// An `.llm` key always loads with MLX, because Core ML loads embedding models
-/// only. For an `.embedding` key, the loader decides the format in this order:
-/// 1. When the reference is the path of an existing folder, the top-level names
-///    of the folder decide, and the loaders load the folder with no download.
-///    An empty or unreadable folder throws ``HubModelLoaderError``.
-/// 2. When the cache holds the snapshot of the model, the top-level names of
-///    the snapshot decide. This needs no network.
+/// A repository with GGUF files loads with the GGUF loader that the caller
+/// gives, for example `LlamaCppModelLoader` of the product
+/// `FoundationModelsExtrasLlamaCpp`. That loader is a parameter, because its
+/// product needs C++ interop, and a consumer with no GGUF models does not.
+///
+/// The files under the path of the reference decide the format, in this order:
+/// 1. When the reference is local, the files of its folder decide, and the
+///    loaders load the folder with no download. A `.gguf` file is GGUF. An
+///    empty or unreadable folder, or a location that does not exist, throws
+///    ``HubModelLoaderError``.
+/// 2. When the cache holds files of the model under the path, those files
+///    decide. This needs no network.
 /// 3. Otherwise, the file list of the repository on the Hub decides.
 ///
-/// Both loaders share one cache, one token provider and one `HF_ENDPOINT`.
+/// An `.llm` key of a Core ML repository loads with MLX, because Core ML loads
+/// embedding models only. Only a GGUF model loads from a path inside a
+/// repository.
+///
+/// Each loader shares one cache, one token provider and one `HF_ENDPOINT`.
 public struct HubModelLoader: PooledModelLoader {
     /// The Hugging Face cache and the token provider of both loaders.
     private let hub: HubSource
@@ -82,6 +101,10 @@ public struct HubModelLoader: PooledModelLoader {
 
     /// The loader of a repository with a `.mlpackage` folder.
     private let coreML: CoreMLModelLoader
+
+    /// The loader of a repository with GGUF files, or `nil` when the caller
+    /// gave none.
+    private let gguf: (any PooledModelLoader)?
 
     /// Makes a loader over a Hugging Face cache. See
     /// ``MLXModelLoader/init(cacheDirectory:tokenProvider:tokenizerLoader:drafterRegistration:)``
@@ -100,9 +123,13 @@ public struct HubModelLoader: PooledModelLoader {
     ///     Hugging Face tokenizer loader.
     ///   - drafterRegistration: The factory that loads an MTP drafter, for the
     ///     MLX models.
+    ///   - gguf: The loader of a GGUF model, such as `LlamaCppModelLoader`.
+    ///     `nil`, the default, makes the load of a GGUF model throw
+    ///     ``HubModelLoaderError/noGGUFLoader``.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
-        tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text
+        tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text,
+        gguf: (any PooledModelLoader)? = nil
     ) {
         let cache = cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default
         hub = HubSource(cache: cache, tokenProvider: tokenProvider)
@@ -110,6 +137,7 @@ public struct HubModelLoader: PooledModelLoader {
             cache: cache, tokenProvider: tokenProvider, tokenizerLoader: tokenizerLoader,
             drafterRegistration: drafterRegistration)
         coreML = CoreMLModelLoader(cache: cache, tokenProvider: tokenProvider, tokenizerLoader: tokenizerLoader)
+        self.gguf = gguf
     }
 
     /// Loads the model of `key` with the loader of its format. Reports
@@ -136,6 +164,7 @@ public struct HubModelLoader: PooledModelLoader {
         switch try await format(of: key) {
         case .mlx: return try await mlx.load(key: key, progressHandler: progressHandler)
         case .coreML: return try await coreML.load(key: key, progressHandler: progressHandler)
+        case .gguf: return try await ggufLoader().load(key: key, progressHandler: progressHandler)
         }
     }
 
@@ -146,6 +175,7 @@ public struct HubModelLoader: PooledModelLoader {
     public func evict(_ container: any Sendable) async {
         await mlx.evict(container)
         await coreML.evict(container)
+        await gguf?.evict(container)
     }
 
     /// Measures the model of `key` with the loader of its format. The pool
@@ -159,30 +189,61 @@ public struct HubModelLoader: PooledModelLoader {
         switch try await format(of: key) {
         case .mlx: return try await mlx.footprintBytes(of: key)
         case .coreML: return try await coreML.footprintBytes(of: key)
+        case .gguf: return try await ggufLoader().footprintBytes(of: key)
         }
     }
 
-    /// Decides the format of the model of `key`.
+    /// The GGUF loader that the caller gave.
+    ///
+    /// - Returns: The loader.
+    /// - Throws: ``HubModelLoaderError/noGGUFLoader`` when the caller gave
+    ///   none.
+    private func ggufLoader() throws -> any PooledModelLoader {
+        guard let gguf else { throw HubModelLoaderError.noGGUFLoader }
+        return gguf
+    }
+
+    /// Decides the format of the model of `key` from the files under the path
+    /// of its reference.
     ///
     /// - Parameter key: The model and its role.
-    /// - Returns: ``HubModelFormat/mlx`` for an `.llm` key. For an
-    ///   `.embedding` key, the format of the local folder, of the cached
-    ///   snapshot, or of the files on the Hub.
-    /// - Throws: ``HubModelLoaderError/unreadableLocalFolder(path:)`` for an
-    ///   empty or unreadable local folder; else the error of the file list of
-    ///   the Hub, when the cache holds no snapshot.
+    /// - Returns: The format of the local location, of the cached files, or of
+    ///   the files on the Hub. A Core ML model of an `.llm` key is
+    ///   ``HubModelFormat/mlx``.
+    /// - Throws: ``HubModelLoaderError`` for a local location that does not
+    ///   exist or is an empty or unreadable folder, and for a path to a model
+    ///   that is not GGUF; else the error of the file list of the Hub, when the
+    ///   cache holds no files under the path.
     func format(of key: ModelPoolKey) async throws -> HubModelFormat {
-        guard key.role == .embedding else { return .mlx }
-        let revision = key.ref.revision ?? ModelRef.defaultRevision
-        let folder = hub.modelFolder(of: key.ref, revision: revision)
-        let names = folder.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) } ?? []
-        guard key.ref.localDirectory == nil || !names.isEmpty else {
-            throw HubModelLoaderError.unreadableLocalFolder(path: folder?.path ?? key.ref.repo)
+        let format = HubModelFormat.detect(paths: try await paths(of: key.ref))
+        guard format == .gguf || key.ref.path == nil else {
+            throw HubModelLoaderError.pathNeedsGGUF(ref: key.ref.stringValue)
         }
-        if !names.isEmpty { return HubModelFormat.detect(paths: names) }
-        guard let repo = Repo.ID(rawValue: key.ref.repo) else { return .mlx }
+        return key.role == .llm && format == .coreML ? .mlx : format
+    }
+
+    /// The paths of the files of the model of `ref`, relative to the root of
+    /// its folder or repository, under the path of the reference.
+    ///
+    /// - Parameter ref: The reference of the model.
+    /// - Returns: The paths: of the local folder, a local `.gguf` file, the
+    ///   cached snapshot, or the file list of the Hub.
+    /// - Throws: As ``format(of:)``.
+    private func paths(of ref: ModelRef) async throws -> [String] {
+        if ref.isLocal {
+            guard let location = ref.localLocation else { throw HubModelLoaderError.missingLocalModel(path: ref.repo) }
+            guard location.hasDirectoryPath else { return [location.lastPathComponent] }
+            let names = HubSource.relativePaths(in: location)
+            guard !names.isEmpty else { throw HubModelLoaderError.unreadableLocalFolder(path: location.path) }
+            return names
+        }
+        let revision = ref.revision ?? ModelRef.defaultRevision
+        let cached = hub.snapshotDirectory(of: ref.repo, revision: revision)
+            .map { HubSource.paths(HubSource.relativePaths(in: $0), under: ref.path) } ?? []
+        if !cached.isEmpty { return cached }
+        guard let repo = Repo.ID(rawValue: ref.repo) else { return [] }
         let entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
-        return HubModelFormat.detect(paths: entries.map(\.path))
+        return HubSource.paths(entries.map(\.path), under: ref.path)
     }
 }
 
@@ -192,11 +253,30 @@ public enum HubModelLoaderError: Error, Equatable, LocalizedError {
     /// cannot be read, thus its format is not known.
     case unreadableLocalFolder(path: String)
 
+    /// The reference is local, and its location is not an existing folder or
+    /// `.gguf` file.
+    case missingLocalModel(path: String)
+
+    /// The reference names a path inside a repository, and the files under it
+    /// are not GGUF. Only a GGUF model loads from a path.
+    case pathNeedsGGUF(ref: String)
+
+    /// The model is GGUF, and the loader has no GGUF loader.
+    case noGGUFLoader
+
     /// A message that tells what is wrong.
     public var errorDescription: String? {
         switch self {
         case .unreadableLocalFolder(let path):
             return "The model folder \(path) is empty or cannot be read."
+        case .missingLocalModel(let path):
+            return "The model \(path) is not a folder or a .gguf file on the disk."
+        case .pathNeedsGGUF(let ref):
+            return "The model \(ref) names a path inside its repository, and the files there are not GGUF. "
+                + "Only a GGUF model loads from a path."
+        case .noGGUFLoader:
+            return "The model is GGUF, and this loader has no GGUF loader. "
+                + "Give HubModelLoader(gguf:) the LlamaCppModelLoader of FoundationModelsExtrasLlamaCpp."
         }
     }
 }

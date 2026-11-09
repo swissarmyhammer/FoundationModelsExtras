@@ -164,4 +164,92 @@ struct ModelRefTests {
         #expect(String(decoding: data, as: UTF8.self) == #"{"drafter":"org/drafter@def456","repo":"org/target"}"#)
         #expect(try JSONDecoder().decode(ModelRef.self, from: data) == ref)
     }
+
+    // MARK: The path inside the repository
+
+    @Test("the segments after owner/name are the path inside the repository")
+    func pathInsideTheRepository() {
+        let ref = ModelRef("unsloth/Qwen3.8-27B-GGUF/Q4_K_M/model-q4_k_m.gguf@abc123")
+
+        #expect(ref.repo == "unsloth/Qwen3.8-27B-GGUF")
+        #expect(ref.path == "Q4_K_M/model-q4_k_m.gguf")
+        #expect(ref.revision == "abc123")
+        #expect(ref.stringValue == "unsloth/Qwen3.8-27B-GGUF/Q4_K_M/model-q4_k_m.gguf@abc123")
+    }
+
+    @Test("a reference of owner/name alone has no path")
+    func noPath() {
+        #expect(ModelRef("org/repo").path == nil)
+        #expect(ModelRef("org/repo/").path == nil)
+        #expect(ModelRef("org/repo/").stringValue == "org/repo")
+    }
+
+    @Test("a trailing slash of the path is not part of the path")
+    func trailingSlashOfThePath() {
+        let ref = ModelRef("org/repo/Q4_K_M/")
+
+        #expect(ref.path == "Q4_K_M")
+        #expect(ref == ModelRef("org/repo/Q4_K_M"))
+    }
+
+    @Test("init(repo:path:) matches the string form")
+    func memberwiseInitWithPath() {
+        let ref = ModelRef(repo: "org/repo", path: "Q4_K_M", revision: "abc123")
+
+        #expect(ref == ModelRef("org/repo/Q4_K_M@abc123"))
+        #expect(ref.stringValue == "org/repo/Q4_K_M@abc123")
+    }
+
+    @Test("the path is part of the identity")
+    func pathIsPartOfTheIdentity() {
+        #expect(ModelRef("org/repo/Q4_K_M") != ModelRef("org/repo/Q8_0"))
+        #expect(ModelRef("org/repo/Q4_K_M") != ModelRef("org/repo"))
+    }
+
+    @Test("a reference with a path round-trips through the string form")
+    func pathCodableRoundTrip() throws {
+        let ref = ModelRef("org/repo/Q4_K_M@abc123")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+
+        let data = try encoder.encode(ref)
+
+        #expect(String(decoding: data, as: UTF8.self) == #""org/repo/Q4_K_M@abc123""#)
+        #expect(try JSONDecoder().decode(ModelRef.self, from: data) == ref)
+    }
+
+    @Test("a drafter keeps its path through the mapping form")
+    func drafterKeepsItsPath() throws {
+        let json = #"{"repo": "org/target/Q4_K_M", "drafter": "some-org/Target-DFlash-GGUF/Q8_0"}"#
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
+
+        let decoded = try JSONDecoder().decode(ModelRef.self, from: Data(json.utf8))
+
+        #expect(decoded.path == "Q4_K_M")
+        #expect(decoded.drafter == ModelRef("some-org/Target-DFlash-GGUF/Q8_0"))
+        #expect(decoded.drafter?.path == "Q8_0")
+        #expect(
+            String(decoding: try encoder.encode(decoded), as: UTF8.self)
+                == #"{"drafter":"some-org/Target-DFlash-GGUF/Q8_0","repo":"org/target/Q4_K_M"}"#)
+    }
+
+    // MARK: A local reference
+
+    @Test(
+        "a reference that starts with /, ~ or . is local, and its whole text is the location",
+        arguments: ["/models/qwen/Q4_K_M", "~/models/x.gguf", "./models/qwen", "../models/qwen"])
+    func localReference(text: String) {
+        let ref = ModelRef(text)
+
+        #expect(ref.isLocal)
+        #expect(ref.repo == text)
+        #expect(ref.path == nil)
+        #expect(ref.stringValue == text)
+    }
+
+    @Test("a Hub reference is not local")
+    func hubReferenceIsNotLocal() {
+        #expect(!ModelRef("org/repo/Q4_K_M").isLocal)
+    }
 }

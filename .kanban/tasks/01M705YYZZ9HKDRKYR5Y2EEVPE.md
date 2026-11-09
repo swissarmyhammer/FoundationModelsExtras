@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffd380
 title: StenciledDotfolderStack takes structured template values (bool, dictionary)
 ---
 A skill must render conditionally on the session's tool config: `{% if tools.kanban.enabled %}…{% endif %}`. StenciledDotfolderStack takes `variables: [String: String]` only, and the string "false" is truthy in Stencil, with no nested keys.

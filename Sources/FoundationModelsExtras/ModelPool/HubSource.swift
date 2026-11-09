@@ -71,6 +71,33 @@ struct HubSource: Sendable {
         ref.localDirectory ?? snapshotDirectory(of: ref.repo, revision: revision)
     }
 
+    /// The paths of the files in `folder` at any depth, relative to it. A
+    /// symbolic link of a snapshot counts as a file.
+    ///
+    /// - Parameter folder: The folder.
+    /// - Returns: The paths, or none when the folder cannot be read.
+    static func relativePaths(in folder: URL) -> [String] {
+        let root = folder.resolvingSymlinksInPath().standardizedFileURL.path
+        guard let enumerator = FileManager.default.enumerator(atPath: root) else { return [] }
+        return enumerator.compactMap { $0 as? String }.filter { relative in
+            var isFolder: ObjCBool = false
+            let full = (root as NSString).appendingPathComponent(relative)
+            return FileManager.default.fileExists(atPath: full, isDirectory: &isFolder) && !isFolder.boolValue
+                || (relative as NSString).pathExtension == "mlpackage"
+        }
+    }
+
+    /// The paths that are `path` or are under it.
+    ///
+    /// - Parameters:
+    ///   - paths: Paths relative to a root.
+    ///   - path: A path inside the root, or `nil` for the root.
+    /// - Returns: The paths under `path`, or each path when `path` is `nil`.
+    static func paths(_ paths: [String], under path: String?) -> [String] {
+        guard let path else { return paths }
+        return paths.filter { $0 == path || $0.hasPrefix(path + "/") }
+    }
+
     /// The size of the blob that a snapshot file links to.
     ///
     /// - Parameter file: A file of a snapshot.

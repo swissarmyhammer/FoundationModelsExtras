@@ -11,8 +11,8 @@ import Tokenizers
 
 /// The built-in loader of ``ModelPool``: it loads an MLX model from its
 /// Hugging Face name, and downloads the model when the cache does not hold it.
-/// A reference that is the path of an existing folder loads from that folder,
-/// with no download.
+/// A local reference (one that starts with `/`, `~` or `.`) to an existing
+/// folder loads from that folder, with no download.
 ///
 /// An `.llm` key gives an `MLXLanguageModel`, which is a FoundationModels
 /// `LanguageModel` with guided output, tool calls and a reasoning trace. An

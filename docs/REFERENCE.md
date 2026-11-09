@@ -676,19 +676,44 @@ let ane = PooledEmbedder(ref: "erjigit17/embeddinggemma-300m-ane-coreml", pool: 
 let vectors = try await ane.embed(texts: ["task: search result | query: save my work"])
 ```
 
-`HubModelLoader` decides the format of an `.embedding` key in this order. When
-the reference is the path of an existing folder, the top-level names of the
-folder decide, and `MLXModelLoader` and `CoreMLModelLoader` load the folder
-with no download and no cache. A `ModelRef` has no revision for a folder. The
+`HubModelLoader` decides the format of a key from the files under the path of
+its reference, in this order. When the reference is local (its text starts
+with `/`, `~` or `.`), the files of its folder decide, or its `.gguf` file is
+GGUF, and the loaders load it with no download and no cache. A `ModelRef` has
+no revision for a local location. The
 footprint of a folder is the size of its weight files. Core ML keeps the
 compiled model of a folder by its path and by the size and the time of the last
 change of each file of the package, thus a change of a weight file compiles
-again. An empty or unreadable folder throws `HubModelLoaderError`. Else, when the Hugging Face cache holds a snapshot of the
-model, the names in the snapshot decide, with no network. Otherwise the file list of the repository on the Hub
-decides. A repository is Core ML when it holds a `.mlpackage` folder and no
-`safetensors` file. A repository with both formats, or with neither, loads with
-MLX. An `.llm` key always loads with MLX. To use the Core ML loader alone, give
-`ModelPool(loader: CoreMLModelLoader())`.
+again. An empty or unreadable folder, or a local location that does not exist, throws
+`HubModelLoaderError`. Else, when the Hugging Face cache holds files of the
+model under the path, those files decide, with no network. Otherwise the file
+list of the repository on the Hub decides. A repository with a `safetensors`
+file loads with MLX. Else a repository with a GGUF model file is GGUF. Else a
+repository with a `.mlpackage` folder is Core ML. A repository with none of
+these loads with MLX. An `.llm` key of a Core ML repository loads with MLX. To
+use the Core ML loader alone, give `ModelPool(loader: CoreMLModelLoader())`.
+
+### A GGUF model through llama.cpp
+
+A reference has the form `owner/name[/path][@revision]`. A Hub repository id
+is always two segments, thus the rest is a path inside the repository: a
+quantization folder, often with a split set, or one `.gguf` file.
+
+```swift
+// The GGUF loader needs C++ interop, thus it is in its own product,
+// FoundationModelsExtrasLlamaCpp. A target that imports it sets
+// `.interoperabilityMode(.Cxx)`.
+let pool = ModelPool(loader: HubModelLoader(gguf: LlamaCppModelLoader()))
+let model = PooledModel(ref: "unsloth/Qwen3.8-27B-GGUF/Q4_K_M", pool: pool)
+```
+
+`GGUFFileSet` chooses the files: a folder loads its one GGUF file, or the
+first shard of its one split set (`*-00001-of-0000N.gguf`). A folder that holds
+more than one model fails with an error that lists the choices. An
+`mmproj*.gguf` file in the folder of the model, or in the nearest folder above
+it, is the image projector. `GGUFSource` downloads only those files, not the
+whole repository. A local reference can name a folder or a `.gguf` file. With
+no GGUF loader, a GGUF model throws `HubModelLoaderError.noGGUFLoader`.
 
 `CoreMLModelLoader` downloads the files of the package and the tokenizer, and
 no script or document. It compiles the package one time for each commit and

@@ -62,6 +62,21 @@ struct HubModelLoaderTests {
         #expect(HubModelFormat.detect(paths: paths) == .mlx)
     }
 
+    @Test("a repository with GGUF files and no safetensors file is GGUF")
+    func ggufIsGGUF() {
+        #expect(HubModelFormat.detect(paths: ["Q4_K_M/model-Q4_K_M.gguf", "README.md"]) == .gguf)
+    }
+
+    @Test("a repository with GGUF files and safetensors weights is MLX")
+    func ggufAndSafetensorsIsMLX() {
+        #expect(HubModelFormat.detect(paths: ["model.gguf", "model.safetensors"]) == .mlx)
+    }
+
+    @Test("an image projector alone does not make a repository GGUF")
+    func projectorAloneIsNotGGUF() {
+        #expect(HubModelFormat.detect(paths: ["mmproj-F16.gguf"]) == .mlx)
+    }
+
     @Test("a name that only contains the text mlpackage is not a package")
     func lookalikeNameIsNotAPackage() {
         #expect(HubModelFormat.detect(paths: ["my-mlpackage-notes.md", "mlpackage"]) == .mlx)
@@ -93,8 +108,8 @@ struct HubModelLoaderTests {
         #expect(format == .mlx)
     }
 
-    @Test("an llm key is MLX, also when the cached snapshot holds a package, and needs no network")
-    func llmKeyIsAlwaysMLX() async throws {
+    @Test("an llm key is MLX when the cached snapshot holds a package, and needs no network")
+    func llmKeyOfAPackageIsMLX() async throws {
         let root = try TemporaryDirectory.make()
         defer { try? FileManager.default.removeItem(at: root) }
         let loader = HubModelLoader(cacheDirectory: root)
@@ -103,6 +118,89 @@ struct HubModelLoaderTests {
         let format = try await loader.format(of: Self.key(.llm))
 
         #expect(format == .mlx)
+    }
+
+    @Test("an llm key whose cached snapshot holds a GGUF file under the path of the reference is GGUF")
+    func cachedGGUFUnderThePathIsGGUF() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let loader = HubModelLoader(cacheDirectory: root)
+        try Self.writeSnapshot(
+            in: HubCache(cacheDirectory: root), paths: ["Q4_K_M/model-Q4_K_M.gguf", "model.safetensors"])
+
+        let format = try await loader.format(of: Self.key(.llm, path: "Q4_K_M"))
+
+        #expect(format == .gguf)
+    }
+
+    @Test("a reference with a path to MLX files fails, because only GGUF loads from a path")
+    func pathToMLXFails() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let loader = HubModelLoader(cacheDirectory: root)
+        try Self.writeSnapshot(in: HubCache(cacheDirectory: root), paths: ["sub/model.safetensors"])
+        let key = Self.key(.llm, path: "sub")
+
+        await #expect(throws: HubModelLoaderError.pathNeedsGGUF(ref: key.ref.stringValue)) {
+            try await loader.format(of: key)
+        }
+    }
+
+    @Test("a local reference to a GGUF file is GGUF")
+    func localGGUFFileIsGGUF() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("model.gguf")
+        try Data().write(to: file)
+
+        let format = try await HubModelLoader(cacheDirectory: root).format(
+            of: ModelPoolKey(ref: ModelRef(file.path), role: .llm))
+
+        #expect(format == .gguf)
+    }
+
+    @Test("a local reference to nothing on the disk fails, and names the location")
+    func missingLocalReferenceFails() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let missing = root.appendingPathComponent("no-such-model").path
+
+        await #expect(throws: HubModelLoaderError.missingLocalModel(path: missing)) {
+            try await HubModelLoader(cacheDirectory: root).format(of: ModelPoolKey(ref: ModelRef(missing), role: .llm))
+        }
+    }
+
+    // MARK: The GGUF loader
+
+    @Test("a GGUF model with no GGUF loader fails with an error that names the product")
+    func ggufWithNoLoaderFails() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.writeSnapshot(in: HubCache(cacheDirectory: root), paths: ["model.gguf"])
+        let loader = HubModelLoader(cacheDirectory: root)
+
+        let error = await #expect(throws: HubModelLoaderError.noGGUFLoader) {
+            try await loader.load(Self.key(.llm))
+        }
+        #expect(error?.errorDescription?.contains("FoundationModelsExtrasLlamaCpp") == true)
+    }
+
+    @Test("a GGUF model loads, measures and evicts with the GGUF loader")
+    func ggufGoesToTheGGUFLoader() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.writeSnapshot(in: HubCache(cacheDirectory: root), paths: ["model.gguf"])
+        let gguf = RecordingLoader()
+        let loader = HubModelLoader(cacheDirectory: root, gguf: gguf)
+
+        let container = try await loader.load(Self.key(.llm))
+        let bytes = try await loader.footprintBytes(of: Self.key(.llm))
+        await loader.evict(container)
+
+        #expect(container as? String == RecordingLoader.container)
+        #expect(bytes == RecordingLoader.footprint)
+        #expect(gguf.loadedKeys == [Self.key(.llm)])
+        #expect(gguf.evictedCount == 1)
     }
 
     // MARK: The default of the pool
@@ -123,9 +221,47 @@ struct HubModelLoaderTests {
 
     // MARK: Helpers
 
-    /// Makes the key of ``repository`` in `role`.
-    private static func key(_ role: ModelRole) -> ModelPoolKey {
-        ModelPoolKey(ref: ModelRef(repo: repository), role: role)
+    /// Makes the key of ``repository`` in `role`, with the path inside the
+    /// repository.
+    private static func key(_ role: ModelRole, path: String? = nil) -> ModelPoolKey {
+        ModelPoolKey(ref: ModelRef(repo: repository, path: path), role: role)
+    }
+
+    /// A GGUF loader that records each call and loads nothing.
+    private final class RecordingLoader: PooledModelLoader, @unchecked Sendable {
+        /// The container of each load.
+        static let container = "gguf container"
+
+        /// The footprint of each model.
+        static let footprint: Int64 = 42
+
+        /// The lock of the records.
+        private let lock = NSLock()
+
+        /// The keys of each load, in order.
+        private var keys: [ModelPoolKey] = []
+
+        /// The number of evictions.
+        private var evictions = 0
+
+        /// The keys of each load, in order.
+        var loadedKeys: [ModelPoolKey] { lock.withLock { keys } }
+
+        /// The number of evictions.
+        var evictedCount: Int { lock.withLock { evictions } }
+
+        func load(_ key: ModelPoolKey) async throws -> any Sendable {
+            lock.withLock { keys.append(key) }
+            return Self.container
+        }
+
+        func evict(_ container: any Sendable) async {
+            lock.withLock { evictions += 1 }
+        }
+
+        func footprintBytes(of key: ModelPoolKey) async throws -> Int64 {
+            Self.footprint
+        }
     }
 
     /// Writes one snapshot of ``repository`` in `cache`, with one empty file
