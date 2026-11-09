@@ -203,6 +203,78 @@ struct HubModelLoaderTests {
         #expect(gguf.evictedCount == 1)
     }
 
+    // MARK: The pool key
+
+    @Test("the pool key of an MLX model drops the context")
+    func mlxPoolKeyDropsTheContext() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.writeSnapshot(in: HubCache(cacheDirectory: root), paths: ["model.safetensors", "config.json"])
+        let gguf = RecordingLoader()
+        let loader = HubModelLoader(cacheDirectory: root, gguf: gguf)
+
+        let key = try await loader.poolKey(for: Self.key(.llm, contextSize: 8192))
+
+        #expect(key == Self.key(.llm))
+        #expect(gguf.poolKeyRequests.isEmpty)
+    }
+
+    @Test("the pool key of a GGUF model is the key that the GGUF loader gives")
+    func ggufPoolKeyKeepsTheContext() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.writeSnapshot(in: HubCache(cacheDirectory: root), paths: ["model.gguf"])
+        let gguf = RecordingLoader()
+        let loader = HubModelLoader(cacheDirectory: root, gguf: gguf)
+
+        let key = try await loader.poolKey(for: Self.key(.llm, contextSize: 8192))
+
+        #expect(key == Self.key(.llm, contextSize: 8192))
+        #expect(gguf.poolKeyRequests == [Self.key(.llm, contextSize: 8192)])
+    }
+
+    @Test("a key with no context needs no format, thus reads no file")
+    func noContextReadsNoFile() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let missing = ModelPoolKey(ref: ModelRef(root.appendingPathComponent("no-such-model").path), role: .llm)
+
+        let key = try await HubModelLoader(cacheDirectory: root).poolKey(for: missing)
+
+        #expect(key == missing)
+    }
+
+    @Test("a key whose format fails stays as it is, thus the load throws the error")
+    func failedFormatKeepsTheKey() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("no-such-model").path
+        let missing = ModelPoolKey(ref: ModelRef(path), role: .llm, contextSize: 8192)
+        let loader = HubModelLoader(cacheDirectory: root)
+
+        let key = try await loader.poolKey(for: missing)
+
+        #expect(key == missing)
+        await #expect(throws: HubModelLoaderError.missingLocalModel(path: path)) {
+            try await loader.load(key)
+        }
+    }
+
+    @Test("the format of the pool key is decided one time for each model")
+    func poolKeyFormatIsCached() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = HubCache(cacheDirectory: root)
+        try Self.writeSnapshot(in: cache, paths: ["model.gguf"])
+        let loader = HubModelLoader(cacheDirectory: root, gguf: RecordingLoader())
+        _ = try await loader.poolKey(for: Self.key(.llm, contextSize: 8192))
+        try FileManager.default.removeItem(at: root.appendingPathComponent("models--org--some-model"))
+
+        let key = try await loader.poolKey(for: Self.key(.llm, contextSize: 16384))
+
+        #expect(key == Self.key(.llm, contextSize: 16384))
+    }
+
     // MARK: The default of the pool
 
     @Test("a reference with a revision reads the snapshot of that revision")
@@ -223,8 +295,8 @@ struct HubModelLoaderTests {
 
     /// Makes the key of ``repository`` in `role`, with the path inside the
     /// repository.
-    private static func key(_ role: ModelRole, path: String? = nil) -> ModelPoolKey {
-        ModelPoolKey(ref: ModelRef(repo: repository, path: path), role: role)
+    private static func key(_ role: ModelRole, path: String? = nil, contextSize: Int? = nil) -> ModelPoolKey {
+        ModelPoolKey(ref: ModelRef(repo: repository, path: path), role: role, contextSize: contextSize)
     }
 
     /// A GGUF loader that records each call and loads nothing.
@@ -249,6 +321,17 @@ struct HubModelLoaderTests {
 
         /// The number of evictions.
         var evictedCount: Int { lock.withLock { evictions } }
+
+        /// The keys of each pool key request, in order.
+        private var poolKeys: [ModelPoolKey] = []
+
+        /// The keys of each pool key request, in order.
+        var poolKeyRequests: [ModelPoolKey] { lock.withLock { poolKeys } }
+
+        func poolKey(for key: ModelPoolKey) async throws -> ModelPoolKey {
+            lock.withLock { poolKeys.append(key) }
+            return key
+        }
 
         func load(_ key: ModelPoolKey) async throws -> any Sendable {
             lock.withLock { keys.append(key) }

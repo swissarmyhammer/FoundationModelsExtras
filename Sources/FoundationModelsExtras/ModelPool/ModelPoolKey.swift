@@ -2,21 +2,68 @@
 public enum ModelRole: Hashable, Sendable { case llm, embedding }
 
 /// The key of one model in a ``ModelPool``.
+///
+/// The context size is part of the key only for a loader that loads a model
+/// at a fixed context, such as the GGUF loader: the pool asks the loader for
+/// the key with ``PooledModelLoader/poolKey(for:)`` at each acquire, and the
+/// default drops the context. A resident model of the same reference and role
+/// whose context is at least the context of a request gives the hold of that
+/// request.
 public struct ModelPoolKey: Hashable, Sendable {
     /// The model.
     public let ref: ModelRef
     /// What the model does.
     public let role: ModelRole
+    /// The context size, in tokens, that the model loads at, or `nil` for the
+    /// default of the loader.
+    public let contextSize: Int?
 
     /// Makes the key of `ref` in the role `role`.
-    public init(ref: ModelRef, role: ModelRole) {
+    ///
+    /// - Parameters:
+    ///   - ref: The model.
+    ///   - role: What the model does.
+    ///   - contextSize: The context size, in tokens, that the model loads at,
+    ///     or `nil`, the default, for the default of the loader.
+    public init(ref: ModelRef, role: ModelRole, contextSize: Int? = nil) {
         self.ref = ref
         self.role = role
+        self.contextSize = contextSize
+    }
+
+    /// The key with no context size.
+    public var withoutContext: ModelPoolKey { ModelPoolKey(ref: ref, role: role) }
+
+    /// Whether a model resident under this key can give the hold of
+    /// `request`: the same key, or the same reference and role at a context
+    /// at least as large.
+    ///
+    /// - Parameter request: The key of a request.
+    /// - Returns: `true` when this key serves the request.
+    func serves(_ request: ModelPoolKey) -> Bool {
+        guard self != request else { return true }
+        guard ref == request.ref, role == request.role,
+            let contextSize, let requested = request.contextSize
+        else { return false }
+        return contextSize >= requested
     }
 }
 
 /// Loads a model into memory, and removes it from memory.
 public protocol PooledModelLoader: Sendable {
+    /// The key that the pool keeps the model of `key` under. The pool calls
+    /// this at each acquire, before it looks for a resident model, and gives
+    /// the result to ``load(key:progressHandler:)`` and
+    /// ``footprintBytes(of:)``.
+    ///
+    /// The default drops the context size, because a loader that does not
+    /// load at a fixed context must not keep one model for each context. A
+    /// loader that loads at the context of the key keeps it.
+    ///
+    /// - Parameter key: The key of a request.
+    /// - Returns: The key of the model in the pool.
+    /// - Throws: The error of the decision. The acquire throws it.
+    func poolKey(for key: ModelPoolKey) async throws -> ModelPoolKey
     /// Loads the model of `key`, and returns its container.
     func load(_ key: ModelPoolKey) async throws -> any Sendable
     /// Loads the model of `key`, reports each step to `progressHandler`, and
@@ -54,6 +101,13 @@ public protocol PooledModelLoader: Sendable {
 }
 
 extension PooledModelLoader {
+    /// A loader that ignores the context keeps one model for each reference
+    /// and role.
+    ///
+    /// - Parameter key: The key of a request.
+    /// - Returns: `key` with no context size.
+    public func poolKey(for key: ModelPoolKey) async throws -> ModelPoolKey { key.withoutContext }
+
     /// A loader that does not measure its models counts no bytes for them.
     ///
     /// - Parameter key: The model that ``load(_:)`` loaded.

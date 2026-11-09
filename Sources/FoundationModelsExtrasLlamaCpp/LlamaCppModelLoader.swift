@@ -25,6 +25,11 @@ import HuggingFace
 /// ``LlamaLanguageModel/Options/speculativeDecoding`` of the options turns
 /// both off.
 ///
+/// A model loads at the context size of its key: ``poolKey(for:)`` keeps it,
+/// and gives a key with no context the context of ``options``. Thus the pool
+/// keeps one model for each context, and a resident model at a larger
+/// context serves a request for a smaller one.
+///
 /// The loader handles `.llm` keys. An `.embedding` key throws
 /// ``LlamaCppModelLoaderError/unsupportedRole(_:)``.
 ///
@@ -34,8 +39,11 @@ public struct LlamaCppModelLoader: PooledModelLoader {
     /// The source of the files of each model.
     private let source: GGUFSource
 
-    /// The options of each model.
-    private let options: LlamaLanguageModel.Options
+    /// The options of each model: the type of the KV cache, the count of
+    /// live sequences, and speculative decoding. The context size of each
+    /// model comes from its key, and this context size is the default for a
+    /// key with none.
+    public let options: LlamaLanguageModel.Options
 
     /// Makes a loader over a Hugging Face cache.
     ///
@@ -44,14 +52,24 @@ public struct LlamaCppModelLoader: PooledModelLoader {
     ///     Hugging Face cache. Give the cache of ``HubModelLoader``, thus both
     ///     read the same files.
     ///   - tokenProvider: The token provider of each download.
-    ///   - options: The options of each model: the context size, the type of
-    ///     the KV cache, and the count of live sequences.
+    ///   - options: The options of each model: the type of the KV cache, the
+    ///     count of live sequences, and speculative decoding. Its context size
+    ///     is the context of a key with none.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
         options: LlamaLanguageModel.Options = LlamaLanguageModel.Options()
     ) {
         source = GGUFSource(cacheDirectory: cacheDirectory, tokenProvider: tokenProvider)
         self.options = options
+    }
+
+    /// The key of the model of `key` in the pool: `key` with its context, or
+    /// with the context of ``options`` when it has none.
+    ///
+    /// - Parameter key: The key of a request.
+    /// - Returns: The key, with a context size.
+    public func poolKey(for key: ModelPoolKey) async throws -> ModelPoolKey {
+        ModelPoolKey(ref: key.ref, role: key.role, contextSize: key.contextSize ?? options.contextSize)
     }
 
     /// Loads the model of `key`. Reports nothing.
@@ -86,7 +104,7 @@ public struct LlamaCppModelLoader: PooledModelLoader {
         }
         let files = try await source.files(of: key.ref, progressHandler: progressHandler)
         return try LlamaLanguageModel(
-            gguf: files.model, projector: files.projector, drafter: drafter?.model, options: options)
+            gguf: files.model, projector: files.projector, drafter: drafter?.model, options: options(of: key))
     }
 
     /// Releases nothing now. The registry of llama.cpp holds the weights while
@@ -98,7 +116,7 @@ public struct LlamaCppModelLoader: PooledModelLoader {
 
     /// Measures the model of `key` with the estimate of llama.cpp:
     /// `LlamaLanguageModel.footprintBytes` over each shard, the projector and
-    /// the drafter, with the KV cache and the context of the options. The
+    /// the drafter, with the KV cache at the context of the key. The
     /// estimate reads the headers of the files on the disk, and the pool
     /// calls this after the load, thus it needs no network. It reads no
     /// weights.
@@ -115,7 +133,18 @@ public struct LlamaCppModelLoader: PooledModelLoader {
         let files = try source.cachedFiles(of: key.ref)
         return Int64(
             try LlamaLanguageModel.footprintBytes(
-                gguf: files.model, projector: files.projector, drafter: drafter?.model, options: options))
+                gguf: files.model, projector: files.projector, drafter: drafter?.model, options: options(of: key)))
+    }
+
+    /// The options of the model of `key`: ``options`` at the context of the
+    /// key.
+    ///
+    /// - Parameter key: The model and its role.
+    /// - Returns: The options of the load and of the measure.
+    private func options(of key: ModelPoolKey) -> LlamaLanguageModel.Options {
+        var options = options
+        options.contextSize = key.contextSize ?? options.contextSize
+        return options
     }
 
     /// Checks that the loader handles `key`.

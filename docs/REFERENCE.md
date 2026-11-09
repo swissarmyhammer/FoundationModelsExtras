@@ -727,6 +727,29 @@ loader turns both off. The footprint of the model is the llama.cpp estimate
 shard, the projector, the drafter, the KV cache at the context size, and the
 compute buffers. It reads the headers of the files on the disk, after the load.
 
+A GGUF model loads at a fixed context size, thus the context is part of its
+key in the pool: `ModelPoolKey(ref:role:contextSize:)`, or
+`PooledModel(ref:pool:contextSize:)`. At each acquire the pool asks the loader
+for the key with `poolKey(for:)`. The default drops the context, thus an MLX or
+Core ML model stays one model whatever context a request names.
+`HubModelLoader` keeps the context for a GGUF model only, and
+`LlamaCppModelLoader` gives a key with no context the context of its
+`options`. A resident model of the same reference and role whose context is at
+least the context of a request serves that request: the smallest such. A
+request for a larger context loads a new model, and the pool never loads a
+resident model again at a larger context. `ModelHold.key`, and
+`PooledModel.loadedKey()`, give the key of the resident model, thus the context
+that it loaded at. `LlamaCppModelLoader.options` gives the KV cache type and
+the count of live sequences of each model.
+
+```swift
+let pool = ModelPool(loader: HubModelLoader(gguf: LlamaCppModelLoader()))
+let large = PooledModel(ref: "ggml-org/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf", pool: pool, contextSize: 32768)
+let small = PooledModel(ref: "ggml-org/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf", pool: pool, contextSize: 8192)
+_ = try await large.loadedKey()                     // loads at 32768
+let context = try await small.loadedKey().contextSize   // 32768: the resident model serves it
+```
+
 `CoreMLModelLoader` downloads the files of the package and the tokenizer, and
 no script or document. It compiles the package one time for each commit and
 keeps the compiled model in the folder `coreml-compiled` of the cache, thus

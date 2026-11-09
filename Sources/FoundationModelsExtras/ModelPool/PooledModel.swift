@@ -51,18 +51,36 @@ public struct PooledModel: LanguageModel {
     ///   - ref: The Hugging Face name of the LLM.
     ///   - pool: The pool that loads the model with its loader. The default is
     ///     ``ModelPool/shared``.
+    ///   - contextSize: The context size, in tokens, that the model loads at,
+    ///     or `nil`, the default, for the default of the loader. Only a
+    ///     loader that loads at a fixed context, such as the GGUF loader, uses
+    ///     it. A resident model at a larger context serves it: read the
+    ///     context of the model with ``loadedKey()``.
     ///   - capabilities: What the loaded model can do. The default is guided
     ///     generation, tool calls and reasoning: the capabilities of each LLM
     ///     that ``MLXModelLoader`` gives.
     public init(
-        ref: ModelRef, pool: ModelPool = .shared,
+        ref: ModelRef, pool: ModelPool = .shared, contextSize: Int? = nil,
         capabilities: LanguageModelCapabilities = LanguageModelCapabilities(MLXModelLoader.languageModelCapabilities)
     ) {
-        let key = ModelPoolKey(ref: ref, role: .llm)
+        let key = ModelPoolKey(ref: ref, role: .llm, contextSize: contextSize)
         self.pool = pool
         self.key = key
         self.capabilities = capabilities
         self.resident = ResidentHold { try LoadedLanguageModel(hold: try await pool.acquire(key)) }
+    }
+
+    /// The key of the model in the pool. The call acquires the model, and
+    /// loads it when it is not resident, as the first generation call does.
+    /// Its ``ModelPoolKey/contextSize`` is the context that the model loaded
+    /// at: the context of this model, or a larger one of a resident model
+    /// that serves it, or `nil` for a loader that ignores the context.
+    ///
+    /// - Returns: The key of the resident model.
+    /// - Throws: The error of the load, or
+    ///   ``PooledSessionError/notALanguageModel(key:containerType:)``.
+    public func loadedKey() async throws -> ModelPoolKey {
+        try await resident.loaded().hold.key
     }
 
     /// Makes a session of the model. The call acquires the model from the

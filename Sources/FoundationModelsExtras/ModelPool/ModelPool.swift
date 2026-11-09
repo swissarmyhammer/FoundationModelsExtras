@@ -91,6 +91,19 @@ public final class ModelPool: Sendable {
             return .evict(entry, idleTime: entry.releasedAt.map { now - $0 })
         }
 
+        /// The key of the resident model that gives the hold of `request`:
+        /// `request` itself when it is resident, else the resident key of
+        /// the same reference and role with the smallest context at least as
+        /// large as the context of `request`.
+        ///
+        /// - Parameter request: The key of a request.
+        /// - Returns: The resident key, or `nil` when no model serves it.
+        func residentKey(serving request: ModelPoolKey) -> ModelPoolKey? {
+            if entries[request] != nil { return request }
+            guard request.contextSize != nil else { return nil }
+            return entries.keys.filter { $0.serves(request) }.min { ($0.contextSize ?? 0) < ($1.contextSize ?? 0) }
+        }
+
         /// Whether the model of `key` uses memory now.
         func isResident(_ key: ModelPoolKey) -> Bool { entries[key] != nil || evicting[key] != nil }
 
@@ -179,17 +192,27 @@ public final class ModelPool: Sendable {
     /// A new key loads in the admission queue with ``loader``, which then
     /// measures the footprint of the model. The pool counts that footprint.
     ///
+    /// The pool first asks ``loader`` for the key of the model with
+    /// ``PooledModelLoader/poolKey(for:)``. A resident model of the same
+    /// reference and role at a larger context gives the hold: the smallest
+    /// such context. The pool never loads a resident model again at a larger
+    /// context. A request for a larger context loads a new model, and the
+    /// smaller one stays until its last hold ends. The ``ModelHold/key`` of
+    /// the hold gives the context of the model.
+    ///
     /// The first loader of a key wins, as in
     /// ``acquire(_:footprintBytes:sessionBytes:loader:)``.
     ///
     /// - Parameter key: The model and its role.
     /// - Returns: A hold of the model. The model stays resident while the hold
     ///   exists.
-    /// - Throws: The error of the load or of the measure. When the measure
-    ///   fails, the loader evicts the model, and the key is not resident.
+    /// - Throws: The error of the key decision, of the load or of the
+    ///   measure. When the measure fails, the loader evicts the model, and the
+    ///   key is not resident.
     public func acquire(_ key: ModelPoolKey) async throws -> ModelHold {
+        let key = try await loader.poolKey(for: key)
         if let hold = holdIfResident(key, sessionBytes: Self.measuredSessionBytes, counting: .hit) { return hold }
-        return try await admit { admission in try await admission.acquire(key) }
+        return try await admit { admission in try await admission.acquire(poolKey: key) }
     }
 
     /// Gives a hold of the model of `key`. A resident key adds a hold at once.
@@ -199,12 +222,17 @@ public final class ModelPool: Sendable {
     /// The first loader of a key wins: a later caller gets that container,
     /// whatever loader it gives. Thus use the container through a protocol,
     /// never by a cast to the container type of one loader.
+    ///
+    /// `loader` decides the key of the model with
+    /// ``PooledModelLoader/poolKey(for:)``, as in ``acquire(_:)``.
     public func acquire(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
+        let key = try await loader.poolKey(for: key)
         if let hold = holdIfResident(key, sessionBytes: sessionBytes, counting: .hit) { return hold }
         return try await admit { admission in
-            try await admission.acquire(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
+            try await admission.acquire(
+                poolKey: key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
         }
     }
 
@@ -281,11 +309,13 @@ public final class ModelPool: Sendable {
     /// no hold: an acquire of `key` loads the model again after the eviction.
     public func isResident(_ key: ModelPoolKey) -> Bool { state.withLock { $0.isResident(key) } }
 
-    /// Adds a hold when `key` is resident and not in its evict call, and
-    /// counts that acquire with `result` after the locks.
+    /// Adds a hold when a resident model serves `key` and is not in its evict
+    /// call, and counts that acquire with `result` after the locks. The hold
+    /// carries the key of the resident model. See
+    /// ``State/residentKey(serving:)``.
     ///
     /// - Parameters:
-    ///   - key: The model.
+    ///   - key: The model, as ``PooledModelLoader/poolKey(for:)`` gives it.
     ///   - sessionBytes: The bytes of the session of the new hold.
     ///   - result: The cache result of the acquire when the model is
     ///     resident: ``PoolCacheResult/hit`` before the admission queue, or
@@ -295,11 +325,14 @@ public final class ModelPool: Sendable {
         _ key: ModelPoolKey, sessionBytes: Int64, counting result: PoolCacheResult
     ) -> ModelHold? {
         let hold = publish { state -> (ModelHold?, [FootprintContinuation]) in
-            guard let entry = state.entries[key] else { return (nil, []) }
-            state.entries[key]?.holds += 1
-            state.entries[key]?.bytes += sessionBytes
-            state.entries[key]?.releasedAt = nil
-            let hold = ModelHold(pool: self, key: key, entry: entry, sessionBytes: sessionBytes, cacheResult: result)
+            guard let resident = state.residentKey(serving: key), let entry = state.entries[resident] else {
+                return (nil, [])
+            }
+            state.entries[resident]?.holds += 1
+            state.entries[resident]?.bytes += sessionBytes
+            state.entries[resident]?.releasedAt = nil
+            let hold = ModelHold(
+                pool: self, key: resident, entry: entry, sessionBytes: sessionBytes, cacheResult: result)
             return (hold, state.liveStreams)
         }
         if hold != nil {
@@ -546,8 +579,9 @@ public struct ModelPoolAdmission: Sendable {
     public func acquire(
         _ key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
     ) async throws -> ModelHold {
-        if let hold = pool.holdIfResident(key, sessionBytes: sessionBytes, counting: .lateHit) { return hold }
-        return try await pool.load(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
+        try await acquire(
+            poolKey: try await loader.poolKey(for: key), footprintBytes: footprintBytes, sessionBytes: sessionBytes,
+            loader: loader)
     }
 
     /// Gives a hold of the model of `key`, and loads the model now with the
@@ -555,8 +589,23 @@ public struct ModelPoolAdmission: Sendable {
     ///
     /// - Parameter key: The model and its role.
     /// - Returns: A hold of the model.
-    /// - Throws: The error of the load or of the measure.
+    /// - Throws: The error of the key decision, of the load or of the
+    ///   measure.
     public func acquire(_ key: ModelPoolKey) async throws -> ModelHold {
+        try await acquire(poolKey: try await pool.loader.poolKey(for: key))
+    }
+
+    /// As ``acquire(_:footprintBytes:sessionBytes:loader:)``, for a key that
+    /// `loader` gave already.
+    fileprivate func acquire(
+        poolKey key: ModelPoolKey, footprintBytes: Int64, sessionBytes: Int64, loader: any PooledModelLoader
+    ) async throws -> ModelHold {
+        if let hold = pool.holdIfResident(key, sessionBytes: sessionBytes, counting: .lateHit) { return hold }
+        return try await pool.load(key, footprintBytes: footprintBytes, sessionBytes: sessionBytes, loader: loader)
+    }
+
+    /// As ``acquire(_:)``, for a key that the loader of the pool gave already.
+    fileprivate func acquire(poolKey key: ModelPoolKey) async throws -> ModelHold {
         if let hold = pool.holdIfResident(key, sessionBytes: ModelPool.measuredSessionBytes, counting: .lateHit) {
             return hold
         }
@@ -566,7 +615,9 @@ public struct ModelPoolAdmission: Sendable {
 
 /// One use of a resident model. The model stays resident while a hold exists.
 public final class ModelHold: Sendable {
-    /// The model.
+    /// The key of the resident model: the key of the request as the loader
+    /// gave it, or the key of a resident model at a larger context. Its
+    /// ``ModelPoolKey/contextSize`` is the context that the model loaded at.
     public let key: ModelPoolKey
     /// The container that the first loader of the key returned.
     public let container: any Sendable

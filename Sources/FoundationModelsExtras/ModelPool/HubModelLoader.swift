@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import HuggingFace
 import MLXLLM
 import MLXLMCommon
@@ -106,6 +107,10 @@ public struct HubModelLoader: PooledModelLoader {
     /// gave none.
     private let gguf: (any PooledModelLoader)?
 
+    /// The format of each model that ``poolKey(for:)`` decided, by its key
+    /// with no context.
+    private let formats = FormatCache()
+
     /// Makes a loader over a Hugging Face cache. See
     /// ``MLXModelLoader/init(cacheDirectory:tokenProvider:tokenizerLoader:drafterRegistration:)``
     /// for the meaning of each parameter.
@@ -193,6 +198,33 @@ public struct HubModelLoader: PooledModelLoader {
         }
     }
 
+    /// The key of the model of `key` in the pool. A GGUF model loads at a
+    /// fixed context, thus the GGUF loader gives its key, with the context.
+    /// Each other format drops the context.
+    ///
+    /// A key with no context is the key, and needs no format. The format of
+    /// each model is decided one time, and kept for each later key of the
+    /// model. When the format step fails, the key stays as it is, and the
+    /// load throws the error, so the progress of the load reports it.
+    ///
+    /// - Parameter key: The key of a request.
+    /// - Returns: The key of the model in the pool.
+    /// - Throws: The error of the pool key of the GGUF loader.
+    public func poolKey(for key: ModelPoolKey) async throws -> ModelPoolKey {
+        guard key.contextSize != nil else { return key }
+        let model = key.withoutContext
+        let format: HubModelFormat
+        if let cached = formats[model] {
+            format = cached
+        } else {
+            guard let detected = try? await self.format(of: model) else { return key }
+            formats[model] = detected
+            format = detected
+        }
+        guard format == .gguf, let gguf else { return model }
+        return try await gguf.poolKey(for: key)
+    }
+
     /// The GGUF loader that the caller gave.
     ///
     /// - Returns: The loader.
@@ -244,6 +276,19 @@ public struct HubModelLoader: PooledModelLoader {
         guard let repo = Repo.ID(rawValue: ref.repo) else { return [] }
         let entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
         return HubSource.paths(entries.map(\.path), under: ref.path)
+    }
+}
+
+/// The format of each model that ``HubModelLoader/poolKey(for:)`` decided,
+/// under one lock. The copies of one loader share it.
+private final class FormatCache: Sendable {
+    /// The format of each model, by its key with no context.
+    private let formats = Mutex<[ModelPoolKey: HubModelFormat]>([:])
+
+    /// The format of the model of `key`, or `nil` before it is decided.
+    subscript(key: ModelPoolKey) -> HubModelFormat? {
+        get { formats.withLock { $0[key] } }
+        set { formats.withLock { $0[key] = newValue } }
     }
 }
 

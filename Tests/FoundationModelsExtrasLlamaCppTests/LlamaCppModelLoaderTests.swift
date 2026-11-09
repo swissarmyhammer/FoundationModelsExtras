@@ -15,6 +15,9 @@ struct LlamaCppModelLoaderTests {
     /// The vocab-only GGUF file of the tests.
     private static let vocabulary = "qwen35"
 
+    /// A context that is not the default of the options.
+    private static let loadedContext = 16384
+
     @Test("an llm key of a local GGUF file loads a LlamaLanguageModel")
     func loadsALlamaLanguageModel() async throws {
         let root = try TemporaryDirectory.make()
@@ -66,6 +69,37 @@ struct LlamaCppModelLoaderTests {
 
         #expect(bytes == expected)
         #expect(bytes > Int64(try LlamaLanguageModel.footprintBytes(gguf: model)))
+    }
+
+    @Test("the pool key keeps the context, and a key with none gets the context of the options")
+    func poolKeyContext() async throws {
+        let loader = LlamaCppModelLoader(options: LlamaLanguageModel.Options(contextSize: 8192))
+        let ref: ModelRef = "org/model-GGUF"
+
+        let explicit = try await loader.poolKey(for: ModelPoolKey(ref: ref, role: .llm, contextSize: 16384))
+        let implicit = try await loader.poolKey(for: ModelPoolKey(ref: ref, role: .llm))
+
+        #expect(explicit.contextSize == 16384)
+        #expect(implicit.contextSize == 8192)
+        #expect(loader.options.contextSize == 8192)
+    }
+
+    @Test("a key with a context loads and measures at that context")
+    func loadsAtTheContextOfTheKey() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = try Self.copyVocabulary(to: root, as: "model.gguf")
+        let loader = LlamaCppModelLoader(cacheDirectory: root)
+        let key = ModelPoolKey(ref: ModelRef(model.path), role: .llm, contextSize: Self.loadedContext)
+        let expected = try LlamaLanguageModel.footprintBytes(
+            gguf: model, options: LlamaLanguageModel.Options(contextSize: Self.loadedContext))
+
+        let container = try await loader.load(key)
+        let bytes = try await loader.footprintBytes(of: key)
+
+        #expect((container as? LlamaLanguageModel)?.contextSize == Self.loadedContext)
+        #expect(bytes == Int64(expected))
+        #expect(bytes != (try await loader.footprintBytes(of: key.withoutContext)))
     }
 
     @Test("an embedding key is refused")
