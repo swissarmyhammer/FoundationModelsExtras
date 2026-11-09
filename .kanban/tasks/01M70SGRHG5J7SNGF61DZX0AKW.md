@@ -29,8 +29,24 @@ comments:
     - lint: `swift format lint -s` fails repo-wide (~57k lines, mostly Indentation) because the repo has no `.swift-format`, so the 2-space default applies to a 4-space codebase. Lines this diff added were rewrapped under 100 columns. The baseline was there before this task; adding a config or reformatting is for a human to decide.
     - next: commit, then review
   timestamp: 2026-11-09T20:25:08.209236+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m70zvgwq9rvawtbqqhbhpn2t
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~2..HEAD (098aeaa, e0e4f5f) — 0 findings, 0 confirmed, 1 refuted; 4 files reviewed; docs/REFERENCE.md had no matching validator; .kanban/ ignored
+    - next: none — task moved to done
+  timestamp: 2026-11-09T20:26:35.799024+00:00
+- actor: claude-code
+  id: 01m70zvvhhvq5ynerpe8jap6q8
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files. Real split set owalsh/SmolLM2-135M-Instruct-GGUF-Split/Q4_0@b922b4a (3 shards). Fixed HubModelFormat.detect, which treated a folder of shards only as MLX.
+    - test: green — swift test, 1766 + 13 + 401 + 136/40/46/26, 0 failed. The repo-wide lint baseline was there before (no .swift-format).
+    - commit: 098aeaa, e0e4f5f
+    - review: clean — 0 findings (HEAD~2..HEAD)
+  timestamp: 2026-11-09T20:26:46.705228+00:00
+position_column: done
+position_ordinal: ffda80
 title: 'GGUF: load one real split set from its first shard'
 ---
 Once FoundationModelsLlamaCpp confirms that loading from the first shard of a split set works, add a gated real-model test that loads a small split-set GGUF through the pool (download of every shard, footprint, one answer).
