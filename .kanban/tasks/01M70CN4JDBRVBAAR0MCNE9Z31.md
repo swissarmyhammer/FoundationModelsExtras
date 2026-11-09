@@ -4,8 +4,8 @@ assignees:
 depends_on:
 - 01M70CN1WSVN7TXMT9BJ44S9FR
 - 01M70CMZ5CMP5SA2YHXT59YKYT
-position_column: todo
-position_ordinal: '8380'
+position_column: done
+position_ordinal: ffd780
 title: 'GGUF: LlamaCppModelLoader for the .llm role, footprint'
 ---
 - [ ] `LlamaCppModelLoader` builds `LlamaLanguageModel(gguf: firstShard, projector:, options:)` for `.llm`; wire `drafter:` when foundationmodelsllamacpp-f1 lands it
