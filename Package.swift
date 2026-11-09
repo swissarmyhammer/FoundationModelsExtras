@@ -40,6 +40,12 @@ let package = Package(
         // family proves with this one helper that no span, log record or
         // metric carries the content of the caller.
         .library(name: "TelemetryTestSupport", targets: ["TelemetryTestSupport"]),
+        // The GGUF loader of the model pool, through llama.cpp. It is a
+        // product of its own because it needs C++ interop: each target that
+        // imports it, directly or through another module, must set
+        // `.interoperabilityMode(.Cxx)`. A consumer with no GGUF models links
+        // `FoundationModelsExtras` alone, with no C++ interop.
+        .library(name: "FoundationModelsExtrasLlamaCpp", targets: ["FoundationModelsExtrasLlamaCpp"]),
     ],
     dependencies: [
         // Templating engine for `TemplateEngine`. PathKit rides along
@@ -100,6 +106,17 @@ let package = Package(
         // The ordered dictionary that a GraphQL `Map` object holds. The
         // `JSON` scalar and the name rewrite name this type directly.
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.0.0"),
+        // `LlamaLanguageModel`: a GGUF model through llama.cpp on Metal, for
+        // `FoundationModelsExtrasLlamaCpp`. The SSH URL with `branch: "main"`,
+        // as in the sibling manifests for a private repository: its wrapper
+        // `llama-cpp-swift` has an unsafe flag, which SwiftPM refuses in a
+        // dependency that it resolves by version.
+        .package(url: "git@github.com:swissarmyhammer/FoundationModelsLlamaCpp.git", branch: "main"),
+        // The vocab-only GGUF files of `LlamaCppTestFixtures`, for the
+        // hermetic tests of `FoundationModelsExtrasLlamaCpp`. The same URL as
+        // the dependency of FoundationModelsLlamaCpp, thus SwiftPM resolves
+        // one package.
+        .package(url: "git@github.com:swissarmyhammer/llama-cpp-swift.git", branch: "main"),
     ],
     targets: [
         // Core library target: the slash-command types, `DotfolderStack`,
@@ -422,6 +439,36 @@ let package = Package(
                 // its `Fixtures`.
                 .copy("Fixtures")
             ]
+        ),
+
+        // The GGUF loader of the model pool: `LlamaCppModelLoader` loads a
+        // GGUF model as a `LlamaLanguageModel`. `HubModelLoader(gguf:)` takes
+        // it. The module of llama.cpp needs C++ interop, thus this target
+        // and each target that imports it set `.interoperabilityMode(.Cxx)`.
+        .target(
+            name: "FoundationModelsExtrasLlamaCpp",
+            dependencies: [
+                "FoundationModelsExtras",
+                .product(name: "FoundationModelsLlamaCpp", package: "FoundationModelsLlamaCpp"),
+                .product(name: "HuggingFace", package: "swift-huggingface"),
+            ],
+            swiftSettings: [.interoperabilityMode(.Cxx)]
+        ),
+
+        // The tests of the GGUF loader. The hermetic tests load the
+        // vocab-only GGUF files of `LlamaCppTestFixtures`. The one test of a
+        // real model runs only when `EXTRAS_GGUF_INTEGRATION` is `1`.
+        .testTarget(
+            name: "FoundationModelsExtrasLlamaCppTests",
+            dependencies: [
+                "FoundationModelsExtrasLlamaCpp",
+                "FoundationModelsExtras",
+                "FixtureSupport",
+                .product(name: "FoundationModelsLlamaCpp", package: "FoundationModelsLlamaCpp"),
+                .product(name: "LlamaCppTestFixtures", package: "llama-cpp-swift"),
+                .product(name: "HuggingFace", package: "swift-huggingface"),
+            ],
+            swiftSettings: [.interoperabilityMode(.Cxx)]
         ),
 
         // Records the ignore-parity snapshots the test suite compares

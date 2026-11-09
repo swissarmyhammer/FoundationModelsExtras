@@ -3,8 +3,8 @@ assignees:
 - claude-code
 depends_on:
 - 01M70CMX2F2K08VK2016HQ4EC8
-position_column: todo
-position_ordinal: '8280'
+position_column: done
+position_ordinal: ffd580
 title: 'GGUF: HubModelFormat.gguf detection and path-scoped download'
 ---
 - [ ] `HubModelFormat.gguf`, chosen from the files under `ModelRef.path` (or the repo root): `.gguf` files that are not `mmproj*.gguf`
