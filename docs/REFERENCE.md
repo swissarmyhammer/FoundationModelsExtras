@@ -1091,6 +1091,42 @@ This example is mirrored in `readmeBackgroundToolExample` in
 `Tests/FoundationModelsExtrasTests/Hosting/ToolHostingReadmeTests.swift`, kept
 green by `swift test --filter ToolHostingReadmeTests`.
 
+## Tool modes: `ToolMode`
+
+A package that gives tools to a session composes them in one of two modes.
+`ToolMode` names the mode. Its JSON form is a plain string, the raw value.
+
+- `ToolMode.open` (`"open"`): the package registers all of its tools. Some
+  of these tools cannot work in the App Sandbox, for example a tool that
+  starts a process or reads a file outside the container of the app.
+- `ToolMode.sandboxed` (`"sandboxed"`): the package registers only the tools
+  that work in the App Sandbox. A package does not register a tool that
+  cannot work in the App Sandbox in this mode.
+
+`ToolMode.validate(probe:)` is the one check that each package calls when it
+composes its tools, before it registers a tool. It throws
+`ToolModeError.openModeInSandbox` when the mode is `open` and the process is
+sandboxed. It does not throw in the other three cases. Thus a wrong mode
+fails when the host composes the tools, not at the first tool call.
+
+`SandboxProbe` tells if the current process is sandboxed. The check uses
+`SandboxProbe.live` when you give no probe. It reads the
+`com.apple.security.app-sandbox` entitlement of the process. When the
+entitlement cannot be read, it reads the `APP_SANDBOX_CONTAINER_ID`
+environment variable, which the system sets for a sandboxed process.
+`SandboxProbe.fixed(_:)` always gives the value that you give it. A test uses
+it to fake a sandboxed process. `SandboxProbe(isSandboxed:)` makes a probe
+from your own closure.
+
+```swift
+let mode: ToolMode = .sandboxed
+try mode.validate()
+// Register only the tools that work in the App Sandbox.
+```
+
+The rules that a sandboxed tool obeys at run time are not part of this
+check.
+
 ## Tests
 
 ```sh

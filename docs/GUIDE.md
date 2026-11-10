@@ -104,6 +104,29 @@ manual-run (`swift run notes --chat`) validation of this end to end: op-call acc
 over a prompt set, rendered schema size via `tokenCount(for:)`, and the retry-cap
 behavior on a deliberately invalid prompt.
 
+### Checking the tool mode
+
+The host gives a `ToolMode` to the code that composes the tools: `open` or
+`sandboxed`. Call `try mode.validate()` before you register a tool. In a
+sandboxed process, the `open` mode throws `ToolModeError.openModeInSandbox`,
+so the error comes when you compose the tools, not at the first tool call.
+See [`REFERENCE.md`](REFERENCE.md#tool-modes-toolmode).
+
+```swift
+func makeTools(mode: ToolMode) throws -> [any Tool] {
+    try mode.validate()
+    let notes = try NotesTool.make()
+    switch mode {
+    case .open:
+        return [notes, ShellTool()]
+    case .sandboxed:
+        // A sandboxed process cannot start a shell, so this mode does not
+        // register the shell tool.
+        return [notes]
+    }
+}
+```
+
 ## Background and synchronous operations
 
 Each operation declares how a call of it runs: its `mount`, a `ToolMount`. The default

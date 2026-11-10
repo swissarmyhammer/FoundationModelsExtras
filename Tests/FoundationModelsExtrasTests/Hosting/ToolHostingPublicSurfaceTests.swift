@@ -25,8 +25,9 @@ actor PublicSurfaceRecordingSink: OperationEventSink {
 
 /// Holds the tool-hosting API that a host uses to the public surface: the
 /// ``RunPlane`` of a session, ``MountSite`` and ``ToolMounting``,
-/// ``ToolFailureDelivery``, ``ToolDecorator``, ``PendingRunEnvelope`` and a
-/// ``ToolContext`` that the host makes.
+/// ``ToolFailureDelivery``, ``ToolDecorator``, ``PendingRunEnvelope``, a
+/// ``ToolContext`` that the host makes, and the ``ToolMode`` check with its
+/// ``SandboxProbe`` and ``ToolModeError``.
 ///
 /// The import is plain, with no `@testable`. When a member loses `public`,
 /// this file does not compile.
@@ -284,6 +285,16 @@ struct ToolHostingPublicSurfaceTests {
         let presence: UserPresence = context.userPresence
 
         #expect(presence == .headless)
+    }
+
+    @Test("a host checks its tool mode against a probe that it makes, and reads the error of the open mode in a sandbox")
+    func aHostChecksItsToolMode() {
+        let probe = SandboxProbe(isSandboxed: { true })
+
+        #expect(ToolMode.allCases == [.open, .sandboxed])
+        #expect(throws: ToolModeError.openModeInSandbox) {
+            try ToolMode.open.validate(probe: probe)
+        }
     }
 
     @Test("a completion token of the run plane is a ULID string")
