@@ -232,6 +232,10 @@ public struct DocumentRewriter {
     /// took out.
     public static let unreadVariableWarningCode = "UNUSED_VARIABLE"
 
+    /// The code of the warning of a variable declared `String` whose every read is an `ID` position, or `ID` whose
+    /// every read is a `String` position, whose declared type the rewrite changed.
+    public static let coercedVariableTypeWarningCode = "VARIABLE_TYPE_COERCED"
+
     /// The schema whose names are canonical.
     private let schema: GraphQLSchema
 
@@ -271,6 +275,7 @@ public struct DocumentRewriter {
         let document = try parse(source: source)
         try walk.visit(document)
         walk.takeOutUnreadDefinitions(of: document)
+        walk.coerceDeclaredTypes(of: document)
         let rewrittenVariables = try walk.rewritten(variables, declaredIn: document, operationName: operationName)
         let edits = TextEdit.inOffsetOrder(walk.edits)
         return RewrittenDocument(
@@ -466,6 +471,10 @@ private struct RewriteWalk {
 
     /// The first place where the document reads each variable, by the name of the variable.
     private var variableUses: [String: VariableUse] = [:]
+
+    /// The name of the named input type at each read of a variable that the walk visited, by the UTF-8 offset of the
+    /// read in the text. A read at a place whose type is not known gives `nil`.
+    private var variableReadTypes: [Int: String?] = [:]
 
     /// The range of UTF-8 offsets of each removed parameter that the walk took out, with its value.
     private var removedRanges: [Range<Int>] = []
@@ -826,14 +835,77 @@ private struct RewriteWalk {
             if let canonical = canonicalName(of: written, among: candidates, at: .anyOther) {
                 replace(written, with: canonical, recordingAs: canonical, at: path + [written.text])
             }
-        case (let variable as Variable, let type?) where variableUses[variable.name.value] == nil:
-            variableUses[variable.name.value] = VariableUse(type: type, coordinate: coordinate, node: variable)
+        case (let variable as Variable, _):
+            let name = variable.name.value
+            if let offset = variable.loc?.start {
+                variableReadTypes[offset] = type?.name
+            }
+            if let type, variableUses[name] == nil {
+                variableUses[name] = VariableUse(type: type, coordinate: coordinate, node: variable)
+            }
         default:
             return
         }
     }
 
     // MARK: - Variable definitions
+
+    /// Changes the declared type of each variable declared `String` whose every read is an `ID` position into `ID`,
+    /// and of each variable declared `ID` whose every read is a `String` position into `String`, with a
+    /// ``DocumentRewriter/coercedVariableTypeWarningCode`` warning. The list and non-null wrappers stay. The walk
+    /// must first visit the document, so that it knows the type at each read.
+    ///
+    /// A model declares `$col: String!` and passes it where an `ID` goes, and validation then fails the call with
+    /// "Variable of type String! used in position expecting type ID". An `ID` is a string on the wire, so the intent is
+    /// clear. A read in a removed parameter goes out with the parameter, so it does not count. A variable with a read
+    /// at a place of a different type, or at a place that the walk did not visit, for example a directive, keeps its
+    /// type, so that validation reports it as before.
+    ///
+    /// - Parameter document: The parsed document.
+    mutating func coerceDeclaredTypes(of document: Document) {
+        let pairs = ["String": "ID", "ID": "String"]
+        for case let operation as OperationDefinition in document.definitions {
+            let readTypes = Dictionary(
+                grouping: VariableReads.variables(readBy: operation, in: document).filter { read in !isRemoved(read) },
+                by: \.name.value
+            )
+            .mapValues { reads in reads.map { read in read.loc.flatMap { location in variableReadTypes[location.start] } } }
+            for definition in operation.variableDefinitions {
+                let name = definition.variable.name.value
+                guard let named = Self.namedType(of: definition.type), let range = named.name.loc,
+                      let target = pairs[named.name.value], let types = readTypes[name],
+                      types.allSatisfy({ type in type == target })
+                else {
+                    continue
+                }
+                edits.append(TextEdit(range: range.start..<range.end, replacement: target))
+                warnings.append(
+                    ResponseWarning(
+                        message: "The variable `$\(name)` is declared `\(named.name.value)` and read where `\(target)` "
+                            + "goes. The call read it as `\(target)`. Declare it as `\(target)`.",
+                        code: DocumentRewriter.coercedVariableTypeWarningCode
+                    )
+                )
+            }
+        }
+    }
+
+    /// Gives the named type in a type of the syntax tree, for example `AddTaskInput` for `[AddTaskInput!]!`.
+    ///
+    /// - Parameter type: The type as the document declares it.
+    /// - Returns: The named type node, or `nil` for a type that the parse does not make.
+    private static func namedType(of type: any GraphQL.`Type`) -> NamedType? {
+        switch type {
+        case let named as NamedType:
+            named
+        case let list as ListType:
+            namedType(of: list.type)
+        case let nonNull as NonNullType:
+            namedType(of: nonNull.type)
+        default:
+            nil
+        }
+    }
 
     /// Takes out the definition of each variable that the operation does not read: a variable that only removed
     /// parameters read, and a variable that the caller declared and never read. The walk must first visit the
@@ -1052,16 +1124,7 @@ private struct RewriteWalk {
     /// - Parameter type: The type as the document declares it.
     /// - Returns: The name of the named type, or `nil` for a type that the parse does not make.
     private static func namedTypeName(of type: any GraphQL.`Type`) -> String? {
-        switch type {
-        case let named as NamedType:
-            named.name.value
-        case let list as ListType:
-            namedTypeName(of: list.type)
-        case let nonNull as NonNullType:
-            namedTypeName(of: nonNull.type)
-        default:
-            nil
-        }
+        namedType(of: type)?.name.value
     }
 
     /// Gives the canonical name of a name, records an error when the name has a tie, and records the name when it
