@@ -14,8 +14,24 @@ comments:
     - note: SandboxProbe.live returns false when the entitlement is absent, and uses APP_SANDBOX_CONTAINER_ID only when SecTaskCreateFromSelf fails or SecTaskCopyValueForEntitlement sets an error.
     - next: /review
   timestamp: 2026-11-10T15:44:36.221226+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m7329p51mqzr1hedk5fcg04h
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (af13e80). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. 3 files reviewed. docs/GUIDE.md and docs/REFERENCE.md: no validator matches these files.
+    - next: none. The task moved to done.
+  timestamp: 2026-11-10T15:47:45.953022+00:00
+- actor: claude-code
+  id: 01m732a55yv52k5t2zfk7dxfmb
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 2451 tests, 0 failed
+    - commit: af13e80
+    - review: clean — 0 findings
+  timestamp: 2026-11-10T15:48:01.342122+00:00
+position_column: done
+position_ordinal: ffdd80
 title: 'EXTRAS-12: ToolMode (open, sandboxed) and the check that refuses open mode in the App Sandbox'
 ---
 ## What
