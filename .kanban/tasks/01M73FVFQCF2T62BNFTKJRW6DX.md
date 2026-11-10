@@ -87,10 +87,26 @@ comments:
     - evidence: 6 files — Sources/FoundationModelsExtras/Telemetry/ModelMetrics.swift, Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/ModelLoadTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/GenerateTelemetry.swift, Tests/FoundationModelsExtrasTests/Telemetry/ModelMetricsTests.swift (new). `swift test --filter "Telemetry|PooledLogitsModel|Embed|ModelLoad|Generate"`: 248 tests in 23 suites, 9 tests in 1 suite, 4 tests in 1 suite, 1+1 tests passed, 0 failed. `swift build --build-tests`: no compiler warnings.
     - next: /review
   timestamp: 2026-11-10T20:57:05.760104+00:00
+- actor: claude-code
+  id: 01m73m4p3cd4ra8ka36jv9y7fd
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (88a297c); 0 findings, 0 confirmed, 0 refuted; 7 validators attempted, 0 failed. All prior items in the sections 2026-11-10 14:43 and 14:51 are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-11-10T20:59:36.428018+00:00
+- actor: claude-code
+  id: 01m73m5c7a43devkx4zg8dr3t9
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — 6 files
+    - test: green — swift test, 2500 passed, 0 failed
+    - commit: 88a297c
+    - review: clean — 0 findings
+  timestamp: 2026-11-10T20:59:59.082014+00:00
 depends_on:
 - 01M73FTQ8MB6JSDYYR9BYWJHBD
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: ffe080
 title: 'LogitsTelemetry: one span and metrics for each logProbabilities call'
 ---
 ## What
