@@ -416,10 +416,14 @@ struct FakeEmbedding: PooledEmbedding {
 /// of the scalar. `renderChatTemplate` gives one line `"<role>: <content>"`
 /// for each message, and then the line `"reasoning: <reasoning>"`.
 /// `logProbabilities` gives, for each prompt and each candidate, the
-/// candidate minus the token count of the prompt.
+/// candidate minus the token count of the prompt, or throws
+/// ``FakeModelRunError`` when ``failsLogProbabilities`` is true.
 struct FakeLogits: PooledLogits {
     /// The largest number of tokens in one prompt.
     let maximumPromptTokens: Int?
+
+    /// `true` to make each `logProbabilities` call throw ``FakeModelRunError``.
+    var failsLogProbabilities = false
 
     /// Gives the value of each Unicode scalar of `text`.
     ///
@@ -447,8 +451,12 @@ struct FakeLogits: PooledLogits {
     ///   - candidates: The candidate tokens.
     ///   - prompts: The prompts, each as tokens.
     /// - Returns: One row for each prompt, with one value for each candidate.
+    /// - Throws: ``FakeModelRunError`` when ``failsLogProbabilities`` is true.
     func logProbabilities(of candidates: [Int], after prompts: [[Int]]) async throws -> [[Double]] {
-        prompts.map { prompt in candidates.map { Double($0 - prompt.count) } }
+        guard !failsLogProbabilities else {
+            throw FakeModelRunError()
+        }
+        return prompts.map { prompt in candidates.map { Double($0 - prompt.count) } }
     }
 }
 
@@ -1146,6 +1154,47 @@ enum EmbedTelemetryExpectations {
     static func paddedTokens(in metrics: TestMetrics, ref: ModelRef) throws -> [Double] {
         try metrics.expectRecorder(
             ExtrasTelemetry.MetricName.embedSubBatchPaddedTokens, ModelMetricDimensions.model(ref)
+        ).values
+    }
+}
+
+/// Reads the logits telemetry that a test recorded: the logits span, the call
+/// counter and the duration timer. Each test suite of the logits telemetry
+/// uses these helpers, so a change to the names or the dimensions occurs in
+/// one place.
+enum LogitsTelemetryExpectations {
+    /// Gives the logits spans of `spans`.
+    ///
+    /// - Parameter spans: The spans that a tracer recorded.
+    /// - Returns: The logits spans, in the order of `spans`.
+    static func spans(in spans: [FinishedInMemorySpan]) -> [FinishedInMemorySpan] {
+        ModelLoadTelemetryExpectations.spans(named: ExtrasTelemetry.SpanName.logits, in: spans)
+    }
+
+    /// Gives the values of the call counter of `ref`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the call recorded into.
+    ///   - ref: The model of the calls.
+    /// - Returns: The increment of each call, in order.
+    /// - Throws: When `metrics` has no such counter.
+    static func callCounts(in metrics: TestMetrics, ref: ModelRef) throws -> [Int64] {
+        try metrics.expectCounter(ExtrasTelemetry.MetricName.logitsCalls, ModelMetricDimensions.model(ref)).values
+    }
+
+    /// Gives the values of the duration timer of `ref` with `outcome`.
+    ///
+    /// - Parameters:
+    ///   - metrics: The factory that the call recorded into.
+    ///   - ref: The model of the calls.
+    ///   - outcome: How the calls ended.
+    /// - Returns: The duration of each call in nanoseconds, in order.
+    /// - Throws: When `metrics` has no such timer.
+    static func durations(
+        in metrics: TestMetrics, ref: ModelRef, outcome: ModelOperationOutcome
+    ) throws -> [Int64] {
+        try metrics.expectTimer(
+            ExtrasTelemetry.MetricName.logitsDuration, ModelMetricDimensions.model(ref, outcome: outcome)
         ).values
     }
 }

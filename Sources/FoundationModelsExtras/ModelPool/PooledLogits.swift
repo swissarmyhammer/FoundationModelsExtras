@@ -138,6 +138,11 @@ public struct PooledLogitsModel: PooledLogits {
     /// each prompt, from the container. The first call of a model made from a
     /// name loads the model first.
     ///
+    /// Each call records one logits span, a call count and a duration, with
+    /// the model ref and the counts of the call. The span also holds the load
+    /// when the call loads the model. The telemetry holds no text and no
+    /// token ID.
+    ///
     /// - Parameters:
     ///   - candidates: The token IDs to read.
     ///   - prompts: The prompts, each as token IDs.
@@ -147,7 +152,9 @@ public struct PooledLogitsModel: PooledLogits {
     ///   ``PooledLogitsModelError/notLogitsCapable(_:)`` when the loaded
     ///   container does not conform to ``PooledLogits``.
     public func logProbabilities(of candidates: [Int], after prompts: [[Int]]) async throws -> [[Double]] {
-        try await resident.loaded().logits.logProbabilities(of: candidates, after: prompts)
+        try await LogitsTelemetry.traceLogProbabilities(of: ref, candidates: candidates, prompts: prompts) {
+            try await resident.loaded().logits.logProbabilities(of: candidates, after: prompts)
+        }
     }
 }
 

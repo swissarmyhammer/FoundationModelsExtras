@@ -95,10 +95,26 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/MLXLogitsRealModelTests.swift (3 new tests, 1 helper). `swift test --filter MLXLogits`: 19 tests in 2 suites pass (real-model suite skipped without the flag). `EXTRAS_MLX_INTEGRATION=1 swift test --filter MLXLogits`: 19 tests in 2 suites pass, 0 failures. No change to Sources.
     - next: /review
   timestamp: 2026-11-10T20:32:19.196449+00:00
+- actor: claude-code
+  id: 01m73jqdxv3ytsb450rxgrsxkq
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (77307d8). 0 findings (7 attempted, 0 failed). The 1 item of the 2026-11-10 14:27 findings is checked.
+    - next: none. The task is in done.
+  timestamp: 2026-11-10T20:34:53.499740+00:00
+- actor: claude-code
+  id: 01m73jqt0v7wvscbcww7r4504n
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 test file (3 tests)
+    - test: green — swift test 0 failed; EXTRAS_MLX_INTEGRATION=1 MLXLogitsRealModel 11 passed
+    - commit: 77307d8
+    - review: clean — 0 findings
+  timestamp: 2026-11-10T20:35:05.883636+00:00
 depends_on:
 - 01M73FTQ8MB6JSDYYR9BYWJHBD
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffdf80
 title: 'MLX conformance: extension MLXLanguageModel: PooledLogits'
 ---
 ## What

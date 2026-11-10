@@ -18,13 +18,14 @@ import Metrics
 /// nothing, and each logger writes through the default handler of swift-log.
 ///
 /// A metric dimension carries names and bounded values only: the tool name,
-/// the queue name, the model ref of a queue, a pool metric, a model metric or
-/// an embed metric that belongs to one model, the role of a model, the bounded
-/// telemetry value of an outcome, the cache result of a pool acquire, and the
-/// reason of a skipped eviction. It never carries tool arguments, tool output,
-/// the content of a queue task, embed text, a file path, a cache folder, a URL
-/// or the description of a container or of an error, because a dimension
-/// leaves the process through the metrics backend of the host.
+/// the queue name, the model ref of a queue, a pool metric, a model metric, an
+/// embed metric or a logits metric that belongs to one model, the role of a
+/// model, the bounded telemetry value of an outcome, the cache result of a pool
+/// acquire, and the reason of a skipped eviction. It never carries tool
+/// arguments, tool output, the content of a queue task, embed text, a prompt,
+/// a token ID, a file path, a cache folder, a URL or the description of a
+/// container or of an error, because a dimension leaves the process through
+/// the metrics backend of the host.
 enum ExtrasTelemetry {
     /// The label of each logger of the core target.
     static let logLabel = "FoundationModelsExtras"
@@ -79,6 +80,10 @@ enum ExtrasTelemetry {
         /// and the model run. Each tool span of a ``PooledSession`` respond
         /// call is inside this span.
         static let generate = "FoundationModelsExtras.generate"
+
+        /// The span of one `logProbabilities` call of a ``PooledLogitsModel``:
+        /// the load of the model when the call loads it, and the model run.
+        static let logits = "FoundationModelsExtras.logits"
     }
 
     /// The attribute keys of the spans of the core target.
@@ -191,6 +196,16 @@ enum ExtrasTelemetry {
         /// generation call: the input tokens of that round that the prompt
         /// cache reused.
         static let generateFirstRoundCachedTokens = "generate.first_round.cached_tokens"
+
+        /// The number of prompts of a `logProbabilities` call.
+        static let logitsPromptCount = "logits.prompt_count"
+
+        /// The number of candidate tokens of a `logProbabilities` call.
+        static let logitsCandidateCount = "logits.candidate_count"
+
+        /// The sum of the token counts of the prompts of a `logProbabilities`
+        /// call.
+        static let logitsTokenCount = "logits.token_count"
     }
 
     /// The metric names of the core target.
@@ -312,19 +327,29 @@ enum ExtrasTelemetry {
         /// by the seconds of its model runs, for a model that gives token
         /// counts.
         static let generateTokensPerSecond = "FoundationModelsExtras.generate.tokens_per_second"
+
+        /// The counter that counts each `logProbabilities` call of a
+        /// ``PooledLogitsModel``, by model, on the success path and on the
+        /// error path.
+        static let logitsCalls = "FoundationModelsExtras.logits.calls"
+
+        /// The timer that records the duration of each `logProbabilities`
+        /// call of a ``PooledLogitsModel``, with the ``ModelOperationOutcome``
+        /// of the call.
+        static let logitsDuration = "FoundationModelsExtras.logits.duration"
     }
 
     /// The dimension keys of the queue metrics, the pool metrics, the model
-    /// metrics and the embed metrics of the core target.
+    /// metrics, the embed metrics and the logits metrics of the core target.
     enum DimensionKey {
         /// The ``QueueName`` of the queue.
         static let queueName = "queue.name"
 
         /// The `ModelRef.stringValue` of the model that the queue, the pool
-        /// metric, the model metric, the embed metric or the generate metric
-        /// belongs to. Only a mail queue of one model, a pool metric of one model,
-        /// a model metric, an embed metric and a generate metric have this
-        /// dimension.
+        /// metric, the model metric, the embed metric, the generate metric or
+        /// the logits metric belongs to. Only a mail queue of one model, a pool
+        /// metric of one model, a model metric, an embed metric, a generate
+        /// metric and a logits metric have this dimension.
         static let modelRef = "model.ref"
 
         /// The ``QueueOutcome`` of a completed queue task.
@@ -341,8 +366,8 @@ enum ExtrasTelemetry {
         /// ``ExtrasTelemetry/telemetryRole(of:)``.
         static let modelRole = "model.role"
 
-        /// The ``ModelOperationOutcome`` of a load, an eviction, an embed call
-        /// or a generation call of a model.
+        /// The ``ModelOperationOutcome`` of a load, an eviction, an embed call,
+        /// a generation call or a `logProbabilities` call of a model.
         static let modelOutcome = "model.outcome"
     }
 
@@ -669,17 +694,18 @@ enum PoolCacheResult: String, Sendable, CaseIterable {
     case load
 }
 
-/// How a load, an eviction, an embed call or a generation call of a model
-/// ended. It is the value of the ``ExtrasTelemetry/DimensionKey/modelOutcome``
+/// How a load, an eviction, an embed call, a generation call or a
+/// `logProbabilities` call of a model ended. It is the value of the ``ExtrasTelemetry/DimensionKey/modelOutcome``
 /// dimension.
 enum ModelOperationOutcome: String, Sendable, CaseIterable {
     /// The load call or the evict call of the loader returned, the embed call
-    /// returned its vectors, or the generation call returned.
+    /// returned its vectors, the generation call returned, or the
+    /// `logProbabilities` call returned its rows.
     case succeeded
 
-    /// The load call of the loader threw an error, or the embed call or the
-    /// generation call threw an error. The evict call does not throw, so an
-    /// eviction never records this outcome.
+    /// The load call of the loader threw an error, or the embed call, the
+    /// generation call or the `logProbabilities` call threw an error. The
+    /// evict call does not throw, so an eviction never records this outcome.
     case failed
 }
 
