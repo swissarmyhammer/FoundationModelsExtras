@@ -228,6 +228,10 @@ public struct RewrittenDocument: Sendable {
 /// The nodes of the GraphQL syntax tree cannot be made outside the GraphQL module. Thus the rewrite changes the text
 /// of the document at the places that the parse gives, and the engine parses the new text again.
 public struct DocumentRewriter {
+    /// The code of the warning of a declared variable that the operation never reads, whose definition the rewrite
+    /// took out.
+    public static let unreadVariableWarningCode = "UNUSED_VARIABLE"
+
     /// The schema whose names are canonical.
     private let schema: GraphQLSchema
 
@@ -246,6 +250,9 @@ public struct DocumentRewriter {
 
     /// Rewrites the names of a document and the keys of its variables.
     ///
+    /// The rewrite first gives each raw line break in a quoted string as `\n` (``RawNewlineRepair``), and the parse
+    /// reads the repaired text, which is then the ``RewrittenDocument/source`` of the caller.
+    ///
     /// - Parameters:
     ///   - source: The text of the document.
     ///   - variables: The values of the variables of the document.
@@ -258,6 +265,8 @@ public struct DocumentRewriter {
         variables: [String: Map] = [:],
         operationName: String? = nil
     ) throws -> RewrittenDocument {
+        let repair = RawNewlineRepair.repaired(source)
+        let source = repair.text
         var walk = RewriteWalk(schema: schema, rules: rules)
         let document = try parse(source: source)
         try walk.visit(document)
@@ -269,7 +278,7 @@ public struct DocumentRewriter {
             variables: rewrittenVariables,
             rewrites: walk.rewrites,
             ties: walk.ties,
-            warnings: walk.warnings,
+            warnings: (repair.changed ? [RawNewlineRepair.warning] : []) + walk.warnings,
             source: source,
             edits: edits,
             rootMoves: walk.rootMoves,
@@ -826,36 +835,35 @@ private struct RewriteWalk {
 
     // MARK: - Variable definitions
 
-    /// Takes out the definition of each variable that only removed parameters read. The walk must first visit the
+    /// Takes out the definition of each variable that the operation does not read: a variable that only removed
+    /// parameters read, and a variable that the caller declared and never read. The walk must first visit the
     /// document, so that it knows the removed parameters.
     ///
-    /// When the walk takes out a removed parameter whose value is a variable, the variable can have no read after the
-    /// rewrite, and validation then fails the call with "Variable is never used". A read in an argument, in a
-    /// directive, or in a fragment that the operation spreads keeps the definition. A variable that the caller wrote
-    /// and never read keeps its definition too, so that validation reports it as before. The value of a variable
-    /// whose definition goes out stays in the variables: the engine ignores a value with no definition.
+    /// Validation fails a call with "Variable is never used" for a definition with no read. When the walk takes out a
+    /// removed parameter whose value is a variable, the variable can have no read after the rewrite. A model also
+    /// declares a variable that it then does not use, for example `$me` in `mutation($id: ID!, $me: ID!)`. Its intent
+    /// is clear, so the definition goes out, with an ``DocumentRewriter/unreadVariableWarningCode`` warning; a
+    /// variable that only removed parameters read has the warning of the removed parameter. A read in an argument,
+    /// in a directive, or in a fragment that the operation spreads keeps the definition. The value of a variable
+    /// whose definition goes out stays in the variables: the engine ignores a value with no definition, also a
+    /// `null` for a non-null type.
     ///
     /// - Parameter document: The parsed document.
     mutating func takeOutUnreadDefinitions(of document: Document) {
-        guard !removedRanges.isEmpty else {
-            return
-        }
         for case let operation as OperationDefinition in document.definitions {
-            edits += Self.definitionRemovals(named: unreadVariables(of: operation, in: document), of: operation)
+            let reads = Dictionary(grouping: VariableReads.variables(readBy: operation, in: document), by: isRemoved)
+            let kept = Set((reads[false] ?? []).map(\.name.value))
+            let removed = Set((reads[true] ?? []).map(\.name.value)).subtracting(kept)
+            let neverRead = operation.variableDefinitions.map(\.variable.name.value)
+                .filter { name in !kept.contains(name) && !removed.contains(name) }
+            warnings += neverRead.map { name in
+                ResponseWarning(
+                    message: "The variable `$\(name)` is declared and never used. The call ignored it.",
+                    code: DocumentRewriter.unreadVariableWarningCode
+                )
+            }
+            edits += Self.definitionRemovals(named: removed.union(neverRead), of: operation)
         }
-    }
-
-    /// Gives the names of the variables that an operation reads only in removed parameters.
-    ///
-    /// - Parameters:
-    ///   - operation: The operation.
-    ///   - document: The document of the operation, for its fragment definitions.
-    /// - Returns: The names of the variables whose every read is in a removed parameter.
-    private func unreadVariables(of operation: OperationDefinition, in document: Document) -> Set<String> {
-        let reads = Dictionary(grouping: VariableReads.variables(readBy: operation, in: document), by: isRemoved)
-        let removed = Set((reads[true] ?? []).map(\.name.value))
-        let kept = Set((reads[false] ?? []).map(\.name.value))
-        return removed.subtracting(kept)
     }
 
     /// Tells whether a read of a variable is in a removed parameter that the walk took out.

@@ -44,6 +44,10 @@ extension API where ContextType: GraphQLRunContext {
     /// and the response has each change in `extensions.rewrites`. A name that matches two or more names gives an
     /// error, and the document does not run.
     ///
+    /// The rewrite forgives two more mistakes of a model, each with a warning. A raw line break in a quoted string
+    /// reads as `\n` (``RawNewlineRepair``), and the definition of a declared variable that the operation never reads
+    /// goes out (``DocumentRewriter/unreadVariableWarningCode``).
+    ///
     /// The response has the warnings that the run added to the context in `extensions.warnings`, also when the
     /// document does not parse. The warnings of the removed parameters that the rewrite took out come first. A run
     /// with no warning has no `extensions.warnings` key. The more keys of

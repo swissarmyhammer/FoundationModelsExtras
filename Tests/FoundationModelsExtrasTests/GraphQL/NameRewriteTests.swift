@@ -107,6 +107,62 @@ struct NameRewriteTests {
         #expect(rewritten.warnings.map(\.code) == [GraphQLRemovedParameter.warningCode])
     }
 
+    @Test("a raw newline in a string value is an escaped newline, and the response gives its warning")
+    func rawNewlineInAString() async throws {
+        let response = try await Self.run(
+            "mutation { addNote(input: { title: \"T\", body: \"- [ ] one\n- [ ] two\r\n- [ ] three\rfour\" }) { body } }"
+        )
+        let note = try #require((try Self.data(response))["addNote"] as? [String: Any])
+
+        #expect(note["body"] as? String == "- [ ] one\n- [ ] two\n- [ ] three\nfour")
+        #expect(try ResponseJSON.warningCodes(response) == [RawNewlineRepair.warningCode])
+    }
+
+    @Test("a raw newline in a block string or a comment stays as it is, and gives no warning")
+    func rawNewlineInABlockStringOrComment() async throws {
+        let response = try await Self.run(
+            "mutation { # a \"comment\n addNote(input: { title: \"T\\\"\", body: \"\"\"one\ntwo\"\"\" }) { title body } }"
+        )
+        let note = try #require((try Self.data(response))["addNote"] as? [String: Any])
+
+        #expect(note["title"] as? String == "T\"")
+        #expect(note["body"] as? String == "one\ntwo")
+        #expect(try ResponseJSON.warningCodes(response).isEmpty)
+    }
+
+    @Test("an escaped backslash ends a string at the next quote, and a line break after the string stays")
+    func escapedBackslashEndsTheString() {
+        let repair = RawNewlineRepair.repaired("{ a(x: \"c:\\\\\"\n y: \"p\nq\") }")
+
+        #expect(repair.text == "{ a(x: \"c:\\\\\"\n y: \"p\\nq\") }")
+        #expect(repair.changed)
+    }
+
+    @Test("an unread variable with a null value for a non-null type goes out, and the response gives its warning")
+    func unreadVariableGoesOut() async throws {
+        let response = try await Self.run(
+            "mutation($title: String!, $body: String!, $me: ID!) { addNote(input: { title: $title, body: $body }) { title body } }",
+            variables: ["title": "n1", "body": "B", "me": .null]
+        )
+
+        #expect(try ResponseJSON.codes(response).isEmpty)
+        let note = try #require((try Self.data(response))["addNote"] as? [String: Any])
+        #expect(note["title"] as? String == "n1")
+        #expect(note["body"] as? String == "B")
+        #expect(try ResponseJSON.warningCodes(response) == [DocumentRewriter.unreadVariableWarningCode])
+        #expect(response.contains("$me"))
+    }
+
+    @Test("an operation whose every variable is unread loses its parentheses")
+    func everyVariableUnread() throws {
+        let schema = try ExampleAPI().schema.schema
+
+        let rewritten = try DocumentRewriter(for: schema).rewrittenDocument(from: "query($a: ID!) { cursor }")
+
+        #expect(rewritten.text == "query { cursor }")
+        #expect(rewritten.warnings.map(\.code) == [DocumentRewriter.unreadVariableWarningCode])
+    }
+
     @Test("the keys of an input object in the variables get their canonical names")
     func variableKeysGetCanonicalNames() async throws {
         let response = try await Self.run(
