@@ -203,6 +203,36 @@ struct NameRewriteTests {
         #expect(try Self.messages(response).first?.contains("note, notes") == true)
     }
 
+    @Test("an unknown snake_case field with a prefix gives a did-you-mean of the nearest field, then the list")
+    func unknownFieldGivesDidYouMean() async throws {
+        let response = try await Self.run(#"{ shelf { note(id: "n1") { id note_states { x } } } }"#)
+
+        #expect(try ResponseJSON.codes(response) == ["GRAPHQL_VALIDATION_FAILED"])
+        #expect(
+            try Self.messages(response) == [
+                #"Cannot query field "note_states" on type "Note". Did you mean "state"? "#
+                    + "The fields of Note are: id, title, body, tags, state."
+            ])
+    }
+
+    @Test("an unknown argument gives a did-you-mean of the nearest argument, then the list")
+    func unknownArgumentGivesDidYouMean() async throws {
+        let response = try await Self.run(#"{ shelf { notes(first_count: 1) { id } } }"#)
+
+        #expect(
+            try Self.messages(response) == [
+                #"Field "notes" on type "Shelf" does not have argument "first_count". Did you mean "first"? "#
+                    + "The arguments of Shelf.notes are: first."
+            ])
+    }
+
+    @Test("an unknown field with no near name gives only the list")
+    func farNameGivesOnlyTheList() async throws {
+        let response = try await Self.run(#"{ shelf { note(id: "n1") { frobnicate } } }"#)
+
+        #expect(try Self.messages(response).first?.contains("Did you mean") == false)
+    }
+
     @Test("a name with no match gives the validation error with the list of the canonical names")
     func noMatchGivesTheListOfNames() async throws {
         let response = try await Self.run(#"{ shelf { note(id: "n1") { frobnicate } } }"#)

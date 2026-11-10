@@ -48,9 +48,38 @@ private struct NoMatchPlace: Sendable {
     /// the name.
     let offset: Int
 
+    /// The canonical names of the position, in the order of the schema.
+    let names: [String]
+
     /// The sentence that lists the canonical names of the position, for example
     /// "The fields of AddTaskInput are: title, body.".
     let listing: String
+
+    /// Makes the place of the error of a name with no match.
+    ///
+    /// - Parameters:
+    ///   - offset: The UTF-8 offset where the engine reports the error.
+    ///   - names: The canonical names of the position, in the order of the schema.
+    ///   - scope: The position of the names, for their listing.
+    init(offset: Int, names: [String], scope: AliasScope) {
+        self.offset = offset
+        self.names = names
+        listing = scope.listing(of: names)
+    }
+
+    /// Gives the sentences of the error of a name with no match: the nearest names (``NameMatcher/nearest(to:among:)``)
+    /// as "Did you mean …?" when a name is near, then the ``listing``.
+    ///
+    /// - Parameter written: The name as the caller wrote it.
+    /// - Returns: The sentences, for example `Did you mean "column"? The fields of Task are: id, column.`.
+    func sentences(for written: String) -> String {
+        let nearest = NameMatcher.nearest(to: written, among: names).map { name in "\"\(name)\"" }
+        guard let last = nearest.last else {
+            return listing
+        }
+        let choices = nearest.count == 1 ? last : nearest.dropLast().joined(separator: ", ") + " or " + last
+        return "Did you mean \(choices)? \(listing)"
+    }
 }
 
 /// A name of the caller that matches no name of its position. The error of the engine for the name gets the list of
@@ -183,7 +212,7 @@ public struct RewrittenDocument: Sendable {
     private func listings(forMessage message: String, at positions: [Int]) -> String {
         let listings = unmatched
             .filter { name in positions.contains(name.place.offset) && message.contains("\"\(name.text)\"") }
-            .map(\.place.listing)
+            .map { name in name.place.sentences(for: name.text) }
         return OrderedSet(listings).map { listing in " " + listing }.joined()
     }
 
@@ -393,9 +422,12 @@ private struct InputNames {
     /// The position of the names, for their listing.
     private let scope: AliasScope
 
-    /// The sentence that lists the canonical names of the position, for the error of a name with no match.
-    var listing: String {
-        scope.listing(of: Array(types.keys))
+    /// The place of the error of a name with no match at the position: the canonical names and their listing.
+    ///
+    /// - Parameter offset: The UTF-8 offset where the engine reports the error.
+    /// - Returns: The place.
+    func noMatchPlace(at offset: Int) -> NoMatchPlace {
+        NoMatchPlace(offset: offset, names: Array(types.keys), scope: scope)
     }
 
     /// Makes the names of a position from the input type of each canonical name.
@@ -601,7 +633,7 @@ private struct RewriteWalk {
                   among: candidates(fields, on: parent),
                   at: position,
                   unmatchedAt: field.loc.map { location in
-                      NoMatchPlace(offset: location.start, listing: scope.listing(of: Array(fields.keys)))
+                      NoMatchPlace(offset: location.start, names: Array(fields.keys), scope: scope)
                   }
               ),
               let definition = fields[canonical]
@@ -774,7 +806,7 @@ private struct RewriteWalk {
                   among: names.candidates,
                   at: .anyOther,
                   unmatchedAt: name.range.map { range in
-                      NoMatchPlace(offset: range.lowerBound, listing: names.listing)
+                      names.noMatchPlace(at: range.lowerBound)
                   }
               ),
               let type = names.types[canonical]
@@ -1076,7 +1108,7 @@ private struct RewriteWalk {
                 among: names.candidates,
                 at: .anyOther,
                 unmatchedAt: read.definitionOffset.map { offset in
-                    NoMatchPlace(offset: offset, listing: names.listing)
+                    names.noMatchPlace(at: offset)
                 }
             ) ?? key
         }

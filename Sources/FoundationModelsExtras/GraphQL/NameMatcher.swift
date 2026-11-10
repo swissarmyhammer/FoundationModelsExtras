@@ -88,6 +88,47 @@ public enum NameMatcher {
         return .notFound
     }
 
+    /// The most names that ``nearest(to:among:)`` gives.
+    public static let nearestLimit = 3
+
+    /// The most edits of a near spelling of a short name.
+    fileprivate static let shortNearEdits = 2
+
+    /// The letters of the longer name for each edit of a near spelling of a long name.
+    fileprivate static let lettersPerNearEdit = 3
+
+    /// Gives the names nearest to a name with no match, for the "Did you mean" of its error.
+    ///
+    /// A name that shares a word with the name is near, in each case and style and in the singular or the plural:
+    /// `board_columns` shares `column` with `column`. A name that shares no word is near when a few edits change
+    /// the one into the other: two edits, or one for each three letters of the longer name, and fewer edits than
+    /// the name has letters. The names with more shared words come first, then the names with fewer edits, then the
+    /// order of `names`.
+    ///
+    /// - Parameters:
+    ///   - name: The name that the agent wrote, for example `board_columns`.
+    ///   - names: The canonical names of the position, in the order of the schema.
+    /// - Returns: At most ``nearestLimit`` names, or none when no name is near.
+    public static func nearest(to name: String, among names: [String]) -> [String] {
+        let written = NameWords(splitting: name)
+        let writtenForms = written.words.map(\.numberForms)
+        let ranked = names.enumerated().compactMap { index, candidate -> (shared: Int, edits: Int, index: Int)? in
+            let words = NameWords(splitting: candidate)
+            let shared = writtenForms.filter { forms in words.words.contains { word in !forms.isDisjoint(with: word.numberForms) } }
+                .count
+            let edits = written.key.editDistance(to: words.key)
+            let limit = max(shortNearEdits, max(written.key.count, words.key.count) / lettersPerNearEdit)
+            guard shared > 0 || (edits <= limit && edits < written.key.count) else {
+                return nil
+            }
+            return (shared, edits, index)
+        }
+        return ranked
+            .sorted { lhs, rhs in (-lhs.shared, lhs.edits, lhs.index) < (-rhs.shared, rhs.edits, rhs.index) }
+            .prefix(nearestLimit)
+            .map { rank in names[rank.index] }
+    }
+
     /// Tells if two names have the same words in each case and style, as step 2 of the match compares them:
     /// `exclude_done`, `excludeDone`, and `EXCLUDE_DONE` have the same words.
     ///
@@ -410,6 +451,11 @@ extension NameWords {
 }
 
 extension String {
+    /// The word with its singular forms, for example `column` and `columns` for `columns`.
+    fileprivate var numberForms: Set<String> {
+        Set([self] + NameWords(words: [self]).singularVariants.compactMap(\.words.first))
+    }
+
     /// Tells if the text differs from a different text by exactly one changed, added, or removed character.
     ///
     /// - Parameter other: The other text.

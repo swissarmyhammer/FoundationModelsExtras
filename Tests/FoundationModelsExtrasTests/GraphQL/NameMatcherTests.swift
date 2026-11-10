@@ -221,4 +221,12 @@ struct NameMatcherTests {
         #expect(NameMatcher.hasSameWords("EXCLUDE_DONE", as: "exclude-done"))
         #expect(!NameMatcher.hasSameWords("exclude", as: "excludeDone"))
     }
+
+    @Test("the nearest names share a word first, then have the least edits, and a far name is none")
+    func nearestNames() {
+        #expect(NameMatcher.nearest(to: "board_columns", among: ["id", "body", "column", "progress"]) == ["column"])
+        #expect(NameMatcher.nearest(to: "titel", among: ["id", "title", "tags"]) == ["title"])
+        #expect(NameMatcher.nearest(to: "taskTag", among: ["tags", "title", "taskId"]) == ["taskId", "tags"])
+        #expect(NameMatcher.nearest(to: "frobnicate", among: ["id", "title", "body"]).isEmpty)
+    }
 }
