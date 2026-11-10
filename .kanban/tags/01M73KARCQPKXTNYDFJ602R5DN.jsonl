@@ -1,0 +1,1 @@
+{"id":"01M73KARCQYGRAZD8XQ7QX4ZQK","timestamp":"2026-11-10T20:45:26.807758Z","op":"create","item_id":"01M73KARCQPKXTNYDFJ602R5DN","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: d876e3\n+tag_name: expect\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: d876e3\n-tag_name: expect\n","transaction_id":null}

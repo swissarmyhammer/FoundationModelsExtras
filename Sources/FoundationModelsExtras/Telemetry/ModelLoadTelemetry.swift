@@ -133,10 +133,8 @@ enum ModelLoadTelemetry {
     private static func recordDuration(
         on label: String, of key: ModelPoolKey, outcome: ModelOperationOutcome, since start: ContinuousClock.Instant
     ) {
-        Metrics.Timer(
-            label: label,
-            dimensions: modelDimensions(of: key) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
-        ).record(duration: ContinuousClock.now - start)
+        ExtrasTelemetry.recordModelDuration(
+            on: label, dimensions: modelDimensions(of: key), outcome: outcome, since: start)
     }
 
     /// Gives the dimensions of a model metric of one key.
@@ -144,9 +142,7 @@ enum ModelLoadTelemetry {
     /// - Parameter key: The model and its role.
     /// - Returns: The model ref, then the role.
     private static func modelDimensions(of key: ModelPoolKey) -> [(String, String)] {
-        [
-            (ExtrasTelemetry.DimensionKey.modelRef, key.ref.stringValue),
-            (ExtrasTelemetry.DimensionKey.modelRole, ExtrasTelemetry.telemetryRole(of: key.role)),
-        ]
+        ExtrasTelemetry.modelDimensions(of: key.ref)
+            + [(ExtrasTelemetry.DimensionKey.modelRole, ExtrasTelemetry.telemetryRole(of: key.role))]
     }
 }

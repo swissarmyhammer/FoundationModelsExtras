@@ -45,7 +45,8 @@ enum LogitsTelemetry {
         body: nonisolated(nonsending) () async throws -> [[Double]]
     ) async throws -> [[Double]] {
         let start = ContinuousClock.now
-        Metrics.Counter(label: ExtrasTelemetry.MetricName.logitsCalls, dimensions: dimensions(of: ref)).increment()
+        let dimensions = ExtrasTelemetry.modelDimensions(of: ref)
+        Metrics.Counter(label: ExtrasTelemetry.MetricName.logitsCalls, dimensions: dimensions).increment()
         return try await TracedCall.run(
             ExtrasTelemetry.SpanName.logits,
             logger: ExtrasTelemetry.makeLogger(),
@@ -59,36 +60,16 @@ enum LogitsTelemetry {
         ) { _ in
             do {
                 let rows = try await body()
-                recordDuration(of: ref, outcome: .succeeded, since: start)
+                ExtrasTelemetry.recordModelDuration(
+                    on: ExtrasTelemetry.MetricName.logitsDuration, dimensions: dimensions, outcome: .succeeded,
+                    since: start)
                 return rows
             } catch {
-                recordDuration(of: ref, outcome: .failed, since: start)
+                ExtrasTelemetry.recordModelDuration(
+                    on: ExtrasTelemetry.MetricName.logitsDuration, dimensions: dimensions, outcome: .failed,
+                    since: start)
                 throw error
             }
         }
-    }
-
-    /// Records the time from `start` to now on the duration timer of `ref`,
-    /// with `outcome`.
-    ///
-    /// - Parameters:
-    ///   - ref: The model of the call.
-    ///   - outcome: How the call ended.
-    ///   - start: The instant that the call started.
-    private static func recordDuration(
-        of ref: ModelRef, outcome: ModelOperationOutcome, since start: ContinuousClock.Instant
-    ) {
-        Metrics.Timer(
-            label: ExtrasTelemetry.MetricName.logitsDuration,
-            dimensions: dimensions(of: ref) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
-        ).record(duration: ContinuousClock.now - start)
-    }
-
-    /// Gives the dimensions of a logits metric.
-    ///
-    /// - Parameter ref: The model of the call.
-    /// - Returns: The model ref as its only dimension.
-    private static func dimensions(of ref: ModelRef) -> [(String, String)] {
-        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
     }
 }

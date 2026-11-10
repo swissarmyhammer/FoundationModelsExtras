@@ -21,6 +21,38 @@ comments:
     - notes: the span holds the model load when the call loads the model. The duration timer also has the model.outcome dimension, the same as the embed timer. No doc lists telemetry names, thus no README or REFERENCE change. No other package calls PooledLogitsModel.
     - next: /review
   timestamp: 2026-11-10T20:41:45.384377+00:00
+- actor: claude-code
+  id: 01m73kat9mx084kjhvzf4en9vp
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (124f749), 3 findings (3 confirmed, 0 refuted) — Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:81, Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:91, Tests/FoundationModelsExtrasTests/Telemetry/LogitsTelemetryTests.swift:85
+    - next: implement the 3 findings in the "Review Findings (2026-11-10 14:43)" section, then review again.
+  timestamp: 2026-11-10T20:45:28.756135+00:00
+- actor: claude-code
+  id: 01m73kbbp3yyp8sft5tykcqbx5
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 5 files
+    - test: green — swift test, 1833 + 13 passed, 0 failed
+    - commit: 124f749
+    - review: findings — Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:81, Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:91, Tests/FoundationModelsExtrasTests/Telemetry/LogitsTelemetryTests.swift:85
+  timestamp: 2026-11-10T20:45:46.563945+00:00
+- actor: claude-code
+  id: 01m73kjzvw07wedxy6g0zeh4k2
+  text: |-
+    Review findings done.
+    - New file Sources/FoundationModelsExtras/Telemetry/ModelMetrics.swift: `extension ExtrasTelemetry` with `modelDimensions(of: ModelRef)` and `recordModelDuration(on:dimensions:outcome:since:)`. The timer helper takes the dimensions, not a ModelRef, because the load timer of ModelLoadTelemetry also has the model.role dimension. EmbedTelemetry and LogitsTelemetry pass `modelDimensions(of: ref)`. ModelLoadTelemetry passes its key dimensions, which now start from `modelDimensions(of: key.ref)`.
+    - The private `dimensions(of:)` of EmbedTelemetry and LogitsTelemetry, the private `modelDimensions(of:)` of PoolTelemetry, and the private `recordDuration` of EmbedTelemetry and LogitsTelemetry are deleted. Metric names, dimension keys and dimension order did not change.
+    - LogitsTelemetryTests: `captureOneCall()` has no catch now. The call error goes to the test, and the helper gives the rows. `captureOneFailedCall()` has its own capture and uses `await #expect(throws: FakeModelRunError.self)` on the call. Proof: with a throwing FakeLogits in `captureOneCall`, all 6 success tests failed with "Caught error: FakeModelRunError()". Then the change was reverted.
+    - Not changed: GenerateTelemetry has a private `dimensions` property with the same model-ref dimension. The findings did not name it.
+  timestamp: 2026-11-10T20:49:56.604602+00:00
+- actor: claude-code
+  id: 01m73kk8322tmvnvvkx0j9addj
+  text: |-
+    ### implement — changed
+    - evidence: 6 files — Sources/FoundationModelsExtras/Telemetry/ModelMetrics.swift (new), Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/ModelLoadTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift, Tests/FoundationModelsExtrasTests/Telemetry/LogitsTelemetryTests.swift. `swift test --filter "Telemetry|PooledLogitsModel"`: 99 tests in 15 suites passed, 0 failed. `swift test --filter "ModelPool|Pool|Embed|ModelLoad"`: 252 tests in 14 suites plus 10 tests in 2 suites passed. No compiler warnings.
+    - next: /review
+  timestamp: 2026-11-10T20:50:05.026882+00:00
 depends_on:
 - 01M73FTQ8MB6JSDYYR9BYWJHBD
 position_column: doing
@@ -48,3 +80,14 @@ Create `Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift`. Use the
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #decision
+
+## Review Findings (2026-11-10 14:43)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:81` `reuse/reuse` — The new recordDuration(of:outcome:since:) rebuilds the same model-outcome timer write that already exists in EmbedTelemetry and ModelLoadTelemetry. A second copy lets the logits timer drift from the others. Move one shared helper that takes a label, a ModelRef, an outcome and a start instant into a file that all three callers can reach, for example as an internal static in ExtrasTelemetry or in a shared telemetry helper. Then call it from LogitsTelemetry, EmbedTelemetry and ModelLoadTelemetry.
+- [x] `Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:91` `reuse/reuse` — The new dimensions(of:) returns the model ref as the only metric dimension. That is the same function, byte for byte, as the private helpers that already exist for embed and pool metrics, so it is a duplicate. Keep one internal helper that gives the model-ref dimension for a ModelRef, and use it from LogitsTelemetry, EmbedTelemetry and PoolTelemetry. Delete the private copies.
+- [x] `Tests/FoundationModelsExtrasTests/Telemetry/LogitsTelemetryTests.swift:85` `test-integrity/no-test-cheating` — The catch in captureOneCall turns a thrown error from logProbabilities into a .failure value. Four success-path tests discard that value with `let (context, _)`, so they pass even when the call throws. aCallOpensOneSpan, theSpanHasTheCounts and aCallIncrementsTheCallCounter would stay green on a failed call. The failure is swallowed rather than proven, which breaks the rule that every test must be able to fail. Make captureOneCall take an expectation of success, for example by calling model.logProbabilities directly in the success tests with `try`. Or have each success test assert `try outcome.get()` is non-throwing before it checks spans or counters. Keep the catch only in captureOneFailedCall's path, where #expect(throws:) proves the error.

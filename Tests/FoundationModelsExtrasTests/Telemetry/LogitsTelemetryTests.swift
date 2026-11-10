@@ -67,36 +67,34 @@ struct LogitsTelemetryTests {
     }
 
     /// Runs one `logProbabilities` call of ``candidates`` after ``prompts``
-    /// in a new capture that forbids each token ID of the call. The capture
-    /// keeps the error of the call, thus a test of a failed call uses the
-    /// same capture as a test of a call that succeeds.
+    /// in a new capture that forbids each token ID of the call.
     ///
-    /// - Parameter fails: `true` to make the call throw ``FakeModelRunError``.
-    /// - Returns: The capture, and the rows or the error of the call.
-    /// - Throws: The error of the capture or of the load.
-    private static func captureOneCall(
-        fails: Bool = false
-    ) async throws -> (context: TelemetryCapture.Context, outcome: Result<[[Double]], any Error>) {
+    /// The call must succeed. An error of the call goes to the caller, thus a
+    /// test that uses this capture fails when the call throws.
+    ///
+    /// - Returns: The capture, and the rows of the call.
+    /// - Throws: The error of the capture, of the load or of the call.
+    private static func captureOneCall() async throws -> (context: TelemetryCapture.Context, rows: [[Double]]) {
         try await TelemetryCapture.run(forbidding: tokenIDTexts) { context in
-            let model = try await heldModel(of: FakeLogits(maximumPromptTokens: nil, failsLogProbabilities: fails))
-            do {
-                return (context, .success(try await model.logProbabilities(of: candidates, after: prompts)))
-            } catch {
-                return (context, .failure(error))
-            }
+            let model = try await heldModel(of: FakeLogits(maximumPromptTokens: nil))
+            return (context, try await model.logProbabilities(of: candidates, after: prompts))
         }
     }
 
-    /// Runs one failed `logProbabilities` call with
-    /// ``captureOneCall(fails:)``, and expects that the call throws
-    /// ``FakeModelRunError``.
+    /// Runs one `logProbabilities` call of ``candidates`` after ``prompts``
+    /// that throws ``FakeModelRunError``, in a new capture that forbids each
+    /// token ID of the call, and expects that the call throws that error.
     ///
     /// - Returns: The capture.
-    /// - Throws: The error of the capture.
+    /// - Throws: The error of the capture or of the load.
     private static func captureOneFailedCall() async throws -> TelemetryCapture.Context {
-        let (context, outcome) = try await captureOneCall(fails: true)
-        #expect(throws: FakeModelRunError.self) { try outcome.get() }
-        return context
+        try await TelemetryCapture.run(forbidding: tokenIDTexts) { context in
+            let model = try await heldModel(of: FakeLogits(maximumPromptTokens: nil, failsLogProbabilities: true))
+            await #expect(throws: FakeModelRunError.self) {
+                try await model.logProbabilities(of: candidates, after: prompts)
+            }
+            return context
+        }
     }
 
     @Test("a logProbabilities call opens one logits span")
@@ -140,11 +138,11 @@ struct LogitsTelemetryTests {
 
     @Test("a logProbabilities call gives the rows of the container")
     func aCallGivesTheRowsOfTheContainer() async throws {
-        let (_, outcome) = try await Self.captureOneCall()
+        let (_, rows) = try await Self.captureOneCall()
 
         let expected = try await FakeLogits(maximumPromptTokens: nil)
             .logProbabilities(of: Self.candidates, after: Self.prompts)
-        #expect(try outcome.get() == expected)
+        #expect(rows == expected)
     }
 
     @Test("a failed logProbabilities call records the error on the logits span")

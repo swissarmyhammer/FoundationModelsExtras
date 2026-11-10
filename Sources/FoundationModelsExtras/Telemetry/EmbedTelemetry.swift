@@ -57,6 +57,7 @@ enum EmbedTelemetry {
     ) async throws -> [Vector] {
         let start = ContinuousClock.now
         let logger = ExtrasTelemetry.makeLogger()
+        let dimensions = ExtrasTelemetry.modelDimensions(of: ref)
         return try await TracedCall.run(
             ExtrasTelemetry.SpanName.embed,
             logger: logger,
@@ -67,10 +68,14 @@ enum EmbedTelemetry {
                 let output = try await embedInSpan(
                     span, of: ref, texts: texts, tokenBudget: tokenBudget, logger: logger, tokenize: tokenize,
                     vectors: vectors)
-                recordDuration(of: ref, outcome: .succeeded, since: start)
+                ExtrasTelemetry.recordModelDuration(
+                    on: ExtrasTelemetry.MetricName.embedDuration, dimensions: dimensions, outcome: .succeeded,
+                    since: start)
                 return output
             } catch {
-                recordDuration(of: ref, outcome: .failed, since: start)
+                ExtrasTelemetry.recordModelDuration(
+                    on: ExtrasTelemetry.MetricName.embedDuration, dimensions: dimensions, outcome: .failed,
+                    since: start)
                 throw error
             }
         }
@@ -170,8 +175,10 @@ enum EmbedTelemetry {
                 attributes[ExtrasTelemetry.AttributeKey.subBatchPadRatio] = counts.padRatio
             }
         ) { _ in
-            Metrics.Recorder(label: ExtrasTelemetry.MetricName.embedSubBatchPaddedTokens, dimensions: dimensions(of: ref))
-                .record(counts.paddedTokens)
+            Metrics.Recorder(
+                label: ExtrasTelemetry.MetricName.embedSubBatchPaddedTokens,
+                dimensions: ExtrasTelemetry.modelDimensions(of: ref)
+            ).record(counts.paddedTokens)
             return try run()
         }
     }
@@ -196,31 +203,8 @@ enum EmbedTelemetry {
             attributes[ExtrasTelemetry.AttributeKey.embedSubBatchCount] = statistics.subBatchCount
             attributes[ExtrasTelemetry.AttributeKey.embedOverBudgetRows] = statistics.overBudgetRows
         }
-        Metrics.Counter(label: ExtrasTelemetry.MetricName.embedTokens, dimensions: dimensions(of: ref))
-            .increment(by: statistics.tokenCount)
-    }
-
-    /// Records the time from `start` to now on the duration timer of `ref`,
-    /// with `outcome`.
-    ///
-    /// - Parameters:
-    ///   - ref: The model of the call.
-    ///   - outcome: How the call ended.
-    ///   - start: The instant that the call started.
-    private static func recordDuration(
-        of ref: ModelRef, outcome: ModelOperationOutcome, since start: ContinuousClock.Instant
-    ) {
-        Metrics.Timer(
-            label: ExtrasTelemetry.MetricName.embedDuration,
-            dimensions: dimensions(of: ref) + [(ExtrasTelemetry.DimensionKey.modelOutcome, outcome.rawValue)]
-        ).record(duration: ContinuousClock.now - start)
-    }
-
-    /// Gives the dimensions of an embed metric.
-    ///
-    /// - Parameter ref: The model of the call.
-    /// - Returns: The model ref as its only dimension.
-    private static func dimensions(of ref: ModelRef) -> [(String, String)] {
-        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
+        Metrics.Counter(
+            label: ExtrasTelemetry.MetricName.embedTokens, dimensions: ExtrasTelemetry.modelDimensions(of: ref)
+        ).increment(by: statistics.tokenCount)
     }
 }

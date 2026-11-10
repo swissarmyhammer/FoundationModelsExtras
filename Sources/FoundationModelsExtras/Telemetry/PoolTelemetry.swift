@@ -22,7 +22,8 @@ enum PoolTelemetry {
     static func recordAcquire(of ref: ModelRef, result: PoolCacheResult) {
         Counter(
             label: ExtrasTelemetry.MetricName.poolAcquires,
-            dimensions: modelDimensions(of: ref) + [(ExtrasTelemetry.DimensionKey.cacheResult, result.rawValue)]
+            dimensions: ExtrasTelemetry.modelDimensions(of: ref)
+                + [(ExtrasTelemetry.DimensionKey.cacheResult, result.rawValue)]
         ).increment()
     }
 
@@ -34,9 +35,10 @@ enum PoolTelemetry {
     ///   - idleTime: The time from the last release to the start of the
     ///     eviction, or `nil` when the pool has no release instant.
     static func recordEviction(of ref: ModelRef, idleTime: Duration?) {
-        Counter(label: ExtrasTelemetry.MetricName.poolEvictions, dimensions: modelDimensions(of: ref)).increment()
+        let dimensions = ExtrasTelemetry.modelDimensions(of: ref)
+        Counter(label: ExtrasTelemetry.MetricName.poolEvictions, dimensions: dimensions).increment()
         guard let idleTime else { return }
-        Metrics.Timer(label: ExtrasTelemetry.MetricName.poolIdleToEvict, dimensions: modelDimensions(of: ref))
+        Metrics.Timer(label: ExtrasTelemetry.MetricName.poolIdleToEvict, dimensions: dimensions)
             .record(duration: idleTime)
     }
 
@@ -48,7 +50,8 @@ enum PoolTelemetry {
     static func recordSkippedEviction(of ref: ModelRef, reason: PoolEvictionSkipReason) {
         Counter(
             label: ExtrasTelemetry.MetricName.poolEvictions,
-            dimensions: modelDimensions(of: ref) + [(ExtrasTelemetry.DimensionKey.evictionReason, reason.rawValue)]
+            dimensions: ExtrasTelemetry.modelDimensions(of: ref)
+                + [(ExtrasTelemetry.DimensionKey.evictionReason, reason.rawValue)]
         ).increment()
     }
 
@@ -117,14 +120,6 @@ enum PoolTelemetry {
                 ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue),
             ]
         )
-    }
-
-    /// Gives the dimensions of a pool metric of one model.
-    ///
-    /// - Parameter ref: The model.
-    /// - Returns: The model ref as the first dimension.
-    private static func modelDimensions(of ref: ModelRef) -> [(String, String)] {
-        [(ExtrasTelemetry.DimensionKey.modelRef, ref.stringValue)]
     }
 }
 
