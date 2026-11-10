@@ -53,10 +53,44 @@ comments:
     - evidence: 6 files — Sources/FoundationModelsExtras/Telemetry/ModelMetrics.swift (new), Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/ModelLoadTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift, Tests/FoundationModelsExtrasTests/Telemetry/LogitsTelemetryTests.swift. `swift test --filter "Telemetry|PooledLogitsModel"`: 99 tests in 15 suites passed, 0 failed. `swift test --filter "ModelPool|Pool|Embed|ModelLoad"`: 252 tests in 14 suites plus 10 tests in 2 suites passed. No compiler warnings.
     - next: /review
   timestamp: 2026-11-10T20:50:05.026882+00:00
+- actor: claude-code
+  id: 01m73kr2phhb222rn7dwj0hy8b
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (43522bb). 1 finding (1 confirmed, 3 refuted). Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift:71. The 3 findings of 2026-11-10 14:43 are all checked.
+    - next: implement the finding of 2026-11-10 14:51. Put one helper in ModelMetrics.swift that runs the body, records the timer with .succeeded or .failed, and rethrows. Call it from traceEmbed and traceLogProbabilities.
+  timestamp: 2026-11-10T20:52:43.345081+00:00
+- actor: claude-code
+  id: 01m73krq6d7rqgh5rhmyand2ge
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 6 files
+    - test: green — swift test, 7 runs, 0 failed
+    - commit: 43522bb
+    - review: findings — Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift:71
+  timestamp: 2026-11-10T20:53:04.333459+00:00
+- actor: claude-code
+  id: 01m73kzzhnvgxqrdwm910xw37n
+  text: |-
+    Finding of 2026-11-10 14:51 done.
+    - ModelMetrics.swift has 2 new helpers. `timeModelOperation(on:dimensions:since:_:)` runs the body, records the timer with .succeeded or .failed, and rethrows. `recordingOutcome(of:record:)` is the do/catch: it runs the body and gives the outcome to a record closure. `timeModelOperation` uses it.
+    - traceEmbed, traceLogProbabilities and ModelLoadTelemetry.traceLoad call `timeModelOperation`. The private `recordLoadDuration` of ModelLoadTelemetry had no caller after this, thus it is deleted. `recordDuration` stays for the evict timer.
+    - GenerateTelemetry.traceGenerate had the same do/catch outcome pair, but its record writes 2 timers and the token metrics. It now calls `recordingOutcome(of:record:)` with `call.record(outcome:)`.
+    - No do/catch outcome pair stays in the Telemetry folder. The catches in GenerateChannelRelay and TracedCall are of a different kind (relay of a failure, span error status).
+    - New test file Tests/FoundationModelsExtrasTests/Telemetry/ModelMetricsTests.swift, 5 tests. RED: a compile error, "type 'ExtrasTelemetry' has no member 'timeModelOperation'". GREEN: 5 of 5 passed.
+    - Metric names, dimension keys and dimension order did not change.
+  timestamp: 2026-11-10T20:57:02.261841+00:00
+- actor: claude-code
+  id: 01m73m02z0be70tsca2xyabacg
+  text: |-
+    ### implement — changed
+    - evidence: 6 files — Sources/FoundationModelsExtras/Telemetry/ModelMetrics.swift, Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/ModelLoadTelemetry.swift, Sources/FoundationModelsExtras/Telemetry/GenerateTelemetry.swift, Tests/FoundationModelsExtrasTests/Telemetry/ModelMetricsTests.swift (new). `swift test --filter "Telemetry|PooledLogitsModel|Embed|ModelLoad|Generate"`: 248 tests in 23 suites, 9 tests in 1 suite, 4 tests in 1 suite, 1+1 tests passed, 0 failed. `swift build --build-tests`: no compiler warnings.
+    - next: /review
+  timestamp: 2026-11-10T20:57:05.760104+00:00
 depends_on:
 - 01M73FTQ8MB6JSDYYR9BYWJHBD
 position_column: doing
-position_ordinal: '80'
+position_ordinal: '8180'
 title: 'LogitsTelemetry: one span and metrics for each logProbabilities call'
 ---
 ## What
@@ -91,3 +125,12 @@ Create `Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift`. Use the
 - [x] `Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:81` `reuse/reuse` — The new recordDuration(of:outcome:since:) rebuilds the same model-outcome timer write that already exists in EmbedTelemetry and ModelLoadTelemetry. A second copy lets the logits timer drift from the others. Move one shared helper that takes a label, a ModelRef, an outcome and a start instant into a file that all three callers can reach, for example as an internal static in ExtrasTelemetry or in a shared telemetry helper. Then call it from LogitsTelemetry, EmbedTelemetry and ModelLoadTelemetry.
 - [x] `Sources/FoundationModelsExtras/Telemetry/LogitsTelemetry.swift:91` `reuse/reuse` — The new dimensions(of:) returns the model ref as the only metric dimension. That is the same function, byte for byte, as the private helpers that already exist for embed and pool metrics, so it is a duplicate. Keep one internal helper that gives the model-ref dimension for a ModelRef, and use it from LogitsTelemetry, EmbedTelemetry and PoolTelemetry. Delete the private copies.
 - [x] `Tests/FoundationModelsExtrasTests/Telemetry/LogitsTelemetryTests.swift:85` `test-integrity/no-test-cheating` — The catch in captureOneCall turns a thrown error from logProbabilities into a .failure value. Four success-path tests discard that value with `let (context, _)`, so they pass even when the call throws. aCallOpensOneSpan, theSpanHasTheCounts and aCallIncrementsTheCallCounter would stay green on a failed call. The failure is swallowed rather than proven, which breaks the rule that every test must be able to fail. Make captureOneCall take an expectation of success, for example by calling model.logProbabilities directly in the success tests with `try`. Or have each success test assert `try outcome.get()` is non-throwing before it checks spans or counters. Keep the catch only in captureOneFailedCall's path, where #expect(throws:) proves the error.
+
+## Review Findings (2026-11-10 14:51)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/FoundationModelsExtras/Telemetry/EmbedTelemetry.swift:71` `duplication/duplication` — The success and failure timer pair (do/catch, with recordModelDuration called once per outcome) is copied in traceEmbed and in traceLogProbabilities. Only the timer name and the outcome differ. The copies can drift, for example if one gets a dimension and the other does not. Add one helper in ModelMetrics.swift that takes the timer label, the dimensions, the start instant and a body closure. The helper runs the body, records the timer with .succeeded or .failed, and rethrows. Both traceEmbed and traceLogProbabilities then call it, and each keeps only its own body.

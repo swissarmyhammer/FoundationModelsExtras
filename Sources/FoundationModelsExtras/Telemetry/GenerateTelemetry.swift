@@ -71,14 +71,8 @@ enum GenerateTelemetry {
             metadata: [ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue)]
         ) { span in
             let call = GenerateCall(ref: ref, span: span, start: start)
-            do {
-                let output = try await body(call)
-                call.record(outcome: .succeeded)
-                return output
-            } catch {
-                call.record(outcome: .failed)
-                throw error
-            }
+            return try await ExtrasTelemetry.recordingOutcome(
+                of: { try await body(call) }, record: call.record(outcome:))
         }
     }
 

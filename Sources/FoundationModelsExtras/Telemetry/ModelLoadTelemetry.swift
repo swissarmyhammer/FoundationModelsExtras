@@ -55,14 +55,9 @@ enum ModelLoadTelemetry {
                 ExtrasTelemetry.LogMetadataKey.modelRole: .string(role),
             ]
         ) { _ in
-            do {
-                let output = try await load()
-                recordLoadDuration(of: key, outcome: .succeeded, since: start)
-                return output
-            } catch {
-                recordLoadDuration(of: key, outcome: .failed, since: start)
-                throw error
-            }
+            try await ExtrasTelemetry.timeModelOperation(
+                on: ExtrasTelemetry.MetricName.modelLoadDuration, dimensions: modelDimensions(of: key), since: start,
+                load)
         }
     }
 
@@ -108,18 +103,6 @@ enum ModelLoadTelemetry {
         let start = ContinuousClock.now
         await evict()
         recordDuration(on: ExtrasTelemetry.MetricName.modelEvictDuration, of: key, outcome: .succeeded, since: start)
-    }
-
-    /// Records the duration of one load of `key` on the load timer.
-    ///
-    /// - Parameters:
-    ///   - key: The loaded model.
-    ///   - outcome: How the load ended.
-    ///   - start: The instant that the load started.
-    private static func recordLoadDuration(
-        of key: ModelPoolKey, outcome: ModelOperationOutcome, since start: ContinuousClock.Instant
-    ) {
-        recordDuration(on: ExtrasTelemetry.MetricName.modelLoadDuration, of: key, outcome: outcome, since: start)
     }
 
     /// Records the time from `start` to now on the model timer `label` of

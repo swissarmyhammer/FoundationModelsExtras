@@ -58,18 +58,8 @@ enum LogitsTelemetry {
             },
             metadata: [ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue)]
         ) { _ in
-            do {
-                let rows = try await body()
-                ExtrasTelemetry.recordModelDuration(
-                    on: ExtrasTelemetry.MetricName.logitsDuration, dimensions: dimensions, outcome: .succeeded,
-                    since: start)
-                return rows
-            } catch {
-                ExtrasTelemetry.recordModelDuration(
-                    on: ExtrasTelemetry.MetricName.logitsDuration, dimensions: dimensions, outcome: .failed,
-                    since: start)
-                throw error
-            }
+            try await ExtrasTelemetry.timeModelOperation(
+                on: ExtrasTelemetry.MetricName.logitsDuration, dimensions: dimensions, since: start, body)
         }
     }
 }

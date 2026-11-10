@@ -13,10 +13,20 @@ comments:
     - Errors: `LlamaError.emptyPrompt`, `LlamaError.tokenNotInVocabulary`, `LanguageModelError.contextSizeExceeded`.
     - For a vocabulary that adds BOS (Gemma), the rendered template starts with the BOS text. Do not add a second BOS.
   timestamp: 2026-11-10T20:15:22.151890+00:00
+- actor: claude-code
+  id: 01m73m1tq4fcrdae6cj34gg5t1
+  text: |-
+    ### Research
+    - The worktree branch did not have PooledLogits. Merged local main (a346284..43522bb) into the branch: commit 0859c9a.
+    - `swift package update FoundationModelsLlamaCpp` pins 7c9c6270a579a15adaa1f5f6cc511e92373e823d. Package.resolved is in .gitignore, thus no commit holds it.
+    - The cache holds `Mapika/decider-2b-GGUF` at 0df001b8fe4e5298c5dd45d875d3795fcdaea0ab, file `decider-2b-v12-Q4_K_M.gguf` (Qwen3.5-2B base, Qwen3.5 chat template).
+    - The vocab-only file `qwen35` and the template `Qwen3.5-4B` of LlamaCppTestFixtures let hermetic tests examine tokenize, renderChatTemplate and maximumPromptTokens with no weights.
+    - Possible conflict: the validator `test-integrity/test-partitioning` forbids an environment variable that selects tests, and asks for the nested package `IntegrationTests/`. The card orders the gate `EXTRAS_GGUF_INTEGRATION=1` in `Tests/FoundationModelsExtrasLlamaCppTests/`. I follow the card. If review reports this rule, it is a true conflict.
+  timestamp: 2026-11-10T20:58:02.852211+00:00
 depends_on:
 - 01M73FTQ8MB6JSDYYR9BYWJHBD
-position_column: todo
-position_ordinal: '8380'
+position_column: doing
+position_ordinal: '80'
 title: 'llama.cpp conformance: extension LlamaLanguageModel: PooledLogits (waits for L1)'
 ---
 ## What

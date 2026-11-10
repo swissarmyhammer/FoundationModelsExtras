@@ -64,19 +64,12 @@ enum EmbedTelemetry {
             attributes: { $0[ExtrasTelemetry.AttributeKey.modelRef] = ref.stringValue },
             metadata: [ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue)]
         ) { span in
-            do {
-                let output = try await embedInSpan(
+            try await ExtrasTelemetry.timeModelOperation(
+                on: ExtrasTelemetry.MetricName.embedDuration, dimensions: dimensions, since: start
+            ) {
+                try await embedInSpan(
                     span, of: ref, texts: texts, tokenBudget: tokenBudget, logger: logger, tokenize: tokenize,
                     vectors: vectors)
-                ExtrasTelemetry.recordModelDuration(
-                    on: ExtrasTelemetry.MetricName.embedDuration, dimensions: dimensions, outcome: .succeeded,
-                    since: start)
-                return output
-            } catch {
-                ExtrasTelemetry.recordModelDuration(
-                    on: ExtrasTelemetry.MetricName.embedDuration, dimensions: dimensions, outcome: .failed,
-                    since: start)
-                throw error
             }
         }
     }
