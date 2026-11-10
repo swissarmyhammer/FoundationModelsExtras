@@ -173,7 +173,9 @@ struct PooledLogitsModelTests {
         let pool = ModelPool(loader: RecordingLoader(name: Self.loaderName, log: Recorder()))
         let model = PooledLogitsModel(ref: Self.key.ref, pool: pool)
 
-        _ = try? await model.tokenize("a")
+        await #expect(throws: PooledLogitsModelError.notLogitsCapable(Self.key.ref)) {
+            try await model.tokenize("a")
+        }
         try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(!pool.isResident(Self.key))

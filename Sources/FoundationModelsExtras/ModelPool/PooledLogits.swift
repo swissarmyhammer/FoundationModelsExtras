@@ -83,7 +83,7 @@ public struct PooledLogitsModel: PooledLogits {
     public init(ref: ModelRef, pool: ModelPool = .shared) {
         let key = ModelPoolKey(ref: ref, role: .llm)
         self.ref = ref
-        resident = ResidentHold { try LoadedLogits(hold: try await pool.acquire(key), ref: ref) }
+        resident = ResidentHold { try LoadedLogits(hold: try await pool.acquire(key)) }
     }
 
     /// Makes a source that keeps `hold`. Use this when you acquire the model
@@ -93,8 +93,9 @@ public struct PooledLogitsModel: PooledLogits {
     /// - Throws: ``PooledLogitsModelError/notLogitsCapable(_:)`` when the
     ///   container of `hold` does not conform to ``PooledLogits``.
     public init(hold: ModelHold) throws {
-        ref = hold.key.ref
-        resident = ResidentHold(loaded: try LoadedLogits(hold: hold, ref: hold.key.ref))
+        let loaded = try LoadedLogits(hold: hold)
+        ref = loaded.hold.key.ref
+        resident = ResidentHold(loaded: loaded)
     }
 
     /// The largest number of tokens in one prompt, or `nil` for no fixed limit.
@@ -152,21 +153,20 @@ public struct PooledLogitsModel: PooledLogits {
 
 /// A hold of an LLM, and its container as a ``PooledLogits``.
 private struct LoadedLogits: Sendable {
-    /// The hold of the model.
+    /// The hold of the model. The model stays resident while this value exists.
     let hold: ModelHold
     /// The container of the hold, as a log-probability source.
     let logits: any PooledLogits
 
     /// Takes the container of `hold` as a log-probability source.
     ///
-    /// - Parameters:
-    ///   - hold: A hold of an LLM.
-    ///   - ref: The name of the model, which the error reports.
-    /// - Throws: ``PooledLogitsModelError/notLogitsCapable(_:)`` when the
-    ///   container of `hold` does not conform to ``PooledLogits``.
-    init(hold: ModelHold, ref: ModelRef) throws {
+    /// - Parameter hold: A hold of an LLM.
+    /// - Throws: ``PooledLogitsModelError/notLogitsCapable(_:)`` with the
+    ///   name of the key of `hold`, when the container of `hold` does not
+    ///   conform to ``PooledLogits``.
+    init(hold: ModelHold) throws {
         guard let logits = hold.container as? any PooledLogits else {
-            throw PooledLogitsModelError.notLogitsCapable(ref)
+            throw PooledLogitsModelError.notLogitsCapable(hold.key.ref)
         }
         self.hold = hold
         self.logits = logits
