@@ -49,8 +49,24 @@ comments:
     - evidence: Sources/FoundationModelsExtras/ModelPool/PooledLogits.swift, Tests/FoundationModelsExtrasTests/ModelPool/PooledLogitsModelTests.swift; `swift test --filter PooledLogitsModel` — 15 tests in 1 suite passed, 0 failures, 0 warnings
     - next: test, then review
   timestamp: 2026-11-10T20:04:11.998382+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m73h4smva3d7jj0tzz5yjrsf
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (41f5dbf); 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed. The 2 items of the 2026-11-10 13:57 section are checked.
+    - next: none. The task moved to done.
+  timestamp: 2026-11-10T20:07:14.331095+00:00
+- actor: claude-code
+  id: 01m73h55kasehrhsmq6ytzmxf6
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 1804 + 13 passed, 0 failed
+    - commit: 41f5dbf
+    - review: clean — 0 findings
+  timestamp: 2026-11-10T20:07:26.570205+00:00
+position_column: done
+position_ordinal: ffde80
 title: PooledLogits protocol and PooledLogitsModel (a .llm hold as a log-probability source)
 ---
 ## What

@@ -1,6 +1,18 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m73hkp177d8m1tzqnk67yb8t
+  text: |-
+    ### L1 is committed, but it is not pushed
+    - FoundationModelsLlamaCpp commit 7c9c6270a579a15adaa1f5f6cc511e92373e823d on main. It is NOT on origin. Extras resolves FoundationModelsLlamaCpp by git URL (Package.resolved pins 0541b99), so this task cannot build until the commit is pushed. Keep the tag `waits-l1` until then. Then run `swift package update FoundationModelsLlamaCpp`.
+    - API: `LlamaLanguageModel.logProbabilities(of: [Int], after: [[Int]]) async throws -> [[Double]]` (nonisolated(nonsending); full-vocabulary log-softmax; one prompt for each decode in its own empty sequence; no BOS added; generation lock; `[]` for no prompts).
+    - `LlamaLanguageModel.contextSize: Int` → `maximumPromptTokens`.
+    - `try model.tokenizer()` → `LlamaTokenizer` (synchronous): `tokens(_:parsesSpecialTokens: true) -> [Int32]` (no BOS/EOS; map to Int) → `tokenize`; `renderChatTemplate([LlamaChatMessage(role:content:)], reasoning:) -> String?` (an unknown role throws) → `renderChatTemplate`; `vocabularySize: Int`.
+    - Errors: `LlamaError.emptyPrompt`, `LlamaError.tokenNotInVocabulary`, `LanguageModelError.contextSizeExceeded`.
+    - For a vocabulary that adds BOS (Gemma), the rendered template starts with the BOS text. Do not add a second BOS.
+  timestamp: 2026-11-10T20:15:22.151890+00:00
 depends_on:
 - 01M73FTQ8MB6JSDYYR9BYWJHBD
 position_column: todo
@@ -28,4 +40,4 @@ Create `Sources/FoundationModelsExtrasLlamaCpp/LlamaLogits.swift` with `extensio
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
-- When this is committed, send foundationmodelsdecision-6f the commit sha. #decision #waits-l1
+- When this is committed, send foundationmodelsdecision-6f the commit sha. #decision
