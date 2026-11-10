@@ -99,6 +99,40 @@ struct MLXLogitsRealModelTests {
         }
     }
 
+    /// Expects that a call with `candidates`, and a prompt of ``text`` with
+    /// `promptToken` added at the end, throws
+    /// ``MLXLogitsError/tokenOutsideVocabulary(_:vocabularySize:)`` for `outsideID`.
+    ///
+    /// - Parameters:
+    ///   - outsideID: The ID that the error must name.
+    ///   - candidates: The candidates of the call.
+    ///   - promptToken: The token that is added at the end of the prompt.
+    /// - Throws: The error of the load or of the tokenizer.
+    private func expectOutsideVocabulary(_ outsideID: Int, candidates: [Int], promptToken: Int) async throws {
+        let prompt = try await model.tokenize(Self.text) + [promptToken]
+
+        await #expect(throws: MLXLogitsError.tokenOutsideVocabulary(outsideID, vocabularySize: Self.vocabularySize)) {
+            try await model.logProbabilities(of: candidates, after: [prompt])
+        }
+    }
+
+    @Test("a prompt token ID equal to the vocabulary size throws, with valid candidates")
+    func promptTokenOutsideTheVocabularyThrows() async throws {
+        try await expectOutsideVocabulary(Self.vocabularySize, candidates: Self.candidates, promptToken: Self.vocabularySize)
+    }
+
+    @Test("a negative candidate ID throws")
+    func negativeCandidateThrows() async throws {
+        let validToken = try #require(Self.candidates.first)
+
+        try await expectOutsideVocabulary(-1, candidates: [-1], promptToken: validToken)
+    }
+
+    @Test("a negative prompt token ID throws, with valid candidates")
+    func negativePromptTokenThrows() async throws {
+        try await expectOutsideVocabulary(-1, candidates: Self.candidates, promptToken: -1)
+    }
+
     @Test("the special-token text <|im_start|> tokenizes to one token")
     func specialTokenTextIsOneToken() async throws {
         #expect(try await model.tokenize("<|im_start|>").count == 1)

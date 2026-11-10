@@ -63,6 +63,38 @@ comments:
     - evidence: Sources/FoundationModelsExtras/ModelPool/MLXLogits.swift (one prompt for each pass); removed LogitsBatchDivision.swift, IndexedBatches.swift, Tests/.../LogitsBatchDivisionTests.swift; EmbeddingBatchDivision.swift returned to HEAD; Tests/.../MLXLogitsRealModelTests.swift (exact equality). `EXTRAS_MLX_INTEGRATION=1 swift test --filter MLXLogitsRealModel`: 8 of 8 pass. `swift test --filter "MLXLogits|EmbeddingBatch"`: 29 tests in 4 suites pass, 0 failures, the real-model suite skipped without the flag. No Package.swift change.
     - next: /review
   timestamp: 2026-11-10T20:24:59.275043+00:00
+- actor: claude-code
+  id: 01m73jdaa09sh8r05yk42xf50y
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (972b0f4); 1 finding (1 confirmed, 4 refuted) — Sources/FoundationModelsExtras/ModelPool/MLXLogits.swift:163 completeness/invariant-propagation
+    - next: add a test that gives a prompt token ID at or above the vocabulary size, with a valid candidate, and expects MLXLogitsError.tokenOutsideVocabulary. Then commit and review again.
+  timestamp: 2026-11-10T20:29:22.112807+00:00
+- actor: claude-code
+  id: 01m73jdrrgq9kzrd0e8wsaehw2
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — MLXLogits.swift and 2 test files (one prompt for each pass, after the stuck report and the decision)
+    - test: green — swift test, 7 runs, 0 failed
+    - commit: 972b0f4
+    - review: findings — Sources/FoundationModelsExtras/ModelPool/MLXLogits.swift:163
+  timestamp: 2026-11-10T20:29:36.912468+00:00
+- actor: claude-code
+  id: 01m73jjfvpq3x2fx806zc7h0kk
+  text: |-
+    Worked the finding at MLXLogits.swift:163 (completeness/invariant-propagation).
+    - Location: `candidateOutsideTheVocabularyThrows` is in `MLXLogitsRealModelTests.swift`, not in `MLXLogitsTests.swift`. The range check runs only after the model loads (it reads the logits width), so a unit test with the throwing loader cannot reach it. The new tests are next to `candidateOutsideTheVocabularyThrows` in the real-model suite.
+    - Branch audit of the input checks: empty prompt, no candidates and no prompts already had unit tests. These branches had no test: a prompt token at or above the vocabulary size, a negative candidate, and a negative prompt token. Added `promptTokenOutsideTheVocabularyThrows`, `negativeCandidateThrows`, `negativePromptTokenThrows`, with one private helper `expectOutsideVocabulary` so the three tests share one body.
+    - RED: a temporary change made the check read `candidates.first(where: { $0 >= vocabularySize })` (no prompt IDs, no lower limit). The 3 new tests failed (a value came back, no error) and `candidateOutsideTheVocabularyThrows` passed. The original check is back; `git diff Sources` is empty.
+    - GREEN: `EXTRAS_MLX_INTEGRATION=1 swift test --filter MLXLogits`: 19 tests in 2 suites pass.
+  timestamp: 2026-11-10T20:32:11.638584+00:00
+- actor: claude-code
+  id: 01m73jjq7wpkjegyfb6mmw2tsm
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/MLXLogitsRealModelTests.swift (3 new tests, 1 helper). `swift test --filter MLXLogits`: 19 tests in 2 suites pass (real-model suite skipped without the flag). `EXTRAS_MLX_INTEGRATION=1 swift test --filter MLXLogits`: 19 tests in 2 suites pass, 0 failures. No change to Sources.
+    - next: /review
+  timestamp: 2026-11-10T20:32:19.196449+00:00
 depends_on:
 - 01M73FTQ8MB6JSDYYR9BYWJHBD
 position_column: doing
@@ -92,3 +124,12 @@ Create `Sources/FoundationModelsExtras/ModelPool/MLXLogits.swift` with `extensio
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #decision
+
+## Review Findings (2026-11-10 14:27)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 3 file(s) reviewed, 6 not reviewed.
+
+> 6 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 6 file(s)
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/MLXLogits.swift:163` `completeness/invariant-propagation` — The vocabulary range check runs over both candidates and prompt tokens. The only test of this check, candidateOutsideTheVocabularyThrows, feeds an out-of-range candidate. No test feeds an out-of-range prompt token, so the prompt side of the same check has no coverage. A regression that drops prompt IDs from the check would pass every test. Add a test that passes a prompt containing a token ID equal to or above the vocabulary size, with a valid candidate, and asserts that MLXLogitsError.tokenOutsideVocabulary is thrown.
