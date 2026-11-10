@@ -1,0 +1,1 @@
+{"id":"01M73FVQ9MA5F2N0PDD17DBZZ3","timestamp":"2026-11-10T19:44:48.436985Z","op":"create","item_id":"01M73FVQ9K73ZK2249HMZPVP7H","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 0e8a16\n+tag_name: waits-l1\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 0e8a16\n-tag_name: waits-l1\n","transaction_id":null}

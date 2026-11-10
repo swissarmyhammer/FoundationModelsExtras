@@ -1,0 +1,1 @@
+{"id":"01M73FTQ8X1WBJ027F5063W4T1","timestamp":"2026-11-10T19:44:15.645200Z","op":"create","item_id":"01M73FTQ8WM86GJZ5GEJPKESX6","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 0e8a16\n+tag_name: decision\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 0e8a16\n-tag_name: decision\n","transaction_id":null}

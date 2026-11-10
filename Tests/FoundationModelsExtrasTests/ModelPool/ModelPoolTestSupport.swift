@@ -409,6 +409,49 @@ struct FakeEmbedding: PooledEmbedding {
     }
 }
 
+/// A log-probability source whose results come from its arguments, thus a
+/// test can see that a call got its arguments and gave its results.
+///
+/// `tokenize` gives one token for each Unicode scalar of the text: the value
+/// of the scalar. `renderChatTemplate` gives one line `"<role>: <content>"`
+/// for each message, and then the line `"reasoning: <reasoning>"`.
+/// `logProbabilities` gives, for each prompt and each candidate, the
+/// candidate minus the token count of the prompt.
+struct FakeLogits: PooledLogits {
+    /// The largest number of tokens in one prompt.
+    let maximumPromptTokens: Int?
+
+    /// Gives the value of each Unicode scalar of `text`.
+    ///
+    /// - Parameter text: The text to tokenize.
+    /// - Returns: One token for each Unicode scalar of `text`.
+    func tokenize(_ text: String) async throws -> [Int] {
+        text.unicodeScalars.map { Int($0.value) }
+    }
+
+    /// Gives one line for each message, and one line for `reasoning`.
+    ///
+    /// - Parameters:
+    ///   - messages: The messages of the chat, in order.
+    ///   - reasoning: The reasoning flag.
+    /// - Returns: The lines, joined with a newline.
+    func renderChatTemplate(_ messages: [[String: String]], reasoning: Bool) async throws -> String? {
+        let lines = messages.map { "\($0["role"] ?? ""): \($0["content"] ?? "")" }
+        return (lines + ["reasoning: \(reasoning)"]).joined(separator: "\n")
+    }
+
+    /// Gives, for each prompt and each candidate, the candidate minus the
+    /// token count of the prompt.
+    ///
+    /// - Parameters:
+    ///   - candidates: The candidate tokens.
+    ///   - prompts: The prompts, each as tokens.
+    /// - Returns: One row for each prompt, with one value for each candidate.
+    func logProbabilities(of candidates: [Int], after prompts: [[Int]]) async throws -> [[Double]] {
+        prompts.map { prompt in candidates.map { Double($0 - prompt.count) } }
+    }
+}
+
 /// A loader that gives one container that the test makes. Its eviction does nothing.
 struct FixedLoader: PooledModelLoader {
     /// The container that each load gives.

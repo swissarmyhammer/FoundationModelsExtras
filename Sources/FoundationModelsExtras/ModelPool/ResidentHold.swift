@@ -46,6 +46,15 @@ final class ResidentHold<Loaded: Sendable>: Sendable {
         state = Mutex(.loaded(loaded))
     }
 
+    /// The hold when the load is done, or `nil` when no load is done yet.
+    /// This starts no load and does not wait.
+    var current: Loaded? {
+        state.withLock { state in
+            guard case .loaded(let loaded) = state else { return nil }
+            return loaded
+        }
+    }
+
     /// Gives the hold. The first call starts the load, and each call waits
     /// for that one load. The wait is not cancellable, the same as
     /// `Task.value`.

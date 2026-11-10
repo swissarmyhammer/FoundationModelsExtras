@@ -843,6 +843,59 @@ by `swift test --filter PooledModelTests`. The test declares `pool` (a
 `ModelPool(loader:)` with a test loader that gives a stub `LanguageModel`) and
 `Answer` (a `@Generable` type) before the block.
 
+### Log probabilities: `PooledLogitsModel`
+
+`PooledLogits` is the interface of a causal language model that gives
+next-token log probabilities. It has four members:
+
+- `maximumPromptTokens`: the largest number of tokens in one prompt, or `nil`
+  for no fixed limit.
+- `tokenize(_:)`: the token IDs of a text, with no BOS token and no EOS token.
+  Special-token text, for example `<|im_start|>`, becomes the special token, as
+  Hugging Face `encode(text, add_special_tokens=False)` does.
+- `renderChatTemplate(_:reasoning:)`: the chat template of the model as text,
+  with the generation prompt. Each message is a `[String: String]` with the
+  keys `role` and `content` only. `reasoning: false` turns reasoning off. The
+  result is `nil` when the model has no chat template.
+- `logProbabilities(of:after:)`: the log probabilities of the candidate tokens
+  at the last position of each prompt, under the full next-token distribution
+  (a log-softmax over all the logits). The source evaluates each prompt
+  exactly as given and adds no BOS token. The result has one row for each
+  prompt, in order, and one value for each candidate, in order.
+
+A source does not keep state between calls that changes the results. It can
+keep a cache, but each call gives the same result with and without the cache.
+
+`PooledLogitsModel(ref: "<Hugging Face name>")` makes a source of an LLM and
+loads nothing. The pool is `ModelPool.shared` when you give no `pool:`. The
+first call acquires the model from the pool with a key of the `.llm` role, one
+time only, also when first calls run at the same time. All copies of one
+`PooledLogitsModel` share that one hold, so the model stays resident while a
+copy exists, and the pool evicts the model after the last copy goes. Each call
+goes to the container of the hold. `ref` gives the name of the model.
+
+`maximumPromptTokens` does not load the model. A model made from a name gives
+`nil` before its first call, and the limit of the container after it.
+
+`PooledLogitsModel(hold:)` keeps a hold that you acquire with your own byte
+counts. It throws `PooledLogitsModelError.notLogitsCapable(ref)` at once when
+the container of the hold does not conform to `PooledLogits`. A model made from
+a name throws the same error on its first call, and keeps no hold.
+
+```swift
+// Loads nothing now. The first call loads the model into the pool.
+let model = PooledLogitsModel(ref: "mlx-community/Qwen3-4B-4bit", pool: pool)
+let candidates = try await model.tokenize("AB")
+let prompt = try await model.tokenize("Answer A or B: ")
+let rows = try await model.logProbabilities(of: candidates, after: [prompt])
+```
+
+This example is mirrored in `readmeLogitsExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/PooledLogitsModelTests.swift`, kept
+green by `swift test --filter PooledLogitsModelTests`. The test declares `pool`
+(a `ModelPool(loader:)` with a test loader that gives a stub `PooledLogits`)
+before the block.
+
 ### Sessions with their own hold: `PooledSession`
 
 Use a `PooledSession` when the session must keep the model resident. Each
