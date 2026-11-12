@@ -27,6 +27,31 @@ private let countingPrompt = "Count from one to twenty in words, separated by co
 /// The most tokens of each answer.
 private let maximumResponseTokens = 128
 
+/// One response of a model: its metadata and the count of its tokens.
+private struct Response {
+    /// The metadata of the response entry of the transcript.
+    let metadata: [String: GeneratedContent]
+
+    /// The tokens of the reasoning and of the answer.
+    let outputTokenCount: Int
+}
+
+/// What one load of the split set gave.
+private struct SplitSetLoad {
+    /// The count of the shards in the cache.
+    let shardCount: Int
+
+    /// The bytes that the pool counts for the resident model.
+    let footprint: Int64
+
+    /// The bytes that `LlamaLanguageModel.footprintBytes` gives for
+    /// the first shard at the context of the hold.
+    let estimate: Int64
+
+    /// The response of the model.
+    let response: Response
+}
+
 extension RealModelSuites {
     /// Real GGUF models through the pool: the download of one file from a
     /// path inside a repository, the load, one answer, and speculative
@@ -84,31 +109,6 @@ extension RealModelSuites {
         /// - Returns: A new pool.
         private static func makePool() -> ModelPool {
             ModelPool(loader: HubModelLoader(gguf: LlamaCppModelLoader()))
-        }
-
-        /// One response of a model: its metadata and the count of its tokens.
-        private struct Response {
-            /// The metadata of the response entry of the transcript.
-            let metadata: [String: GeneratedContent]
-
-            /// The tokens of the reasoning and of the answer.
-            let outputTokenCount: Int
-        }
-
-        /// What one load of the split set gave.
-        private struct SplitSetLoad {
-            /// The count of the shards in the cache.
-            let shardCount: Int
-
-            /// The bytes that the pool counts for the resident model.
-            let footprint: Int64
-
-            /// The bytes that `LlamaLanguageModel.footprintBytes` gives for
-            /// the first shard at the context of the hold.
-            let estimate: Int64
-
-            /// The response of the model.
-            let response: Response
         }
 
         /// Loads the split set of `key` in `pool`, measures it, and answers
