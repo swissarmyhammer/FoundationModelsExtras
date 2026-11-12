@@ -58,10 +58,8 @@ extension RealModelSuites {
             let prompt = try await model.tokenize(rendered)
             let candidates = try await model.tokenize("AB")
 
-            let row = try #require(try await model.logProbabilities(of: candidates, after: [prompt]).first)
+            try await LogitsChecks.expectFiniteAndNotPositive(model, candidates: candidates, after: prompt)
 
-            #expect(row.count == candidates.count)
-            #expect(row.allSatisfy { $0.isFinite && $0 <= 0 })
             #expect(try #require(model.maximumPromptTokens) >= prompt.count)
         }
     }

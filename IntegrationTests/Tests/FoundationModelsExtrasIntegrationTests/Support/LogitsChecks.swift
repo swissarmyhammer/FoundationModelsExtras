@@ -39,12 +39,25 @@ enum LogitsChecks {
     /// - Parameter model: The model of the suite.
     /// - Throws: The error of the tokenizer or of the model.
     static func expectFiniteAndNotPositive(_ model: PooledLogitsModel) async throws {
-        let prompt = try await model.tokenize(text)
+        try await expectFiniteAndNotPositive(model, candidates: candidates, after: try await model.tokenize(text))
+    }
 
-        let values = try await model.logProbabilities(of: candidates, after: [prompt]).joined()
+    /// Expects that one call with `prompt` gives one row, with one finite
+    /// value not more than 0 for each of `candidates`.
+    ///
+    /// - Parameters:
+    ///   - model: The model of the suite.
+    ///   - candidates: The candidates of the call.
+    ///   - prompt: The prompt of the call, as token IDs.
+    /// - Throws: The error of the model.
+    static func expectFiniteAndNotPositive(
+        _ model: PooledLogitsModel, candidates: [Int], after prompt: [Int]
+    ) async throws {
+        let rows = try await model.logProbabilities(of: candidates, after: [prompt])
 
-        #expect(values.count == candidates.count)
-        #expect(values.allSatisfy { $0.isFinite && $0 <= 0 })
+        #expect(rows.count == 1)
+        #expect(rows.joined().count == candidates.count)
+        #expect(rows.joined().allSatisfy { $0.isFinite && $0 <= 0 })
     }
 
     /// Expects that the probabilities of all vocabulary IDs after ``text``
