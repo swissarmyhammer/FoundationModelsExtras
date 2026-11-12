@@ -23,8 +23,24 @@ comments:
     - evidence: Sources/FoundationModelsExtras/ModelPool/PooledDecisions.swift (new), Tests/FoundationModelsExtrasTests/ModelPool/PooledDecisionsModelTests.swift (new, 18 tests), Tests/FoundationModelsExtrasTests/ModelPool/ModelPoolTestSupport.swift (FakeDecisions), docs/REFERENCE.md (new section "Native decisions: `PooledDecisionsModel`"). RED: compile failed on the missing types. `swift test --filter PooledDecisionsModel`: 18 of 18 pass. Full `swift test`: all suites pass, no compiler warnings. Consumer contract points 1-4 are in the doc comments and REFERENCE.md, with no validation in the model. The decision-type check runs one time in the `ResidentHold` load closure for both inits; `LoadedDecisions.hold` is read in `checkedDecisionType()` and in `init(hold:)` for `ref`.
     - next: /review
   timestamp: 2026-11-12T18:52:17.639874+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m78htfp9qqrcjf3mdhtsn3vy
+  text: |-
+    ### review — clean
+    - evidence: review sha 4f19ba4~1..4f19ba4 — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). docs/REFERENCE.md has no matching validator. .kanban/ files are excluded by .reviewignore.
+    - next: The task is in done. Send foundationmodelsdecision-6f the sha and the CI run when the commit is on origin/main and CI is green.
+  timestamp: 2026-11-12T18:55:17.193431+00:00
+- actor: claude-code
+  id: 01m78htyf0ajn52z6p95p2dr21
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 files
+    - test: green — swift test, all runs passed, 0 failed
+    - commit: 4f19ba4
+    - review: clean — 0 findings
+  timestamp: 2026-11-12T18:55:32.320070+00:00
+position_column: done
+position_ordinal: ffe280
 title: PooledDecisions protocol and PooledDecisionsModel (a .llm hold that answers decision questions natively)
 ---
 ## What
