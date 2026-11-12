@@ -11,8 +11,9 @@ import PackageDescription
 //
 // Nothing reads an environment variable to select tests.
 //
-// The tests load each model with `MLXModelLoader`, the built-in loader of the
-// core, thus this package names only the products that a test file imports.
+// The MLX tests load each model with `MLXModelLoader`, the built-in loader of
+// the core, and the GGUF tests with `LlamaCppModelLoader`. Thus this package
+// names only the products that a test file imports.
 // The MLX pins are the pins of the root package and of the
 // FoundationModelsRouter integration package, so the packages resolve the
 // same MLX code.
@@ -24,6 +25,7 @@ let transformersPackage = "swift-transformers"
 let ulidPackage = "ULID.swift"
 let tracingPackage = "swift-distributed-tracing"
 let metricsPackage = "swift-metrics"
+let llamaCppPackage = "FoundationModelsLlamaCpp"
 
 let package = Package(
     name: "IntegrationTests",
@@ -47,6 +49,12 @@ let package = Package(
         // The generate telemetry test reads the timers of a capture. The same
         // floor as the root package.
         .package(url: "https://github.com/apple/\(metricsPackage).git", from: "2.11.0"),
+        // `LlamaLanguageModel`: the GGUF suites read the tokenizer of a loaded
+        // model and the footprint of a split set. The same pin as the root
+        // package: the SSH URL with `branch: "main"`, because its wrapper
+        // `llama-cpp-swift` has an unsafe flag, which SwiftPM refuses in a
+        // dependency that it resolves by version.
+        .package(url: "git@github.com:swissarmyhammer/\(llamaCppPackage).git", branch: "main"),
     ],
     targets: [
         .testTarget(
@@ -80,6 +88,10 @@ let package = Package(
                 // The generate telemetry test reads the values of each timer
                 // from the `TestMetrics` factory of a capture.
                 .product(name: "MetricsTestKit", package: metricsPackage),
+                // `LlamaCppModelLoader` and `GGUFSource`: the GGUF suites load
+                // real GGUF models through a pool.
+                .product(name: "\(extrasPackage)LlamaCpp", package: extrasPackage),
+                .product(name: llamaCppPackage, package: llamaCppPackage),
             ],
             path: "Tests/\(extrasPackage)IntegrationTests",
             // The ids that the Python tokenizers library gives for the
@@ -88,7 +100,10 @@ let package = Package(
             // a resource changes the layout of the test bundle, and then the
             // second build of `swift test` cannot sign the bundle after CI
             // copies the shader library into it.
-            exclude: ["Support/ReferenceTokenIds.json"]
+            exclude: ["Support/ReferenceTokenIds.json"],
+            // The module of llama.cpp needs C++ interop, thus each target that
+            // imports `FoundationModelsExtrasLlamaCpp` sets it.
+            swiftSettings: [.interoperabilityMode(.Cxx)]
         )
     ]
 )
