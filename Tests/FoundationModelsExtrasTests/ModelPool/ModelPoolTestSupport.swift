@@ -460,6 +460,52 @@ struct FakeLogits: PooledLogits {
     }
 }
 
+/// A decision source whose answers come from its arguments, thus a test can
+/// see that a call got its arguments and gave its results.
+///
+/// `decide` gives, for each question, an answer with the ID of the question
+/// and one probability for each option: the position of the option in the
+/// question, plus one. The expected value of a `score` question is the
+/// option count; the expected value of other questions is `nil`.
+struct FakeDecisions: PooledDecisions {
+    /// The decision type name that ``decisionType()`` gives, or `nil` for a
+    /// model with no decision type.
+    var decisionTypeName: String?
+
+    /// The value that ``maximumOptions()`` gives.
+    var optionLimit: Int
+
+    /// Gives ``decisionTypeName``.
+    ///
+    /// - Returns: ``decisionTypeName``.
+    func decisionType() async throws -> String? {
+        decisionTypeName
+    }
+
+    /// Gives ``optionLimit``.
+    ///
+    /// - Returns: ``optionLimit``.
+    func maximumOptions() async throws -> Int {
+        optionLimit
+    }
+
+    /// Gives one answer for each question, from the options of the question.
+    ///
+    /// - Parameters:
+    ///   - state: The state. This stub does not read it.
+    ///   - questions: The questions.
+    /// - Returns: One answer for each question, in question order.
+    func decide(state: PooledDecisionState, questions: [PooledDecisionQuestion]) async throws -> [PooledDecisionAnswer] {
+        questions.map { question in
+            PooledDecisionAnswer(
+                id: question.id,
+                probabilities: question.options.indices.map { Double($0 + 1) },
+                expectedValue: question.type == .score ? Double(question.options.count) : nil
+            )
+        }
+    }
+}
+
 /// A loader that gives one container that the test makes. Its eviction does nothing.
 struct FixedLoader: PooledModelLoader {
     /// The container that each load gives.

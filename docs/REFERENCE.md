@@ -896,6 +896,85 @@ green by `swift test --filter PooledLogitsModelTests`. The test declares `pool`
 (a `ModelPool(loader:)` with a test loader that gives a stub `PooledLogits`)
 before the block.
 
+### Native decisions: `PooledDecisionsModel`
+
+Some GGUF models have a decision type in their metadata
+(`{arch}.decision.type`). For these models, the model itself makes the prompt
+and reads the answer. `PooledDecisions` is the interface of such a model. It
+uses plain Swift types only, so Extras does not depend on a decision package.
+It has three functions:
+
+- `decisionType()`: the decision type name of the model, or `nil` when the
+  model has no decision type.
+- `maximumOptions()`: the largest number of options in one question.
+- `decide(state:questions:)`: one `PooledDecisionAnswer` for each question, in
+  question order.
+
+These are functions, not properties, because a model made from a name loads
+its model on the first call.
+
+The value types are `Sendable` and `Hashable`, and each has a public
+memberwise `init`:
+
+- `PooledDecisionState`: `.text(String)`, or `.json(String)` with JSON text.
+  Extras gives the JSON text to the container unchanged: it does not parse the
+  text and does not change its key order.
+- `PooledDecisionQuestionType`: `choice`, `score` or `noul`.
+- `PooledDecisionOption`: a `key` and an optional `description`.
+- `PooledDecisionQuestion`: an `id`, a `type`, the `instructions` and the
+  `options`, in order.
+- `PooledDecisionAnswer`: the `id` of the question, one probability for each
+  option in option order, and `expectedValue`.
+
+The question types have these rules:
+
+- `score`: the options are the levels, lowest first, with the keys `"0"` to
+  `"n-1"`. `probabilities` follows the level order. `expectedValue` is in
+  level-index units, from `0` to `n-1`.
+- `noul`: the question always has two options, with the keys `"true"` and
+  `"false"`, in the order that the caller gives. `probabilities` follows that
+  order. The descriptions can be `nil`. An empty option list is not valid.
+- `choice`: `expectedValue` is `nil`, as for `noul`. An option can have no
+  description.
+
+`PooledDecisionsModel` does not validate these rules. The container decides.
+
+`PooledDecisionsModel(ref: "<Hugging Face name>")` makes a source of an LLM
+and loads nothing. The pool is `ModelPool.shared` when you give no `pool:`.
+The first call acquires the model from the pool with a key of the `.llm`
+role, one time only, also when first calls run at the same time. All copies
+share that one hold, so the model stays resident while a copy exists, and the
+pool evicts the model after the last copy goes. Each call goes to the
+container of the hold. `ref` gives the name of the model.
+
+`PooledDecisionsModel(hold:)` keeps a hold that you acquire with your own byte
+counts. It throws `PooledDecisionsModelError.notDecisionCapable(ref)` at once
+when the container of the hold does not conform to `PooledDecisions`. A model
+made from a name throws the same error on its first call, and keeps no hold.
+
+The first call of each model also reads `decisionType()` of the container,
+one time only. When it gives `nil`, that call throws
+`PooledDecisionsModelError.notDecisionCapable(ref)`. A model made from a name
+then keeps no hold.
+
+```swift
+// Loads nothing now. The first call loads the model into the pool.
+let model = PooledDecisionsModel(ref: "org/decision-model-GGUF", pool: pool)
+let question = PooledDecisionQuestion(
+    id: "spam",
+    type: .noul,
+    instructions: "Is the ticket spam?",
+    options: [PooledDecisionOption(key: "true"), PooledDecisionOption(key: "false")]
+)
+let answers = try await model.decide(state: .text("Win a free phone!"), questions: [question])
+```
+
+This example is mirrored in `readmeDecisionsExample` in
+`Tests/FoundationModelsExtrasTests/ModelPool/PooledDecisionsModelTests.swift`,
+kept green by `swift test --filter PooledDecisionsModelTests`. The test
+declares `pool` (a `ModelPool(loader:)` with a test loader that gives a stub
+`PooledDecisions`) before the block.
+
 ### Sessions with their own hold: `PooledSession`
 
 Use a `PooledSession` when the session must keep the model resident. Each

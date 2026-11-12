@@ -1,0 +1,1 @@
+{"id":"01M77TVSSGCNGTG9RT322NSXA4","timestamp":"2026-11-12T12:14:03.056027Z","op":"create","item_id":"01M77TVSSFMEYBCKPM4V5MFE3S","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 0075ca\n+tag_name: waits-l3\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 0075ca\n-tag_name: waits-l3\n","transaction_id":null}
