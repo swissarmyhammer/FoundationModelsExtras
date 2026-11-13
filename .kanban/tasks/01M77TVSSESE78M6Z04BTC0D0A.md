@@ -65,11 +65,27 @@ comments:
     - open: FoundationModelsDecision names `maximumOptions()` and must change with this release. The noul key check (`LlamaDecisionsError.noulOptionsNotValid`) waits for a coordinator decision.
     - next: /review
   timestamp: 2026-11-13T00:50:35.979519+00:00
+- actor: claude-code
+  id: 01m796cgjyjk95zxj3wx1f3drx
+  text: |-
+    ### review — clean
+    - evidence: review sha 83a07e6~1..83a07e6 — 0 findings (7 files examined, 0 confirmed, 0 refuted). The .kanban files are excluded by .reviewignore. No validator matches docs/REFERENCE.md.
+    - next: none. The task is in done.
+  timestamp: 2026-11-13T00:54:39.454610+00:00
+- actor: claude-code
+  id: 01m796d2e1jy51assj8jkgck46
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files (with the removal of maximumOptions() and the mapping by question ID)
+    - test: green — swift test, 2531 passed, 0 failed; swift test --package-path IntegrationTests, 63 passed
+    - commit: 83a07e6
+    - review: clean — 0 findings
+  timestamp: 2026-11-13T00:54:57.729219+00:00
 depends_on:
 - 01M77TVABAGVCSJT7VKCF1A3XV
 - 01M77TPTFW0730ECSJ2TTSAZW2
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffe480
 title: 'llama.cpp native decisions: extension LlamaLanguageModel: PooledDecisions (waits for L3)'
 ---
 ## What
