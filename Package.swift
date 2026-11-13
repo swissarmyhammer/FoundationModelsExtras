@@ -455,9 +455,14 @@ let package = Package(
             swiftSettings: [.interoperabilityMode(.Cxx)]
         ),
 
-        // The tests of the GGUF loader. The hermetic tests load the
-        // vocab-only GGUF files of `LlamaCppTestFixtures`. The one test of a
-        // real model runs only when `EXTRAS_GGUF_INTEGRATION` is `1`.
+        // The hermetic tests of `FoundationModelsExtrasLlamaCpp`: the GGUF
+        // loader, the `PooledLogits` conformance of `LlamaLanguageModel` (the
+        // tokenizer, the chat template and the prompt limit), and its
+        // `PooledDecisions` conformance (the decision type and the maps).
+        // Each test uses the vocab-only GGUF files of `LlamaCppTestFixtures`.
+        // No test loads weights or uses the network. The tests of a real
+        // GGUF model are in the nested package `IntegrationTests/`. Run them
+        // with `swift test --package-path IntegrationTests`.
         .testTarget(
             name: "FoundationModelsExtrasLlamaCppTests",
             dependencies: [
