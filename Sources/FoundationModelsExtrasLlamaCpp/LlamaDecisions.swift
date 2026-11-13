@@ -8,9 +8,9 @@ import os
 /// loads works.
 ///
 /// `LlamaLanguageModel.decide(state:questions:)` of FoundationModelsLlamaCpp
-/// does the work, with the semantics of `POST /v1/systemone` of llama-server.
-/// The decision code of llama.cpp makes the prompts from the decision metadata
-/// of the GGUF file and reads the logits of the labels. This conformance only
+/// does the work in this process, with typed calls into llama.cpp. The
+/// decision code of llama.cpp makes the prompts from the decision metadata of
+/// the GGUF file and reads the logits of the labels. This conformance only
 /// maps each request type to its llama.cpp type, and each answer back.
 ///
 /// A model has a decision type name only when its GGUF file has a decision
@@ -40,7 +40,8 @@ extension LlamaLanguageModel: PooledDecisions {
     ///
     /// For the `lev` type, the probability of `true` of a noul answer is the
     /// expected value of the rating scale of the model, from 0 to 1, and not
-    /// a true probability. llama-server gives the same value.
+    /// a true probability. `decide` gives this value, and this conformance
+    /// does not change it.
     ///
     /// llama.cpp keeps one question for each ID: the last question with that
     /// ID, at the position of the first one. Thus a repeated ID gives fewer
@@ -52,8 +53,8 @@ extension LlamaLanguageModel: PooledDecisions {
     /// The call does not check the request against the limits of the model.
     /// llama.cpp checks it, and its error comes to the caller unchanged. For
     /// example, a question with more options than the model accepts throws
-    /// `LlamaError.decisionRequestNotValid(reason:)` with the reason "too
-    /// many options (N), this model supports at most M".
+    /// `LlamaError.decisionRequestNotValid(reason:)`, and the reason gives
+    /// the number of options and the limit of the model.
     ///
     /// - Parameters:
     ///   - state: The state that the questions are about.
