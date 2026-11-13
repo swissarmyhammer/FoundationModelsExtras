@@ -135,7 +135,9 @@ extension RealModelSuites {
 
             let reason: String? =
                 if case .decisionRequestNotValid(let reason) = error { reason } else { nil }
-            #expect(try #require(reason).contains("too many options (\(tooManyOptionCount))"))
+            #expect(
+                try #require(reason).hasPrefix(
+                    "question \"code\": the question has \(tooManyOptionCount) options, and the model accepts at most "))
         }
 
         // MARK: Helpers
