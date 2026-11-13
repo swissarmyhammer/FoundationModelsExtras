@@ -11,10 +11,26 @@ comments:
     - evidence: 1 file — Package.swift (comment of the FoundationModelsExtrasLlamaCppTests target only). `grep -n "EXTRAS_GGUF_INTEGRATION" Package.swift` finds nothing (exit 1). `swift build`: Build complete (one SwiftPM build-system warning "missing creator for mutated node" for mlx-swift_Cmlx.bundle, not from this change).
     - next: test (root `swift test`), then review.
   timestamp: 2026-11-13T01:11:08.520467+00:00
+- actor: claude-code
+  id: 01m797ggbnvq48bgw5prs8xe2t
+  text: |-
+    ### review — clean
+    - evidence: review sha 25e087b~1..25e087b. 0 findings (findings 0, confirmed 0, refuted 0, attempted 7, failed 0). Package.swift was reviewed. The two .kanban/ files were not reviewed because .reviewignore excludes them. The task had no prior Review Findings section.
+    - next: none. The task moved to done.
+  timestamp: 2026-11-13T01:14:18.869562+00:00
+- actor: claude-code
+  id: 01m797h111wynk4qzpta2yzx6w
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — Package.swift (one comment)
+    - test: green — swift test, 2531 passed, 0 failed
+    - commit: 25e087b
+    - review: clean — 0 findings
+  timestamp: 2026-11-13T01:14:35.937362+00:00
 depends_on:
 - 01M77TPTFW0730ECSJ2TTSAZW2
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffe580
 title: Correct the stale comment of the FoundationModelsExtrasLlamaCppTests target in the root Package.swift
 ---
 ## What
