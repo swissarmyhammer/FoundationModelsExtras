@@ -6,8 +6,9 @@ import Testing
 
 /// Qwen3.5-0.8B, Q8_0: one file, the smallest model of the real models of
 /// FoundationModelsLlamaCpp, at its pinned revision. It downloads about 900 MB
-/// to the default Hugging Face cache.
-private let singleFileRef: ModelRef =
+/// to the default Hugging Face cache. Its GGUF file has no decision type, thus
+/// the decisions suite also uses it as a model that is not decision-capable.
+let singleFileRef: ModelRef =
     "ggml-org/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf@807dfd9a6fadbf703207aac3bfb0b2b3040d077c"
 
 /// SmolLM2-135M-Instruct, Q4_0: the split set of the folder `Q4_0`, about

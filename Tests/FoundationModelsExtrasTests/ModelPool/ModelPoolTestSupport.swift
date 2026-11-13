@@ -472,21 +472,11 @@ struct FakeDecisions: PooledDecisions {
     /// model with no decision type.
     var decisionTypeName: String?
 
-    /// The value that ``maximumOptions()`` gives.
-    var optionLimit: Int
-
     /// Gives ``decisionTypeName``.
     ///
     /// - Returns: ``decisionTypeName``.
     func decisionType() async throws -> String? {
         decisionTypeName
-    }
-
-    /// Gives ``optionLimit``.
-    ///
-    /// - Returns: ``optionLimit``.
-    func maximumOptions() async throws -> Int {
-        optionLimit
     }
 
     /// Gives one answer for each question, from the options of the question.

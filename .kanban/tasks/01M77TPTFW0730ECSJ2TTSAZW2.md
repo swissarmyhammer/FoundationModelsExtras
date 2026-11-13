@@ -60,6 +60,14 @@ comments:
     - review: clean — `review sha aac88f3..e2569f3`, 1 file, 0 findings; all prior findings are ticked. Task moved to done.
     - open: the acceptance criterion "After the push, the CI job ... passes" cannot be checked before the push. Nothing was pushed.
   timestamp: 2026-11-12T21:38:15.871972+00:00
+- actor: claude-code
+  id: 01m78wcp9qxv5ak7tqjs74ttry
+  text: |-
+    ### Pushed, and CI is green
+    - On origin/main as a618536, e145bbf, 7077023. The head is 572b92b.
+    - CI run 43312416682 (https://github.com/swissarmyhammer/FoundationModelsExtras/actions/runs/43312416682): "Build & test" success, "Integration (opt-in, real dependencies)" success.
+    - The Integration job ran the moved suites: "LlamaCpp loader with real models", "LlamaCpp logits with a real model" and "MLX logits with a real model", all passed. Thus the last acceptance criterion is satisfied.
+  timestamp: 2026-11-12T21:59:59.543151+00:00
 position_column: done
 position_ordinal: ffe380
 title: Move the env-gated real-model suites into the IntegrationTests package, so CI runs them

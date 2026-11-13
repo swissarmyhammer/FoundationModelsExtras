@@ -902,13 +902,17 @@ Some GGUF models have a decision type in their metadata
 (`{arch}.decision.type`). For these models, the model itself makes the prompt
 and reads the answer. `PooledDecisions` is the interface of such a model. It
 uses plain Swift types only, so Extras does not depend on a decision package.
-It has three functions:
+It has two functions:
 
 - `decisionType()`: the decision type name of the model, or `nil` when the
   model has no decision type.
-- `maximumOptions()`: the largest number of options in one question.
 - `decide(state:questions:)`: one `PooledDecisionAnswer` for each question, in
-  question order.
+  question order. Give each question a different ID to get one answer for
+  each question. A repeated ID gives fewer answers than questions. A repeated
+  option key in a question can make the probabilities of its answer sum to
+  more than 1. The source does not check the request against the limits of
+  the model: a request that the model cannot do throws the error of the
+  model.
 
 These are functions, not properties, because a model made from a name loads
 its model on the first call.

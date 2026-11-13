@@ -117,19 +117,24 @@ public protocol PooledDecisions: Sendable {
     /// - Throws: An error if the source cannot read the decision type.
     func decisionType() async throws -> String?
 
-    /// Gives the largest number of options in one question.
-    ///
-    /// - Returns: The largest option count.
-    /// - Throws: An error if the source cannot read the limit.
-    func maximumOptions() async throws -> Int
-
     /// Answers questions about a state.
+    ///
+    /// Give each question a different ID to get one answer for each
+    /// question. A repeated ID gives fewer answers than questions. A repeated
+    /// option key in a question can make the probabilities of its answer sum
+    /// to more than 1.
+    ///
+    /// The source does not check the request against the limits of the
+    /// model, for example the largest option count of a question. A request
+    /// that the model cannot do throws the error of the model, unchanged.
     ///
     /// - Parameters:
     ///   - state: The state that the questions are about.
     ///   - questions: The questions, in order.
-    /// - Returns: One answer for each question, in question order.
-    /// - Throws: An error if the source cannot answer the questions.
+    /// - Returns: One answer for each question, in question order, when each
+    ///   question has a different ID.
+    /// - Throws: An error if the source cannot answer the questions, for
+    ///   example the error of the model for a request that the model cannot do.
     func decide(state: PooledDecisionState, questions: [PooledDecisionQuestion]) async throws -> [PooledDecisionAnswer]
 }
 
@@ -202,18 +207,6 @@ public struct PooledDecisionsModel: PooledDecisions {
     ///   container does not conform to ``PooledDecisions`` or has no decision type.
     public func decisionType() async throws -> String? {
         try await resident.loaded().decisions.decisionType()
-    }
-
-    /// Gives the largest number of options in one question, from the
-    /// container. The first call of a model loads the model when it has no
-    /// hold yet, and checks the decision type.
-    ///
-    /// - Returns: The largest option count of the container.
-    /// - Throws: The error of the load or of the model; or
-    ///   ``PooledDecisionsModelError/notDecisionCapable(_:)`` when the
-    ///   container does not conform to ``PooledDecisions`` or has no decision type.
-    public func maximumOptions() async throws -> Int {
-        try await resident.loaded().decisions.maximumOptions()
     }
 
     /// Answers questions about a state, with the container. The first call of

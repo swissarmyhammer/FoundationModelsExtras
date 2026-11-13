@@ -18,14 +18,11 @@ struct PooledDecisionsModelTests {
     /// The decision type name of the container of the tests.
     private static let typeName = "triage"
 
-    /// The option limit of the container of the tests.
-    private static let optionLimit = 8
-
     /// The container of the tests, which has a decision type.
-    private static let decisions = FakeDecisions(decisionTypeName: typeName, optionLimit: optionLimit)
+    private static let decisions = FakeDecisions(decisionTypeName: typeName)
 
     /// A container that conforms, but has no decision type.
-    private static let untypedDecisions = FakeDecisions(decisionTypeName: nil, optionLimit: optionLimit)
+    private static let untypedDecisions = FakeDecisions(decisionTypeName: nil)
 
     /// The name of the loader that ``decisionsLoader(log:container:loadsMayEnd:)`` makes.
     private static let loaderName = "A"
@@ -118,13 +115,6 @@ struct PooledDecisionsModelTests {
         #expect(try await model.decisionType() == Self.typeName)
     }
 
-    @Test("maximumOptions gives the option limit of the container")
-    func maximumOptionsForwardsToTheContainer() async throws {
-        let model = try await Self.heldModel()
-
-        #expect(try await model.maximumOptions() == Self.optionLimit)
-    }
-
     @Test("decide gives the answers of the container, in question order")
     func decideForwardsToTheContainer() async throws {
         let model = try await Self.heldModel()
@@ -191,7 +181,7 @@ struct PooledDecisionsModelTests {
         let model = PooledDecisionsModel(ref: Self.key.ref, pool: pool)
 
         await #expect(throws: PooledDecisionsModelError.notDecisionCapable(Self.key.ref)) {
-            try await model.maximumOptions()
+            try await model.decisionType()
         }
     }
 
@@ -201,7 +191,7 @@ struct PooledDecisionsModelTests {
         let model = PooledDecisionsModel(ref: Self.key.ref, pool: pool)
 
         await #expect(throws: PooledDecisionsModelError.notDecisionCapable(Self.key.ref)) {
-            try await model.maximumOptions()
+            try await model.decisionType()
         }
         try await pool.waitForTheEarlierAdmissionJobs()
 
@@ -217,12 +207,12 @@ struct PooledDecisionsModelTests {
         }
     }
 
-    @Test("the first maximumOptions of a model made from a hold throws notDecisionCapable when the container has no decision type")
-    func aHeldUntypedModelThrowsOnMaximumOptions() async throws {
+    @Test("the first decisionType of a model made from a hold throws notDecisionCapable when the container has no decision type")
+    func aHeldUntypedModelThrowsOnDecisionType() async throws {
         let model = try await Self.heldModel(of: Self.untypedDecisions)
 
         await #expect(throws: PooledDecisionsModelError.notDecisionCapable(Self.key.ref)) {
-            try await model.maximumOptions()
+            try await model.decisionType()
         }
     }
 
@@ -235,12 +225,12 @@ struct PooledDecisionsModelTests {
         }
     }
 
-    @Test("the first maximumOptions of a model made from a name throws notDecisionCapable when the container has no decision type")
-    func aNamedUntypedModelThrowsOnMaximumOptions() async throws {
+    @Test("the first decisionType of a model made from a name throws notDecisionCapable when the container has no decision type")
+    func aNamedUntypedModelThrowsOnDecisionType() async throws {
         let (_, model) = Self.namedModel(of: Self.untypedDecisions)
 
         await #expect(throws: PooledDecisionsModelError.notDecisionCapable(Self.key.ref)) {
-            try await model.maximumOptions()
+            try await model.decisionType()
         }
     }
 
@@ -249,7 +239,7 @@ struct PooledDecisionsModelTests {
         let (pool, model) = Self.namedModel(of: Self.untypedDecisions)
 
         await #expect(throws: PooledDecisionsModelError.notDecisionCapable(Self.key.ref)) {
-            try await model.maximumOptions()
+            try await model.decisionType()
         }
         try await pool.waitForTheEarlierAdmissionJobs()
 
@@ -264,15 +254,15 @@ struct PooledDecisionsModelTests {
         let model = PooledDecisionsModel(ref: Self.key.ref, pool: pool)
 
         defer { endLoads.finish() }
-        let first = Task { try await model.maximumOptions() }
+        let first = Task { try await model.decide(state: Self.state, questions: [Self.noulQuestion]) }
         let second = Task { try await model.decisionType() }
         await log.waitUntil(holds: Self.loadEntry, orUntilEndOf: first)
         try #require(Self.loads(in: log) == [Self.loadEntry])
         endLoads.finish()
-        let limit = try await first.value
+        let answers = try await first.value
         let typeName = try await second.value
 
-        #expect(limit == Self.optionLimit)
+        #expect(answers == [PooledDecisionAnswer(id: "spam", probabilities: [1, 2], expectedValue: nil)])
         #expect(typeName == Self.typeName)
         #expect(Self.loads(in: log) == [Self.loadEntry])
     }
@@ -283,16 +273,16 @@ struct PooledDecisionsModelTests {
         var model: PooledDecisionsModel? = PooledDecisionsModel(ref: Self.key.ref, pool: pool)
         var copy = model
 
-        _ = try await model?.maximumOptions()
+        _ = try await model?.decisionType()
         model = nil
         try await pool.waitForTheEarlierAdmissionJobs()
         let residentWhileACopyExists = pool.isResident(Self.key)
-        let copyLimit = try await copy?.maximumOptions()
+        let copyTypeName = try await copy?.decisionType()
         copy = nil
         try await pool.waitForTheEarlierAdmissionJobs()
 
         #expect(residentWhileACopyExists)
-        #expect(copyLimit == Self.optionLimit)
+        #expect(copyTypeName == Self.typeName)
         #expect(!pool.isResident(Self.key))
     }
 
