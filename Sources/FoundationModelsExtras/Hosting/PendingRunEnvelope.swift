@@ -64,6 +64,11 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
         + "need to wait for them or check on them, and no tool can make them come sooner. Go on with "
         + "any work that does not need them."
 
+    /// The words that open the status line a model posts while it waits on
+    /// background work (``waitingStatusInstruction(for:)``). A host can read
+    /// a final text that opens with them as a wait.
+    public static let waitingStatusPrefix = "Waiting on"
+
     /// What the model must do while `calls` run in the background, as plain
     /// text: each call by its description and completion token, what to do
     /// meanwhile, and the status line to post when no other work is left,
@@ -86,7 +91,7 @@ public struct PendingRunEnvelope: Codable, Sendable, Equatable {
         let status = calls.map { "\($0.description) (\($0.completionToken))" }
         let instruction = calls.count == 1 ? singleResultInstruction : severalResultsInstruction
         return "Running in the background: \(named.joined(separator: "; ")). \(instruction) "
-            + "If none is left, post your status as plain text: `Waiting on \(status.joined(separator: "; ")).`"
+            + "If none is left, post your status as plain text: `\(waitingStatusPrefix) \(status.joined(separator: "; ")).`"
     }
 
     /// The default `next` text of a pending envelope:
