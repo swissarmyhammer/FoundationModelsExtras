@@ -36,7 +36,7 @@ let package = Package(
     dependencies: [
         .package(path: ".."),
         // The controlled fork of mlx-swift-lm.
-        .package(url: "https://github.com/swissarmyhammer/\(mlxPackage)", branch: "stable"),
+        .package(url: "https://github.com/swissarmyhammer/\(mlxPackage)", branch: "flint"),
         .package(url: "https://github.com/huggingface/\(huggingFacePackage)", from: "0.9.0"),
         // The same floor as the root package.
         .package(url: "https://github.com/huggingface/\(transformersPackage)", from: "1.3.0"),

@@ -94,7 +94,7 @@ let package = Package(
         // branch that the FoundationModelsRouter resolves, thus the family
         // resolves one MLX. swift-huggingface downloads the weights, and
         // swift-transformers loads the tokenizer.
-        .package(url: "https://github.com/swissarmyhammer/mlx-swift-lm", branch: "stable"),
+        .package(url: "https://github.com/swissarmyhammer/mlx-swift-lm", branch: "flint"),
         .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         // The GraphQL toolkit of the family: the engine (the parser, the
