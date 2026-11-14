@@ -160,13 +160,18 @@ public struct OperationTool<Context: Sendable>: Tool {
 
     /// Resolves `arguments` to a registered operation and dispatches to it.
     ///
-    /// Pipeline: forgiving-resolve `op` → look up the matching
+    /// Pipeline: unwrap a lone `arguments` wrapper → forgiving-resolve `op`
+    /// (or infer it from the keys when it is missing) → look up the matching
     /// `AnyOperation` → resolve and validate its required parameters →
-    /// `run(content, context)`.
+    /// `run(content, context)`. The unwrap and the key-fit inference
+    /// (^vm78pnz) are stated on `OperationResolver`; a well-formed payload
+    /// goes through neither.
     ///
     /// - Parameter arguments: The model- or CLI-supplied payload: an `op`
-    ///   string (or a value `resolver.inferOp` can derive one from) plus the
-    ///   resolved operation's parameters, under canonical or aliased names.
+    ///   string (or a value `resolver.inferOp` can derive one from, or keys
+    ///   that key-fit inference can derive one from) plus the resolved
+    ///   operation's parameters, under canonical or aliased names. The whole
+    ///   payload may also come in one `arguments` key.
     /// - Returns: The dispatched operation's JSON-encoded output on success;
     ///   otherwise a corrective message (unknown op, missing required
     ///   parameters, or unparseable values) — or, once `retryCap`
@@ -206,32 +211,41 @@ public struct OperationTool<Context: Sendable>: Tool {
     /// two paths resolve a payload in the same way. This function does not
     /// read or change the retry state.
     ///
+    /// A lone `arguments` wrapper is unwrapped first, and the parameters are
+    /// resolved from the unwrapped payload (^vm78pnz).
+    ///
     /// - Parameter arguments: The payload with the `op` key and the fields of
-    ///   one operation.
+    ///   one operation, or that payload in one `arguments` key.
     /// - Returns: The matched operation and the content with its canonical
     ///   parameter keys.
     /// - Throws: `OperationError.unknownOperation(valid:)` when no operation
-    ///   matches, or `OperationError.missingRequired(_:)` when the payload
-    ///   does not have a required parameter.
+    ///   matches or can be inferred, or `OperationError.missingRequired(_:)`
+    ///   when the payload does not have a required parameter.
     private func resolve(_ arguments: GeneratedContent) throws(OperationError) -> ResolvedOperation {
-        guard let operation = matchOperation(for: arguments) else {
+        let payload = OperationResolver.unwrappingArguments(arguments)
+        guard let operation = matchOperation(for: payload) else {
             throw .unknownOperation(valid: operations.map(\.opString))
         }
 
-        let resolution = resolver.resolveParameters(arguments, matching: operation.parameters)
+        let resolution = resolver.resolveParameters(payload, matching: operation.parameters)
         guard resolution.missingRequired.isEmpty else {
             throw .missingRequired(resolution.missingRequired)
         }
         return (operation, resolution.content)
     }
 
-    /// Extracts and matches `arguments`' op string against `operations`, via
-    /// `resolver`'s explicit-field/inference extraction and
-    /// alias/reordering-tolerant matching.
-    private func matchOperation(for arguments: GeneratedContent) -> AnyOperation<Context>? {
-        guard let candidate = resolver.extractedOpString(from: arguments) else { return nil }
-        let candidates = operations.map { OperationResolver.OpCandidate(verb: $0.verb, noun: $0.noun, opString: $0.opString) }
-        guard let matchedOpString = resolver.matchOpString(candidate, against: candidates) else { return nil }
+    /// Finds the operation of `payload` with `resolver`: the explicit `op`
+    /// (alias- and reordering-tolerant), else the `inferOp` proposal, else
+    /// key-fit inference with `defaultOp` (see `OperationResolver`).
+    ///
+    /// - Parameter payload: The payload, already through
+    ///   `OperationResolver.unwrappingArguments(_:)`.
+    /// - Returns: The matched operation, or `nil` when none matches.
+    private func matchOperation(for payload: GeneratedContent) -> AnyOperation<Context>? {
+        let candidates = operations.map {
+            OperationResolver.OpCandidate(verb: $0.verb, noun: $0.noun, opString: $0.opString, parameters: $0.parameters)
+        }
+        guard let matchedOpString = resolver.matchedOpString(for: payload, among: candidates) else { return nil }
         return operations.first { $0.opString == matchedOpString }
     }
 
@@ -289,14 +303,16 @@ extension OperationTool: ForkableTool {
 /// `OperationTool` conforms to `BackgroundTool`, so the host runs each call
 /// with the mount of the called operation.
 extension OperationTool: BackgroundTool {
-    /// The mount of the operation that `arguments` names. An unknown
-    /// operation is ``ToolMount/synchronous``, so its correction comes back
-    /// in band.
+    /// The mount of the operation that `arguments` names, found as
+    /// `call(arguments:)` finds it: after a lone `arguments` wrapper is
+    /// unwrapped, and with a missing `op` inferred from the keys (^vm78pnz).
+    /// An unknown operation is ``ToolMount/synchronous``, so its correction
+    /// comes back in band.
     ///
     /// - Parameter arguments: The payload with the `op` key.
     /// - Returns: The mount of the called operation.
     public func mount(for arguments: GeneratedContent) -> ToolMount? {
-        matchOperation(for: arguments)?.mount ?? .synchronous
+        matchOperation(for: OperationResolver.unwrappingArguments(arguments))?.mount ?? .synchronous
     }
 }
 

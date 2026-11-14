@@ -54,7 +54,13 @@ requiredness and value constraints are enforced at dispatch instead of by the sc
 forgivingly resolves a payload's `op` and parameter keys (case, `_`/`-`/space separators
 or none in a multi-word verb or noun, `"noun verb"` reordering, verb aliases, noun
 aliases, camelCase/snake_case key aliasing) to the
-matching operation and dispatches to it:
+matching operation and dispatches to it. It also accepts two shapes that tool callers
+send. A payload put whole into one `arguments` key (an object, or a JSON string of one)
+is unwrapped first. A payload with no `op` is matched by its keys: an operation fits when
+each key names one of its parameters and the payload holds all of its required ones.
+When exactly one operation fits, that operation runs. When several fit, the operation
+that `OperationResolver(defaultOp:)` names runs, if it is one of them (name a read-only
+operation). Otherwise the answer is "Unknown operation":
 
 <!-- doc-snippet source="Examples/NotesTool/Sources/NotesToolCore/NotesTool.swift" -->
 ```swift

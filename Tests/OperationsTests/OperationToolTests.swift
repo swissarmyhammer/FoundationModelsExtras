@@ -294,9 +294,11 @@ private struct ExecutionFailureToolFixture: OperationDefinition, Sendable {
         #expect(message.contains("delete note"))
     }
 
-    @Test func missingOpFieldEntirelyReturnsCorrectiveMessage() async throws {
+    @Test func missingOpFieldWithKeysThatFitNoOperationReturnsCorrectiveMessage() async throws {
         let tool = try makeTool()
-        let arguments = GeneratedContent(properties: ["title": "Groceries"])
+        // No operation declares `subject`, so key-fit inference (^vm78pnz)
+        // finds no op; a key that fits one operation is inferred instead.
+        let arguments = GeneratedContent(properties: ["subject": "Groceries"])
 
         let message = try await tool.call(arguments: arguments)
 
