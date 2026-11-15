@@ -147,3 +147,47 @@ public protocol SessionDirectory: Sendable {
     /// - Returns: A stream of the changes in the directory.
     func events() -> AsyncStream<SessionDirectoryEvent>
 }
+
+/// The defaults of the pin and the last use, for a directory that does not
+/// keep them yet.
+extension SessionDirectory {
+    /// The default does nothing: it changes no pin and sends no event. It
+    /// gives the summary as it is. A directory must implement this method for
+    /// pins to work.
+    ///
+    /// - Parameters:
+    ///   - pinned: True to pin the session, false to unpin it. The default
+    ///     ignores it.
+    ///   - id: The session id.
+    /// - Returns: The summary with no change.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)`` when no session
+    ///   has this id.
+    public func setPinned(_ pinned: Bool, of id: ULID) async throws -> SessionSummary {
+        try await unchangedSummary(of: id)
+    }
+
+    /// The default does nothing: it records no use and sends no event. It
+    /// gives the summary as it is. A directory must implement this method for
+    /// the Recent list to work.
+    ///
+    /// - Parameter id: The session id.
+    /// - Returns: The summary with no change.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)`` when no session
+    ///   has this id.
+    public func markUsed(_ id: ULID) async throws -> SessionSummary {
+        try await unchangedSummary(of: id)
+    }
+
+    /// The summary of `id`, with no change.
+    ///
+    /// - Parameter id: The session id.
+    /// - Returns: The summary.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)`` when no session
+    ///   has this id.
+    private func unchangedSummary(of id: ULID) async throws -> SessionSummary {
+        guard let summary = try await summary(of: id) else {
+            throw SessionDirectoryError.unknownSession(id)
+        }
+        return summary
+    }
+}
