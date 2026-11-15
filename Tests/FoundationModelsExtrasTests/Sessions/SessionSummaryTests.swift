@@ -35,5 +35,29 @@ struct SessionSummaryTests {
         #expect(decoded.parentID == nil)
         #expect(decoded.startedBy == nil)
         #expect(decoded.lastSummary == nil)
+        #expect(decoded.pinnedAt == nil)
+        #expect(decoded.lastUsedAt == nil)
+        #expect(!decoded.isPinned)
+    }
+
+    @Test("a summary encoded with no pin and no last use decodes as not pinned and not used")
+    func aSummaryWithNoPinKeysDecodes() throws {
+        let summary = SessionFixtures.summary()
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(summary)) as? [String: Any])
+        object["pinnedAt"] = nil
+        object["lastUsedAt"] = nil
+
+        let decoded = try JSONDecoder().decode(
+            SessionSummary.self, from: JSONSerialization.data(withJSONObject: object))
+
+        #expect(decoded.pinnedAt == nil)
+        #expect(decoded.lastUsedAt == nil)
+        #expect(!decoded.isPinned)
+    }
+
+    @Test("a summary with a pin time is pinned")
+    func aPinTimeMeansPinned() {
+        #expect(SessionFixtures.summary().isPinned)
     }
 }

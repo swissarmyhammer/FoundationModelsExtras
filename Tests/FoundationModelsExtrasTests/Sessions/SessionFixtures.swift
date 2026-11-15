@@ -48,7 +48,9 @@ enum SessionFixtures {
             createdAt: createdAt,
             updatedAt: updatedAt,
             lastSummary: "The build is green.",
-            isLive: true)
+            isLive: true,
+            pinnedAt: createdAt,
+            lastUsedAt: updatedAt)
     }
 
     /// A message from a session that replies to an other message.

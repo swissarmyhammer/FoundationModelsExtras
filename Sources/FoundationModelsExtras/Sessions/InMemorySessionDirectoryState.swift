@@ -174,11 +174,42 @@ extension InMemorySessionDirectoryState {
     /// - Parameter query: The filter.
     /// - Returns: The matching summaries.
     func summaries(matching query: SessionQuery) -> [SessionSummary] {
-        Array(
-            startOrder.reversed().lazy
-                .compactMap { entries[$0]?.summary }
-                .filter { Self.summary($0, matches: query) }
-                .prefix(query.limit))
+        let newestFirst = startOrder.reversed().lazy
+            .compactMap { entries[$0]?.summary }
+            .filter { Self.summary($0, matches: query) }
+        switch query.order {
+        case .newestFirst:
+            return Array(newestFirst.prefix(query.limit))
+        case .pinOrder:
+            return Array(Self.sorted(Array(newestFirst), by: \.pinnedAt, earliestFirst: true).prefix(query.limit))
+        case .lastUsedFirst:
+            return Array(Self.sorted(Array(newestFirst), by: \.lastUsedAt, earliestFirst: false).prefix(query.limit))
+        }
+    }
+
+    /// Sorts summaries by a time. The summaries with no time come after the
+    /// others. The sort is stable, thus equal times and the summaries with
+    /// no time keep the order of the input.
+    ///
+    /// - Parameters:
+    ///   - summaries: The summaries, the newest start first.
+    ///   - time: The time to sort by.
+    ///   - earliestFirst: True for the earliest time first, false for the
+    ///     latest time first.
+    /// - Returns: The sorted summaries.
+    private static func sorted(
+        _ summaries: [SessionSummary],
+        by time: KeyPath<SessionSummary, Date?>,
+        earliestFirst: Bool
+    ) -> [SessionSummary] {
+        let timed = summaries.enumerated().compactMap { index, summary in
+            summary[keyPath: time].map { (index: index, time: $0, summary: summary) }
+        }
+        let ordered = timed.sorted { first, second in
+            guard first.time != second.time else { return first.index < second.index }
+            return earliestFirst ? first.time < second.time : first.time > second.time
+        }
+        return ordered.map(\.summary) + summaries.filter { $0[keyPath: time] == nil }
     }
 
     /// True when the summary matches each field of the query that is not nil.
@@ -197,6 +228,7 @@ extension InMemorySessionDirectoryState {
             accepts(query.state, summary.state),
             accepts(query.parentID, summary.parentID),
             accepts(query.startedBy, summary.startedBy),
+            accepts(query.pinned, summary.isPinned),
         ]
         return !checks.contains(false)
     }

@@ -133,6 +133,30 @@ public final class InMemorySessionDirectory: SessionDirectory {
         try changeFacts(of: id, checking: []) { $0.title = title }
     }
 
+    /// Pins or unpins the session `id`, and sends `factsChanged` when the
+    /// pin changes. A pin of a pinned session keeps its first time.
+    ///
+    /// - Parameters:
+    ///   - pinned: True to pin the session, false to unpin it.
+    ///   - id: The session id.
+    /// - Returns: The summary with the new pin.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)``.
+    public func setPinned(_ pinned: Bool, of id: ULID) async throws -> SessionSummary {
+        try changeFacts(of: id, checking: []) { summary, time in
+            summary.pinnedAt = pinned ? summary.pinnedAt ?? time : nil
+        }
+    }
+
+    /// Sets the time of the last use of `id` to the time of the clock, and
+    /// sends `factsChanged`.
+    ///
+    /// - Parameter id: The session id.
+    /// - Returns: The summary with the new time of the last use.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)``.
+    public func markUsed(_ id: ULID) async throws -> SessionSummary {
+        try changeFacts(of: id, checking: []) { summary, time in summary.lastUsedAt = time }
+    }
+
     /// Checks the tags, then changes the facts of a session, and sends
     /// `factsChanged` when they changed.
     ///
@@ -148,9 +172,28 @@ public final class InMemorySessionDirectory: SessionDirectory {
         checking tags: Set<String>,
         _ change: (inout SessionSummary) -> Void
     ) throws -> SessionSummary {
+        try changeFacts(of: id, checking: tags) { summary, _ in change(&summary) }
+    }
+
+    /// Checks the tags, then changes the facts of a session with the time
+    /// of the change, and sends `factsChanged` when they changed.
+    ///
+    /// - Parameters:
+    ///   - id: The session id.
+    ///   - tags: The tags of the call, to check against the tag rule.
+    ///   - change: The change of the summary. It gets the time of the
+    ///     change.
+    /// - Returns: The summary after the change.
+    /// - Throws: ``SessionDirectoryError/invalidTag(_:)`` and
+    ///   ``SessionDirectoryError/unknownSession(_:)``.
+    private func changeFacts(
+        of id: ULID,
+        checking tags: Set<String>,
+        _ change: (inout SessionSummary, Date) -> Void
+    ) throws -> SessionSummary {
         try InMemorySessionDirectoryState.validate(tags)
         let time = now()
-        return try state.withLock { try $0.changeFacts(of: id, at: time, change) }
+        return try state.withLock { try $0.changeFacts(of: id, at: time) { change(&$0, time) } }
     }
 
     /// Sends a message to each session that the address names, with the

@@ -50,6 +50,27 @@ public protocol SessionDirectory: Sendable {
     /// - Returns: The summary with the new title.
     func setTitle(_ title: String, of id: ULID) async throws -> SessionSummary
 
+    /// Pins or unpins the session `id` (Pin Session and Unpin Session, D118),
+    /// and sends `factsChanged` when the pin changes.
+    ///
+    /// A pin sets ``SessionSummary/pinnedAt`` to the time of the call. A pin
+    /// of a pinned session keeps its first time, thus its place in the pin
+    /// order. An unpin sets it to `nil`.
+    ///
+    /// - Parameters:
+    ///   - pinned: True to pin the session, false to unpin it.
+    ///   - id: The session id.
+    /// - Returns: The summary with the new pin.
+    func setPinned(_ pinned: Bool, of id: ULID) async throws -> SessionSummary
+
+    /// Records that a client used the session `id` now, for example that it
+    /// opened the session (D184). It sets ``SessionSummary/lastUsedAt`` to
+    /// the time of the call, and sends `factsChanged`.
+    ///
+    /// - Parameter id: The session id.
+    /// - Returns: The summary with the new time of the last use.
+    func markUsed(_ id: ULID) async throws -> SessionSummary
+
     /// Sends a message to each session that the address names.
     ///
     /// The sender chooses the body of the mail that carries the message:

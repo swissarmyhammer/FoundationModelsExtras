@@ -52,6 +52,19 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     /// True when the session is in memory now.
     public var isLive: Bool
 
+    /// The time that a client pinned the session, or `nil` when it is not
+    /// pinned. The Pinned list shows the pinned sessions in the order of
+    /// this time, the first pin first. A second pin keeps the first time.
+    public var pinnedAt: Date?
+
+    /// The time that a client used the session last, or `nil` when no
+    /// client used it. The Recent list shows the sessions in the order of
+    /// this time, the newest first.
+    public var lastUsedAt: Date?
+
+    /// True when the session is pinned, that is, it has a ``pinnedAt``.
+    public var isPinned: Bool { pinnedAt != nil }
+
     /// Makes a summary.
     ///
     /// - Parameters:
@@ -72,6 +85,10 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     ///   - lastSummary: The last final message, cut to a fixed length. The
     ///     default is `nil`.
     ///   - isLive: True when the session is in memory now.
+    ///   - pinnedAt: The time of the pin. The default is `nil`: the session
+    ///     is not pinned.
+    ///   - lastUsedAt: The time of the last use. The default is `nil`: no
+    ///     client used the session.
     public init(
         id: ULID,
         agentID: String,
@@ -87,7 +104,9 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         createdAt: Date,
         updatedAt: Date,
         lastSummary: String? = nil,
-        isLive: Bool
+        isLive: Bool,
+        pinnedAt: Date? = nil,
+        lastUsedAt: Date? = nil
     ) {
         self.id = id
         self.agentID = agentID
@@ -104,5 +123,7 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         self.updatedAt = updatedAt
         self.lastSummary = lastSummary
         self.isLive = isLive
+        self.pinnedAt = pinnedAt
+        self.lastUsedAt = lastUsedAt
     }
 }

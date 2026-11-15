@@ -20,7 +20,9 @@ struct SessionQueryTests {
         #expect(query.state == nil)
         #expect(query.parentID == nil)
         #expect(query.startedBy == nil)
+        #expect(query.pinned == nil)
         #expect(query.includesRecorded == false)
+        #expect(query.order == .newestFirst)
         #expect(query.limit == SessionQuery.defaultLimit)
     }
 
@@ -39,7 +41,9 @@ struct SessionQueryTests {
             state: .working,
             parentID: ULID(),
             startedBy: ULID(),
+            pinned: true,
             includesRecorded: true,
+            order: .lastUsedFirst,
             limit: Self.customLimit)
 
         #expect(try SessionFixtures.roundTrip(query) == query)

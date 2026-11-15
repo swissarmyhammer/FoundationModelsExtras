@@ -30,9 +30,17 @@ public struct SessionQuery: Sendable, Codable, Equatable {
     /// The session that started the sessions.
     public var startedBy: ULID?
 
+    /// True: only the pinned sessions. False: only the sessions that are
+    /// not pinned.
+    public var pinned: Bool?
+
     /// False: only the live sessions. True: also the sessions that are on
     /// disk only, the archived ones too.
     public var includesRecorded: Bool
+
+    /// The order of the summaries. The directory applies it before
+    /// ``limit``.
+    public var order: SessionOrder
 
     /// The maximum number of summaries that the query gives.
     public var limit: Int
@@ -48,8 +56,12 @@ public struct SessionQuery: Sendable, Codable, Equatable {
     ///   - parentID: The parent or the original session. The default is `nil`.
     ///   - startedBy: The session that started the sessions. The default is
     ///     `nil`.
+    ///   - pinned: True for only the pinned sessions, false for only the
+    ///     sessions that are not pinned. The default is `nil`.
     ///   - includesRecorded: True to also find the sessions that are on disk
     ///     only. The default is `false`.
+    ///   - order: The order of the summaries. The default is
+    ///     ``SessionOrder/newestFirst``.
     ///   - limit: The maximum number of summaries. The default is
     ///     ``defaultLimit``.
     public init(
@@ -60,7 +72,9 @@ public struct SessionQuery: Sendable, Codable, Equatable {
         state: SessionState? = nil,
         parentID: ULID? = nil,
         startedBy: ULID? = nil,
+        pinned: Bool? = nil,
         includesRecorded: Bool = false,
+        order: SessionOrder = .newestFirst,
         limit: Int = Self.defaultLimit
     ) {
         self.workingDirectory = workingDirectory
@@ -70,7 +84,9 @@ public struct SessionQuery: Sendable, Codable, Equatable {
         self.state = state
         self.parentID = parentID
         self.startedBy = startedBy
+        self.pinned = pinned
         self.includesRecorded = includesRecorded
+        self.order = order
         self.limit = limit
     }
 }
