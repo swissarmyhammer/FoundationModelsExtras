@@ -28,6 +28,13 @@ import MLXLMCommon
 /// When the Hub does not give the commit or the listing, for example with no
 /// network, the upstream download runs for the revision as is. It then uses
 /// the cached snapshot of the revision, as it does with no network.
+///
+/// In the offline mode, the downloader sends no request: it does not ask for
+/// the tree, it downloads no file, and it does not call the upstream download.
+/// The upstream download sends a request for each revision that is not a
+/// commit with saved snapshot metadata, also when the cache holds the
+/// snapshot. The downloader gives the cached snapshot of the revision, whose
+/// commit the ref file names.
 struct BlobReusingDownloader: Downloader {
     /// The failure of a model information request that gives no commit.
     private enum RevisionTreeError: Error {
@@ -80,6 +87,10 @@ struct BlobReusingDownloader: Downloader {
     /// cache, and of each file whose etag is not safe.
     private let upstream: any Downloader
 
+    /// `true` when the downloader sends no request and gives only the cached
+    /// snapshot.
+    private let offline: Bool
+
     /// Makes a downloader over `upstream`.
     ///
     /// - Parameters:
@@ -88,15 +99,23 @@ struct BlobReusingDownloader: Downloader {
     ///   - cache: The cache that the downloads write to.
     ///   - files: The downloader of each file that the cache does not hold.
     ///   - upstream: The downloader of the snapshot.
-    init(client: HubClient, cache: HubCache, files: ResumableFileDownload, upstream: any Downloader) {
+    ///   - offline: `true` when the downloader sends no request and gives
+    ///     only the cached snapshot.
+    init(
+        client: HubClient, cache: HubCache, files: ResumableFileDownload, upstream: any Downloader,
+        offline: Bool = false
+    ) {
         self.client = client
         self.cache = cache
         self.files = files
         self.upstream = upstream
+        self.offline = offline
     }
 
     /// Links each cached blob of the revision, downloads each other file of
-    /// `patterns`, then gives the snapshot with the upstream downloader.
+    /// `patterns`, then gives the snapshot with the upstream downloader. In
+    /// the offline mode, gives the cached snapshot of the revision with no
+    /// request.
     ///
     /// - Parameters:
     ///   - id: The repository.
@@ -107,12 +126,15 @@ struct BlobReusingDownloader: Downloader {
     ///     progress of the upstream download.
     /// - Returns: The snapshot folder of the commit of the revision.
     /// - Throws: The error of a link, of a file download, of the upstream
-    ///   download, or of the write of the ref file.
+    ///   download, or of the write of the ref file. In the offline mode,
+    ///   ``ModelDownloadError/notCachedOffline(repository:revision:)`` when
+    ///   the cache holds no snapshot of the revision.
     func download(
         id: String, revision: String?, matching patterns: [String], useLatest: Bool,
         progressHandler: @Sendable @escaping (Progress) -> Void
     ) async throws -> URL {
         let revision = revision ?? ModelRef.defaultRevision
+        if offline { return try HubSource.offlineSnapshotDirectory(in: cache, of: id, revision: revision) }
         guard let repo = Repo.ID(rawValue: id), let tree = try await tree(of: repo, revision: revision) else {
             return try await upstream.download(
                 id: id, revision: revision, matching: patterns, useLatest: useLatest, progressHandler: progressHandler)

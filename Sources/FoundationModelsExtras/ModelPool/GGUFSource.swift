@@ -54,6 +54,9 @@ public struct GGUFModelFiles: Equatable, Sendable {
 ///   the path, with no network. Otherwise it lists the files of the
 ///   repository on the Hub, and downloads only the files of the model and its
 ///   projector, not the whole repository.
+///
+/// In the offline mode, a Hub reference reads only the cached snapshot, and
+/// the source sends no request to the Hub.
 public struct GGUFSource: Sendable {
     /// The Hugging Face cache and the token provider of each download.
     private let hub: HubSource
@@ -64,9 +67,25 @@ public struct GGUFSource: Sendable {
     ///   - cacheDirectory: The folder of the cache. `nil` uses the default
     ///     Hugging Face cache.
     ///   - tokenProvider: The token provider of each download.
-    public init(cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment) {
+    ///   - offline: `true` to send no request to the Hub: a Hub reference
+    ///     reads only the cached snapshot, and a model that the cache does not
+    ///     hold throws ``ModelDownloadError/notCachedOffline(repository:revision:)``.
+    ///     `false` lists and downloads the files that the cache does not hold.
+    ///     `nil`, the default, reads `HF_HUB_OFFLINE`: the mode is on for `1`,
+    ///     `true`, `yes` or `on`, with no case. A test gives `true`, thus it
+    ///     sends no request and does not change the environment of the process.
+    public init(cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment, offline: Bool? = nil) {
         let cache = cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default
-        hub = HubSource(cache: cache, tokenProvider: tokenProvider)
+        self.init(
+            hub: HubSource(cache: cache, tokenProvider: tokenProvider, offline: HubSource.isOffline(given: offline)))
+    }
+
+    /// Makes a source over the cache, the token provider, the session and the
+    /// offline mode of `hub`.
+    ///
+    /// - Parameter hub: The source of each file list and download.
+    init(hub: HubSource) {
+        self.hub = hub
     }
 
     /// Gives the files of the model of `ref`, and downloads them first when
@@ -79,7 +98,9 @@ public struct GGUFSource: Sendable {
     ///     ``ModelLoadProgress/loading`` only.
     /// - Returns: The files of the model.
     /// - Throws: ``GGUFSourceError``, ``GGUFSelectionError``, or the error of
-    ///   the file list or the download.
+    ///   the file list or the download. In the offline mode,
+    ///   ``ModelDownloadError/notCachedOffline(repository:revision:)`` when
+    ///   the cache holds no snapshot of a Hub reference.
     public func files(
         of ref: ModelRef, progressHandler: @escaping @Sendable (ModelLoadProgress) -> Void
     ) async throws -> GGUFModelFiles {
@@ -88,6 +109,7 @@ public struct GGUFSource: Sendable {
             return files
         }
         if ref.isLocal { return try cachedFiles(of: ref) }
+        if hub.offline { return try offlineFiles(of: ref, progressHandler: progressHandler) }
         guard let repo = Repo.ID(rawValue: ref.repo) else { throw GGUFSourceError.notInCache(ref: ref.stringValue) }
         let revision = Self.revision(of: ref)
         let entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
@@ -96,6 +118,26 @@ public struct GGUFSource: Sendable {
         let snapshot = try await downloader.download(
             id: ref.repo, revision: revision, matching: set.files, useLatest: false) { _ in }
         return Self.files(of: set, in: snapshot)
+    }
+
+    /// Gives the files of the cached snapshot of a Hub reference in the
+    /// offline mode, with no request, and reports the load.
+    ///
+    /// - Parameters:
+    ///   - ref: A Hub reference.
+    ///   - progressHandler: Gets ``ModelLoadProgress/loading``.
+    /// - Returns: The files of the model.
+    /// - Throws: ``ModelDownloadError/notCachedOffline(repository:revision:)``
+    ///   when the cache holds no snapshot, or ``GGUFSelectionError`` when the
+    ///   snapshot holds no model, more than one, or not each shard.
+    private func offlineFiles(
+        of ref: ModelRef, progressHandler: @escaping @Sendable (ModelLoadProgress) -> Void
+    ) throws -> GGUFModelFiles {
+        let snapshot = try HubSource.offlineSnapshotDirectory(
+            in: hub.cache, of: ref.repo, revision: Self.revision(of: ref))
+        let files = try Self.files(of: ref, inSnapshot: snapshot)
+        progressHandler(.loading)
+        return files
     }
 
     /// Gives the files of the model of `ref` that are on the disk, with no
@@ -122,8 +164,19 @@ public struct GGUFSource: Sendable {
         guard let snapshot = hub.snapshotDirectory(of: ref.repo, revision: Self.revision(of: ref)) else {
             throw GGUFSourceError.notInCache(ref: ref.stringValue)
         }
-        let set = try GGUFFileSet.select(from: HubSource.relativePaths(in: snapshot), under: ref.path)
-        return Self.files(of: set, in: snapshot)
+        return try Self.files(of: ref, inSnapshot: snapshot)
+    }
+
+    /// The files of the model of a Hub reference in its cached snapshot.
+    ///
+    /// - Parameters:
+    ///   - ref: A Hub reference, whose path scopes the files.
+    ///   - snapshot: The snapshot folder of the reference.
+    /// - Returns: The files of the model.
+    /// - Throws: ``GGUFSelectionError`` when the snapshot holds no model, more
+    ///   than one, or not each shard.
+    private static func files(of ref: ModelRef, inSnapshot snapshot: URL) throws -> GGUFModelFiles {
+        files(of: try GGUFFileSet.select(from: HubSource.relativePaths(in: snapshot), under: ref.path), in: snapshot)
     }
 
     /// The files of `set` in `folder`.

@@ -141,17 +141,25 @@ struct ResumableFileDownload: Sendable {
     }
 }
 
-/// A failure of the download of a model file.
+/// A failure of the download of a model.
 public enum ModelDownloadError: Error, Equatable, LocalizedError {
     /// No bytes of the file arrived for the stall interval, in each attempt:
     /// the first attempt and each retry.
     case stalled(repository: String, file: String, attempts: Int)
+
+    /// The offline mode is on, and the cache holds no snapshot of the
+    /// revision of the repository. The offline mode sends no request to the
+    /// Hub, thus it cannot download the model.
+    case notCachedOffline(repository: String, revision: String)
 
     /// A message that tells what is wrong.
     public var errorDescription: String? {
         switch self {
         case .stalled(let repository, let file, let attempts):
             return "The download of \(file) from \(repository) stalled: no bytes arrived in each of \(attempts) attempts."
+        case .notCachedOffline(let repository, let revision):
+            return "The offline mode is on (HF_HUB_OFFLINE or the offline parameter), "
+                + "and the Hugging Face cache does not hold \(repository) at \(revision)."
         }
     }
 }

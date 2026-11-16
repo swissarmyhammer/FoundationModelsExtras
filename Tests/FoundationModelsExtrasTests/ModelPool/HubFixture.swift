@@ -41,10 +41,12 @@ struct HubFixture {
 
     /// A storage over the cache, whose requests go to `stub`.
     ///
-    /// - Parameter stub: The transport of the hub client.
+    /// - Parameters:
+    ///   - stub: The transport of the hub client.
+    ///   - offline: `true` for a storage that sends no request to the Hub.
     /// - Returns: The storage.
-    func storage(_ stub: HubStub) -> ModelStorage {
-        ModelStorage(cache: cache, tokenProvider: .none, session: stub.session)
+    func storage(_ stub: HubStub, offline: Bool = false) -> ModelStorage {
+        ModelStorage(cache: cache, tokenProvider: .none, session: stub.session, offline: offline)
     }
 
     /// Writes each file as a complete download writes it: a blob named by

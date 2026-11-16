@@ -32,6 +32,8 @@ import HuggingFace
 /// commit, thus a second call makes no request, and a call with no network
 /// uses the kept listing. With no network and no kept listing, the total is
 /// `nil`, and the files and the state come from the snapshot in the cache.
+/// In the offline mode, the storage sends no request: it uses only the kept
+/// listing, as with no network.
 ///
 /// The disk state reads the cache: the links of the snapshot, the blobs, and
 /// the `<etag>.incomplete` blobs of interrupted downloads.
@@ -50,10 +52,17 @@ public struct ModelStorage: Sendable {
     ///   - cacheDirectory: The folder of the cache. `nil` uses the default
     ///     Hugging Face cache.
     ///   - tokenProvider: The token provider of each tree listing.
-    public init(cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment) {
+    ///   - offline: `true` to send no request to the Hub: the storage uses
+    ///     only the kept tree listing, and with none the total is `nil` and
+    ///     the files and the state come from the cached snapshot. `false`
+    ///     asks the Hub for a listing that the cache does not keep. `nil`, the
+    ///     default, reads `HF_HUB_OFFLINE`: the mode is on for `1`, `true`,
+    ///     `yes` or `on`, with no case. A test gives `true`, thus it sends no
+    ///     request and does not change the environment of the process.
+    public init(cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment, offline: Bool? = nil) {
         self.init(
             cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenProvider: tokenProvider,
-            session: URLSession(configuration: .default))
+            session: URLSession(configuration: .default), offline: HubSource.isOffline(given: offline))
     }
 
     /// Makes a storage over `cache`, whose tree listings go through `session`.
@@ -62,8 +71,10 @@ public struct ModelStorage: Sendable {
     ///   - cache: The Hugging Face cache.
     ///   - tokenProvider: The token provider of each tree listing.
     ///   - session: The URL session of each tree listing.
-    init(cache: HubCache, tokenProvider: TokenProvider, session: URLSession) {
-        hub = HubSource(cache: cache, tokenProvider: tokenProvider, session: session)
+    ///   - offline: `true` to send no request, and to use only the kept tree
+    ///     listings.
+    init(cache: HubCache, tokenProvider: TokenProvider, session: URLSession, offline: Bool = false) {
+        hub = HubSource(cache: cache, tokenProvider: tokenProvider, session: session, offline: offline)
         trees = HubTreeMetadataStore(cache: cache)
     }
 
@@ -85,7 +96,8 @@ public struct ModelStorage: Sendable {
 
     /// Gives the download size and the disk state of a model. This makes no
     /// download and loads no model. It makes at most one request: the tree
-    /// listing of the revision, when the cache keeps no listing of it.
+    /// listing of the revision, when the cache keeps no listing of it and the
+    /// offline mode is off.
     ///
     /// - Parameter ref: The model.
     /// - Returns: The information of the model.
@@ -146,17 +158,19 @@ public struct ModelStorage: Sendable {
     }
 
     /// The tree listing of a revision: the kept listing, or a new listing of
-    /// the Hub, which this keeps.
+    /// the Hub, which this keeps. The offline mode gives only the kept
+    /// listing.
     ///
     /// - Parameters:
     ///   - repo: The repository.
     ///   - revision: The commit, or the ref when the commit is not known.
     /// - Returns: The listing, or `nil` when the cache keeps none and there is
-    ///   no network.
+    ///   no network or the offline mode is on.
     /// - Throws: The error of the listing other than a `URLError`, or the
     ///   error of the save.
     private func treeMetadata(of repo: Repo.ID, revision: String) async throws -> HubTreeMetadata? {
         if let kept = trees.load(repo: repo, revision: revision) { return kept }
+        guard !hub.offline else { return nil }
         let metadata: HubTreeMetadata
         do {
             metadata = try await hub.client().treeMetadata(of: repo, revision: revision)

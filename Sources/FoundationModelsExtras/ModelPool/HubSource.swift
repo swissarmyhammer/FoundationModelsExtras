@@ -13,6 +13,14 @@ struct HubSource: Sendable {
     /// Hugging Face client reads it.
     private static let endpointVariable = "HF_ENDPOINT"
 
+    /// The environment variable that turns the offline mode on, as the
+    /// Python `huggingface_hub` reads it.
+    static let offlineVariable = "HF_HUB_OFFLINE"
+
+    /// The values of ``offlineVariable`` that turn the offline mode on, in
+    /// lowercase. Each other value keeps the mode off.
+    private static let offlineValues: Set<String> = ["1", "true", "yes", "on"]
+
     /// The number of characters of a Git commit id.
     private static let commitLength = 40
 
@@ -31,6 +39,11 @@ struct HubSource: Sendable {
     /// each file. A test gives a policy whose sleep does not wait on the wall
     /// clock.
     var retryPolicy = DownloadRetryPolicy()
+
+    /// `true` when no code of the source sends a request to the Hub. Each
+    /// model then comes from the cache, and a model that the cache does not
+    /// hold throws ``ModelDownloadError/notCachedOffline(repository:revision:)``.
+    var offline = false
 
     /// The Hugging Face client of each download. Its cache is the cache of the
     /// source, thus the download writes to the folder of the source. Its token
@@ -54,7 +67,52 @@ struct HubSource: Sendable {
         let client = client()
         let files = ResumableFileDownload(
             session: session, host: client.host, tokenProvider: tokenProvider, policy: retryPolicy)
-        return BlobReusingDownloader(client: client, cache: cache, files: files, upstream: #hubDownloader(client))
+        return BlobReusingDownloader(
+            client: client, cache: cache, files: files, upstream: #hubDownloader(client), offline: offline)
+    }
+
+    /// Whether the offline mode is on: the given value, else the value of
+    /// `HF_HUB_OFFLINE` in `environment`. The variable turns the mode on for
+    /// `1`, `true`, `yes` or `on`, with no case and no surrounding white
+    /// space. Each other value, and no value, keeps the mode off.
+    ///
+    /// - Parameters:
+    ///   - given: The value that a host gives, or `nil` to read the
+    ///     environment.
+    ///   - environment: The environment variables.
+    /// - Returns: `true` when the mode is on.
+    static func isOffline(given: Bool?, environment: [String: String]) -> Bool {
+        if let given { return given }
+        guard let value = environment[offlineVariable] else { return false }
+        return offlineValues.contains(value.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
+    /// Whether the offline mode is on: the given value, else the value of
+    /// `HF_HUB_OFFLINE` in the environment of the process. See
+    /// ``isOffline(given:environment:)``.
+    ///
+    /// - Parameter given: The value that a host gives, or `nil` to read the
+    ///   environment.
+    /// - Returns: `true` when the mode is on.
+    static func isOffline(given: Bool?) -> Bool {
+        isOffline(given: given, environment: ProcessInfo.processInfo.environment)
+    }
+
+    /// Finds the cached snapshot of a model in a cache for an offline call,
+    /// which sends no request.
+    ///
+    /// - Parameters:
+    ///   - cache: The Hugging Face cache.
+    ///   - repository: The Hugging Face repository id of the model.
+    ///   - revision: The ref or the commit.
+    /// - Returns: The snapshot folder.
+    /// - Throws: ``ModelDownloadError/notCachedOffline(repository:revision:)``
+    ///   when the cache holds no snapshot of the revision.
+    static func offlineSnapshotDirectory(in cache: HubCache, of repository: String, revision: String) throws -> URL {
+        guard let snapshot = snapshotDirectory(in: cache, of: repository, revision: revision) else {
+            throw ModelDownloadError.notCachedOffline(repository: repository, revision: revision)
+        }
+        return snapshot
     }
 
     /// The host of each download: the endpoint that `HF_ENDPOINT` names, or
@@ -77,6 +135,19 @@ struct HubSource: Sendable {
     /// - Returns: The snapshot folder, or `nil` when the cache holds no
     ///   snapshot of the revision.
     func snapshotDirectory(of repository: String, revision: String) -> URL? {
+        Self.snapshotDirectory(in: cache, of: repository, revision: revision)
+    }
+
+    /// Finds the snapshot folder of a model in a cache. The revision is a
+    /// ref, such as `main`, that a ref file names, or a commit.
+    ///
+    /// - Parameters:
+    ///   - cache: The Hugging Face cache.
+    ///   - repository: The Hugging Face repository id of the model.
+    ///   - revision: The ref or the commit.
+    /// - Returns: The snapshot folder, or `nil` when the cache holds no
+    ///   snapshot of the revision.
+    static func snapshotDirectory(in cache: HubCache, of repository: String, revision: String) -> URL? {
         guard let repo = Repo.ID(rawValue: repository) else { return nil }
         let commit = cache.resolveRevision(repo: repo, kind: .model, ref: revision) ?? revision
         guard let snapshot = try? cache.snapshotPath(repo: repo, kind: .model, commitHash: commit),

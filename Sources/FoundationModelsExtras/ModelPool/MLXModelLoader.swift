@@ -97,13 +97,24 @@ public struct MLXModelLoader: PooledModelLoader {
     ///     linked, so a host that links MLXVLM passes
     ///     `.matchingTarget(.qwen35Text, .qwen35VLM)`. A drafter that cannot
     ///     draft for the target leaves each call to plain decode.
+    ///   - offline: `true` to send no request to the Hub: each model comes
+    ///     from the cached snapshot of its revision, and a model that the
+    ///     cache does not hold throws
+    ///     ``ModelDownloadError/notCachedOffline(repository:revision:)``.
+    ///     `false` asks the Hub for the commit and the files, and downloads
+    ///     the files that the cache does not hold. `nil`, the default, reads
+    ///     `HF_HUB_OFFLINE`: the mode is on for `1`, `true`, `yes` or `on`,
+    ///     with no case. A test gives `true`, thus it sends no request and
+    ///     does not change the environment of the process.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
-        tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text
+        tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text,
+        offline: Bool? = nil
     ) {
         self.init(
             cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenProvider: tokenProvider,
-            tokenizerLoader: tokenizerLoader, drafterRegistration: drafterRegistration)
+            tokenizerLoader: tokenizerLoader, drafterRegistration: drafterRegistration,
+            offline: HubSource.isOffline(given: offline))
     }
 
     /// Makes a loader over `cache`.
@@ -116,11 +127,13 @@ public struct MLXModelLoader: PooledModelLoader {
     ///   - tokenizerLoader: The tokenizer loader of each load. `nil` uses the
     ///     Hugging Face tokenizer loader.
     ///   - drafterRegistration: The factory that loads an MTP drafter.
+    ///   - offline: `true` to send no request to the Hub, and to load only
+    ///     cached models.
     init(
         cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil,
-        drafterRegistration: MTPDrafterRegistration = .qwen35Text
+        drafterRegistration: MTPDrafterRegistration = .qwen35Text, offline: Bool = false
     ) {
-        hub = HubSource(cache: cache, tokenProvider: tokenProvider)
+        hub = HubSource(cache: cache, tokenProvider: tokenProvider, offline: offline)
         self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
         self.drafterRegistration = drafterRegistration
     }

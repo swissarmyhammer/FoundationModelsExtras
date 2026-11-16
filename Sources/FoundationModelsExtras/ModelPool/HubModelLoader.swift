@@ -112,7 +112,7 @@ public struct HubModelLoader: PooledModelLoader {
     private let formats = FormatCache()
 
     /// Makes a loader over a Hugging Face cache. See
-    /// ``MLXModelLoader/init(cacheDirectory:tokenProvider:tokenizerLoader:drafterRegistration:)``
+    /// ``MLXModelLoader/init(cacheDirectory:tokenProvider:tokenizerLoader:drafterRegistration:offline:)``
     /// for the meaning of each parameter.
     ///
     /// ```swift
@@ -131,17 +131,29 @@ public struct HubModelLoader: PooledModelLoader {
     ///   - gguf: The loader of a GGUF model, such as `LlamaCppModelLoader`.
     ///     `nil`, the default, makes the load of a GGUF model throw
     ///     ``HubModelLoaderError/noGGUFLoader``.
+    ///   - offline: `true` to send no request to the Hub: the format comes
+    ///     from the cached snapshot, the MLX and Core ML loads use only the
+    ///     cache, and a model that the cache does not hold throws
+    ///     ``ModelDownloadError/notCachedOffline(repository:revision:)``.
+    ///     `false` asks the Hub for the files that the cache does not hold.
+    ///     `nil`, the default, reads `HF_HUB_OFFLINE`: the mode is on for `1`,
+    ///     `true`, `yes` or `on`, with no case. A test gives `true`, thus it
+    ///     sends no request and does not change the environment of the
+    ///     process. The GGUF loader has its own mode: give it a ``GGUFSource``
+    ///     with the same value.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
         tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text,
-        gguf: (any PooledModelLoader)? = nil
+        gguf: (any PooledModelLoader)? = nil, offline: Bool? = nil
     ) {
         let cache = cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default
-        hub = HubSource(cache: cache, tokenProvider: tokenProvider)
+        let offline = HubSource.isOffline(given: offline)
+        hub = HubSource(cache: cache, tokenProvider: tokenProvider, offline: offline)
         mlx = MLXModelLoader(
             cache: cache, tokenProvider: tokenProvider, tokenizerLoader: tokenizerLoader,
-            drafterRegistration: drafterRegistration)
-        coreML = CoreMLModelLoader(cache: cache, tokenProvider: tokenProvider, tokenizerLoader: tokenizerLoader)
+            drafterRegistration: drafterRegistration, offline: offline)
+        coreML = CoreMLModelLoader(
+            cache: cache, tokenProvider: tokenProvider, tokenizerLoader: tokenizerLoader, offline: offline)
         self.gguf = gguf
     }
 
@@ -245,7 +257,8 @@ public struct HubModelLoader: PooledModelLoader {
     /// - Throws: ``HubModelLoaderError`` for a local location that does not
     ///   exist or is an empty or unreadable folder, and for a path to a model
     ///   that is not GGUF; else the error of the file list of the Hub, when the
-    ///   cache holds no files under the path.
+    ///   cache holds no files under the path, or, in the offline mode,
+    ///   ``ModelDownloadError/notCachedOffline(repository:revision:)``.
     func format(of key: ModelPoolKey) async throws -> HubModelFormat {
         let format = HubModelFormat.detect(paths: try await paths(of: key.ref))
         guard format == .gguf || key.ref.path == nil else {
@@ -273,6 +286,7 @@ public struct HubModelLoader: PooledModelLoader {
         let cached = hub.snapshotDirectory(of: ref.repo, revision: revision)
             .map { HubSource.paths(HubSource.relativePaths(in: $0), under: ref.path) } ?? []
         if !cached.isEmpty { return cached }
+        guard !hub.offline else { throw ModelDownloadError.notCachedOffline(repository: ref.repo, revision: revision) }
         guard let repo = Repo.ID(rawValue: ref.repo) else { return [] }
         let entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
         return HubSource.paths(entries.map(\.path), under: ref.path)

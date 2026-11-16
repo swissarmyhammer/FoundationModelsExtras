@@ -66,13 +66,22 @@ public struct CoreMLModelLoader: PooledModelLoader {
     ///     own home gives `.custom { ... }`, or `.none`, which sends no token.
     ///   - tokenizerLoader: The tokenizer loader of each load. `nil` uses the
     ///     Hugging Face tokenizer loader.
+    ///   - offline: `true` to send no request to the Hub: each model comes
+    ///     from the cached snapshot of its revision, and a model that the
+    ///     cache does not hold throws
+    ///     ``ModelDownloadError/notCachedOffline(repository:revision:)``.
+    ///     `false` asks the Hub for the commit and the files, and downloads
+    ///     the files that the cache does not hold. `nil`, the default, reads
+    ///     `HF_HUB_OFFLINE`: the mode is on for `1`, `true`, `yes` or `on`,
+    ///     with no case. A test gives `true`, thus it sends no request and
+    ///     does not change the environment of the process.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
-        tokenizerLoader: (any TokenizerLoader)? = nil
+        tokenizerLoader: (any TokenizerLoader)? = nil, offline: Bool? = nil
     ) {
         self.init(
             cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenProvider: tokenProvider,
-            tokenizerLoader: tokenizerLoader)
+            tokenizerLoader: tokenizerLoader, offline: HubSource.isOffline(given: offline))
     }
 
     /// Makes a loader over `cache`.
@@ -82,8 +91,13 @@ public struct CoreMLModelLoader: PooledModelLoader {
     ///   - tokenProvider: The token provider of each download.
     ///   - tokenizerLoader: The tokenizer loader of each load. `nil` uses the
     ///     Hugging Face tokenizer loader.
-    init(cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil) {
-        hub = HubSource(cache: cache, tokenProvider: tokenProvider)
+    ///   - offline: `true` to send no request to the Hub, and to load only
+    ///     cached models.
+    init(
+        cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil,
+        offline: Bool = false
+    ) {
+        hub = HubSource(cache: cache, tokenProvider: tokenProvider, offline: offline)
         self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
     }
 
