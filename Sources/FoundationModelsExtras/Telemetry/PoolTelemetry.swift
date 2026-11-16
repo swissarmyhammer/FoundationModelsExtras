@@ -115,13 +115,9 @@ enum PoolTelemetry {
     ///   - error: The error of the request.
     ///   - repository: The Hugging Face repository id of the download.
     static func logRevisionTreeUnavailable(_ error: any Error, of repository: String) {
-        ExtrasTelemetry.makeLogger().debug(
-            "\(ExtrasTelemetry.PoolLogMessage.revisionTreeUnavailable)",
-            metadata: [
-                ExtrasTelemetry.LogMetadataKey.errorType: .string(ExtrasTelemetry.errorType(of: error)),
-                ExtrasTelemetry.LogMetadataKey.repository: .string(repository),
-            ]
-        )
+        logFailure(
+            ExtrasTelemetry.PoolLogMessage.revisionTreeUnavailable, error: error, level: .debug,
+            metadata: [ExtrasTelemetry.LogMetadataKey.repository: .string(repository)])
     }
 
     /// Writes one error record with `message`, the type of `error` and the
@@ -133,13 +129,28 @@ enum PoolTelemetry {
     ///   - error: The error of the operation that failed.
     ///   - ref: The model of the operation.
     private static func logFailure(_ message: String, error: any Error, of ref: ModelRef) {
-        ExtrasTelemetry.makeLogger().error(
-            "\(message)",
-            metadata: [
-                ExtrasTelemetry.LogMetadataKey.errorType: .string(ExtrasTelemetry.errorType(of: error)),
-                ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue),
-            ]
-        )
+        logFailure(
+            message, error: error, level: .error,
+            metadata: [ExtrasTelemetry.LogMetadataKey.modelRef: .string(ref.stringValue)])
+    }
+
+    /// Writes one record at `level` with `message`, the entries of
+    /// `metadata` and the type of `error`. This is the one function that
+    /// writes the error type entry of a record. The record never holds the
+    /// description of `error`.
+    ///
+    /// - Parameters:
+    ///   - message: The message of the record, from
+    ///     ``ExtrasTelemetry/PoolLogMessage``.
+    ///   - error: The error of the operation that failed.
+    ///   - level: The log level of the record.
+    ///   - metadata: The entries of the record other than the error type.
+    private static func logFailure(
+        _ message: String, error: any Error, level: Logger.Level, metadata: Logger.Metadata
+    ) {
+        var entries = metadata
+        entries[ExtrasTelemetry.LogMetadataKey.errorType] = .string(ExtrasTelemetry.errorType(of: error))
+        ExtrasTelemetry.makeLogger().log(level: level, "\(message)", metadata: entries)
     }
 }
 

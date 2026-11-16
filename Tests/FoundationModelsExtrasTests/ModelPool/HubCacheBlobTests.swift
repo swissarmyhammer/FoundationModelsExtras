@@ -24,13 +24,16 @@ struct HubCacheBlobTests {
     /// The number of bytes of an interrupted download.
     private static let partialBytes = 40
 
+    /// An etag that is not a safe file name: it holds `..`.
+    private static let unsafeEtag = "etag..bin"
+
     @Test("the complete blob of an etag is the blob file that the cache holds")
     func completeBlobIsPresentBlob() async throws {
         let fixture = try HubFixture(repository: Self.repository, commit: Self.commit)
         defer { fixture.remove() }
         try fixture.writeComplete([Self.weights])
 
-        let blob = try fixture.cache.completeBlob(repo: fixture.repo, etag: Self.weights.etag)
+        let blob = fixture.cache.completeBlob(repo: fixture.repo, etag: Self.weights.etag)
 
         #expect(blob == (try fixture.cache.blobPath(repo: fixture.repo, kind: .model, etag: Self.weights.etag)))
     }
@@ -41,7 +44,7 @@ struct HubCacheBlobTests {
         defer { fixture.remove() }
         try fixture.writeIncomplete(Self.weights, bytes: Self.partialBytes)
 
-        #expect(try fixture.cache.completeBlob(repo: fixture.repo, etag: Self.weights.etag) == nil)
+        #expect(fixture.cache.completeBlob(repo: fixture.repo, etag: Self.weights.etag) == nil)
     }
 
     @Test("the incomplete blob of an etag is the incomplete file that the cache holds")
@@ -50,7 +53,7 @@ struct HubCacheBlobTests {
         defer { fixture.remove() }
         try fixture.writeIncomplete(Self.weights, bytes: Self.partialBytes)
 
-        let blob = try fixture.cache.incompleteBlob(repo: fixture.repo, etag: Self.weights.etag)
+        let blob = fixture.cache.incompleteBlob(repo: fixture.repo, etag: Self.weights.etag)
 
         #expect(
             blob == (try fixture.cache.incompleteBlobPath(repo: fixture.repo, kind: .model, etag: Self.weights.etag)))
@@ -62,7 +65,23 @@ struct HubCacheBlobTests {
         defer { fixture.remove() }
         try fixture.writeComplete([Self.weights])
 
-        #expect(try fixture.cache.incompleteBlob(repo: fixture.repo, etag: Self.weights.etag) == nil)
+        #expect(fixture.cache.incompleteBlob(repo: fixture.repo, etag: Self.weights.etag) == nil)
+    }
+
+    @Test("the complete blob of an etag that is not a safe file name is nil")
+    func completeBlobIsNilForUnsafeEtag() async throws {
+        let fixture = try HubFixture(repository: Self.repository, commit: Self.commit)
+        defer { fixture.remove() }
+
+        #expect(fixture.cache.completeBlob(repo: fixture.repo, etag: Self.unsafeEtag) == nil)
+    }
+
+    @Test("the incomplete blob of an etag that is not a safe file name is nil")
+    func incompleteBlobIsNilForUnsafeEtag() async throws {
+        let fixture = try HubFixture(repository: Self.repository, commit: Self.commit)
+        defer { fixture.remove() }
+
+        #expect(fixture.cache.incompleteBlob(repo: fixture.repo, etag: Self.unsafeEtag) == nil)
     }
 
     @Test("the tree metadata of a revision holds each file of the listing with its etag")

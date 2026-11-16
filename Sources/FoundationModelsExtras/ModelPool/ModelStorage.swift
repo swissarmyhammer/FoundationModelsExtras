@@ -194,10 +194,10 @@ public struct ModelStorage: Sendable {
             return LocatedBlob(url: link.resolvingSymlinksInPath(), isComplete: true)
         }
         guard let etag else { return nil }
-        if let complete = try? hub.cache.completeBlob(repo: repo, etag: etag) {
+        if let complete = hub.cache.completeBlob(repo: repo, etag: etag) {
             return LocatedBlob(url: complete, isComplete: true)
         }
-        guard let incomplete = try? hub.cache.incompleteBlob(repo: repo, etag: etag) else { return nil }
+        guard let incomplete = hub.cache.incompleteBlob(repo: repo, etag: etag) else { return nil }
         return LocatedBlob(url: incomplete, isComplete: false)
     }
 

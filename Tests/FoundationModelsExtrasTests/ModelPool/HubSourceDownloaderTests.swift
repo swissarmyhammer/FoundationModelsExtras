@@ -1,5 +1,6 @@
 import Foundation
 import HuggingFace
+import MLXLMCommon
 import TelemetryTestSupport
 import Testing
 
@@ -26,6 +27,9 @@ struct HubSourceDownloaderTests {
 
     /// The configuration of the model, a file that is not LFS.
     private static let config = HubStub.TreeFile(path: "config.json", size: 10, isLFS: false)
+
+    /// A file whose etag is not a safe blob name: the etag holds `..`.
+    private static let unsafeEtagFile = HubStub.TreeFile(path: "config..json", size: 10, isLFS: false)
 
     /// The patterns of the files of the download.
     private static let patterns = ["*.safetensors", "*.json"]
@@ -142,6 +146,23 @@ struct HubSourceDownloaderTests {
         #expect(records == [expected])
     }
 
+    @Test("a file whose etag is not safe gets no link, and the cached blobs of the other files get their links")
+    func unsafeEtagLinksOtherBlobs() async throws {
+        let fixture = try HubFixture(repository: Self.repository, commit: Self.oldCommit)
+        defer { fixture.remove() }
+        try fixture.writeComplete([Self.weights])
+        let stub = HubStub(.repository(commit: Self.newCommit, files: [Self.unsafeEtagFile, Self.weights]))
+        let source = HubSource(cache: fixture.cache, tokenProvider: .none, session: stub.session)
+        let downloader = BlobReusingDownloader(
+            client: source.client(), cache: fixture.cache, upstream: SnapshotDownloader(cache: fixture.cache))
+
+        let snapshot = try await downloader.download(
+            id: Self.repository, revision: Self.newCommit, matching: Self.patterns, useLatest: false
+        ) { _ in }
+
+        #expect(FileManager.default.fileExists(atPath: snapshot.appendingPathComponent(Self.weights.path).path))
+    }
+
     /// The error that a Hub request of a client with no network throws, as
     /// the session gives it to the client.
     ///
@@ -170,5 +191,33 @@ struct HubSourceDownloaderTests {
         return try await source.downloader().download(
             id: Self.repository, revision: revision, matching: Self.patterns, useLatest: false
         ) { _ in }
+    }
+}
+
+/// A downloader that downloads nothing: it gives the snapshot folder of the
+/// revision in its cache, thus a test sees only the links that a
+/// ``BlobReusingDownloader`` makes before its upstream download.
+private struct SnapshotDownloader: Downloader {
+    /// The cache of the snapshot folders.
+    let cache: HubCache
+
+    /// Gives the snapshot folder of `revision`.
+    ///
+    /// - Parameters:
+    ///   - id: The repository.
+    ///   - revision: The commit of the snapshot.
+    ///   - patterns: The file patterns. The fake does not read them.
+    ///   - useLatest: Whether to check for a newer revision. The fake does not
+    ///     read it.
+    ///   - progressHandler: Gets each report. The fake reports nothing.
+    /// - Returns: The snapshot folder of the commit.
+    /// - Throws: An issue when `id` is not a repository id or `revision` is
+    ///   `nil`, or `HubCacheError` when the commit is not safe.
+    func download(
+        id: String, revision: String?, matching patterns: [String], useLatest: Bool,
+        progressHandler: @Sendable @escaping (Progress) -> Void
+    ) async throws -> URL {
+        let repo = try #require(Repo.ID(rawValue: id))
+        return try cache.snapshotPath(repo: repo, kind: .model, commitHash: try #require(revision))
     }
 }

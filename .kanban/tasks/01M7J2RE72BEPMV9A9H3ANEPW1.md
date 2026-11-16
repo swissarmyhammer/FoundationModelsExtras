@@ -72,8 +72,54 @@ comments:
     - evidence: `swift test` exit 0: 1898 + 401 + 156 + 46 + 40 + 34 + 26 tests pass, 0 failures, no warnings in our sources. Files: BlobReusingDownloader.swift, HubCache+Blobs.swift (new), HubTreeMetadata.swift, ModelStorage.swift, ExtrasTelemetry.swift, PoolTelemetry.swift, HubSourceDownloaderTests.swift, HubCacheBlobTests.swift (new)
     - next: /review
   timestamp: 2026-11-16T12:24:59.916950+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m7j59k37ptqsrjh6mqhpzvn8
+  text: |-
+    ### review — findings
+    - evidence: `review sha HEAD~1..HEAD`, 3 findings (3 confirmed, 1 refuted) — Sources/FoundationModelsExtras/ModelPool/BlobReusingDownloader.swift:157, Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift:117 (two findings). The 3 prior findings are fixed: `HubClient.treeMetadata(of:revision:)` is the one tree listing, `HubCache.completeBlob(repo:etag:)` is the one blob lookup, and the broad catch writes a debug record.
+    - next: fix the 3 findings of the section "Review Findings (2026-11-16 06:26)". Then review again.
+  timestamp: 2026-11-16T12:28:45.031505+00:00
+- actor: claude-code
+  id: 01m7j5a6jt06523egp1510wkg7
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 8 files (HubCache+Blobs new, HubTreeMetadata, BlobReusingDownloader, ModelStorage, ExtrasTelemetry, PoolTelemetry; tests HubSourceDownloaderTests, HubCacheBlobTests)
+    - test: green — swift test, all runs passed, 0 failed, 0 skipped
+    - commit: 1e6c43c
+    - review: findings — BlobReusingDownloader.swift:157, PoolTelemetry.swift:117, PoolTelemetry.swift:117
+    - Contract for finding 1: an unsafe etag means "no cached blob" at both sites. The downloader does not link the file, and the upstream download handles it.
+  timestamp: 2026-11-16T12:29:04.986798+00:00
+- actor: claude-code
+  id: 01m7j5hdfxd5e4r6qdpxsh0fcq
+  text: |-
+    ## Review findings (06:26) done
+    - The unsafe etag contract is in one place now: `HubCache.completeBlob(repo:etag:)` and `HubCache.incompleteBlob(repo:etag:)` do not throw. They give `nil` for an etag that is not a safe file name, the same as for a blob that is not on the disk. The doc comment of the extension tells the contract. `ModelStorage.blob(of:etag:in:repo:)` has no `try?` now, and `linkCachedBlobs` has no `try`. Thus the downloader does not link such a file, and the upstream download handles it.
+    - New test `unsafeEtagLinksOtherBlobs` (HubSourceDownloaderTests): a listing with `config..json` (etag `etag-config..json`) before `model.safetensors`. It uses a `BlobReusingDownloader` over a fake upstream `SnapshotDownloader` that gives the snapshot folder and downloads nothing, thus the test sees only the link step. A real upstream download would also throw for the unsafe etag of that file, so the fake keeps the test on the link step. RED: `invalidPathComponent("etag-config..json")` was thrown out of download(). GREEN after the fix.
+    - New tests in HubCacheBlobTests: `completeBlobIsNilForUnsafeEtag`, `incompleteBlobIsNilForUnsafeEtag`. The 4 earlier tests lost their `try`, which is not necessary now.
+    - PoolTelemetry: a new private `logFailure(_:error:level:metadata:)` is the one function that sets the error type entry and calls `makeLogger()`. `logFailure(_:error:of:)` gives `.error` and the model ref entry. `logRevisionTreeUnavailable` gives `.debug` and the repository entry.
+
+    ### implement — changed
+    - evidence: `swift test` exit 0: 1901 + 401 + 156 + 46 + 40 + 34 + 26 tests pass, 0 failures, no warnings in our sources. Files: HubCache+Blobs.swift, BlobReusingDownloader.swift, ModelStorage.swift, PoolTelemetry.swift, HubSourceDownloaderTests.swift, HubCacheBlobTests.swift
+    - next: /review
+  timestamp: 2026-11-16T12:33:01.437955+00:00
+- actor: claude-code
+  id: 01m7j5nzge54sd5ftx6rm5gmfk
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (b31b890). 0 findings, 0 confirmed, 0 refuted. 6 files reviewed. All prior findings are checked. The unsafe etag now gives nil at the download path and at the storage path (HubCache+Blobs.swift), and tests examine it. PoolTelemetry has one private logFailure helper that sets the error type.
+    - next: none. The task moves to done.
+  timestamp: 2026-11-16T12:35:30.958341+00:00
+- actor: claude-code
+  id: 01m7j5pg5td8d6w6pa4x9gfz14
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — 6 files (HubCache+Blobs, BlobReusingDownloader, ModelStorage, PoolTelemetry; tests HubSourceDownloaderTests, HubCacheBlobTests)
+    - test: green — swift test, 2604 passed, 0 failed, 0 skipped
+    - commit: b31b890
+    - review: clean — 0 findings
+  timestamp: 2026-11-16T12:35:48.026205+00:00
+position_column: done
+position_ordinal: ffe880
 title: 'Download: reuse cached blobs with the same hash after a revision change'
 ---
 ## Defect
@@ -100,3 +146,14 @@ Fix it in Extras, not in the upstream package. For example: before the upstream 
 - [x] `Sources/FoundationModelsExtras/ModelPool/BlobReusingDownloader.swift:101` `reuse/reuse` — `tree(of:revision:)` rebuilds the tree listing that `ModelStorage` already builds: a `client.listFiles(in:kind:revision:recursive:)` call followed by `HubTreeMetadata(entries:)`. Two copies of the listing and its metadata construction can drift apart, for example in the recursion flag, the kind, or how a failed request is handled. Move the listing and the `HubTreeMetadata` construction into one shared function, such as a `HubSource` or `HubClient` helper that takes the repository and the commit. `ModelStorage` and `BlobReusingDownloader` both call it. `ModelStorage` keeps its own error handling and its save to the tree store.
 - [x] `Sources/FoundationModelsExtras/ModelPool/BlobReusingDownloader.swift:103` `completeness/public-output-contract` — The new `tree(of:revision:)` catch-all swallows every error except cancellation and returns nil without a log or warning. That includes non-network failures such as an auth rejection (401/403), a rate limit, or a decoding error. The download then silently falls back to the upstream path with no operator-visible signal. The sibling `ModelStorage` listing at ModelStorage.swift:163 catches only `URLError`, so the new code is less precise than the existing pattern it mirrors. Catch only the network failures that the offline fallback is meant to cover (for example `URLError`), so other errors propagate or are logged. If the broad catch is intended, log the swallowed error at debug level so a failing Hub request leaves a trace.
 - [x] `Sources/FoundationModelsExtras/ModelPool/BlobReusingDownloader.swift:125` `reuse/reuse` — `linkCachedBlobs` finds a complete cached blob by calling `cache.blobPath(...)` and then `FileManager.default.fileExists`. `ModelStorage` already has this lookup, so the rule that decides a blob is present now lives in two places. Add one helper that returns the complete blob of an etag, or `nil` when the file is absent. Put it on `HubCache` or `HubSource`, and have `ModelStorage.blob(of:etag:in:repo:)` and `linkCachedBlobs` both call it.
+
+## Review Findings (2026-11-16 06:26)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 8 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/BlobReusingDownloader.swift:157` `completeness/invariant-propagation` — The etag check on the download path and the etag check on the storage path do not match. linkCachedBlobs uses `try cache.completeBlob`, so an unsafe etag from the Hub throws out of download(). The storage path (ModelStorage.blob, line 197) uses `try?` and treats the same etag as no blob. The downloader's broad fallback in tree() does not cover linkCachedBlobs, so an unsafe etag aborts the whole download instead of falling back to the upstream download for the revision. Decide one contract for an unsafe etag and apply it at both sites. Either the downloader treats the file as having no cached blob (continue, with the same debug record), or the storage path also surfaces the error. Add one test that feeds an unsafe etag through the download path and asserts the chosen result.
+- [x] `Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift:117` `duplication/duplication` — logRevisionTreeUnavailable repeats the body of logFailure: it calls ExtrasTelemetry.makeLogger(), writes one record with the same message interpolation, and fills the same errorType metadata entry from ExtrasTelemetry.errorType(of:). The two copies differ only by the log level (.debug versus .error) and by one metadata key (LogMetadataKey.repository versus LogMetadataKey.modelRef). Copies of error-record construction can drift apart, for example if a future change adds a field to every error record or changes how the error type is read, and then only one of the two paths would get the change. Extract one shared helper that takes the level, the message, the error and the metadata entries, for example a private static func that wraps makeLogger() and the errorType entry. Have logRevisionTreeUnavailable pass .debug with its repository entry. Have logFailure pass .error with its modelRef entry. The edit to logFailure touches a pre-existing line, so either keep this change to the new function and record the logFailure edit as a separate task, or accept the small edit to logFailure as part of this change.
+- [x] `Sources/FoundationModelsExtras/Telemetry/PoolTelemetry.swift:117` `reuse/reuse` — logRevisionTreeUnavailable repeats the body of the existing private logFailure: it builds the same log record, with the same error-type key and the same makeLogger() call. The only differences are the level (debug, not error) and the second metadata key (repository, not modelRef). Two near-identical copies of the logging code will drift apart when the record format changes. Generalize logFailure so it takes the log level and the metadata key-value pair (or a metadata dictionary) as parameters. Then logRevisionTreeUnavailable calls the generalized helper with .debug and the repository key, and logFailure keeps its .error behavior. The error-type key is set in one place.

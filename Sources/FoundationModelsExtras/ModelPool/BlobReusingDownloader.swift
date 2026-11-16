@@ -140,21 +140,22 @@ struct BlobReusingDownloader: Downloader {
 
     /// Links each file of `patterns` in the snapshot of the commit to its
     /// blob, when the cache holds the blob and the snapshot has no link for
-    /// the file.
+    /// the file. A file whose etag is not a safe file name has no cached
+    /// blob, thus it gets no link, and the upstream download handles it.
     ///
     /// - Parameters:
     ///   - tree: The commit and its files.
     ///   - repo: The repository.
     ///   - patterns: The patterns of the files of the download.
-    /// - Throws: `HubCacheError` for an etag or a path that is not safe, or
-    ///   the error of a link.
+    /// - Throws: `HubCacheError` for a path that is not safe, or the error of
+    ///   a link.
     private func linkCachedBlobs(of tree: RevisionTree, repo: Repo.ID, matching patterns: [String]) async throws {
         let files = tree.metadata.filesByPath
         for path in HubSource.paths(tree.metadata.paths, matching: patterns) {
             guard let etag = files[path]?.etag,
                 cache.cachedFilePath(repo: repo, kind: .model, revision: tree.commit, filename: path) == nil
             else { continue }
-            guard let blob = try cache.completeBlob(repo: repo, etag: etag) else { continue }
+            guard let blob = cache.completeBlob(repo: repo, etag: etag) else { continue }
             try await cache.storeFile(
                 at: blob, repo: repo, kind: .model, revision: tree.commit, filename: path, etag: etag)
         }
