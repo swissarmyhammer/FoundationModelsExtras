@@ -89,7 +89,7 @@ struct HubOfflineTests {
         #expect(stub.requests.isEmpty)
     }
 
-    @Test("an offline download of a model that is not cached throws notCachedOffline")
+    @Test("an offline download of a model that is not cached throws notCachedOffline, with no request")
     func offlineDownloadOfMissingModelThrows() async throws {
         let fixture = try HubFixture(repository: Self.repository, commit: Self.cachedCommit)
         defer { fixture.remove() }
@@ -101,16 +101,6 @@ struct HubOfflineTests {
         ) {
             try await offlineDownload(revision: ModelRef.defaultRevision, fixture: fixture, stub: stub)
         }
-    }
-
-    @Test("an offline download of a model that is not cached sends no request")
-    func offlineDownloadOfMissingModelSendsNoRequest() async throws {
-        let fixture = try HubFixture(repository: Self.repository, commit: Self.cachedCommit)
-        defer { fixture.remove() }
-        let stub = HubStub(.repository(commit: Self.hubCommit, files: [Self.weights, Self.config]))
-
-        _ = try? await offlineDownload(revision: ModelRef.defaultRevision, fixture: fixture, stub: stub)
-
         #expect(stub.requests.isEmpty)
     }
 

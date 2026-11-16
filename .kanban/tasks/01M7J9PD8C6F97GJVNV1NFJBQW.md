@@ -31,8 +31,53 @@ comments:
     - evidence: `swift build --build-tests` has no warnings in our sources; `swift test` passed 2644 tests (156 + 40 + 46 + 26 + 401 + 1941 + 34), 0 failures. Files: Sources/FoundationModelsExtras/ModelPool/{HubSource,BlobReusingDownloader,GGUFSource,ModelStorage,HubModelLoader,MLXModelLoader,CoreMLModelLoader,ResumableFileDownload}.swift; Tests/FoundationModelsExtrasTests/ModelPool/{HubOfflineTests (new),HubFixture}.swift
     - next: review. The last acceptance item (tell foundationmodelsrouter-f1 and testudoapp-75) is open for the orchestrator.
   timestamp: 2026-11-16T13:54:02.451348+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m7jaen3wqjtdbck14wgn84kg
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD: 1 finding (1 confirmed, 0 refuted) — Tests/FoundationModelsExtrasTests/ModelPool/HubOfflineTests.swift:112 (test-integrity/no-test-cheating). Manual check: no offline path sends a Hub request. BlobReusingDownloader returns the cached snapshot before the tree lookup and before the upstream download. GGUFSource and HubModelLoader.paths do not call listFiles offline. ModelStorage does not call treeMetadata offline. The MLX drafter load uses hub.downloader(), thus the offline BlobReusingDownloader. The tokenizer loader reads only the local folder (AutoTokenizer.from(modelFolder:)). hubClient() has only test callers and sends no request.
+    - next: implement the finding at HubOfflineTests.swift:112, then review again. The acceptance item "tell the other sessions" is for the orchestrator after the push.
+  timestamp: 2026-11-16T13:58:53.820788+00:00
+- actor: claude-code
+  id: 01m7jaf4n149jx192jqd2wrcyd
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 10 files (HubSource, BlobReusingDownloader, GGUFSource, ModelStorage, HubModelLoader, MLXModelLoader, CoreMLModelLoader, ResumableFileDownload; tests HubOfflineTests new, HubFixture)
+    - test: green — swift test two times, 2644 passed each time, 0 failed, 0 skipped
+    - commit: 4580d41
+    - review: findings — HubOfflineTests.swift:112
+  timestamp: 2026-11-16T13:59:09.729350+00:00
+- actor: claude-code
+  id: 01m7jahpj20s487eeeb914wdwk
+  text: |-
+    Finding at HubOfflineTests.swift:112 is fixed. I merged `offlineDownloadOfMissingModelSendsNoRequest` into `offlineDownloadOfMissingModelThrows`. The single test now has `#expect(throws: ModelDownloadError.notCachedOffline(...))` and then `#expect(stub.requests.isEmpty)`, which is the same shape as the GGUF test. There is no `try?` on a call under test in the file now. The remaining `try?` calls are only the `removeItem` clean-up in `defer`. The other test file of this change (HubFixture.swift) has no `try?`.
+
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/ModelPool/HubOfflineTests.swift. `swift test`: 2643 passed (156 + 40 + 46 + 26 + 401 + 1940 + 34), 0 failures. There is one test fewer because two tests became one. No warnings in our sources.
+    - next: review. The acceptance item "tell the other sessions" stays open for the orchestrator.
+  timestamp: 2026-11-16T14:00:33.602362+00:00
+- actor: claude-code
+  id: 01m7jahwf6vy6zq57hkymbddxc
+  text: 'Correction to the last comment: HubFixture.swift has one `try?`. It is in `remove()`, which is the `removeItem` clean-up of the fixture folder. It is not a call under test, and it hides no result that a test asserts.'
+  timestamp: 2026-11-16T14:00:39.654635+00:00
+- actor: claude-code
+  id: 01m7jamwyhnhwx4dc63wrwsgzb
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (6727783). 0 findings, 0 confirmed, 0 refuted, 7 validator runs, 0 failed. 1 file reviewed: Tests/FoundationModelsExtrasTests/ModelPool/HubOfflineTests.swift. The prior finding (HubOfflineTests.swift, test-integrity/no-test-cheating) is fixed and checked.
+    - next: The orchestrator tells foundationmodelsrouter-f1 and testudoapp-75 how a test turns on the offline mode, after the push.
+  timestamp: 2026-11-16T14:02:18.449242+00:00
+- actor: claude-code
+  id: 01m7jan7pq30mjmgw1zgghr3yf
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (HubOfflineTests: two tests merged, error and empty request list checked together)
+    - test: green — swift test, 2643 passed, 0 failed, no warnings in our sources
+    - commit: 6727783
+    - review: clean — 0 findings
+  timestamp: 2026-11-16T14:02:29.463242+00:00
+position_column: done
+position_ordinal: ffea80
 title: 'Offline mode for the hub source: no Hub request, use only the cache (HF_HUB_OFFLINE and an init parameter)'
 ---
 ## Defect
@@ -52,3 +97,12 @@ An offline mode of `HubSource`, as `huggingface_hub` has with `HF_HUB_OFFLINE`:
 - [x] Doc comments of each init describe the parameter.
 - [x] `swift test` passes.
 - [ ] Tell the Router session (foundationmodelsrouter-f1) and testudoapp-75 how a test turns the mode on. #bug
+
+## Review Findings (2026-11-16 07:56)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 10 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/HubOfflineTests.swift:112` `test-integrity/no-test-cheating` — The test discards the result of the offline download with `try?`, and it asserts only that the stub got no request. If the offline download wrongly returns a snapshot, or throws some other error, the test still passes. The test does not prove that the error is notCachedOffline, so the failure is swallowed. Assert the error and the empty request list together. For example, wrap the call in `await #expect(throws: ModelDownloadError.notCachedOffline(repository: Self.repository, revision: ModelRef.defaultRevision)) { ... }` and keep `#expect(stub.requests.isEmpty)` after it. Alternatively, remove this test, because `offlineDownloadOfMissingModelThrows` already covers the throw.
