@@ -139,6 +139,34 @@ struct StalledDownloadTests {
         #expect(reports.all == reports.all.sorted())
     }
 
+    @Test("a server that ignores the range restarts the blob from zero, and the byte progress never goes backward")
+    func ignoredRangeRestartsBlob() async throws {
+        let fixture = try HubFixture(repository: Self.repository, commit: Self.commit)
+        defer { fixture.remove() }
+        let stalls = [Self.bytesBeforeStall, Self.bytesOfEachStall]
+        let stub = HubStub(
+            .repository(commit: Self.commit, files: [Self.weights], stalls: stalls, ignoresRange: true))
+        let reports = ReportLog<Int64>()
+        let progress = SnapshotByteProgress(
+            totalBytes: Int64(Self.weights.size), bytesByPath: [Self.weights.path: 0]
+        ) { reports.append($0.completedUnitCount) }
+        let files = ResumableFileDownload(
+            session: stub.session, host: HubSource.host(), tokenProvider: .none,
+            policy: StallClock(stub: stub, retryLimit: Self.retryLimit).policy)
+        let blob = try fixture.cache.incompleteBlobPath(repo: fixture.repo, kind: .model, etag: Self.weights.etag)
+        try FileManager.default.createDirectory(
+            at: blob.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        try await files.download(Self.weights.path, of: fixture.repo, at: Self.commit, into: blob) { bytes in
+            progress.record(bytes, of: Self.weights.path)
+            stub.recordWritten(bytes)
+        }
+
+        #expect(stub.ranges == [nil, "bytes=\(Self.bytesBeforeStall)-", "bytes=\(Self.bytesOfEachStall)-"])
+        #expect(try Data(contentsOf: blob) == Self.weights.contents)
+        #expect(reports.all == reports.all.sorted())
+    }
+
     @Test("a download continues the .incomplete blob of an earlier download with a Range request")
     func earlierBlobSendsRange() async throws {
         let fixture = try HubFixture(repository: Self.repository, commit: Self.commit)

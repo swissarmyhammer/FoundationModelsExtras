@@ -4,8 +4,9 @@ import Metrics
 /// The recorder of the cache telemetry of the model pool: the acquires, the
 /// evictions, the joins of a running load, the footprint meters, and the log
 /// records of a failed footprint measure, of a failed prewarm, of a failed
-/// relay of the events of a generation call and of a download that got no
-/// tree listing of its revision.
+/// relay of the events of a generation call, of a download that got no
+/// tree listing of its revision and of a blob of a download that did not
+/// close.
 ///
 /// Each metric is made at call time, so that it uses the metrics factory of
 /// the current task. An admission job restores the factory of its submitter,
@@ -118,6 +119,16 @@ enum PoolTelemetry {
         logFailure(
             ExtrasTelemetry.PoolLogMessage.revisionTreeUnavailable, error: error, level: .debug,
             metadata: [ExtrasTelemetry.LogMetadataKey.repository: .string(repository)])
+    }
+
+    /// Writes one warning record for an `.incomplete` blob that did not
+    /// close, when the transfer of the file gives another outcome. The
+    /// record holds the type of `error`, never the description of `error`
+    /// or the path of the blob.
+    ///
+    /// - Parameter error: The error of the close.
+    static func logBlobCloseFailure(_ error: any Error) {
+        logFailure(ExtrasTelemetry.PoolLogMessage.blobCloseFailed, error: error, level: .warning, metadata: [:])
     }
 
     /// Writes one error record with `message`, the type of `error` and the

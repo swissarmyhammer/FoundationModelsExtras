@@ -43,7 +43,7 @@ struct HubSourceDownloaderTests {
 
         _ = try await download(revision: Self.newCommit, fixture: fixture, stub: stub)
 
-        #expect(stub.requests.filter { $0.pathComponents.contains(HubStub.resolveComponent) } == [])
+        #expect(stub.requests.filter { $0.pathComponents.contains(ResumableFileDownload.resolveComponent) } == [])
     }
 
     @Test("the snapshot of the new commit links to the blob of the old commit")

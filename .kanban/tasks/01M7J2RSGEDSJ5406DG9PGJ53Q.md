@@ -70,6 +70,45 @@ comments:
     - findings: 8 of 8 checked.
     - next: /review
   timestamp: 2026-11-16T13:17:39.039195+00:00
+- actor: claude-code
+  id: 01m7j8dnkj333d986v1qgtvhd8
+  text: |-
+    ### review — findings
+    - scope: `review sha HEAD~1..HEAD` (commit 29ba821).
+    - prior findings: all 8 items of the 06:57 section are fixed in the code. Redirect to another host removes the token (FileTransfer.redirected). replaceSink closes the blob on a write error (FileTransferTests). SnapshotByteProgress.record keeps the maximum of each file. HubSource.bytesOnDisk replaces ResumableFileDownload.size(of:). HubStub.resumeReachedWaiters is shared. The stall seconds are named constants. StalledDownloadTests asserts the stall error.
+    - acceptance: 5 of 5 met and checked. Tests in StalledDownloadTests cover the Range retry, the retry limit and the progress. MLX, Core ML and GGUF use HubSource.downloader() (BlobReusingDownloader). `swift test` exit 0, all suites pass, 0 failures. The only warning is the build-system "missing creator" line for the mlx bundle.
+    - evidence: 3 findings — Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:57, Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:262, Tests/FoundationModelsExtrasTests/ModelPool/ResumableFileDownloadTests.swift:31
+    - next: implement the 3 findings of the 07:19 section. The task stays in review.
+  timestamp: 2026-11-16T13:23:24.402673+00:00
+- actor: claude-code
+  id: 01m7j8eecyj7bfthg9nafpd3ap
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 11 files (FileTransfer, ResumableFileDownload, SnapshotByteProgress, DownloadRetryPolicy, HubSource, BlobReusingDownloader; tests HubStub, StallClock, StalledDownloadTests, ResumableFileDownloadTests new, FileTransferTests new)
+    - test: green — swift test two times, 2622 passed each time, 0 failed, 0 skipped, 0 hangs
+    - commit: 29ba821
+    - review: findings — FileTransfer.swift:57, FileTransfer.swift:262, ResumableFileDownloadTests.swift:31
+  timestamp: 2026-11-16T13:23:49.790143+00:00
+- actor: claude-code
+  id: 01m7j9156vayrh444xtpf1nbwb
+  text: |-
+    Fixed the 3 findings of the 07:19 section.
+    - Close error (FileTransfer.swift:57): no `try?` stays in the file. `State.close(_:)` keeps the error of a close in `closeFailures`. When the task of the transfer ends with an error and the blob does not close, the error of the task is the outcome and the close error goes to `closeFailures`. Before this change, the close error replaced the error of the task, thus that error was lost too (the same cause). `run` writes one warning record (`PoolTelemetry.logBlobCloseFailure`, message `PoolLogMessage.blobCloseFailed`, error type only) for each kept close error. When the task ends with no error, the close error is the outcome, as before.
+    - Why no assertionFailure: the finding gives two choices. A failed close is an I/O error, not a programmer error, and a test must make it occur; an assertionFailure would stop the debug test run. Thus the fix uses the second choice: the close error goes to the caller, or to a log record when the transfer gives another failure.
+    - Discovery: the log record must be written in the task of the caller, not in a URLSession delegate callback. The delegate queue has no task-local values, thus `TelemetryCapture` does not see a record from it, and a production logging context does not see it either. `run` writes the records in a `defer`.
+    - Ignored range (FileTransfer.swift:262): `HubStub.Answer.repository` has a new `ignoresRange:` option: a `GET` with a `Range` header gets the whole file with status 200. New test `StalledDownloadTests.ignoredRangeRestartsBlob`: stalls of 40 and 10 bytes, thus the raw blob size goes 40, 10, 100. It checks the ranges, the bytes of the blob, and that the progress reports never decrease. Two mutations make it fail: no clamp in `SnapshotByteProgress.record`, and a 200 answer that writes after the old bytes.
+    - Stub change: each `GET` that the stub answers with bytes sets `writtenBytes` to zero. Before, the stub kept the maximum, and a restarted request whose stall ends at byte 10 was "reached" at once (40 >= 10), before the download wrote its bytes. That made the watch race the writes.
+    - Copied constants (ResumableFileDownloadTests.swift:31): the tests now use `FileTransfer.authorizationField`, `ResumableFileDownload.rangeField`, `ResumableFileDownload.resolveComponent`, `FileTransfer.partialStatus` and `FileTransfer.rangeNotSatisfiableStatus`. These production constants are now internal, not private. `HubStub.resolveComponent` and the copies in `HubStubProtocol` are removed.
+  timestamp: 2026-11-16T13:34:02.971845+00:00
+- actor: claude-code
+  id: 01m7j918q4gs4vx2ajr5rxvkmr
+  text: |-
+    ### implement — changed
+    - evidence: `swift test` exit 0, one run: 2626 tests pass (2622 before, plus 4 new), 0 failures; 0 warnings in Sources/ or Tests/ (the only warning is the build-system "missing creator" line for the mlx bundle). The 3 FileTransferTests for the close error failed first (RED), then passed. The ignore-range test covers code that already existed; two mutations made it fail.
+    - files: Sources/FoundationModelsExtras/ModelPool/{FileTransfer,ResumableFileDownload}.swift; Sources/FoundationModelsExtras/Telemetry/{PoolTelemetry,ExtrasTelemetry}.swift; Tests/FoundationModelsExtrasTests/ModelPool/{FileTransferTests,HubStub,StalledDownloadTests,ResumableFileDownloadTests,HubSourceDownloaderTests}.swift.
+    - findings: 3 of 3 checked in the 07:19 section.
+    - next: /review
+  timestamp: 2026-11-16T13:34:06.564690+00:00
 depends_on:
 - 01M7J2RE72BEPMV9A9H3ANEPW1
 position_column: doing
@@ -90,11 +129,11 @@ The stall interval, the backoff and the retry limit are parameters with defaults
 The progress (`bytesDownloaded` / `ModelLoadProgress.downloading(completedBytes:)`) must never go backward over a retry. `DownloadByteCounter` already keeps the maximum; check that it holds across attempts.
 
 ## Acceptance
-- [ ] A test with a stub transport that sends some bytes, then stalls: the download retries with `Range: bytes=<written>-`, ends complete, and the file is correct.
-- [ ] A test where each attempt stalls: the download stops after the retry limit and throws the stall error.
-- [ ] A test that the progress reports never go backward over a retry.
-- [ ] All three download paths (MLX, Core ML, GGUF) get the retry.
-- [ ] `swift test` passes. #bug
+- [x] A test with a stub transport that sends some bytes, then stalls: the download retries with `Range: bytes=<written>-`, ends complete, and the file is correct.
+- [x] A test where each attempt stalls: the download stops after the retry limit and throws the stall error.
+- [x] A test that the progress reports never go backward over a retry.
+- [x] All three download paths (MLX, Core ML, GGUF) get the retry.
+- [x] `swift test` passes. #bug
 
 ## Review Findings (2026-11-16 06:57)
 
@@ -111,3 +150,14 @@ The progress (`bytesDownloaded` / `ModelLoadProgress.downloading(completedBytes:
 - [x] `Tests/FoundationModelsExtrasTests/ModelPool/HubStub.swift:256` `reuse/reuse` — The loop in `recordWritten` repeats the loop in `recordStall`: each one takes the reached waiters under the lock, then resumes each continuation. Two copies of the same wake-up sequence in one file can drift apart, and a fix to one would be missed in the other. Move the take-and-resume pair into one private method on `HubStub`, such as `resumeReachedWaiters(_ update: (inout StallState) -> Void)`, and call it from both `recordStall(end:)` and `recordWritten(_:)`.
 - [x] `Tests/FoundationModelsExtrasTests/ModelPool/StallClock.swift:19` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
 - [x] `Tests/FoundationModelsExtrasTests/ModelPool/StalledDownloadTests.swift:89` `test-integrity/no-test-cheating` — The test discards the result of the download with `try?`. The download is expected to throw `ModelDownloadError.stalled` after the retry limit, but the test never checks the error. If the download fails for another reason after two backoffs, the test still passes, so the test does not prove the error path it names. Assert the thrown error as well, for example with `await #expect(throws: ModelDownloadError.stalled(repository: Self.repository, file: Self.weights.path, attempts: Self.retryLimit + 1)) { try await download(stub: stub, fixture: fixture, clock: clock) }`, and then assert `clock.backoffs` in the same test.
+
+## Review Findings (2026-11-16 07:19)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 11 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:57` `swift/preconditions` — The error of closing the replaced blob is dropped by `try?`. No assertion and no log record it, so a failed close of a blob leaves no trace. The rule requires an unexpected but recoverable condition to get an assertionFailure and a production log. Keep the close error. Call assertionFailure and log it with the production logger, then continue with the new sink. Or record the error and report it as the outcome of the transfer when the new sink is not a failure.
+- [x] `Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:262` `completeness/invariant-propagation` — The server-ignores-range path is changed but not tested. When a Range request gets a 200 answer, startOffset becomes 0 and openBlob truncates the blob to zero. The progress fix in SnapshotByteProgress.record depends on this restart, but no test in the diff makes the stub send a 200 for a ranged request. HubStub.answerFile always sends 206 for a range. The 416 restart is tested, but this path is not. Without a test, a regression in this path can make the progress go backward and the test suite still passes. Add a HubStub mode that ignores the Range header and sends the whole file with 200. Add one test that stalls, restarts with that mode, and asserts that the progress reports never decrease and that the blob holds the whole file at the end.
+- [x] `Tests/FoundationModelsExtrasTests/ModelPool/ResumableFileDownloadTests.swift:31` `reuse/reuse` — The test declares its own `authorizationField = "Authorization"`, which repeats the production constant `FileTransfer.authorizationField`. The test target uses `@testable import`, so the constant is reachable. If the header name changes in production, the test would keep checking the old name and could pass while the real header is no longer checked. Delete the private constant at line 31 and use `FileTransfer.authorizationField` in the two `headerValues(Self.authorizationField, ...)` calls in this file.

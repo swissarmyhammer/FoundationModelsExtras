@@ -27,12 +27,6 @@ struct ResumableFileDownloadTests {
     /// The Hugging Face token of the requests.
     private static let token = "hf_test_token"
 
-    /// The header of the token of a request.
-    private static let authorizationField = "Authorization"
-
-    /// The header of a request that asks for a part of a file.
-    private static let rangeField = "Range"
-
     /// The base URL of a redirect to a host that is not the host of the Hub.
     private static let otherHost = URL(string: "https://cdn.hub-stub.test/files")
 
@@ -51,7 +45,7 @@ struct ResumableFileDownloadTests {
         let redirect = try #require(Self.otherHost)
         let stub = try await downloadWithRedirect(to: redirect)
 
-        #expect(stub.headerValues(Self.authorizationField, ofRequestsTo: redirect.host) == [nil])
+        #expect(stub.headerValues(FileTransfer.authorizationField, ofRequestsTo: redirect.host) == [nil])
     }
 
     @Test("a redirect to another host keeps the Range header")
@@ -59,7 +53,9 @@ struct ResumableFileDownloadTests {
         let redirect = try #require(Self.otherHost)
         let stub = try await downloadWithRedirect(to: redirect)
 
-        #expect(stub.headerValues(Self.rangeField, ofRequestsTo: redirect.host) == ["bytes=\(Self.bytesBefore)-"])
+        #expect(
+            stub.headerValues(ResumableFileDownload.rangeField, ofRequestsTo: redirect.host)
+                == ["bytes=\(Self.bytesBefore)-"])
     }
 
     @Test("a redirect to the host of the Hub keeps the token")
@@ -68,7 +64,7 @@ struct ResumableFileDownloadTests {
         let stub = try await downloadWithRedirect(to: hub.appending(path: "redirected"))
 
         #expect(
-            stub.headerValues(Self.authorizationField, ofRequestsTo: hub.host)
+            stub.headerValues(FileTransfer.authorizationField, ofRequestsTo: hub.host)
                 == ["Bearer \(Self.token)", "Bearer \(Self.token)"])
     }
 

@@ -462,6 +462,14 @@ enum ExtrasTelemetry {
         /// Hugging Face download runs for the revision as is.
         static let revisionTreeUnavailable =
             "the Hub gave no commit or no tree listing of a revision; the download does not link the cached blobs first"
+
+        /// The message of the record that a file transfer writes when the
+        /// `.incomplete` blob of a file does not close, and the transfer
+        /// gives another outcome: the transfer failed for another reason, or
+        /// a new answer replaced the blob. The bytes of the blob after the
+        /// last answer are not changed.
+        static let blobCloseFailed =
+            "the .incomplete blob of a file did not close; the transfer gives the outcome of its answer"
     }
 
     /// The carrier keys of the W3C trace context: the fields that carry the

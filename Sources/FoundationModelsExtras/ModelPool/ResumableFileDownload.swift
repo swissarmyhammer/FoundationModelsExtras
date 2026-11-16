@@ -21,10 +21,10 @@ import HuggingFace
 struct ResumableFileDownload: Sendable {
     /// The path component between the repository and the revision in the URL
     /// of a file.
-    private static let resolveComponent = "resolve"
+    static let resolveComponent = "resolve"
 
     /// The header of a request that asks for a part of a file.
-    private static let rangeField = "Range"
+    static let rangeField = "Range"
 
     /// The session of each request.
     let session: URLSession
