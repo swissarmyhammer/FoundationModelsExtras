@@ -157,13 +157,12 @@ public struct ModelStorage: Sendable {
     ///   error of the save.
     private func treeMetadata(of repo: Repo.ID, revision: String) async throws -> HubTreeMetadata? {
         if let kept = trees.load(repo: repo, revision: revision) { return kept }
-        let entries: [Git.TreeEntry]
+        let metadata: HubTreeMetadata
         do {
-            entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
+            metadata = try await hub.client().treeMetadata(of: repo, revision: revision)
         } catch is URLError {
             return nil
         }
-        let metadata = HubTreeMetadata(entries: entries)
         try trees.save(metadata, repo: repo, revision: revision)
         return metadata
     }
@@ -195,14 +194,10 @@ public struct ModelStorage: Sendable {
             return LocatedBlob(url: link.resolvingSymlinksInPath(), isComplete: true)
         }
         guard let etag else { return nil }
-        if let complete = try? hub.cache.blobPath(repo: repo, kind: .model, etag: etag),
-            FileManager.default.fileExists(atPath: complete.path)
-        {
+        if let complete = try? hub.cache.completeBlob(repo: repo, etag: etag) {
             return LocatedBlob(url: complete, isComplete: true)
         }
-        guard let incomplete = try? hub.cache.incompleteBlobPath(repo: repo, kind: .model, etag: etag),
-            FileManager.default.fileExists(atPath: incomplete.path)
-        else { return nil }
+        guard let incomplete = try? hub.cache.incompleteBlob(repo: repo, etag: etag) else { return nil }
         return LocatedBlob(url: incomplete, isComplete: false)
     }
 

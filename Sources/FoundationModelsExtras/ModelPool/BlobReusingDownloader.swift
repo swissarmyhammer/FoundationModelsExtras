@@ -22,6 +22,12 @@ import MLXLMCommon
 /// network, the upstream download runs for the revision as is. It then uses
 /// the cached snapshot of the revision, as it does with no network.
 struct BlobReusingDownloader: Downloader {
+    /// The failure of a model information request that gives no commit.
+    private enum RevisionTreeError: Error {
+        /// The Hub gave the model information with no commit.
+        case noCommit
+    }
+
     /// The commit and the files of one revision.
     private struct RevisionTree {
         /// The commit of the revision.
@@ -88,6 +94,16 @@ struct BlobReusingDownloader: Downloader {
     /// that commit. The listing is of the commit, not of the revision, thus a
     /// revision that moves between the two requests cannot mix two commits.
     ///
+    /// Each failure other than cancellation gives `nil`, and the download
+    /// then runs upstream for the revision as is. The catch is broad on
+    /// purpose. A `URLError` occurs with no network. An HTTP error, for
+    /// example a 401 or a 404, occurs for a repository that only the cache
+    /// holds, such as a local repository of a test. A decoding error occurs
+    /// for an answer of a mirror that is not complete. In each case the
+    /// upstream download falls back to the cached snapshot of the revision,
+    /// as it does when its own listing fails. A debug record keeps the type
+    /// of each such error.
+    ///
     /// - Parameters:
     ///   - repo: The repository.
     ///   - revision: The ref or the commit.
@@ -96,14 +112,30 @@ struct BlobReusingDownloader: Downloader {
     /// - Throws: `CancellationError` when the task is cancelled.
     private func tree(of repo: Repo.ID, revision: String) async throws -> RevisionTree? {
         do {
-            let commit = HubSource.isCommit(revision) ? revision : try await client.getModel(repo, revision: revision).sha
-            guard let commit else { return nil }
-            let entries = try await client.listFiles(in: repo, kind: .model, revision: commit, recursive: true)
-            return RevisionTree(commit: commit, metadata: HubTreeMetadata(entries: entries))
+            let commit = try await commit(of: repo, revision: revision)
+            return RevisionTree(commit: commit, metadata: try await client.treeMetadata(of: repo, revision: commit))
         } catch {
             try Task.checkCancellation()
+            PoolTelemetry.logRevisionTreeUnavailable(error, of: repo.rawValue)
             return nil
         }
+    }
+
+    /// The commit of a revision: the revision when it is a commit, else the
+    /// commit that the Hub gives for it.
+    ///
+    /// - Parameters:
+    ///   - repo: The repository.
+    ///   - revision: The ref or the commit.
+    /// - Returns: The commit.
+    /// - Throws: The error of the model information request, or
+    ///   ``RevisionTreeError/noCommit`` when the Hub gives no commit.
+    private func commit(of repo: Repo.ID, revision: String) async throws -> String {
+        if HubSource.isCommit(revision) { return revision }
+        guard let commit = try await client.getModel(repo, revision: revision).sha else {
+            throw RevisionTreeError.noCommit
+        }
+        return commit
     }
 
     /// Links each file of `patterns` in the snapshot of the commit to its
@@ -122,8 +154,7 @@ struct BlobReusingDownloader: Downloader {
             guard let etag = files[path]?.etag,
                 cache.cachedFilePath(repo: repo, kind: .model, revision: tree.commit, filename: path) == nil
             else { continue }
-            let blob = try cache.blobPath(repo: repo, kind: .model, etag: etag)
-            guard FileManager.default.fileExists(atPath: blob.path) else { continue }
+            guard let blob = try cache.completeBlob(repo: repo, etag: etag) else { continue }
             try await cache.storeFile(
                 at: blob, repo: repo, kind: .model, revision: tree.commit, filename: path, etag: etag)
         }

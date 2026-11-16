@@ -421,6 +421,10 @@ enum ExtrasTelemetry {
         /// The number of a line in a file, for example a line that a
         /// ``JSONLFile`` read skipped. The first line is 1.
         static let lineNumber = "file.line_number"
+
+        /// The id of a Hugging Face repository, for example the repository of
+        /// a download whose tree listing failed.
+        static let repository = "hub.repository"
     }
 
     /// The messages of the log records of ``JSONLFile``.
@@ -451,6 +455,13 @@ enum ExtrasTelemetry {
         /// pooled model writes. The relay of the generate telemetry stopped,
         /// and the events after the failure did not reach the session.
         static let generateRelayFailed = "the relay of the events of a pooled model failed; later events are lost"
+
+        /// The message of the record that a download writes when the Hub
+        /// gives no commit or no tree listing of the revision. The download
+        /// then does not link the cached blobs of the revision, and the
+        /// Hugging Face download runs for the revision as is.
+        static let revisionTreeUnavailable =
+            "the Hub gave no commit or no tree listing of a revision; the download does not link the cached blobs first"
     }
 
     /// The carrier keys of the W3C trace context: the fields that carry the

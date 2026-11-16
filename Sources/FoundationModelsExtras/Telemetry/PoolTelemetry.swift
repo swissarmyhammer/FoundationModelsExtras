@@ -3,8 +3,9 @@ import Metrics
 
 /// The recorder of the cache telemetry of the model pool: the acquires, the
 /// evictions, the joins of a running load, the footprint meters, and the log
-/// records of a failed footprint measure, of a failed prewarm and of a failed
-/// relay of the events of a generation call.
+/// records of a failed footprint measure, of a failed prewarm, of a failed
+/// relay of the events of a generation call and of a download that got no
+/// tree listing of its revision.
 ///
 /// Each metric is made at call time, so that it uses the metrics factory of
 /// the current task. An admission job restores the factory of its submitter,
@@ -102,6 +103,25 @@ enum PoolTelemetry {
     ///   - ref: The model of the generation call.
     static func logGenerateRelayFailure(_ error: any Error, of ref: ModelRef) {
         logFailure(ExtrasTelemetry.PoolLogMessage.generateRelayFailed, error: error, of: ref)
+    }
+
+    /// Writes one debug record for a download that got no commit or no tree
+    /// listing of its revision from the Hub. The record holds the type of
+    /// `error` and the repository, never the description of `error`. The
+    /// level is debug: the download continues, and with no network or for a
+    /// repository that only the cache holds, this occurs on each load.
+    ///
+    /// - Parameters:
+    ///   - error: The error of the request.
+    ///   - repository: The Hugging Face repository id of the download.
+    static func logRevisionTreeUnavailable(_ error: any Error, of repository: String) {
+        ExtrasTelemetry.makeLogger().debug(
+            "\(ExtrasTelemetry.PoolLogMessage.revisionTreeUnavailable)",
+            metadata: [
+                ExtrasTelemetry.LogMetadataKey.errorType: .string(ExtrasTelemetry.errorType(of: error)),
+                ExtrasTelemetry.LogMetadataKey.repository: .string(repository),
+            ]
+        )
     }
 
     /// Writes one error record with `message`, the type of `error` and the

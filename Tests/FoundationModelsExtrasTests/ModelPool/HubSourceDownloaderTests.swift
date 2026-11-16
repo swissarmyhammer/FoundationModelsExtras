@@ -1,5 +1,6 @@
 import Foundation
 import HuggingFace
+import TelemetryTestSupport
 import Testing
 
 @testable import FoundationModelsExtras
@@ -115,6 +116,44 @@ struct HubSourceDownloaderTests {
         let snapshot = try await download(revision: ModelRef.defaultRevision, fixture: fixture, stub: HubStub(.offline))
 
         #expect(snapshot.lastPathComponent == Self.oldCommit)
+    }
+
+    @Test("with no network the download writes one debug record with the error type and the repository")
+    func offlineWritesDebugRecord() async throws {
+        let fixture = try HubFixture(repository: Self.repository, commit: Self.oldCommit)
+        defer { fixture.remove() }
+        try fixture.writeComplete([Self.weights, Self.config])
+        let offlineError = try await requestError(of: fixture)
+
+        let records = try await TelemetryCapture.run(forbidding: []) { context in
+            _ = try await download(revision: ModelRef.defaultRevision, fixture: fixture, stub: HubStub(.offline))
+            return context.logRecords.filter { $0.label == ExtrasTelemetry.logLabel }
+        }
+
+        let expected = TelemetryCapture.LogRecord(
+            level: .debug,
+            message: "\(ExtrasTelemetry.PoolLogMessage.revisionTreeUnavailable)",
+            metadata: [
+                ExtrasTelemetry.LogMetadataKey.errorType: .string(ExtrasTelemetry.errorType(of: offlineError)),
+                ExtrasTelemetry.LogMetadataKey.repository: .string(Self.repository),
+            ],
+            label: ExtrasTelemetry.logLabel
+        )
+        #expect(records == [expected])
+    }
+
+    /// The error that a Hub request of a client with no network throws, as
+    /// the session gives it to the client.
+    ///
+    /// - Parameter fixture: The cache of the client.
+    /// - Returns: The error of the model information request.
+    /// - Throws: An issue when the request does not fail.
+    private func requestError(of fixture: HubFixture) async throws -> any Error {
+        let client = HubSource(cache: fixture.cache, tokenProvider: .none, session: HubStub(.offline).session).client()
+        return try #require(
+            await #expect(throws: (any Error).self) {
+                try await client.getModel(fixture.repo, revision: ModelRef.defaultRevision)
+            })
     }
 
     /// Downloads the files of the patterns at `revision` with the downloader

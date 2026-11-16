@@ -109,3 +109,19 @@ struct HubTreeMetadataStore: Sendable {
             .appendingPathExtension(Self.fileExtension)
     }
 }
+
+extension HubClient {
+    /// Asks the Hub for the tree listing of a revision of a model
+    /// repository, with each folder at each depth, as ``HubTreeMetadata``.
+    ///
+    /// - Parameters:
+    ///   - repo: The model repository.
+    ///   - revision: The commit, or a ref.
+    /// - Returns: The files of the revision, with the size and the etag of
+    ///   each.
+    /// - Throws: The error of the listing request.
+    func treeMetadata(of repo: Repo.ID, revision: String) async throws -> HubTreeMetadata {
+        HubTreeMetadata(
+            entries: try await listFiles(in: repo, kind: .model, revision: revision, recursive: true))
+    }
+}
