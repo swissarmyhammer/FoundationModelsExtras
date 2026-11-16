@@ -1,4 +1,6 @@
+import Foundation
 @testable import FoundationModelsExtras
+import HuggingFace
 import MLXFoundationModels
 import Testing
 
@@ -71,20 +73,26 @@ extension RealModelSuites {
             #expect(holds.footprintBytes == Int64(try ModelMemory.weightBytes(of: key)))
         }
 
+        /// The load downloads into a new, empty cache. A load from a cache
+        /// that holds the model downloads nothing, and thus reports no bytes.
         @Test(
             """
-            a real load by name through ModelPool() reports the real bytes of the repository, which grow to the \
+            a real load by name into an empty cache reports the real bytes of the repository, which grow to the \
             total, then loading, and the stream ends with ready
             """)
         func aRealLoadReportsItsBytesAndEndsWithReady() async throws {
             try ModelAvailability.requireMetalDevice()
-            let pool = ModelPool()
+            let cacheDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ModelPoolIntegrationTests-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+            let pool = ModelPool(loader: HubModelLoader(cacheDirectory: cacheDirectory))
             let key = IntegrationModels.embedding
-            let weightBytes = Int64(try ModelMemory.weightBytes(of: key))
             let progress = pool.progress(for: key.ref)
 
             let steps = try await Self.loadAndReadProgress(of: key, in: pool, progress: progress)
             try await IntegrationModels.waitForEviction(of: key, in: pool)
+            let weightBytes = Int64(
+                try ModelMemory.weightBytes(of: key, in: HubCache(cacheDirectory: cacheDirectory)))
 
             let downloads = steps.compactMap(\.byteCounts)
             let last = try #require(downloads.last, "the load reported no download: \(steps)")

@@ -31,17 +31,20 @@ enum ModelMemory {
     /// the cache without `MLXModelLoader`, thus a test can compare it with the
     /// footprint that the loader measures.
     ///
-    /// - Parameter key: One of the models of ``IntegrationModels``.
+    /// - Parameters:
+    ///   - key: One of the models of ``IntegrationModels``.
+    ///   - cache: The cache that holds the model. The default is the default
+    ///     Hugging Face cache.
     /// - Returns: The sum of the sizes of the weight files.
     /// - Throws: A failed expectation when the cache does not hold the model,
     ///   or the error of a file read.
-    static func weightBytes(of key: ModelPoolKey) throws -> Int {
+    static func weightBytes(of key: ModelPoolKey, in cache: HubCache = .default) throws -> Int {
         let repo = try #require(Repo.ID(rawValue: key.ref.repo))
         let revision = key.ref.revision ?? defaultRevision
         let commit = try #require(
-            HubCache.default.resolveRevision(repo: repo, kind: .model, ref: revision),
+            cache.resolveRevision(repo: repo, kind: .model, ref: revision),
             "The Hugging Face cache holds no \(revision) revision of \(key.ref.stringValue).")
-        let snapshot = try HubCache.default.snapshotPath(repo: repo, kind: .model, commitHash: commit)
+        let snapshot = try cache.snapshotPath(repo: repo, kind: .model, commitHash: commit)
         let files = try FileManager.default.contentsOfDirectory(at: snapshot, includingPropertiesForKeys: nil)
         return try files.filter { $0.pathExtension == weightFileExtension }.reduce(0) { total, file in
             // The snapshot holds a link to each blob. The size is the size of the blob.
