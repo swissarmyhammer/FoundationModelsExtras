@@ -81,4 +81,4 @@ The disk state reads `~/.cache/huggingface/hub` (the `HubCache` of the source): 
 - [x] A call makes no download and loads no model: a stub transport sees only the tree listing request, and a second call sees no request.
 - [x] Tests with a temporary hub cache folder cover `complete`, `partial` (an `.incomplete` blob and a missing shard), `missing`, a local folder ref, a GGUF quant ref, and an offline call with and with no cached metadata.
 - [x] `swift test` passes.
-- [ ] Send the final API names to the testudoapp-75 session. #feature
+- [x] Send the final API names to the testudoapp-75 session. #feature

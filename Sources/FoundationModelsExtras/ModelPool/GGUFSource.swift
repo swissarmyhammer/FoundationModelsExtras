@@ -1,7 +1,5 @@
 import Foundation
 import HuggingFace
-import MLXHuggingFace
-import MLXLMCommon
 
 /// The files of a GGUF model on the disk: the file that llama.cpp loads,
 /// every shard, and the image projector.
@@ -94,7 +92,7 @@ public struct GGUFSource: Sendable {
         let revision = Self.revision(of: ref)
         let entries = try await hub.client().listFiles(in: repo, kind: .model, revision: revision, recursive: true)
         let set = try GGUFFileSet.select(from: entries.map(\.path), under: ref.path)
-        let downloader = ProgressReportingDownloader(upstream: #hubDownloader(hub.client()), report: progressHandler)
+        let downloader = ProgressReportingDownloader(upstream: hub.downloader(), report: progressHandler)
         let snapshot = try await downloader.download(
             id: ref.repo, revision: revision, matching: set.files, useLatest: false) { _ in }
         return Self.files(of: set, in: snapshot)

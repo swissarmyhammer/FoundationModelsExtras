@@ -113,7 +113,7 @@ public struct CoreMLModelLoader: PooledModelLoader {
         key: ModelPoolKey, progressHandler: @escaping @Sendable (ModelLoadProgress) -> Void
     ) async throws -> any Sendable {
         guard key.role == .embedding else { throw CoreMLModelLoaderError.unsupportedRole(key.role) }
-        let downloader = ProgressReportingDownloader(upstream: #hubDownloader(hubClient()), report: progressHandler)
+        let downloader = ProgressReportingDownloader(upstream: hub.downloader(), report: progressHandler)
         return try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
             let snapshot: URL
             if let folder = key.ref.localDirectory {

@@ -6,6 +6,11 @@ import Synchronization
 /// records the URL of each request, thus a test can prove which requests a
 /// call made.
 ///
+/// A stub of a ``Answer/repository(commit:files:)`` answers as the Hub does
+/// for one commit: the model information, the tree listing, and the `HEAD`
+/// and `GET` requests of each file, with the headers that the Hugging Face
+/// client reads.
+///
 /// Each stub has its own identifier. Its session sends the identifier in the
 /// ``header`` header of each request, thus tests that run at the same time
 /// each get the answers of their own stub.
@@ -16,6 +21,10 @@ final class HubStub: Sendable {
         case tree([TreeFile])
         /// No network: each request fails with `URLError.notConnectedToInternet`.
         case offline
+        /// The repository at `commit`, with these files: the model
+        /// information gives the commit, the tree listing gives the files,
+        /// and a file request gives the headers and the bytes of the file.
+        case repository(commit: String, files: [TreeFile])
     }
 
     /// One file of the tree listing of a stub.
@@ -37,6 +46,24 @@ final class HubStub: Sendable {
             "etag-" + path.replacingOccurrences(of: "/", with: "-")
         }
 
+        /// The bytes of the file: `size` zero bytes.
+        var contents: Data {
+            Data(repeating: 0, count: size)
+        }
+
+        /// The headers of a file request, as the Hub sends them: the commit,
+        /// the size, and the etag. The Hub sends the etag of an LFS file as
+        /// `X-Linked-Etag`, and the etag of another file as `ETag`.
+        ///
+        /// - Parameter commit: The commit of the revision.
+        /// - Returns: The header fields.
+        func headers(commit: String) -> [String: String] {
+            let etagField = isLFS ? "X-Linked-Etag" : "ETag"
+            return [
+                "X-Repo-Commit": commit, etagField: "\"\(etag)\"", "Content-Length": String(size),
+            ]
+        }
+
         /// The JSON object of the file in a tree listing of the Hub. An LFS
         /// file has the etag as its LFS object id, and the size of its
         /// pointer as its Git size. Another file has the etag as its Git
@@ -52,6 +79,10 @@ final class HubStub: Sendable {
 
     /// The header that carries the identifier of the stub.
     static let header = "X-Hub-Stub"
+
+    /// The path component that starts the path of a file request:
+    /// `/<repository>/resolve/<revision>/<file>`.
+    static let resolveComponent = "resolve"
 
     /// The live stubs, by identifier. A stub stays here until the test
     /// process ends: each stub is small, and a test makes few of them.
@@ -106,8 +137,30 @@ final class HubStub: Sendable {
 /// The URL protocol of ``HubStub``: it answers each request from the stub that
 /// the ``HubStub/header`` header names.
 final class HubStubProtocol: URLProtocol {
-    /// The HTTP status of a tree listing.
+    /// The HTTP status of an answer.
     private static let okStatus = 200
+
+    /// The HTTP status of a request for a file that the repository does not
+    /// hold.
+    private static let missingStatus = 404
+
+    /// The method of a request for the headers of a file only.
+    private static let headMethod = "HEAD"
+
+    /// The path component of a tree listing:
+    /// `/api/models/<repository>/tree/<revision>`.
+    private static let treeComponent = "tree"
+
+    /// The path components between `resolve` and the path of the file: the
+    /// component `resolve` itself and the revision.
+    private static let revisionOffset = 2
+
+    /// The path components before the repository in a model information
+    /// request: `/`, `api` and `models`.
+    private static let repositoryOffset = 3
+
+    /// The path components of a repository id: the namespace and the name.
+    private static let repositoryComponents = 2
 
     /// Takes each request.
     override class func canInit(with request: URLRequest) -> Bool {
@@ -133,7 +186,47 @@ final class HubStubProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
         case .tree(let files):
             answer(url: url, body: files.map(\.json))
+        case .repository(let commit, let files):
+            answerRepository(url: url, commit: commit, files: files)
         }
+    }
+
+    /// Answers a request to a repository at one commit: a file request with
+    /// the file, a tree listing with the files, and each other request with
+    /// the model information.
+    ///
+    /// - Parameters:
+    ///   - url: The URL of the request.
+    ///   - commit: The commit of the repository.
+    ///   - files: The files of the repository.
+    private func answerRepository(url: URL, commit: String, files: [HubStub.TreeFile]) {
+        let components = url.pathComponents
+        if let resolve = components.firstIndex(of: HubStub.resolveComponent) {
+            let path = components.dropFirst(resolve + Self.revisionOffset).joined(separator: "/")
+            answerFile(url: url, file: files.first { $0.path == path }, commit: commit)
+        } else if components.contains(Self.treeComponent) {
+            answer(url: url, body: files.map(\.json))
+        } else {
+            let repository = components.dropFirst(Self.repositoryOffset).prefix(Self.repositoryComponents)
+            answer(url: url, body: ["id": repository.joined(separator: "/"), "sha": commit])
+        }
+    }
+
+    /// Answers a file request: the headers of the file, and its bytes for a
+    /// `GET`. A file that the repository does not hold gets the HTTP status
+    /// of a missing file.
+    ///
+    /// - Parameters:
+    ///   - url: The URL of the request.
+    ///   - file: The file, or `nil` when the repository does not hold it.
+    ///   - commit: The commit of the repository.
+    private func answerFile(url: URL, file: HubStub.TreeFile?, commit: String) {
+        guard let file else {
+            send(url: url, status: Self.missingStatus, headers: [:], body: Data())
+            return
+        }
+        let body = request.httpMethod == Self.headMethod ? Data() : file.contents
+        send(url: url, status: Self.okStatus, headers: file.headers(commit: commit), body: body)
     }
 
     /// Does nothing: each answer is complete when ``startLoading()`` returns.
@@ -147,14 +240,23 @@ final class HubStubProtocol: URLProtocol {
     private func answer(url: URL, body: Any) {
         do {
             let data = try JSONSerialization.data(withJSONObject: body)
-            let response = HTTPURLResponse(
-                url: url, statusCode: Self.okStatus, httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"])
-            if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
+            send(url: url, status: Self.okStatus, headers: ["Content-Type": "application/json"], body: data)
         } catch {
             client?.urlProtocol(self, didFailWithError: error)
         }
+    }
+
+    /// Sends a complete response.
+    ///
+    /// - Parameters:
+    ///   - url: The URL of the request.
+    ///   - status: The HTTP status.
+    ///   - headers: The header fields.
+    ///   - body: The body.
+    private func send(url: URL, status: Int, headers: [String: String], body: Data) {
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)
+        if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }

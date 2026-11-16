@@ -158,7 +158,7 @@ public struct MLXModelLoader: PooledModelLoader {
             try MetalLibraryBootstrap.install()
         }
         let configuration = Self.configuration(of: key.ref)
-        let downloader = ProgressReportingDownloader(upstream: #hubDownloader(hubClient()), report: progressHandler)
+        let downloader = ProgressReportingDownloader(upstream: hub.downloader(), report: progressHandler)
         switch key.role {
         case .llm:
             return try await Self.loadLanguageModel(
@@ -221,7 +221,7 @@ public struct MLXModelLoader: PooledModelLoader {
         let drafterBytes = (try? weightBytes(of: ModelPoolKey(ref: drafter, role: .llm))).map { Int($0) }
         return try MLXSpeculativeDecoding(
             drafterConfiguration: Self.configuration(of: drafter),
-            from: #hubDownloader(hubClient()), using: tokenizerLoader, registration: drafterRegistration,
+            from: hub.downloader(), using: tokenizerLoader, registration: drafterRegistration,
             drafterBytes: drafterBytes, memoryPolicy: .recommendedWorkingSet)
     }
 

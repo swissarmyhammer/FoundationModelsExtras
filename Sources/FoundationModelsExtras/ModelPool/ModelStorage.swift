@@ -36,9 +36,6 @@ import HuggingFace
 /// The disk state reads the cache: the links of the snapshot, the blobs, and
 /// the `<etag>.incomplete` blobs of interrupted downloads.
 public struct ModelStorage: Sendable {
-    /// The number of characters of a Git commit id.
-    private static let commitLength = 40
-
     /// The Hugging Face cache, the token provider and the session of the tree
     /// listings.
     private let hub: HubSource
@@ -180,8 +177,7 @@ public struct ModelStorage: Sendable {
     /// - Returns: The commit, or `nil` when it is not known.
     private func commit(of repo: Repo.ID, revision: String) -> String? {
         if let resolved = hub.cache.resolveRevision(repo: repo, kind: .model, ref: revision) { return resolved }
-        let isCommit = revision.count == Self.commitLength && revision.allSatisfy(\.isHexDigit)
-        return isCommit ? revision : nil
+        return HubSource.isCommit(revision) ? revision : nil
     }
 
     /// Finds the blob of a file in the cache: the blob that the snapshot links
@@ -232,7 +228,7 @@ public struct ModelStorage: Sendable {
         case .coreML: patterns = CoreMLPackage.downloadPatterns
         }
         guard ref.path == nil else { throw HubModelLoaderError.pathNeedsGGUF(ref: ref.stringValue) }
-        return scoped.filter { path in patterns.contains { fnmatch($0, path, 0) == 0 } }.sorted()
+        return HubSource.paths(scoped, matching: patterns).sorted()
     }
 
     /// The files that a load downloads, from the paths of the snapshot in the

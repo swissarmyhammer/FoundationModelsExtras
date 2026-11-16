@@ -1,5 +1,7 @@
 import Foundation
 import HuggingFace
+import MLXHuggingFace
+import MLXLMCommon
 
 /// The Hugging Face cache and the token provider that a loader of
 /// ``ModelPool`` downloads with: the one place that makes the hub client of a
@@ -10,6 +12,9 @@ struct HubSource: Sendable {
     /// The environment variable that names the Hugging Face endpoint, as the
     /// Hugging Face client reads it.
     private static let endpointVariable = "HF_ENDPOINT"
+
+    /// The number of characters of a Git commit id.
+    private static let commitLength = 40
 
     /// The Hugging Face cache that holds the downloaded files.
     let cache: HubCache
@@ -30,6 +35,18 @@ struct HubSource: Sendable {
     ///   provider of the source, at the host of ``host()``.
     func client() -> HubClient {
         HubClient(session: session, host: Self.host(), tokenProvider: tokenProvider, cache: cache)
+    }
+
+    /// The downloader of each snapshot download of a loader. Before the
+    /// Hugging Face download, it links each file of the revision whose blob
+    /// the cache holds, thus a file with the same hash as a cached file does
+    /// not download again after the revision changes. See
+    /// ``BlobReusingDownloader``.
+    ///
+    /// - Returns: A downloader over a new client of the source.
+    func downloader() -> any Downloader {
+        let client = client()
+        return BlobReusingDownloader(client: client, cache: cache, upstream: #hubDownloader(client))
     }
 
     /// The host of each download: the endpoint that `HF_ENDPOINT` names, or
@@ -89,6 +106,28 @@ struct HubSource: Sendable {
             return FileManager.default.fileExists(atPath: full, isDirectory: &isFolder) && !isFolder.boolValue
                 || (relative as NSString).pathExtension == "mlpackage"
         }
+    }
+
+    /// The paths that match a pattern of a snapshot download, as the Hugging
+    /// Face downloader matches them: with `fnmatch` and no flags. No pattern
+    /// matches each path.
+    ///
+    /// - Parameters:
+    ///   - paths: Paths relative to the root of a repository.
+    ///   - patterns: The patterns of the download.
+    /// - Returns: The paths that match a pattern, in their order.
+    static func paths(_ paths: [String], matching patterns: [String]) -> [String] {
+        guard !patterns.isEmpty else { return paths }
+        return paths.filter { path in patterns.contains { fnmatch($0, path, 0) == 0 } }
+    }
+
+    /// Whether a revision is a Git commit id: 40 hexadecimal characters, as
+    /// the Hugging Face cache names a snapshot.
+    ///
+    /// - Parameter revision: A ref or a commit.
+    /// - Returns: `true` for a commit id.
+    static func isCommit(_ revision: String) -> Bool {
+        revision.count == commitLength && revision.allSatisfy(\.isHexDigit)
     }
 
     /// The paths that are `path` or are under it.
