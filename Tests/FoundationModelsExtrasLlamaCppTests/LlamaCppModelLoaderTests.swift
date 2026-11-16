@@ -146,6 +146,19 @@ struct LlamaCppModelLoaderTests {
         }
     }
 
+    @Test("an offline loader throws notCachedOffline for a Hub model that is not in the cache")
+    func offlineLoaderThrowsForAModelThatIsNotCached() async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = "llama-cpp-tests/not-cached-GGUF"
+        let defaultRevision = "main"
+
+        await #expect(throws: ModelDownloadError.notCachedOffline(repository: repository, revision: defaultRevision)) {
+            try await LlamaCppModelLoader(cacheDirectory: root, offline: true)
+                .load(Self.key("\(repository)/Q4_K_M", .llm))
+        }
+    }
+
     // MARK: Helpers
 
     /// The key of the reference `text` in `role`.

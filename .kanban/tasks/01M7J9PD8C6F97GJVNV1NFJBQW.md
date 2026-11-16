@@ -96,7 +96,7 @@ An offline mode of `HubSource`, as `huggingface_hub` has with `HF_HUB_OFFLINE`:
 - [x] A test: `HF_HUB_OFFLINE` parsing (the values above, and off for other values) through a pure function, not the process environment.
 - [x] Doc comments of each init describe the parameter.
 - [x] `swift test` passes.
-- [ ] Tell the Router session (foundationmodelsrouter-f1) and testudoapp-75 how a test turns the mode on. #bug
+- [x] Tell the Router session (foundationmodelsrouter-f1) and testudoapp-75 how a test turns the mode on. #bug
 
 ## Review Findings (2026-11-16 07:56)
 

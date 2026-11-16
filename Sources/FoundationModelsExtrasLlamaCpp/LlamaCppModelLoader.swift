@@ -55,11 +55,18 @@ public struct LlamaCppModelLoader: PooledModelLoader {
     ///   - options: The options of each model: the type of the KV cache, the
     ///     count of live sequences, and speculative decoding. Its context size
     ///     is the context of a key with none.
+    ///   - offline: The offline mode of the GGUF source of the loader. `true`
+    ///     sends no request to the Hub: a model loads only from the cache,
+    ///     and a model that is not in the cache throws
+    ///     ``ModelDownloadError/notCachedOffline(repository:revision:)``.
+    ///     `false` permits downloads. `nil` reads `HF_HUB_OFFLINE`. Give the
+    ///     same value as the offline mode of ``HubModelLoader``.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
-        options: LlamaLanguageModel.Options = LlamaLanguageModel.Options()
+        options: LlamaLanguageModel.Options = LlamaLanguageModel.Options(),
+        offline: Bool? = nil
     ) {
-        source = GGUFSource(cacheDirectory: cacheDirectory, tokenProvider: tokenProvider)
+        source = GGUFSource(cacheDirectory: cacheDirectory, tokenProvider: tokenProvider, offline: offline)
         self.options = options
     }
 
