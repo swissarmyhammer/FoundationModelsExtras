@@ -1,5 +1,5 @@
 /// Why a ``MarketplaceSource`` gives no location or no pre-fetch key.
-internal enum MarketplaceSourceError: Error, Equatable, Sendable {
+public enum MarketplaceSourceError: Error, Equatable, Sendable {
   /// The URL is empty.
   case emptyURL
 
@@ -38,7 +38,7 @@ internal enum MarketplaceSourceError: Error, Equatable, Sendable {
 
 extension MarketplaceSourceError: CustomStringConvertible {
   /// A sentence that tells the problem and, when possible, the correction.
-  var description: String {
+  public var description: String {
     switch self {
     case .emptyURL:
       "The URL is empty."

@@ -408,6 +408,70 @@ is one test in `Tests/MarketplaceTests/LayerPrecedenceExampleTests.swift`,
 and a test in that file proves that this block and the test copy are the
 same text: `swift test --filter LayerPrecedenceExampleTests`.
 
+### One marketplace at a time: `MarketplaceRegistry`
+
+`MarketplaceRegistry` adds, changes and removes one marketplace of the
+source list of a host. The host keeps the list. It gives the registry a
+`MarketplaceSourceStorage`, with two calls: `loadSources()` and
+`saveSources(_:)`. `InMemoryMarketplaceSourceStorage` holds the list in
+memory, for tests and for a host that does not keep the list after it
+stops.
+
+Each marketplace is a `MarketplaceEntry`: its `id` and its `source`. The
+`id` is the pre-fetch key, which is the same display id that
+`MarketplaceStore` uses: the alias of the source, else the repository name.
+
+| Call | Result | Change |
+|---|---|---|
+| `marketplaces()` | Each entry, in list order | None |
+| `marketplace(id:)` | The entry with the id, or `nil` | None |
+| `add(_:)` | The new entry, at the end of the list | `.added(entry)` |
+| `update(id:to:)` | The new entry, in the position of the old one | `.updated(previousID:, entry)` |
+| `remove(id:)` | The removed entry | `.removed(entry)` |
+
+Each write reads the list from the storage, validates it, changes it, and
+saves it. Thus a change that the host makes in another place is not lost.
+The registry runs its writes one at a time, in call order. A write throws
+`MarketplaceRegistryError`:
+
+- `.duplicateMarketplace(id:)`: another marketplace has the id. An update
+  can give a marketplace a new id only when no other marketplace has it.
+- `.unknownMarketplace(id:)`: no marketplace has the id.
+- `.invalidSource(_:)`: the URL of the source is bad, or its pre-fetch key
+  is not one folder name. The value is the error of the parser.
+
+An error of the storage comes out unchanged. A failed write keeps the
+stored list and sends no change.
+
+`MarketplaceStore` keeps the source list that it got at its init. Thus the
+host makes a new store when the list changes. `changes()` gives a stream
+that sends one value after each save, in the order of the saves:
+
+```swift
+let registry = MarketplaceRegistry(storage: storage)
+
+func makeStore() async throws -> MarketplaceStore {
+    let store = MarketplaceStore(
+        sources: try await registry.marketplaces().map(\.source),
+        layout: MarketplaceLayout(documentName: "SKILL.md"),
+        cacheDirectory: cacheDirectory)
+    await store.start()
+    return store
+}
+
+var store = try await makeStore()
+for await _ in registry.changes() {
+    await store.stop()
+    store = try await makeStore()
+    // Put the layers of the new store in the stack again.
+}
+```
+
+Stop the old store before you make the new one, because the two stores
+use the same cache. The init of a store reads the cache from the disk, thus
+the new store gives the installed snapshot of each marketplace that the
+change did not touch at once.
+
 ## Watching the layers: `DotfolderWatcher`
 
 `DotfolderStack` holds no cache: each lookup reads the disk at the time of
