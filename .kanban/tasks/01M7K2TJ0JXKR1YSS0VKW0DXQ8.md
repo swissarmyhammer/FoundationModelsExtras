@@ -45,8 +45,51 @@ comments:
     - evidence: `swift test --filter Operations` green (169 + 43 + 46 + 1 tests); full `swift test` exit 0 (1949, 451, 169, 46, 43, 35, 26 tests passed), no compiler warnings. Files: Sources/Operations/OperationDefinition.swift, AnyOperation.swift, OperationError.swift, OperationResolver.swift, OperationTool.swift, Operations.swift; Sources/OperationsMacros/OperationsMacros.swift; Tests/OperationsTests/OperationInferenceSafetyTests.swift (new), OperationArgumentToleranceTests.swift; Tests/OperationsMacrosTests/OperationMacroTests.swift, MountCompileTests.swift; docs/GUIDE.md.
     - next: /review. Other packages need follow-up work by their owners (see the search comment). New task ^e4gypmr for the verb-alias problem.
   timestamp: 2026-11-16T21:37:25.342634+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m7k4vg1x7gvrahcfm7ks2npv
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (commit 4a9f3b8); 4 findings (confirmed 4, refuted 1) — Tests/OperationsTests/OperationInferenceSafetyTests.swift:79, Tests/OperationsTests/OperationInferenceSafetyTests.swift:86, Tests/OperationsTests/OperationInferenceSafetyTests.swift:93, Tests/OperationsTests/OperationInferenceSafetyTests.swift:100. docs/GUIDE.md was not reviewed: no validator matches it.
+    - next: implement the four reuse/reuse findings (one file-private entry protocol with a shared execute(in:)), then review again.
+  timestamp: 2026-11-16T21:40:17.597783+00:00
+- actor: claude-code
+  id: 01m7k4w0ef907rgk0zb3x6yyty
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 11 files
+    - test: green — swift test exit 0, no compiler warnings (implementer run)
+    - commit: 4a9f3b8
+    - review: findings — Tests/OperationsTests/OperationInferenceSafetyTests.swift:79, :86, :93, :100
+  timestamp: 2026-11-16T21:40:34.383836+00:00
+- actor: claude-code
+  id: 01m7k512gqt10rr60yd73qkdjk
+  text: 'Review findings: the four entry fixtures in OperationInferenceSafetyTests.swift had the same execute(in:) body. A file-private protocol `EntryOperation` (Context == EntryContext, Output == EntryRunOutput) now gives one shared execute(in:) in its extension. The four fixtures conform with an empty extension. No other copy of this body stays in the file. This follows the `SkillsMirrorOperation` pattern in OperationArgumentToleranceTests.swift. No change to Sources. `swift test --filter Operations` and the full `swift test` pass; the only warning line is the mlx-swift_Cmlx.bundle build-system line.'
+  timestamp: 2026-11-16T21:43:20.343560+00:00
+- actor: claude-code
+  id: 01m7k5143wmvwek67h4jgce4vv
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/OperationsTests/OperationInferenceSafetyTests.swift; `swift test` exit 0 (Swift Testing runs: 169, 43, 46, 26, 451, 1949, 35 tests passed, 0 failed), 0 compiler warnings
+    - next: review
+  timestamp: 2026-11-16T21:43:21.980628+00:00
+- actor: claude-code
+  id: 01m7k53n8q08z5ncy3c84tftx6
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (bb2b277): 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed. The 4 earlier reuse findings (Tests/OperationsTests/OperationInferenceSafetyTests.swift:79, :86, :93, :100) are checked and fixed: the four entry fixtures conform to the file-private protocol EntryOperation, which has the one shared execute(in:).
+    - next: none. The task is in done.
+  timestamp: 2026-11-16T21:44:45.079169+00:00
+- actor: claude-code
+  id: 01m7k5426gyr1er08jc5zaa09g
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (Tests/OperationsTests/OperationInferenceSafetyTests.swift)
+    - test: green — swift test exit 0, 0 failures, no compiler warnings
+    - commit: bb2b277
+    - review: clean — 0 findings; the 4 earlier items are checked
+  timestamp: 2026-11-16T21:44:58.320259+00:00
+position_column: done
+position_ordinal: ffee80
 title: 'Operations: key-fit inference chooses only an operation that declares itself safe to infer; an op-less call that fits only other operations gets an error that lists them'
 ---
 ## Why
@@ -72,3 +115,18 @@ In `Sources/Operations`:
 - [x] `swift test` is green with no compiler warnings.
 
 #operations #safety
+
+## Review Findings (2026-11-16 15:37)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 11 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `docs/GUIDE.md` — no validator matches this file
+
+- [x] `Tests/OperationsTests/OperationInferenceSafetyTests.swift:79` `reuse/reuse` — The `execute(in:)` body of `GetEntryFixture` (record the op string, then return `EntryRunOutput(op:)`) is the same as the bodies of the other three entry fixtures. Four copies of one behavior in the same file must all change together if the logging or output shape changes. A near-match the author could extend was not used. Declare a file-private protocol in this file, for example `EntryOperation: OperationDefinition` with `Context == EntryContext` and `Output == EntryRunOutput`. Put one `execute(in:)` extension on it that records and returns, and make the four fixtures conform to it. Each fixture then states only its verb, noun, and parameters.
+- [x] `Tests/OperationsTests/OperationInferenceSafetyTests.swift:86` `reuse/reuse` — The `execute(in:)` body of `ListEntryFixture` duplicates the body of `GetEntryFixture`. The same behavior is written again and must be kept in step by hand. Use the shared `execute(in:)` of the file-private entry protocol proposed for line 79, so this fixture has no `execute` of its own.
+- [x] `Tests/OperationsTests/OperationInferenceSafetyTests.swift:93` `reuse/reuse` — The `execute(in:)` body of `DeleteEntryFixture` duplicates the body of `GetEntryFixture`. The same behavior is written again and must be kept in step by hand. Use the shared `execute(in:)` of the file-private entry protocol proposed for line 79, so this fixture has no `execute` of its own.
+- [x] `Tests/OperationsTests/OperationInferenceSafetyTests.swift:100` `reuse/reuse` — The `execute(in:)` body of `ArchiveEntryFixture` duplicates the body of `GetEntryFixture`. The same behavior is written again and must be kept in step by hand. Use the shared `execute(in:)` of the file-private entry protocol proposed for line 79, so this fixture has no `execute` of its own.

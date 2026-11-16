@@ -75,33 +75,31 @@ private struct ArchiveEntryFixture {
     var force: Bool?
 }
 
-extension GetEntryFixture {
+/// One operation of the entry tool. A conforming type states only its verb,
+/// noun, and parameters. This extension gives the `execute(in:)` that records
+/// the run and answers with the op string.
+private protocol EntryOperation: OperationDefinition
+where Context == EntryContext, Output == EntryRunOutput {}
+
+extension EntryOperation {
+    /// Records the op string of this operation in the run log, and answers
+    /// with it.
+    ///
+    /// - Parameter context: The context that holds the run log.
+    /// - Returns: The op string of this operation.
     func execute(in context: EntryContext) async throws -> EntryRunOutput {
         await context.log.record(Self.opString)
         return EntryRunOutput(op: Self.opString)
     }
 }
 
-extension ListEntryFixture {
-    func execute(in context: EntryContext) async throws -> EntryRunOutput {
-        await context.log.record(Self.opString)
-        return EntryRunOutput(op: Self.opString)
-    }
-}
+extension GetEntryFixture: EntryOperation {}
 
-extension DeleteEntryFixture {
-    func execute(in context: EntryContext) async throws -> EntryRunOutput {
-        await context.log.record(Self.opString)
-        return EntryRunOutput(op: Self.opString)
-    }
-}
+extension ListEntryFixture: EntryOperation {}
 
-extension ArchiveEntryFixture {
-    func execute(in context: EntryContext) async throws -> EntryRunOutput {
-        await context.log.record(Self.opString)
-        return EntryRunOutput(op: Self.opString)
-    }
-}
+extension DeleteEntryFixture: EntryOperation {}
+
+extension ArchiveEntryFixture: EntryOperation {}
 
 /// Key-fit inference and `defaultOp` choose only an operation that declares
 /// `isInferable`. An op-less call that fits only other operations does not
