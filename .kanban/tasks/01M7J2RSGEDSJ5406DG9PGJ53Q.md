@@ -109,10 +109,58 @@ comments:
     - findings: 3 of 3 checked in the 07:19 section.
     - next: /review
   timestamp: 2026-11-16T13:34:06.564690+00:00
+- actor: claude-code
+  id: 01m7j9abbxv5xa4e7y4kqtfkx6
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (5a3010a). 1 finding, 1 confirmed, 1 refuted. Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:87 (swift/fluent-usage). The 3 findings of the 07:19 section are fixed: the close error goes to PoolTelemetry.logBlobCloseFailure; HubStub has ignoresRange and StalledDownloadTests has a test of a 200 answer to a Range request; ResumableFileDownloadTests uses FileTransfer.authorizationField. All acceptance items stay checked.
+    - next: rename outcome(error:) in FileTransfer to a verb phrase that states the close, then review again.
+  timestamp: 2026-11-16T13:39:04.189840+00:00
+- actor: claude-code
+  id: 01m7j9awq9vjddvft2n4hb3rsx
+  text: |-
+    ### finish iteration 3 — findings
+    - implement: changed — 9 files (FileTransfer, ResumableFileDownload, PoolTelemetry, ExtrasTelemetry; tests FileTransferTests, HubStub, StalledDownloadTests, ResumableFileDownloadTests, HubSourceDownloaderTests)
+    - test: green — swift test three times, 2626 passed each time, 0 failed, 0 skipped, 0 hangs
+    - commit: 5a3010a
+    - review: findings — FileTransfer.swift:87
+  timestamp: 2026-11-16T13:39:21.961700+00:00
+- actor: claude-code
+  id: 01m7j9h08kjndghppna7k9seca
+  text: |-
+    Fix of the swift/fluent-usage finding in FileTransfer.swift:
+    - `State.outcome(error:)` is now `State.finish(error:)`. The doc comment now starts with the close: "Closes the blob when the task of the transfer ended, and gives the outcome of the transfer." The one caller, `urlSession(_:task:didCompleteWithError:)`, calls `finish(error:)`.
+    - The same cause was also in `sink(for:)`. That method opens the blob (it makes the file and truncates it), but its name was a noun phrase. It is now `openSink(for:)`, and its doc comment tells that it opens and truncates the blob for a success. The one caller, `urlSession(_:dataTask:didReceive:completionHandler:)`, calls it.
+    - Check of the other download files: ResumableFileDownload.swift (`request(of:in:at:)` makes a value, `attempt`, `watch` are verbs), SnapshotByteProgress.swift (`report`, `record`, `deliver` are verbs), BlobReusingDownloader.swift (`tree(of:revision:)`, `commit(of:revision:)` and `missingFile` read the Hub or the disk and change no state; `linkCachedBlobs`, `downloadMissingFiles`, `downloadFile` are verbs), DownloadRetryPolicy.swift (`backoff(beforeRetry:)` has no side effect). No other method with a side effect has a noun-phrase name.
+    - The change is a rename only. The behavior did not change, thus no new test. The tests that already exist cover both paths.
+  timestamp: 2026-11-16T13:42:42.195034+00:00
+- actor: claude-code
+  id: 01m7j9h2f1ee0j20f15xqt152k
+  text: |-
+    ### implement — changed
+    - evidence: 1 source file — Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift. `swift test` exit 0: 2626 tests in 247 suites passed (156 + 40 + 46 + 26 + 401 + 1923 + 34), 0 failures, no warnings in our sources.
+    - next: review
+  timestamp: 2026-11-16T13:42:44.449961+00:00
+- actor: claude-code
+  id: 01m7j9kqh45efkvphz57m6mcze
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (47ff7d0). 1 file reviewed, 7 validator runs, 0 findings, 0 failed. All prior review findings are checked. All acceptance items are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-11-16T13:44:11.556381+00:00
+- actor: claude-code
+  id: 01m7j9m6cmwhrkw5439sbf8zaf
+  text: |-
+    ### finish iteration 4 — clean
+    - implement: changed — 1 file (FileTransfer: finish(error:), openSink(for:))
+    - test: green — swift test, 2626 passed, 0 failed, no warnings in our sources
+    - commit: 47ff7d0
+    - review: clean — 0 findings
+  timestamp: 2026-11-16T13:44:26.772235+00:00
 depends_on:
 - 01M7J2RE72BEPMV9A9H3ANEPW1
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: ffe980
 title: 'Download: retry a stalled download with a Range request, a backoff and a retry limit'
 ---
 ## Defect
@@ -161,3 +209,12 @@ The progress (`bytesDownloaded` / `ModelLoadProgress.downloading(completedBytes:
 - [x] `Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:57` `swift/preconditions` — The error of closing the replaced blob is dropped by `try?`. No assertion and no log record it, so a failed close of a blob leaves no trace. The rule requires an unexpected but recoverable condition to get an assertionFailure and a production log. Keep the close error. Call assertionFailure and log it with the production logger, then continue with the new sink. Or record the error and report it as the outcome of the transfer when the new sink is not a failure.
 - [x] `Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:262` `completeness/invariant-propagation` — The server-ignores-range path is changed but not tested. When a Range request gets a 200 answer, startOffset becomes 0 and openBlob truncates the blob to zero. The progress fix in SnapshotByteProgress.record depends on this restart, but no test in the diff makes the stub send a 200 for a ranged request. HubStub.answerFile always sends 206 for a range. The 416 restart is tested, but this path is not. Without a test, a regression in this path can make the progress go backward and the test suite still passes. Add a HubStub mode that ignores the Range header and sends the whole file with 200. Add one test that stalls, restarts with that mode, and asserts that the progress reports never decrease and that the blob holds the whole file at the end.
 - [x] `Tests/FoundationModelsExtrasTests/ModelPool/ResumableFileDownloadTests.swift:31` `reuse/reuse` — The test declares its own `authorizationField = "Authorization"`, which repeats the production constant `FileTransfer.authorizationField`. The test target uses `@testable import`, so the constant is reachable. If the header name changes in production, the test would keep checking the old name and could pass while the real header is no longer checked. Delete the private constant at line 31 and use `FileTransfer.authorizationField` in the two `headerValues(Self.authorizationField, ...)` calls in this file.
+
+## Review Findings (2026-11-16 07:36)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 9 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsExtras/ModelPool/FileTransfer.swift:87` `swift/fluent-usage` — The mutating method outcome(error:) has a noun-phrase name, which says it only returns a value. Its body closes the blob through close(writer) in the .file branch with a non-nil error. A reader who sees the name would not expect a write to the blob. The rule says operations with side effects are imperative verb phrases. Rename the method to a verb phrase that states the effect, for example `finish(error:)` or `closeAndTakeOutcome(error:)`. Keep the doc comment, which already describes the close.

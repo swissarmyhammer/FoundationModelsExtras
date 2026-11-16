@@ -77,14 +77,15 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
             }
         }
 
-        /// The outcome of the transfer when its task ended. Closes the blob.
-        /// When the task ended with an error, that error is the outcome, and
-        /// the error of the close goes to ``closeFailures``.
+        /// Closes the blob when the task of the transfer ended, and gives the
+        /// outcome of the transfer. When the task ended with an error, that
+        /// error is the outcome, and the error of the close goes to
+        /// ``closeFailures``.
         ///
         /// - Parameter error: The error of the task, or `nil` when it
         ///   completed.
         /// - Returns: Success, or the failure of the transfer.
-        mutating func outcome(error: (any Error)?) -> Result<Void, any Error> {
+        mutating func finish(error: (any Error)?) -> Result<Void, any Error> {
             switch sink {
             case .failed(let failure):
                 return .failure(failure)
@@ -225,7 +226,7 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
         completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
     ) {
-        let sink = sink(for: response)
+        let sink = openSink(for: response)
         state.withLock { $0.replaceSink(with: sink) }
         guard case .failed = sink else {
             completionHandler(.allow)
@@ -294,7 +295,7 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
     /// Closes the blob and ends the run with the outcome of the transfer.
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
         let (continuation, outcome) = state.withLock { state in
-            let outcome = state.outcome(error: error)
+            let outcome = state.finish(error: error)
             let continuation = state.continuation
             state.sink = .none
             state.continuation = nil
@@ -303,9 +304,10 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         continuation?.resume(with: outcome)
     }
 
-    /// Where the bytes of `response` go: the blob for a success, the detail
-    /// of an error for an HTTP error, or a failure for an answer that cannot
-    /// be used.
+    /// Opens the sink of the bytes of `response`: the blob for a success,
+    /// the detail of an error for an HTTP error, or a failure for an answer
+    /// that cannot be used. For a success, it opens the blob for writes and
+    /// removes each byte of the blob after the start of the answer.
     ///
     /// A partial answer to a request with a range writes after the bytes of
     /// the blob. Each other success writes the whole file over the blob, for
@@ -313,7 +315,7 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
     ///
     /// - Parameter response: The answer of the server.
     /// - Returns: The sink of the answer.
-    private func sink(for response: URLResponse) -> Sink {
+    private func openSink(for response: URLResponse) -> Sink {
         guard let response = response as? HTTPURLResponse else { return .failed(URLError(.badServerResponse)) }
         if response.statusCode == Self.rangeNotSatisfiableStatus, offset > 0 {
             return .failed(Failure.rangeNotSatisfiable)
