@@ -62,16 +62,32 @@ struct MarketplaceRegistryTests {
   /// Its change marks the end of the changes of that operation.
   private static let marker = MarketplaceSource("github:acme/marker")
 
-  /// How long the queue test waits for its add to reach the registry, while
-  /// the reset waits in the storage.
-  private static let addArrivalTime: Duration = .milliseconds(50)
-
   /// Makes the entry of a source that the tests know is valid.
   ///
   /// - Parameter source: The source.
   /// - Returns: The entry.
   private static func entry(_ source: MarketplaceSource) throws -> MarketplaceEntry {
     try MarketplaceEntry(source: source)
+  }
+
+  /// Starts an add on the registry, and returns when the add waits for the
+  /// first time.
+  ///
+  /// The function runs on the registry. The task of the add starts at once on
+  /// the registry, and it runs until it waits for the first time. While
+  /// another write runs, the add then waits for its turn in the write queue.
+  /// Thus, when the function returns, the add is in the queue, and the caller
+  /// does not wait for a time.
+  ///
+  /// - Parameters:
+  ///   - source: The source to add.
+  ///   - registry: The registry.
+  /// - Returns: The task of the add.
+  private static func startAdd(
+    _ source: MarketplaceSource,
+    on registry: isolated MarketplaceRegistry
+  ) -> Task<MarketplaceEntry, any Error> {
+    Task.immediate { try await registry.add(source) }
   }
 
   /// Makes a registry over an in-memory storage that holds `sources`.
@@ -135,7 +151,7 @@ struct MarketplaceRegistryTests {
 
     _ = try await storage.resetSources()
 
-    #expect(await storage.sources == [])
+    #expect(try await storage.loadSources() == [])
   }
 
   @Test func theInMemoryResetGivesTheDefaultList() async throws {
@@ -456,12 +472,11 @@ struct MarketplaceRegistryTests {
 
     async let reset = registry.reset()
     await startedResets.next()
-    async let added = registry.add(Self.docs)
-    try await Task.sleep(for: Self.addArrivalTime)
+    let add = await Self.startAdd(Self.docs, on: registry)
     await storage.openGate()
-    _ = try await (reset, added)
+    _ = try await (reset, add.value)
 
-    #expect(await storage.sources == [Self.skills, Self.docs])
+    #expect(await storage.loadSources() == [Self.skills, Self.docs])
   }
 
   // MARK: - Changes
@@ -556,7 +571,7 @@ struct MarketplaceRegistryTests {
 
     _ = try? await registry.remove(id: Self.teamSkillsID)
 
-    #expect(await storage.sources == [Self.teamSkills])
+    #expect(try await storage.loadSources() == [Self.teamSkills])
   }
 
   @Test func aSaveErrorSendsNoChange() async throws {
@@ -587,8 +602,8 @@ private actor FailingMarketplaceSourceStorage: MarketplaceSourceStorage {
   /// The call that fails, or `nil` when no call fails.
   private var failing: Failure?
 
-  /// The stored list, in list order.
-  private(set) var sources: [MarketplaceSource]
+  /// The storage that holds the list when no call fails.
+  private let storage: InMemoryMarketplaceSourceStorage
 
   /// Makes a storage that fails one call, or no call.
   ///
@@ -597,7 +612,7 @@ private actor FailingMarketplaceSourceStorage: MarketplaceSourceStorage {
   ///   - sources: The list at the start.
   init(failing: Failure?, sources: [MarketplaceSource] = []) {
     self.failing = failing
-    self.sources = sources
+    storage = InMemoryMarketplaceSourceStorage(sources: sources)
   }
 
   /// Makes each later call succeed.
@@ -608,21 +623,21 @@ private actor FailingMarketplaceSourceStorage: MarketplaceSourceStorage {
   /// Gives the stored list, or throws ``Failure/load``.
   ///
   /// - Returns: The sources, in list order.
-  func loadSources() throws -> [MarketplaceSource] {
+  func loadSources() async throws -> [MarketplaceSource] {
     if failing == .load {
       throw Failure.load
     }
-    return sources
+    return await storage.loadSources()
   }
 
   /// Replaces the stored list, or throws ``Failure/save`` and keeps it.
   ///
   /// - Parameter sources: The full new list, in list order.
-  func saveSources(_ sources: [MarketplaceSource]) throws {
+  func saveSources(_ sources: [MarketplaceSource]) async throws {
     if failing == .save {
       throw Failure.save
     }
-    self.sources = sources
+    await storage.saveSources(sources)
   }
 }
 
@@ -637,11 +652,8 @@ private actor GatedResetMarketplaceSourceStorage: MarketplaceSourceStorage {
   /// Sends the values of ``startedResets``.
   private let resetStarted: AsyncStream<Void>.Continuation
 
-  /// The stored list, in list order.
-  private(set) var sources: [MarketplaceSource]
-
-  /// The list that a reset stores.
-  private let defaultSources: [MarketplaceSource]
+  /// The storage that holds the list and the default list.
+  private let storage: InMemoryMarketplaceSourceStorage
 
   /// The reset that waits at the gate, or `nil` when no reset waits.
   private var waitingReset: CheckedContinuation<Void, Never>?
@@ -653,8 +665,7 @@ private actor GatedResetMarketplaceSourceStorage: MarketplaceSourceStorage {
   ///   - defaultSources: The list that a reset stores.
   init(sources: [MarketplaceSource], defaultSources: [MarketplaceSource]) {
     (startedResets, resetStarted) = AsyncStream.makeStream(of: Void.self)
-    self.sources = sources
-    self.defaultSources = defaultSources
+    storage = InMemoryMarketplaceSourceStorage(sources: sources, defaultSources: defaultSources)
   }
 
   /// Lets the waiting reset continue.
@@ -666,18 +677,18 @@ private actor GatedResetMarketplaceSourceStorage: MarketplaceSourceStorage {
   /// Gives the stored list.
   ///
   /// - Returns: The sources, in list order.
-  func loadSources() -> [MarketplaceSource] {
-    sources
+  func loadSources() async -> [MarketplaceSource] {
+    await storage.loadSources()
   }
 
   /// Replaces the stored list.
   ///
   /// - Parameter sources: The full new list, in list order.
-  func saveSources(_ sources: [MarketplaceSource]) {
-    self.sources = sources
+  func saveSources(_ sources: [MarketplaceSource]) async {
+    await storage.saveSources(sources)
   }
 
-  /// Waits at the gate, and then stores the default list.
+  /// Waits at the gate, and then resets the wrapped storage.
   ///
   /// - Returns: The default list.
   func resetSources() async -> [MarketplaceSource] {
@@ -685,7 +696,6 @@ private actor GatedResetMarketplaceSourceStorage: MarketplaceSourceStorage {
       waitingReset = continuation
       resetStarted.yield()
     }
-    sources = defaultSources
-    return sources
+    return await storage.resetSources()
   }
 }
