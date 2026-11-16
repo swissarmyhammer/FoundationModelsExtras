@@ -6,12 +6,14 @@ import Synchronization
 /// records the URL of each request, thus a test can prove which requests a
 /// call made.
 ///
-/// A stub of a ``Answer/repository(commit:files:stalls:)`` answers as the Hub
-/// does for one commit: the model information, the tree listing, and the
-/// `HEAD` and `GET` requests of each file, with the headers that the Hugging
-/// Face client reads. A `GET` with a `Range` header gets the bytes from the
-/// start of the range. A `GET` can also stall: it sends some bytes, and then
-/// it sends nothing more until the client stops it.
+/// A stub of a ``Answer/repository(commit:files:stalls:redirect:)`` answers as
+/// the Hub does for one commit: the model information, the tree listing, and
+/// the `HEAD` and `GET` requests of each file, with the headers that the
+/// Hugging Face client reads. A `GET` with a `Range` header gets the bytes from
+/// the start of the range. A `GET` can also stall: it sends some bytes, and
+/// then it sends nothing more until the client stops it. A `GET` can also get
+/// a redirect to the same file at another URL, as the Hub sends a file request
+/// to its CDN.
 ///
 /// Each stub has its own identifier. Its session sends the identifier in the
 /// ``header`` header of each request, thus tests that run at the same time
@@ -31,8 +33,14 @@ final class HubStub: Sendable {
         /// send before they stall: the first `GET` sends `stalls[0]` bytes,
         /// the second `stalls[1]` bytes, and so on. A stalled request then
         /// sends nothing more until the client stops it. Each `GET` after
-        /// the last stall sends all its bytes.
-        case repository(commit: String, files: [TreeFile], stalls: [Int] = [])
+        /// the last stall sends all its bytes. A `GET` whose range the stub
+        /// refuses sends no bytes, thus it does not count.
+        ///
+        /// When `redirect` is not `nil`, a `GET` of a file at a URL that is
+        /// not under `redirect` gets a redirect to the same path under
+        /// `redirect`. The redirected request holds each header of the first
+        /// request, as the URL session makes it for an HTTP redirect.
+        case repository(commit: String, files: [TreeFile], stalls: [Int] = [], redirect: URL? = nil)
     }
 
     /// The state of a wait for a stall when the wait starts.
@@ -48,7 +56,7 @@ final class HubStub: Sendable {
     /// The stalls of the `GET` requests of a file, and the bytes that the
     /// download wrote, with the tasks that wait for a stall.
     private struct StallState {
-        /// The `GET` requests of a file that the stub got.
+        /// The `GET` requests of a file that the stub answered with bytes.
         var fileRequests = 0
 
         /// The end of the bytes that each stalled request sent, as an offset
@@ -161,8 +169,8 @@ final class HubStub: Sendable {
     /// The answer of the stub to each request.
     let answer: Answer
 
-    /// The URL of each request, in order.
-    private let recorded = Mutex<[URL]>([])
+    /// Each request, in order.
+    private let recorded = Mutex<[URLRequest]>([])
 
     /// The `Range` header of each `GET` request of a file, in order: `nil`
     /// for a request with no `Range` header.
@@ -189,7 +197,20 @@ final class HubStub: Sendable {
 
     /// The URL of each request that the stub got, in order.
     var requests: [URL] {
-        recorded.withLock { $0 }
+        recorded.withLock { $0.compactMap(\.url) }
+    }
+
+    /// The value of a header in each request to a host, in order: `nil` for
+    /// a request with no such header.
+    ///
+    /// - Parameters:
+    ///   - field: The name of the header.
+    ///   - host: The host of the requests.
+    /// - Returns: The values of the header.
+    func headerValues(_ field: String, ofRequestsTo host: String?) -> [String?] {
+        recorded.withLock { requests in
+            requests.filter { $0.url?.host == host }.map { $0.value(forHTTPHeaderField: field) }
+        }
     }
 
     /// Finds the live stub with an identifier.
@@ -208,21 +229,26 @@ final class HubStub: Sendable {
 
     /// Records a request.
     ///
-    /// - Parameter url: The URL of the request.
-    func record(_ url: URL) {
-        recorded.withLock { $0.append(url) }
+    /// - Parameter request: The request.
+    func record(_ request: URLRequest) {
+        recorded.withLock { $0.append(request) }
     }
 
-    /// Records a `GET` request of a file, and tells whether it stalls.
+    /// Records the `Range` header of a `GET` request of a file.
     ///
-    /// - Parameters:
-    ///   - range: The `Range` header of the request, or `nil`.
-    ///   - stalls: The bytes that the first `GET` requests send before they
-    ///     stall.
+    /// - Parameter range: The `Range` header of the request, or `nil`.
+    func recordRange(_ range: String?) {
+        recordedRanges.withLock { $0.append(range) }
+    }
+
+    /// Tells whether the next `GET` request of a file that sends bytes
+    /// stalls.
+    ///
+    /// - Parameter stalls: The bytes that the first `GET` requests send
+    ///   before they stall.
     /// - Returns: The bytes that the request sends before it stalls, or `nil`
     ///   when it sends all its bytes.
-    func recordFileRequest(range: String?, stalls: [Int]) -> Int? {
-        recordedRanges.withLock { $0.append(range) }
+    func nextStall(of stalls: [Int]) -> Int? {
         let index = stallState.withLock { state in
             defer { state.fileRequests += 1 }
             return state.fileRequests
@@ -236,11 +262,7 @@ final class HubStub: Sendable {
     /// - Parameter end: The end of the bytes that the request sent, as an
     ///   offset in its file.
     func recordStall(end: Int64) {
-        let reached = stallState.withLock { state in
-            state.stallEnds.append(end)
-            return state.takeReachedWaiters()
-        }
-        for continuation in reached { continuation.resume() }
+        resumeReachedWaiters { $0.stallEnds.append(end) }
     }
 
     /// Records the bytes that the download wrote, and ends the wait of each
@@ -249,8 +271,16 @@ final class HubStub: Sendable {
     ///
     /// - Parameter bytes: The completed bytes of the download.
     func recordWritten(_ bytes: Int64) {
+        resumeReachedWaiters { $0.writtenBytes = max($0.writtenBytes, bytes) }
+    }
+
+    /// Changes the stall state, and ends the wait of each task whose stall
+    /// the change reached.
+    ///
+    /// - Parameter update: The change of the state.
+    private func resumeReachedWaiters(_ update: (inout StallState) -> Void) {
         let reached = stallState.withLock { state in
-            state.writtenBytes = max(state.writtenBytes, bytes)
+            update(&state)
             return state.takeReachedWaiters()
         }
         for continuation in reached { continuation.resume() }
@@ -294,6 +324,12 @@ final class HubStubProtocol: URLProtocol {
     /// The HTTP status of a request for a file that the repository does not
     /// hold.
     private static let missingStatus = 404
+
+    /// The HTTP status of a redirect to the same file at another URL.
+    private static let redirectStatus = 302
+
+    /// The header of a redirect that names the new URL.
+    private static let locationField = "Location"
 
     /// The HTTP status of an answer that holds a part of a file.
     private static let partialStatus = 206
@@ -348,15 +384,53 @@ final class HubStubProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
             return
         }
-        stub.record(url)
+        stub.record(request)
         switch stub.answer {
         case .offline:
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
         case .tree(let files):
             answer(url: url, body: files.map(\.json))
-        case .repository(let commit, let files, let stalls):
-            answerRepository(url: url, commit: commit, files: files, stalls: stalls, stub: stub)
+        case .repository(let commit, let files, let stalls, let redirect):
+            if let target = Self.redirectTarget(of: request, under: redirect) {
+                answerRedirect(to: target)
+            } else {
+                answerRepository(url: url, commit: commit, files: files, stalls: stalls, stub: stub)
+            }
         }
+    }
+
+    /// The URL of the redirect of a `GET` of a file: the same path under
+    /// `redirect`.
+    ///
+    /// - Parameters:
+    ///   - request: The request.
+    ///   - redirect: The base URL of each redirect, or `nil` for no redirect.
+    /// - Returns: The URL of the redirect, or `nil` when the request gets no
+    ///   redirect: it is not a `GET` of a file, or it is under `redirect`.
+    private static func redirectTarget(of request: URLRequest, under redirect: URL?) -> URL? {
+        guard let redirect, let url = request.url, request.httpMethod != headMethod,
+            url.pathComponents.contains(HubStub.resolveComponent),
+            !url.absoluteString.hasPrefix(redirect.absoluteString)
+        else { return nil }
+        return redirect.appending(path: url.path)
+    }
+
+    /// Sends a redirect to `target`. The new request holds each header of
+    /// the request, as the URL session makes it for an HTTP redirect.
+    ///
+    /// - Parameter target: The URL of the redirect.
+    private func answerRedirect(to target: URL) {
+        guard let url = request.url,
+            let response = HTTPURLResponse(
+                url: url, statusCode: Self.redirectStatus, httpVersion: nil,
+                headerFields: [Self.locationField: target.absoluteString])
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        var redirected = request
+        redirected.url = target
+        client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: response)
     }
 
     /// Answers a request to a repository at one commit: a file request with
@@ -411,12 +485,13 @@ final class HubStubProtocol: URLProtocol {
             return
         }
         let range = request.value(forHTTPHeaderField: Self.rangeField)
-        let stall = stub.recordFileRequest(range: range, stalls: stalls)
+        stub.recordRange(range)
         let start = Self.rangeStart(of: range) ?? 0
         guard start == 0 || start < file.size else {
             send(url: url, status: Self.rangeNotSatisfiableStatus, headers: [:], body: Data())
             return
         }
+        let stall = stub.nextStall(of: stalls)
         let body = file.contents.subdata(in: start..<file.size)
         let status = start > 0 ? Self.partialStatus : Self.okStatus
         var headers = file.headers(commit: commit)

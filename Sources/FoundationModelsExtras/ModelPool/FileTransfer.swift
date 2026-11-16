@@ -8,7 +8,9 @@ import Synchronization
 /// request can ask for the bytes after them.
 ///
 /// The transfer counts the bytes that it received, thus a watch can see when
-/// no bytes arrive.
+/// no bytes arrive. A redirect to a host that is not the host of the request
+/// gets no `Authorization` header, thus the token goes only to the host of
+/// the request.
 final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
     /// A failure of a transfer that the download handles with a new request.
     enum Failure: Error {
@@ -24,7 +26,7 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         /// No answer arrived yet.
         case none
         /// The answer holds the bytes of the file: they go to the blob.
-        case file(FileHandle, startOffset: Int64)
+        case file(any BlobWriter, startOffset: Int64)
         /// The answer is an HTTP error: its body is the detail of the error.
         case errorBody(HTTPURLResponse, Data)
         /// The answer cannot be used, and the transfer stops with `error`.
@@ -43,6 +45,18 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         var sink = Sink.none
         /// The bytes of the file that this request received.
         var receivedBytes: Int64 = 0
+
+        /// Sets the sink of the answer. When the sink before it writes to
+        /// the blob, it closes the blob first, thus no open blob stays after
+        /// the sink changes, and a later request can open the blob again.
+        /// The error of that close is dropped: the new sink gives the
+        /// outcome of the transfer.
+        ///
+        /// - Parameter sink: The new sink.
+        mutating func replaceSink(with sink: Sink) {
+            if case .file(let writer, _) = self.sink { try? writer.close() }
+            self.sink = sink
+        }
     }
 
     /// The HTTP status of an answer that holds a part of the file.
@@ -54,6 +68,9 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
     /// The HTTP statuses of success.
     private static let successStatuses = 200..<300
 
+    /// The header of the token of a request.
+    static let authorizationField = "Authorization"
+
     /// The `.incomplete` blob of the file.
     private let blob: URL
 
@@ -63,6 +80,9 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
 
     /// Gets the bytes of the blob after each write.
     private let written: @Sendable (Int64) -> Void
+
+    /// Opens the blob for writes after the bytes to keep.
+    private let openBlob: @Sendable (URL, Int64) throws -> any BlobWriter
 
     /// The state of the transfer.
     private let state = Mutex(State())
@@ -75,10 +95,17 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
     ///     writes after them, and a complete answer writes over them.
     ///   - written: Gets the bytes of the blob after each write. It runs on
     ///     the delegate queue of the session.
-    init(blob: URL, offset: Int64, written: @escaping @Sendable (Int64) -> Void) {
+    ///   - openBlob: Opens the blob for writes after the bytes to keep: it
+    ///     gets the blob and the bytes to keep. The default opens the file
+    ///     with ``openFile(_:at:)``.
+    init(
+        blob: URL, offset: Int64, written: @escaping @Sendable (Int64) -> Void,
+        openBlob: @escaping @Sendable (URL, Int64) throws -> any BlobWriter = openFile
+    ) {
         self.blob = blob
         self.offset = offset
         self.written = written
+        self.openBlob = openBlob
     }
 
     /// The bytes of the file that this request received.
@@ -137,7 +164,7 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
     ) {
         let sink = sink(for: response)
-        state.withLock { $0.sink = sink }
+        state.withLock { $0.replaceSink(with: sink) }
         guard case .failed = sink else {
             completionHandler(.allow)
             return
@@ -153,6 +180,45 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         }
         guard let blobBytes else { return }
         written(blobBytes)
+    }
+
+    /// Follows a redirect, and removes the token from the new request when
+    /// the redirect goes to a host that is not the host of the first
+    /// request. The Hub sends a file request to a CDN on another host, and
+    /// the token must not go to that host. Each other header, for example
+    /// the `Range` header, stays.
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(Self.redirected(request, from: task.originalRequest))
+    }
+
+    /// The new request of a redirect: with no token when its host is not the
+    /// host of the first request.
+    ///
+    /// - Parameters:
+    ///   - request: The new request that the session made for the redirect.
+    ///   - original: The first request of the task.
+    /// - Returns: The request to send.
+    private static func redirected(_ request: URLRequest, from original: URLRequest?) -> URLRequest {
+        guard !isSameHost(request.url, original?.url) else { return request }
+        var request = request
+        request.setValue(nil, forHTTPHeaderField: authorizationField)
+        return request
+    }
+
+    /// Whether two URLs have the same host. A host name is not case
+    /// sensitive.
+    ///
+    /// - Parameters:
+    ///   - url: A URL.
+    ///   - other: The other URL.
+    /// - Returns: `true` when both URLs have a host and the hosts are the
+    ///   same.
+    private static func isSameHost(_ url: URL?, _ other: URL?) -> Bool {
+        guard let host = url?.host?.lowercased(), let otherHost = other?.host?.lowercased() else { return false }
+        return host == otherHost
     }
 
     /// Keeps the answer out of the URL cache: the blob holds the file.
@@ -193,7 +259,7 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         guard Self.successStatuses.contains(response.statusCode) else { return .errorBody(response, Data()) }
         let startOffset = response.statusCode == Self.partialStatus ? offset : 0
         do {
-            return .file(try Self.openBlob(blob, at: startOffset), startOffset: startOffset)
+            return .file(try openBlob(blob, startOffset), startOffset: startOffset)
         } catch {
             return .failed(error)
         }
@@ -206,7 +272,7 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
     ///   - offset: The bytes of the blob to keep.
     /// - Returns: A handle that writes after the kept bytes.
     /// - Throws: The error of the open or of the truncation.
-    private static func openBlob(_ blob: URL, at offset: Int64) throws -> FileHandle {
+    static func openFile(_ blob: URL, at offset: Int64) throws -> any BlobWriter {
         if !FileManager.default.fileExists(atPath: blob.path) {
             FileManager.default.createFile(atPath: blob.path, contents: nil)
         }
@@ -224,11 +290,11 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
     ///   chunk did not go to the blob.
     private static func take(_ data: Data, into state: inout State) -> Int64? {
         switch state.sink {
-        case .file(let handle, let startOffset):
+        case .file(let writer, let startOffset):
             do {
-                try handle.write(contentsOf: data)
+                try writer.append(data)
             } catch {
-                state.sink = .failed(error)
+                state.replaceSink(with: .failed(error))
                 state.task?.cancel()
                 return nil
             }
@@ -254,9 +320,9 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
             return .failure(failure)
         case .errorBody(let response, let body):
             return .failure(HTTPClientError.responseError(response: response, detail: String(decoding: body, as: UTF8.self)))
-        case .file(let handle, _):
+        case .file(let writer, _):
             do {
-                try handle.close()
+                try writer.close()
             } catch {
                 return .failure(error)
             }
@@ -264,5 +330,29 @@ final class FileTransfer: NSObject, URLSessionDataDelegate, Sendable {
         case .none:
             return .failure(error ?? URLError(.badServerResponse))
         }
+    }
+}
+
+/// Writes the bytes of a blob, in order, after the bytes that it keeps.
+protocol BlobWriter: AnyObject, Sendable {
+    /// Writes bytes after the bytes that the blob holds.
+    ///
+    /// - Parameter data: The bytes.
+    /// - Throws: The error of the write.
+    func append(_ data: Data) throws
+
+    /// Closes the blob. No write follows.
+    ///
+    /// - Throws: The error of the close.
+    func close() throws
+}
+
+extension FileHandle: BlobWriter {
+    /// Writes bytes at the offset of the handle.
+    ///
+    /// - Parameter data: The bytes.
+    /// - Throws: The error of the write.
+    func append(_ data: Data) throws {
+        try write(contentsOf: data)
     }
 }

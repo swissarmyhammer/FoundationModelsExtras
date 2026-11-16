@@ -8,8 +8,11 @@ import Foundation
 /// `initialBackoff * 2^(n - 1)`. After ``retryLimit`` retries, a stall stops
 /// the download with ``ModelDownloadError/stalled(repository:file:attempts:)``.
 struct DownloadRetryPolicy: Sendable {
+    /// The seconds of the stall interval of the default policy.
+    private static let defaultStallSeconds = 30
+
     /// The stall interval of the default policy.
-    static let defaultStallInterval = Duration.seconds(30)
+    static let defaultStallInterval = Duration.seconds(defaultStallSeconds)
 
     /// The backoff before the first retry of the default policy.
     static let defaultInitialBackoff = Duration.seconds(1)

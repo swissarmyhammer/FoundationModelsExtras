@@ -15,8 +15,11 @@ import Synchronization
 /// clock records its duration. Each backoff follows one stall, thus the
 /// count of the backoffs tells which stall the next watch waits for.
 final class StallClock: Sendable {
+    /// The seconds of the stall interval of the policy.
+    private static let stallSeconds = 30
+
     /// The stall interval of the policy.
-    static let stallInterval = Duration.seconds(30)
+    static let stallInterval = Duration.seconds(stallSeconds)
 
     /// The first backoff of the policy. It differs from the stall interval,
     /// thus the clock can tell a backoff from a watch.

@@ -7,7 +7,10 @@ import Synchronization
 ///
 /// Each file has one count. A file whose blob the cache holds counts all its
 /// bytes, and a file that downloads counts the bytes of its `.incomplete`
-/// blob.
+/// blob. The count of a file never decreases: the `.incomplete` blob starts
+/// again from zero when the server refuses the range of a retry or ignores
+/// it, and the count then keeps its maximum until the blob is larger. Thus
+/// the progress never goes backward.
 final class SnapshotByteProgress: Sendable {
     /// The bytes of each file, by path, and their sum.
     private struct Counts {
@@ -48,14 +51,18 @@ final class SnapshotByteProgress: Sendable {
         }
     }
 
-    /// Sets the bytes of one file, and reports the bytes of all files.
+    /// Sets the bytes of one file, and reports the bytes of all files. A
+    /// count that is less than the last count of the file does not change
+    /// the count.
     ///
     /// - Parameters:
     ///   - bytes: The bytes of the file on the disk.
     ///   - path: The path of the file.
     func record(_ bytes: Int64, of path: String) {
         counts.withLock { counts in
-            counts.completedBytes += bytes - (counts.bytesByPath[path] ?? 0)
+            let lastBytes = counts.bytesByPath[path] ?? 0
+            let bytes = max(bytes, lastBytes)
+            counts.completedBytes += bytes - lastBytes
             counts.bytesByPath[path] = bytes
             deliver(completedBytes: counts.completedBytes)
         }

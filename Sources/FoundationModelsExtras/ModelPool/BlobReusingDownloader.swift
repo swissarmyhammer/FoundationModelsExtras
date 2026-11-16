@@ -209,7 +209,8 @@ struct BlobReusingDownloader: Downloader {
     ///   - repo: The repository.
     ///   - patterns: The patterns of the files of the download.
     ///   - progressHandler: Gets the byte progress of the files.
-    /// - Throws: The error of a file download or of a link.
+    /// - Throws: The error of the read of the size of an `.incomplete` blob,
+    ///   of a file download, or of a link.
     private func downloadMissingFiles(
         of tree: RevisionTree, repo: Repo.ID, matching patterns: [String],
         progressHandler: @Sendable @escaping (Progress) -> Void
@@ -221,7 +222,7 @@ struct BlobReusingDownloader: Downloader {
         let present = matched.filter {
             cache.cachedFilePath(repo: repo, kind: .model, revision: tree.commit, filename: $0.path) != nil
         }
-        let progress = Self.byteProgress(present: present, missing: missing, progressHandler: progressHandler)
+        let progress = try Self.byteProgress(present: present, missing: missing, progressHandler: progressHandler)
         progress.report()
         try await withThrowingTaskGroup(of: Void.self) { group in
             var pending = missing.makeIterator()
@@ -295,12 +296,13 @@ struct BlobReusingDownloader: Downloader {
     ///   - missing: The files that download here.
     ///   - progressHandler: Gets each report.
     /// - Returns: The progress.
+    /// - Throws: The error of the read of the size of an `.incomplete` blob.
     private static func byteProgress(
         present: [HubTreeMetadata.File], missing: [MissingFile],
         progressHandler: @Sendable @escaping (Progress) -> Void
-    ) -> SnapshotByteProgress {
+    ) throws -> SnapshotByteProgress {
         let presentBytes = present.map { ($0.path, $0.size ?? 0) }
-        let missingBytes = missing.map { ($0.path, ResumableFileDownload.size(of: $0.incompleteBlob)) }
+        let missingBytes = try missing.map { ($0.path, try HubSource.bytesOnDisk(of: $0.incompleteBlob)) }
         let totalBytes = presentBytes.map(\.1).reduce(0, +) + missing.compactMap(\.size).reduce(0, +)
         return SnapshotByteProgress(
             totalBytes: totalBytes,

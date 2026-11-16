@@ -12,9 +12,12 @@ import HuggingFace
 /// attempt. After the retry limit of the policy, a stall throws
 /// ``ModelDownloadError/stalled(repository:file:attempts:)``.
 ///
-/// The bytes of the blob never decrease over a retry, thus the progress of
-/// the download does not go backward. A server that ignores the range sends
-/// the whole file again, and the blob then starts again from zero.
+/// The bytes of the blob do not decrease over a retry after a stall. The blob
+/// starts again from zero in two cases: the server refuses the range, or the
+/// server ignores the range and sends the whole file again. The `written`
+/// reports then decrease, and the progress of the snapshot, which
+/// ``SnapshotByteProgress`` gives, keeps the maximum of each file, thus it
+/// does not go backward.
 struct ResumableFileDownload: Sendable {
     /// The path component between the repository and the revision in the URL
     /// of a file.
@@ -22,9 +25,6 @@ struct ResumableFileDownload: Sendable {
 
     /// The header of a request that asks for a part of a file.
     private static let rangeField = "Range"
-
-    /// The header of the token of a request.
-    private static let authorizationField = "Authorization"
 
     /// The session of each request.
     let session: URLSession
@@ -50,7 +50,8 @@ struct ResumableFileDownload: Sendable {
     ///   - written: Gets the bytes of the blob after each write.
     /// - Throws: ``ModelDownloadError/stalled(repository:file:attempts:)``
     ///   when each attempt stalls, `CancellationError` when the task is
-    ///   cancelled, or the error of the token, of a request or of a write.
+    ///   cancelled, or the error of the token, of the read of the size of the
+    ///   blob, of a request or of a write.
     func download(
         _ path: String, of repo: Repo.ID, at commit: String, into blob: URL,
         written: @escaping @Sendable (Int64) -> Void
@@ -87,7 +88,7 @@ struct ResumableFileDownload: Sendable {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         if let token = try await tokenProvider.getToken() {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: Self.authorizationField)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: FileTransfer.authorizationField)
         }
         return request
     }
@@ -101,11 +102,11 @@ struct ResumableFileDownload: Sendable {
     ///   - written: Gets the bytes of the blob after each write.
     /// - Throws: ``FileTransfer/Failure/stalled`` when no bytes arrive for
     ///   the stall interval, `CancellationError` when the task is cancelled,
-    ///   or the error of the transfer.
+    ///   or the error of the read of the size of the blob or of the transfer.
     private func attempt(
         _ request: URLRequest, into blob: URL, written: @escaping @Sendable (Int64) -> Void
     ) async throws {
-        let offset = Self.size(of: blob)
+        let offset = try HubSource.bytesOnDisk(of: blob)
         var request = request
         if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: Self.rangeField) }
         let transfer = FileTransfer(blob: blob, offset: offset, written: written)
@@ -137,15 +138,6 @@ struct ResumableFileDownload: Sendable {
             guard bytes != lastBytes else { throw FileTransfer.Failure.stalled }
             lastBytes = bytes
         }
-    }
-
-    /// The bytes of a file.
-    ///
-    /// - Parameter file: The file.
-    /// - Returns: The size of the file, or 0 when it does not exist.
-    static func size(of file: URL) -> Int64 {
-        let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? NSNumber
-        return size?.int64Value ?? 0
     }
 }
 

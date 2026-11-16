@@ -159,4 +159,16 @@ struct HubSource: Sendable {
         let blob = file.resolvingSymlinksInPath()
         return try blob.resourceValues(forKeys: [.fileSizeKey]).fileSize.map { Int64($0) }
     }
+
+    /// The bytes on the disk of a blob that can be missing, for example the
+    /// `.incomplete` blob of a download that did not start.
+    ///
+    /// - Parameter file: A blob, or a snapshot file that links to a blob.
+    /// - Returns: The size of the blob, or 0 when the file does not exist or
+    ///   the file system gives no size.
+    /// - Throws: The error of the read of the size of a file that exists.
+    static func bytesOnDisk(of file: URL) throws -> Int64 {
+        guard FileManager.default.fileExists(atPath: file.path) else { return 0 }
+        return try blobBytes(of: file) ?? 0
+    }
 }

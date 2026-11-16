@@ -86,15 +86,19 @@ struct StalledDownloadTests {
         let stub = HubStub(.repository(commit: Self.commit, files: [Self.weights], stalls: stalls))
         let clock = StallClock(stub: stub, retryLimit: Self.retryLimit)
 
-        _ = try? await download(stub: stub, fixture: fixture, clock: clock)
-
+        await #expect(
+            throws: ModelDownloadError.stalled(
+                repository: Self.repository, file: Self.weights.path, attempts: Self.retryLimit + 1)
+        ) {
+            try await download(stub: stub, fixture: fixture, clock: clock)
+        }
         #expect(clock.backoffs == [StallClock.initialBackoff, StallClock.initialBackoff * 2])
     }
 
     @Test("the download progress never goes backward over a retry")
     func progressNeverGoesBackward() async throws {
         let stub = HubStub(.repository(commit: Self.commit, files: [Self.weights], stalls: [Self.bytesBeforeStall]))
-        let reports = ReportLog()
+        let reports = ReportLog<ModelLoadProgress>()
         let fixture = try HubFixture(repository: Self.repository, commit: Self.commit)
         defer { fixture.remove() }
         let source = HubSource(
@@ -108,6 +112,31 @@ struct StalledDownloadTests {
 
         let completed = reports.completedBytes
         #expect(completed.contains(Int64(Self.bytesBeforeStall)) && completed == completed.sorted())
+    }
+
+    @Test("the byte progress never goes backward when the server refuses the range and the blob starts again from zero")
+    func progressNeverGoesBackwardAfterRefusedRange() async throws {
+        let fixture = try HubFixture(repository: Self.repository, commit: Self.commit)
+        defer { fixture.remove() }
+        try fixture.writeIncomplete(Self.weights, bytes: Self.weights.size)
+        let stub = HubStub(.repository(commit: Self.commit, files: [Self.weights], stalls: [Self.bytesOfEachStall]))
+        let reports = ReportLog<Int64>()
+        let size = Int64(Self.weights.size)
+        let progress = SnapshotByteProgress(totalBytes: size, bytesByPath: [Self.weights.path: size]) {
+            reports.append($0.completedUnitCount)
+        }
+        let files = ResumableFileDownload(
+            session: stub.session, host: HubSource.host(), tokenProvider: .none,
+            policy: StallClock(stub: stub, retryLimit: Self.retryLimit).policy)
+        let blob = try fixture.cache.incompleteBlobPath(repo: fixture.repo, kind: .model, etag: Self.weights.etag)
+
+        progress.report()
+        try await files.download(Self.weights.path, of: fixture.repo, at: Self.commit, into: blob) { bytes in
+            progress.record(bytes, of: Self.weights.path)
+            stub.recordWritten(bytes)
+        }
+
+        #expect(reports.all == reports.all.sorted())
     }
 
     @Test("a download continues the .incomplete blob of an earlier download with a Range request")
@@ -211,25 +240,30 @@ struct StalledDownloadTests {
     }
 }
 
-/// The ``ModelLoadProgress`` reports of a download, in order.
-private final class ReportLog: Sendable {
+/// The progress reports of a download, in order.
+private final class ReportLog<Report: Sendable>: Sendable {
     /// The reports.
-    private let reports = Mutex<[ModelLoadProgress]>([])
+    private let reports = Mutex<[Report]>([])
 
     /// Records a report.
     ///
     /// - Parameter report: The report.
-    func append(_ report: ModelLoadProgress) {
+    func append(_ report: Report) {
         reports.withLock { $0.append(report) }
     }
 
+    /// Each report, in order.
+    var all: [Report] {
+        reports.withLock { $0 }
+    }
+}
+
+extension ReportLog where Report == ModelLoadProgress {
     /// The completed bytes of each download report, in order.
     var completedBytes: [Int64] {
-        reports.withLock { reports in
-            reports.compactMap { report in
-                guard case .downloading(let completedBytes, _) = report else { return nil }
-                return completedBytes
-            }
+        all.compactMap { report in
+            guard case .downloading(let completedBytes, _) = report else { return nil }
+            return completedBytes
         }
     }
 }
