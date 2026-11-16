@@ -88,4 +88,40 @@ struct OperationResolverTests {
 
         #expect(resolver.matchOpString("type definition get", against: colliding) == "get type_definition")
     }
+
+    /// The operation set of the `skills` tool, where the verb `read` and
+    /// the noun `script` each belong to one operation only.
+    private let skillsCandidates = [
+        OperationResolver.OpCandidate(verb: "use", noun: "skill", opString: "use skill"),
+        OperationResolver.OpCandidate(verb: "list", noun: "skill", opString: "list skill"),
+        OperationResolver.OpCandidate(verb: "list", noun: "resource", opString: "list resource"),
+        OperationResolver.OpCandidate(verb: "read", noun: "resource", opString: "read resource"),
+        OperationResolver.OpCandidate(verb: "run", noun: "script", opString: "run script"),
+    ]
+
+    @Test(arguments: ["read", "READ", " read "])
+    func oneWordOpThatIsTheVerbOfOneOperationMatchesIt(opString: String) {
+        let resolver = OperationResolver(verbAliases: ["read": "read"])
+
+        #expect(resolver.matchOpString(opString, against: skillsCandidates) == "read resource")
+    }
+
+    @Test func oneWordOpThatIsTheNounOfOneOperationMatchesIt() {
+        let resolver = OperationResolver()
+
+        #expect(resolver.matchOpString("script", against: skillsCandidates) == "run script")
+    }
+
+    @Test func oneWordOpGoesThroughTheVerbAliases() {
+        let resolver = OperationResolver(verbAliases: ["execute": "run"])
+
+        #expect(resolver.matchOpString("execute", against: skillsCandidates) == "run script")
+    }
+
+    @Test(arguments: ["list", "skill", "resource", "get", "unknown"])
+    func oneWordOpThatFitsSeveralOperationsOrNoneDoesNotMatch(opString: String) {
+        let resolver = OperationResolver()
+
+        #expect(resolver.matchOpString(opString, against: skillsCandidates) == nil)
+    }
 }

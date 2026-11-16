@@ -8,7 +8,8 @@ import FoundationModels
 /// of case, `_`/`-`/space separators (or no separators in a multi-word
 /// verb or noun), and "noun verb" reordering; a shared verb-alias table
 /// (`create`/`new` → `add`, …) callers can extend per tool; an optional
-/// per-tool noun-alias table; parameter key resolution from
+/// per-tool noun-alias table; an op of one word that names the verb or the
+/// noun of exactly one operation (`read` for `read resource`); parameter key resolution from
 /// `ParamMeta.aliases` plus camelCase/snake_case normalization, never
 /// overriding an explicitly present canonical key; an optional per-tool
 /// inference closure for payloads that omit `op` entirely; and, after that
@@ -262,7 +263,8 @@ extension OperationResolver {
     ///
     /// The exact paths run first: a two-token verb/noun match, or else a
     /// compare of the joined tokens with each candidate's `opString`. If
-    /// they find no match, `compactMatch(_:against:)` runs as a fallback.
+    /// they find no match, `compactMatch(_:against:)` runs as a fallback,
+    /// and then `oneWordMatch(_:against:)` for an op of one word.
     ///
     /// - Parameters:
     ///   - opString: The candidate op string, e.g. from `extractedOpString`.
@@ -285,7 +287,33 @@ extension OperationResolver {
                 return match.opString
             }
         }
-        return compactMatch(tokens, against: candidates)
+        return compactMatch(tokens, against: candidates) ?? oneWordMatch(tokens, against: candidates)
+    }
+
+    /// The fallback for an op of one word, such as `read` where the tool
+    /// has `read resource`.
+    ///
+    /// The word goes through `verbAliases` and is compared with each
+    /// candidate's verb, and it goes through `nounAliases` and is compared
+    /// with each candidate's noun, both compacted. The match is the one
+    /// candidate whose verb or noun is equal to the word. When the word
+    /// names the verb or the noun of several candidates, as `list` names
+    /// `list skill` and `list resource`, the op is ambiguous and nothing
+    /// matches.
+    ///
+    /// - Parameters:
+    ///   - tokens: The op string, as `spaceSeparatedTokens(_:)` gives it.
+    ///   - candidates: Every registered operation's `verb`/`noun`/`opString`.
+    /// - Returns: The `opString` of the one candidate the word names, or
+    ///   `nil` when `tokens` is not one word, or the word names no candidate
+    ///   or several.
+    private func oneWordMatch(_ tokens: [String], against candidates: [OpCandidate]) -> String? {
+        guard tokens.count == 1, let word = tokens.first else { return nil }
+        let verb = Self.compacted(compactVerbAliases[word] ?? word)
+        let noun = Self.compacted(compactNounAliases[word] ?? word)
+        let named = candidates.filter { Self.compacted($0.verb) == verb || Self.compacted($0.noun) == noun }
+        guard named.count == 1 else { return nil }
+        return named[0].opString
     }
 
     /// The separator-free fallback for `matchOpString(_:against:)`.

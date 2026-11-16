@@ -53,7 +53,8 @@ requiredness and value constraints are enforced at dispatch instead of by the sc
 `OperationTool.call(arguments:)`
 forgivingly resolves a payload's `op` and parameter keys (case, `_`/`-`/space separators
 or none in a multi-word verb or noun, `"noun verb"` reordering, verb aliases, noun
-aliases, camelCase/snake_case key aliasing) to the
+aliases, an op of one word that names the verb or the noun of exactly one operation
+such as `read` for `read resource`, camelCase/snake_case key aliasing) to the
 matching operation and dispatches to it. It also accepts two shapes that tool callers
 send. A payload put whole into one `arguments` key (an object, or a JSON string of one)
 is unwrapped first. A payload with no `op` is matched by its keys: an operation fits when
