@@ -27,6 +27,11 @@ struct HubSource: Sendable {
     /// session whose requests go to a stub, thus the test needs no network.
     var session = URLSession(configuration: .default)
 
+    /// The stall interval, the backoff and the retry limit of the download of
+    /// each file. A test gives a policy whose sleep does not wait on the wall
+    /// clock.
+    var retryPolicy = DownloadRetryPolicy()
+
     /// The Hugging Face client of each download. Its cache is the cache of the
     /// source, thus the download writes to the folder of the source. Its token
     /// comes from the token provider of the source.
@@ -40,13 +45,16 @@ struct HubSource: Sendable {
     /// The downloader of each snapshot download of a loader. Before the
     /// Hugging Face download, it links each file of the revision whose blob
     /// the cache holds, thus a file with the same hash as a cached file does
-    /// not download again after the revision changes. See
-    /// ``BlobReusingDownloader``.
+    /// not download again after the revision changes. It downloads each
+    /// other file with a transfer that retries a stall from the bytes that
+    /// it wrote, as ``retryPolicy`` tells. See ``BlobReusingDownloader``.
     ///
     /// - Returns: A downloader over a new client of the source.
     func downloader() -> any Downloader {
         let client = client()
-        return BlobReusingDownloader(client: client, cache: cache, upstream: #hubDownloader(client))
+        let files = ResumableFileDownload(
+            session: session, host: client.host, tokenProvider: tokenProvider, policy: retryPolicy)
+        return BlobReusingDownloader(client: client, cache: cache, files: files, upstream: #hubDownloader(client))
     }
 
     /// The host of each download: the endpoint that `HF_ENDPOINT` names, or

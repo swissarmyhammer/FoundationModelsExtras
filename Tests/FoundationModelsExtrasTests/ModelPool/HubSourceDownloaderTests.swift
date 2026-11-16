@@ -153,8 +153,11 @@ struct HubSourceDownloaderTests {
         try fixture.writeComplete([Self.weights])
         let stub = HubStub(.repository(commit: Self.newCommit, files: [Self.unsafeEtagFile, Self.weights]))
         let source = HubSource(cache: fixture.cache, tokenProvider: .none, session: stub.session)
+        let files = ResumableFileDownload(
+            session: stub.session, host: HubSource.host(), tokenProvider: .none, policy: DownloadRetryPolicy())
         let downloader = BlobReusingDownloader(
-            client: source.client(), cache: fixture.cache, upstream: SnapshotDownloader(cache: fixture.cache))
+            client: source.client(), cache: fixture.cache, files: files,
+            upstream: SnapshotDownloader(cache: fixture.cache))
 
         let snapshot = try await downloader.download(
             id: Self.repository, revision: Self.newCommit, matching: Self.patterns, useLatest: false

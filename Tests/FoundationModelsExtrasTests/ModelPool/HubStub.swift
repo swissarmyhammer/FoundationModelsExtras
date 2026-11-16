@@ -6,10 +6,12 @@ import Synchronization
 /// records the URL of each request, thus a test can prove which requests a
 /// call made.
 ///
-/// A stub of a ``Answer/repository(commit:files:)`` answers as the Hub does
-/// for one commit: the model information, the tree listing, and the `HEAD`
-/// and `GET` requests of each file, with the headers that the Hugging Face
-/// client reads.
+/// A stub of a ``Answer/repository(commit:files:stalls:)`` answers as the Hub
+/// does for one commit: the model information, the tree listing, and the
+/// `HEAD` and `GET` requests of each file, with the headers that the Hugging
+/// Face client reads. A `GET` with a `Range` header gets the bytes from the
+/// start of the range. A `GET` can also stall: it sends some bytes, and then
+/// it sends nothing more until the client stops it.
 ///
 /// Each stub has its own identifier. Its session sends the identifier in the
 /// ``header`` header of each request, thus tests that run at the same time
@@ -24,13 +26,68 @@ final class HubStub: Sendable {
         /// The repository at `commit`, with these files: the model
         /// information gives the commit, the tree listing gives the files,
         /// and a file request gives the headers and the bytes of the file.
-        case repository(commit: String, files: [TreeFile])
+        ///
+        /// `stalls` holds the bytes that the first `GET` requests of a file
+        /// send before they stall: the first `GET` sends `stalls[0]` bytes,
+        /// the second `stalls[1]` bytes, and so on. A stalled request then
+        /// sends nothing more until the client stops it. Each `GET` after
+        /// the last stall sends all its bytes.
+        case repository(commit: String, files: [TreeFile], stalls: [Int] = [])
+    }
+
+    /// The state of a wait for a stall when the wait starts.
+    private enum WaitStart {
+        /// The stall is reached: the wait is over at once.
+        case reached
+        /// The task waits until the stall is reached.
+        case waiting
+        /// The task is cancelled: the wait ends with `CancellationError`.
+        case cancelled
+    }
+
+    /// The stalls of the `GET` requests of a file, and the bytes that the
+    /// download wrote, with the tasks that wait for a stall.
+    private struct StallState {
+        /// The `GET` requests of a file that the stub got.
+        var fileRequests = 0
+
+        /// The end of the bytes that each stalled request sent, as an offset
+        /// in its file, in the order of the stalls.
+        var stallEnds: [Int64] = []
+
+        /// The bytes that the download wrote, as the test last saw them.
+        var writtenBytes: Int64 = 0
+
+        /// The tasks that wait for a stall, by identifier, with the number of
+        /// the stall that each waits for.
+        var waiters: [UUID: (stall: Int, continuation: CheckedContinuation<Void, any Error>)] = [:]
+
+        /// Whether stall `number` occurred and the download wrote each byte
+        /// that its request sent.
+        ///
+        /// - Parameter number: The number of the stall, from 1.
+        /// - Returns: `true` when the wait for the stall is over.
+        func isReached(stall number: Int) -> Bool {
+            stallEnds.count >= number && writtenBytes >= stallEnds[number - 1]
+        }
+
+        /// Removes each waiter whose stall is reached.
+        ///
+        /// - Returns: The continuations of the removed waiters.
+        mutating func takeReachedWaiters() -> [CheckedContinuation<Void, any Error>] {
+            let reached = waiters.filter { isReached(stall: $0.value.stall) }
+            for id in reached.keys { waiters[id] = nil }
+            return reached.values.map(\.continuation)
+        }
     }
 
     /// One file of the tree listing of a stub.
     struct TreeFile: Sendable {
         /// The size of the Git LFS pointer of an LFS file.
         private static let pointerSize = 134
+
+        /// The header of the number of bytes of an answer.
+        static let lengthField = "Content-Length"
 
         /// The path of the file, relative to the root of the repository.
         let path: String
@@ -46,21 +103,31 @@ final class HubStub: Sendable {
             "etag-" + path.replacingOccurrences(of: "/", with: "-")
         }
 
-        /// The bytes of the file: `size` zero bytes.
+        /// The number of different byte values of ``contents``. It is a prime
+        /// number, thus the pattern of the bytes does not repeat at a power
+        /// of two, and a byte at a wrong offset gives a different file.
+        private static let byteValues = 251
+
+        /// The bytes of the file: `size` bytes, each the remainder of its
+        /// offset divided by ``byteValues``.
         var contents: Data {
-            Data(repeating: 0, count: size)
+            Data((0..<size).map { UInt8($0 % Self.byteValues) })
         }
 
         /// The headers of a file request, as the Hub sends them: the commit,
-        /// the size, and the etag. The Hub sends the etag of an LFS file as
-        /// `X-Linked-Etag`, and the etag of another file as `ETag`.
+        /// the size, the etag, and the content type. The Hub sends the etag
+        /// of an LFS file as `X-Linked-Etag`, and the etag of another file as
+        /// `ETag`. With no content type, the URL session keeps the first
+        /// bytes of an answer to find the type, thus a stalled answer would
+        /// give no bytes to the client.
         ///
         /// - Parameter commit: The commit of the revision.
         /// - Returns: The header fields.
         func headers(commit: String) -> [String: String] {
             let etagField = isLFS ? "X-Linked-Etag" : "ETag"
             return [
-                "X-Repo-Commit": commit, etagField: "\"\(etag)\"", "Content-Length": String(size),
+                "X-Repo-Commit": commit, etagField: "\"\(etag)\"", Self.lengthField: String(size),
+                "Content-Type": "application/octet-stream",
             ]
         }
 
@@ -97,6 +164,13 @@ final class HubStub: Sendable {
     /// The URL of each request, in order.
     private let recorded = Mutex<[URL]>([])
 
+    /// The `Range` header of each `GET` request of a file, in order: `nil`
+    /// for a request with no `Range` header.
+    private let recordedRanges = Mutex<[String?]>([])
+
+    /// The stalls, the written bytes, and the tasks that wait for a stall.
+    private let stallState = Mutex(StallState())
+
     /// Makes a stub, and registers it.
     ///
     /// - Parameter answer: The answer to each request.
@@ -126,11 +200,88 @@ final class HubStub: Sendable {
         live.withLock { $0[id] }
     }
 
+    /// The `Range` header of each `GET` request of a file that the stub got,
+    /// in order: `nil` for a request with no `Range` header.
+    var ranges: [String?] {
+        recordedRanges.withLock { $0 }
+    }
+
     /// Records a request.
     ///
     /// - Parameter url: The URL of the request.
     func record(_ url: URL) {
         recorded.withLock { $0.append(url) }
+    }
+
+    /// Records a `GET` request of a file, and tells whether it stalls.
+    ///
+    /// - Parameters:
+    ///   - range: The `Range` header of the request, or `nil`.
+    ///   - stalls: The bytes that the first `GET` requests send before they
+    ///     stall.
+    /// - Returns: The bytes that the request sends before it stalls, or `nil`
+    ///   when it sends all its bytes.
+    func recordFileRequest(range: String?, stalls: [Int]) -> Int? {
+        recordedRanges.withLock { $0.append(range) }
+        let index = stallState.withLock { state in
+            defer { state.fileRequests += 1 }
+            return state.fileRequests
+        }
+        return stalls.indices.contains(index) ? stalls[index] : nil
+    }
+
+    /// Records that a request stalled, and ends the wait of each task that
+    /// waits for it.
+    ///
+    /// - Parameter end: The end of the bytes that the request sent, as an
+    ///   offset in its file.
+    func recordStall(end: Int64) {
+        let reached = stallState.withLock { state in
+            state.stallEnds.append(end)
+            return state.takeReachedWaiters()
+        }
+        for continuation in reached { continuation.resume() }
+    }
+
+    /// Records the bytes that the download wrote, and ends the wait of each
+    /// task whose stall is reached. A test calls it from the progress handler
+    /// of the download.
+    ///
+    /// - Parameter bytes: The completed bytes of the download.
+    func recordWritten(_ bytes: Int64) {
+        let reached = stallState.withLock { state in
+            state.writtenBytes = max(state.writtenBytes, bytes)
+            return state.takeReachedWaiters()
+        }
+        for continuation in reached { continuation.resume() }
+    }
+
+    /// Waits until stall `number` occurred and the download wrote each byte
+    /// that its request sent. The wait needs no clock: only a stall and the
+    /// writes of the download end it.
+    ///
+    /// - Parameter number: The number of the stall, from 1.
+    /// - Throws: `CancellationError` when the task is cancelled first.
+    func waitForStall(number: Int) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let start: WaitStart = stallState.withLock { state in
+                    if state.isReached(stall: number) { return .reached }
+                    if Task.isCancelled { return .cancelled }
+                    state.waiters[id] = (number, continuation)
+                    return .waiting
+                }
+                switch start {
+                case .reached: continuation.resume()
+                case .waiting: break
+                case .cancelled: continuation.resume(throwing: CancellationError())
+                }
+            }
+        } onCancel: {
+            let waiter = stallState.withLock { $0.waiters.removeValue(forKey: id) }
+            waiter?.continuation.resume(throwing: CancellationError())
+        }
     }
 }
 
@@ -143,6 +294,23 @@ final class HubStubProtocol: URLProtocol {
     /// The HTTP status of a request for a file that the repository does not
     /// hold.
     private static let missingStatus = 404
+
+    /// The HTTP status of an answer that holds a part of a file.
+    private static let partialStatus = 206
+
+    /// The HTTP status of a range that starts at the end of the file or
+    /// after it.
+    private static let rangeNotSatisfiableStatus = 416
+
+    /// The header of a request that asks for a part of a file.
+    private static let rangeField = "Range"
+
+    /// The start of a `Range` header of the form `bytes=<start>-`.
+    private static let rangePrefix = "bytes="
+
+    /// The header of an answer that names the part of the file that it
+    /// holds.
+    private static let contentRangeField = "Content-Range"
 
     /// The method of a request for the headers of a file only.
     private static let headMethod = "HEAD"
@@ -186,8 +354,8 @@ final class HubStubProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
         case .tree(let files):
             answer(url: url, body: files.map(\.json))
-        case .repository(let commit, let files):
-            answerRepository(url: url, commit: commit, files: files)
+        case .repository(let commit, let files, let stalls):
+            answerRepository(url: url, commit: commit, files: files, stalls: stalls, stub: stub)
         }
     }
 
@@ -199,11 +367,20 @@ final class HubStubProtocol: URLProtocol {
     ///   - url: The URL of the request.
     ///   - commit: The commit of the repository.
     ///   - files: The files of the repository.
-    private func answerRepository(url: URL, commit: String, files: [HubStub.TreeFile]) {
+    ///   - stalls: The bytes that the first `GET` requests of a file send
+    ///     before they stall.
+    ///   - stub: The stub that records the requests and the stalls.
+    private func answerRepository(
+        url: URL, commit: String, files: [HubStub.TreeFile], stalls: [Int], stub: HubStub
+    ) {
         let components = url.pathComponents
         if let resolve = components.firstIndex(of: HubStub.resolveComponent) {
             let path = components.dropFirst(resolve + Self.revisionOffset).joined(separator: "/")
-            answerFile(url: url, file: files.first { $0.path == path }, commit: commit)
+            guard let file = files.first(where: { $0.path == path }) else {
+                send(url: url, status: Self.missingStatus, headers: [:], body: Data())
+                return
+            }
+            answerFile(url: url, file: file, commit: commit, stalls: stalls, stub: stub)
         } else if components.contains(Self.treeComponent) {
             answer(url: url, body: files.map(\.json))
         } else {
@@ -213,23 +390,59 @@ final class HubStubProtocol: URLProtocol {
     }
 
     /// Answers a file request: the headers of the file, and its bytes for a
-    /// `GET`. A file that the repository does not hold gets the HTTP status
-    /// of a missing file.
+    /// `GET`. A `GET` with a `Range` header gets the bytes from the start of
+    /// the range, with the HTTP status of a partial answer, or the HTTP
+    /// status of a range that the server cannot give when the range starts
+    /// at the end of the file or after it. A `GET` that stalls sends its
+    /// first bytes and then nothing more.
     ///
     /// - Parameters:
     ///   - url: The URL of the request.
-    ///   - file: The file, or `nil` when the repository does not hold it.
+    ///   - file: The file.
     ///   - commit: The commit of the repository.
-    private func answerFile(url: URL, file: HubStub.TreeFile?, commit: String) {
-        guard let file else {
-            send(url: url, status: Self.missingStatus, headers: [:], body: Data())
+    ///   - stalls: The bytes that the first `GET` requests of a file send
+    ///     before they stall.
+    ///   - stub: The stub that records the request and the stall.
+    private func answerFile(
+        url: URL, file: HubStub.TreeFile, commit: String, stalls: [Int], stub: HubStub
+    ) {
+        guard request.httpMethod != Self.headMethod else {
+            send(url: url, status: Self.okStatus, headers: file.headers(commit: commit), body: Data())
             return
         }
-        let body = request.httpMethod == Self.headMethod ? Data() : file.contents
-        send(url: url, status: Self.okStatus, headers: file.headers(commit: commit), body: body)
+        let range = request.value(forHTTPHeaderField: Self.rangeField)
+        let stall = stub.recordFileRequest(range: range, stalls: stalls)
+        let start = Self.rangeStart(of: range) ?? 0
+        guard start == 0 || start < file.size else {
+            send(url: url, status: Self.rangeNotSatisfiableStatus, headers: [:], body: Data())
+            return
+        }
+        let body = file.contents.subdata(in: start..<file.size)
+        let status = start > 0 ? Self.partialStatus : Self.okStatus
+        var headers = file.headers(commit: commit)
+        headers[HubStub.TreeFile.lengthField] = String(body.count)
+        if start > 0 { headers[Self.contentRangeField] = "bytes \(start)-\(file.size - 1)/\(file.size)" }
+        guard let stall else {
+            send(url: url, status: status, headers: headers, body: body)
+            return
+        }
+        let sent = body.prefix(stall)
+        startAnswer(url: url, status: status, headers: headers, body: sent)
+        stub.recordStall(end: Int64(start + sent.count))
     }
 
-    /// Does nothing: each answer is complete when ``startLoading()`` returns.
+    /// The first byte of a `Range` header of the form `bytes=<start>-`.
+    ///
+    /// - Parameter range: The header, or `nil`.
+    /// - Returns: The start, or `nil` when there is no header or it has
+    ///   another form.
+    private static func rangeStart(of range: String?) -> Int? {
+        guard let range, range.hasPrefix(rangePrefix), range.hasSuffix("-") else { return nil }
+        return Int(range.dropFirst(rangePrefix.count).dropLast())
+    }
+
+    /// Does nothing: a complete answer is over when ``startLoading()``
+    /// returns, and a stalled answer sends nothing more.
     override func stopLoading() {}
 
     /// Sends a JSON body with the HTTP status of success.
@@ -254,9 +467,21 @@ final class HubStubProtocol: URLProtocol {
     ///   - headers: The header fields.
     ///   - body: The body.
     private func send(url: URL, status: Int, headers: [String: String], body: Data) {
+        startAnswer(url: url, status: status, headers: headers, body: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    /// Sends the response and the bytes of `body`, and does not finish the
+    /// answer.
+    ///
+    /// - Parameters:
+    ///   - url: The URL of the request.
+    ///   - status: The HTTP status.
+    ///   - headers: The header fields.
+    ///   - body: The bytes to send.
+    private func startAnswer(url: URL, status: Int, headers: [String: String], body: Data) {
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)
         if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
         client?.urlProtocol(self, didLoad: body)
-        client?.urlProtocolDidFinishLoading(self)
     }
 }
