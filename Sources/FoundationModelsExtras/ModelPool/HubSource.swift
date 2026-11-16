@@ -18,14 +18,18 @@ struct HubSource: Sendable {
     /// token that the download sends.
     let tokenProvider: TokenProvider
 
+    /// The URL session of each request of the hub client. A test gives a
+    /// session whose requests go to a stub, thus the test needs no network.
+    var session = URLSession(configuration: .default)
+
     /// The Hugging Face client of each download. Its cache is the cache of the
     /// source, thus the download writes to the folder of the source. Its token
     /// comes from the token provider of the source.
     ///
-    /// - Returns: A client over the cache and the token provider of the
-    ///   source, at the host of ``host()``.
+    /// - Returns: A client over the session, the cache and the token
+    ///   provider of the source, at the host of ``host()``.
     func client() -> HubClient {
-        HubClient(host: Self.host(), tokenProvider: tokenProvider, cache: cache)
+        HubClient(session: session, host: Self.host(), tokenProvider: tokenProvider, cache: cache)
     }
 
     /// The host of each download: the endpoint that `HF_ENDPOINT` names, or

@@ -29,6 +29,13 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The file extension of a weight file.
     private static let weightFileExtension = "safetensors"
 
+    /// The patterns of the files that the MLX model factory downloads: the
+    /// weights, the configuration and the tokenizer files, and the chat
+    /// templates. These are the patterns of mlx-swift-lm, which does not make
+    /// them public. The downloader matches each pattern with `fnmatch` and no
+    /// flags, thus `*` also matches a `/`.
+    static let downloadPatterns = ["*.\(weightFileExtension)", "*.json", "*.jinja"]
+
     /// The capabilities of each `MLXLanguageModel` that the loader makes: the
     /// capabilities that the FoundationModelsRouter declares for each LLM.
     /// ``PooledModel`` declares them too when you give no capabilities.

@@ -73,6 +73,27 @@ public struct GGUFFileSet: Equatable, Sendable {
     /// - Throws: ``GGUFSelectionError`` when the path holds no model, more
     ///   than one model, or a split set with a missing shard.
     public static func select(from paths: [String], under path: String?) throws -> GGUFFileSet {
+        try select(from: paths, under: path, allowsMissingShards: false)
+    }
+
+    /// Chooses the files of the model that `path` names, as
+    /// ``select(from:under:)`` does. When `allowsMissingShards` is `true`, a
+    /// split set that misses shards gives each of its shards, and the paths
+    /// do not hold the missing shards. A caller that reads a partial download
+    /// uses this, thus it learns which shards the download still needs.
+    ///
+    /// - Parameters:
+    ///   - paths: The paths of the files of the repository or the folder,
+    ///     relative to its root.
+    ///   - path: The path inside the root: a folder, a `.gguf` file, or `nil`
+    ///     for the root.
+    ///   - allowsMissingShards: `true` to give a split set that misses
+    ///     shards, `false` to throw for it.
+    /// - Returns: The files of the model.
+    /// - Throws: ``GGUFSelectionError`` when the path holds no model or more
+    ///   than one model, or a split set with a missing shard when
+    ///   `allowsMissingShards` is `false`.
+    static func select(from paths: [String], under path: String?, allowsMissingShards: Bool) throws -> GGUFFileSet {
         let models = paths.filter(isModelFile)
         let candidates: [String]
         if let path, path.hasSuffix(".\(fileExtension)") {
@@ -88,7 +109,9 @@ public struct GGUFFileSet: Equatable, Sendable {
         }
         let shards = key.shards
         let missing = shards.filter { !models.contains($0) }
-        guard missing.isEmpty else { throw GGUFSelectionError.incompleteSplitSet(model: key.model, missing: missing) }
+        guard missing.isEmpty || allowsMissingShards else {
+            throw GGUFSelectionError.incompleteSplitSet(model: key.model, missing: missing)
+        }
         return GGUFFileSet(model: key.model, shards: shards, projector: projector(for: key.model, in: paths))
     }
 
