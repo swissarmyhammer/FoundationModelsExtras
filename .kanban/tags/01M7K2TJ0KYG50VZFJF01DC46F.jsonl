@@ -1,0 +1,1 @@
+{"id":"01M7K2TJ0KZZ2T0CRER8329N9K","timestamp":"2026-11-16T21:04:49.683808Z","op":"create","item_id":"01M7K2TJ0KYG50VZFJF01DC46F","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: b60205\n+tag_name: safety\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: b60205\n-tag_name: safety\n","transaction_id":null}

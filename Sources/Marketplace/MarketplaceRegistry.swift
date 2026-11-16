@@ -108,6 +108,41 @@ public actor MarketplaceRegistry {
     }
   }
 
+  /// Replaces the stored list with the default list of the host.
+  ///
+  /// The registry reads the stored list, and then calls
+  /// ``MarketplaceSourceStorage/resetSources()``. It compares the two lists
+  /// by id, and sends one change for each marketplace that the reset
+  /// changed:
+  ///
+  /// - ``MarketplaceRegistryChange/removed(_:)`` for each old id that the
+  ///   new list does not have.
+  /// - ``MarketplaceRegistryChange/added(_:)`` for each new id that the old
+  ///   list does not have.
+  /// - ``MarketplaceRegistryChange/updated(previousID:_:)`` for each id that
+  ///   the two lists have with a different source.
+  ///
+  /// First come the removals, in the order of the old list. Then come the
+  /// additions and the updates, in the order of the new list. When the two
+  /// lists are the same, the reset sends no change.
+  ///
+  /// - Returns: One entry for each source of the new list, in list order.
+  /// - Throws: ``MarketplaceRegistryError`` when the stored list or the new
+  ///   list is not valid, or the error of the storage. A failed reset sends
+  ///   no change. When the new list is not valid, the storage has already
+  ///   cleared the value of the host: the next read throws the same error
+  ///   until the host corrects the list.
+  public func reset() async throws -> [MarketplaceEntry] {
+    try await write {
+      let oldEntries = try await marketplaces()
+      let newEntries = try Self.entries(of: await storage.resetSources())
+      for change in Self.changes(from: oldEntries, to: newEntries) {
+        broadcaster.publish(change)
+      }
+      return newEntries
+    }
+  }
+
   /// Gives each change that the registry saves from this point forward.
   ///
   /// A failed operation sends no change.
@@ -172,6 +207,32 @@ public actor MarketplaceRegistry {
     let entries = try sources.map(MarketplaceEntry.init(source:))
     try requireUniqueIDs(entries)
     return entries
+  }
+
+  /// Compares two lists by id, and gives the changes from the old list to
+  /// the new list.
+  ///
+  /// - Parameters:
+  ///   - oldEntries: The old list, with no two entries with the same id.
+  ///   - newEntries: The new list, with no two entries with the same id.
+  /// - Returns: A removal for each old id that the new list does not have,
+  ///   in the order of the old list. Then an addition for each new id that
+  ///   the old list does not have, and an update for each id with a
+  ///   different source, in the order of the new list.
+  private static func changes(
+    from oldEntries: [MarketplaceEntry],
+    to newEntries: [MarketplaceEntry]
+  ) -> [MarketplaceRegistryChange] {
+    let oldEntriesByID = Dictionary(uniqueKeysWithValues: oldEntries.map { ($0.id, $0) })
+    let newIDs = Set(newEntries.map(\.id))
+    let removals = oldEntries.filter { !newIDs.contains($0.id) }.map(MarketplaceRegistryChange.removed)
+    let otherChanges = newEntries.compactMap { entry -> MarketplaceRegistryChange? in
+      guard let oldEntry = oldEntriesByID[entry.id] else {
+        return .added(entry)
+      }
+      return oldEntry.source == entry.source ? nil : .updated(previousID: entry.id, entry)
+    }
+    return removals + otherChanges
   }
 
   /// Finds the position of one marketplace in a list.

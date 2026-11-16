@@ -412,10 +412,15 @@ same text: `swift test --filter LayerPrecedenceExampleTests`.
 
 `MarketplaceRegistry` adds, changes and removes one marketplace of the
 source list of a host. The host keeps the list. It gives the registry a
-`MarketplaceSourceStorage`, with two calls: `loadSources()` and
-`saveSources(_:)`. `InMemoryMarketplaceSourceStorage` holds the list in
-memory, for tests and for a host that does not keep the list after it
-stops.
+`MarketplaceSourceStorage`, with three calls: `loadSources()`,
+`saveSources(_:)` and `resetSources()`. `resetSources()` clears the value of
+the host and gives the list that applies after that, for example the
+default list of the host. A storage that does not implement it gets a
+default that saves an empty list and gives `[]`.
+`InMemoryMarketplaceSourceStorage` holds the list in memory, for tests and
+for a host that does not keep the list after it stops. Its
+`defaultSources` init parameter is the list that its `resetSources()`
+stores. The default is an empty list.
 
 Each marketplace is a `MarketplaceEntry`: its `id` and its `source`. The
 `id` is the pre-fetch key, which is the same display id that
@@ -428,6 +433,7 @@ Each marketplace is a `MarketplaceEntry`: its `id` and its `source`. The
 | `add(_:)` | The new entry, at the end of the list | `.added(entry)` |
 | `update(id:to:)` | The new entry, in the position of the old one | `.updated(previousID:, entry)` |
 | `remove(id:)` | The removed entry | `.removed(entry)` |
+| `reset()` | Each entry of the new list, in list order | One change for each changed marketplace |
 
 Each write reads the list from the storage, validates it, changes it, and
 saves it. Thus a change that the host makes in another place is not lost.
@@ -442,6 +448,22 @@ The registry runs its writes one at a time, in call order. A write throws
 
 An error of the storage comes out unchanged. A failed write keeps the
 stored list and sends no change.
+
+`reset()` is a write too, and it runs in the same queue. It reads the
+stored list, calls `resetSources()`, and compares the two lists by id:
+
+- `.removed(entry)` for each old id that the new list does not have.
+- `.added(entry)` for each new id that the old list does not have.
+- `.updated(previousID:, entry)` for each id that the two lists have with
+  a different source. The previous id and the id of the entry are the same.
+
+First come the removals, in the order of the old list. Then come the
+additions and the updates, in the order of the new list. When the two lists
+are the same, `reset()` sends no change. A failed reset sends no change.
+When the new list is not valid, `reset()` throws the same error that
+`marketplaces()` throws for that list. The storage has already cleared the
+value of the host in this case, thus each read throws that error until the
+host corrects the list.
 
 `MarketplaceStore` keeps the source list that it got at its init. Thus the
 host makes a new store when the list changes. `changes()` gives a stream
