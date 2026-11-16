@@ -218,14 +218,14 @@ public struct OperationTool<Context: Sendable>: Tool {
     ///   one operation, or that payload in one `arguments` key.
     /// - Returns: The matched operation and the content with its canonical
     ///   parameter keys.
-    /// - Throws: `OperationError.unknownOperation(valid:)` when no operation
-    ///   matches or can be inferred, or `OperationError.missingRequired(_:)`
-    ///   when the payload does not have a required parameter.
+    /// - Throws: `OperationError.unknownOperation(valid:)` when the named op
+    ///   matches no operation, `OperationError.unnamedOperation(fitting:valid:)`
+    ///   when the payload names no op and no inferable operation can be
+    ///   inferred, or `OperationError.missingRequired(_:)` when the payload
+    ///   does not have a required parameter.
     private func resolve(_ arguments: GeneratedContent) throws(OperationError) -> ResolvedOperation {
         let payload = OperationResolver.unwrappingArguments(arguments)
-        guard let operation = matchOperation(for: payload) else {
-            throw .unknownOperation(valid: operations.map(\.opString))
-        }
+        let operation = try matchOperation(for: payload)
 
         let resolution = resolver.resolveParameters(payload, matching: operation.parameters)
         guard resolution.missingRequired.isEmpty else {
@@ -236,17 +236,34 @@ public struct OperationTool<Context: Sendable>: Tool {
 
     /// Finds the operation of `payload` with `resolver`: the explicit `op`
     /// (alias- and reordering-tolerant), else the `inferOp` proposal, else
-    /// key-fit inference with `defaultOp` (see `OperationResolver`).
+    /// key-fit inference over the inferable operations, with `defaultOp`
+    /// (see `OperationResolver`).
     ///
     /// - Parameter payload: The payload, already through
     ///   `OperationResolver.unwrappingArguments(_:)`.
-    /// - Returns: The matched operation, or `nil` when none matches.
-    private func matchOperation(for payload: GeneratedContent) -> AnyOperation<Context>? {
+    /// - Returns: The matched operation.
+    /// - Throws: `OperationError.unknownOperation(valid:)` when the named op
+    ///   matches no operation, or
+    ///   `OperationError.unnamedOperation(fitting:valid:)` when the payload
+    ///   names no op and key-fit inference chose no operation.
+    private func matchOperation(for payload: GeneratedContent) throws(OperationError) -> AnyOperation<Context> {
         let candidates = operations.map {
-            OperationResolver.OpCandidate(verb: $0.verb, noun: $0.noun, opString: $0.opString, parameters: $0.parameters)
+            OperationResolver.OpCandidate(
+                verb: $0.verb, noun: $0.noun, opString: $0.opString, parameters: $0.parameters,
+                isInferable: $0.isInferable)
         }
-        guard let matchedOpString = resolver.matchedOpString(for: payload, among: candidates) else { return nil }
-        return operations.first { $0.opString == matchedOpString }
+        let valid = operations.map(\.opString)
+        switch resolver.matchedOp(for: payload, among: candidates) {
+        case .matched(let opString):
+            guard let operation = operations.first(where: { $0.opString == opString }) else {
+                throw .unknownOperation(valid: valid)
+            }
+            return operation
+        case .unknown:
+            throw .unknownOperation(valid: valid)
+        case .unnamed(let fitting):
+            throw .unnamedOperation(fitting: fitting, valid: valid)
+        }
     }
 
     /// Records a corrective failure and returns either `message` or, once
@@ -305,14 +322,14 @@ extension OperationTool: ForkableTool {
 extension OperationTool: BackgroundTool {
     /// The mount of the operation that `arguments` names, found as
     /// `call(arguments:)` finds it: after a lone `arguments` wrapper is
-    /// unwrapped, and with a missing `op` inferred from the keys (^vm78pnz).
-    /// An unknown operation is ``ToolMount/synchronous``, so its correction
-    /// comes back in band.
+    /// unwrapped, and with a missing `op` inferred from the keys. An unknown
+    /// operation, and an op-less payload that infers no operation, is
+    /// ``ToolMount/synchronous``, so its correction comes back in band.
     ///
     /// - Parameter arguments: The payload with the `op` key.
     /// - Returns: The mount of the called operation.
     public func mount(for arguments: GeneratedContent) -> ToolMount? {
-        matchOperation(for: OperationResolver.unwrappingArguments(arguments))?.mount ?? .synchronous
+        (try? matchOperation(for: OperationResolver.unwrappingArguments(arguments)))?.mount ?? .synchronous
     }
 }
 
@@ -337,7 +354,9 @@ extension OperationTool: OperationDescribing {
     ///   one operation.
     /// - Returns: The JSON-encoded output of the operation.
     /// - Throws: `OperationError.unknownOperation(valid:)` when no operation
-    ///   matches, `OperationError.missingRequired(_:)` when a required
+    ///   matches, `OperationError.unnamedOperation(fitting:valid:)` when the
+    ///   payload names no op and none can be inferred,
+    ///   `OperationError.missingRequired(_:)` when a required
     ///   parameter is absent, `OperationError.decodingFailed` when the
     ///   operation cannot decode the payload, and
     ///   `OperationError.executionFailed(cause:)` or

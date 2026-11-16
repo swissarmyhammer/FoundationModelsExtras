@@ -59,9 +59,12 @@ matching operation and dispatches to it. It also accepts two shapes that tool ca
 send. A payload put whole into one `arguments` key (an object, or a JSON string of one)
 is unwrapped first. A payload with no `op` is matched by its keys: an operation fits when
 each key names one of its parameters and the payload holds all of its required ones.
-When exactly one operation fits, that operation runs. When several fit, the operation
-that `OperationResolver(defaultOp:)` names runs, if it is one of them (name a read-only
-operation). Otherwise the answer is "Unknown operation":
+Only an operation that declares itself inferable can run from this match (see
+[Inferring an operation from the keys](#inferring-an-operation-from-the-keys)). When
+exactly one inferable operation fits, that operation runs. When several fit, the
+operation that `OperationResolver(defaultOp:)` names runs, if it is one of them.
+Otherwise no operation runs, and the answer tells the caller to name the operation in
+`op`. It lists the operations that fit the keys and all valid operations:
 
 <!-- doc-snippet source="Examples/NotesTool/Sources/NotesToolCore/NotesTool.swift" -->
 ```swift
@@ -156,6 +159,40 @@ correction comes back in band. Thus, in one tool, `start agent` answers with a
 `PendingRunEnvelope`, and `list agents`, `check agent` and `cancel agent` answer with
 their real output. The host mount does not change this choice: an operation with no
 declared mount is synchronous, also when the host mounts the tool as background.
+
+## Inferring an operation from the keys
+
+A call with no `op` runs an operation that the caller did not name. So key-fit inference
+and `OperationResolver(defaultOp:)` choose only an operation that declares
+`isInferable`. The default is `false`. Set it to `true` only for an operation that has no
+side effect: it only reads. An operation that writes, removes, starts, sends or has
+another side effect keeps the default, and it runs only when the call names it in `op`.
+
+Give the `isInferable` argument to `@Operation`:
+
+```swift
+@Generable
+@Operation(verb: "list", noun: "agents", description: "List the agents", isInferable: true)
+struct ListAgents {
+    @Guide(description: "Text that a listed agent must hold")
+    var filter: String?
+}
+```
+
+A type that conforms to `OperationDefinition` by hand declares
+`static let isInferable = true`.
+
+A call with no `op` that fits no inferable operation does not run. For example, when
+`{"name": "reviewer"}` fits only `delete agent`, the answer is:
+
+```text
+No operation is named. Name the operation in `op`. Operations whose parameters fit the given keys: delete agent. Valid operations: list agents, add agent, delete agent.
+```
+
+An explicit `op` does not change: it runs the operation that it names, inferable or not.
+The `inferOp` hook of `OperationResolver` does not change either. The tool author writes
+the hook and chooses its op, so the resolver does not check the flag for it. A hook must
+not give an op that writes, unless the tool author accepts that risk.
 
 ## The dual-use CLI
 

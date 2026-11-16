@@ -37,6 +37,22 @@ extension ListJobsMountFixture {
     }
 }
 
+/// A real `@Generable @Operation(...)` struct with an `isInferable`
+/// argument. It proves that the generated code compiles under the real
+/// compiler.
+@Generable
+@Operation(verb: "get", noun: "job", description: "Get a job", isInferable: true)
+private struct GetJobInferableFixture {
+    @Guide(description: "The job name")
+    var name: String
+}
+
+extension GetJobInferableFixture {
+    func execute(in context: MountCompileContext) async throws -> MountCompileOutput {
+        MountCompileOutput()
+    }
+}
+
 struct MountCompileTests {
     @Test func mountArgumentBecomesTheMountOfTheOperation() {
         #expect(StartJobMountFixture.mount == ToolMount(mode: .background))
@@ -44,5 +60,13 @@ struct MountCompileTests {
 
     @Test func operationWithNoMountArgumentIsSynchronous() {
         #expect(ListJobsMountFixture.mount == .synchronous)
+    }
+
+    @Test func isInferableArgumentBecomesTheFlagOfTheOperation() {
+        #expect(GetJobInferableFixture.isInferable)
+    }
+
+    @Test func operationWithNoIsInferableArgumentIsNotInferable() {
+        #expect(!ListJobsMountFixture.isInferable)
     }
 }

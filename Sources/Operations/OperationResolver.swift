@@ -13,17 +13,18 @@ import FoundationModels
 /// `ParamMeta.aliases` plus camelCase/snake_case normalization, never
 /// overriding an explicitly present canonical key; an optional per-tool
 /// inference closure for payloads that omit `op` entirely; and, after that
-/// closure, inference of the op from the payload's keys alone, with an
-/// optional per-tool `defaultOp` to settle a key set that fits several
-/// operations. Before all of these, a payload that a caller put whole into
-/// one `arguments` key is unwrapped (`unwrappingArguments(_:)`).
+/// closure, inference of an inferable op from the payload's keys alone,
+/// with an optional per-tool `defaultOp` to settle a key set that fits
+/// several inferable operations. Before all of these, a payload that a
+/// caller put whole into one `arguments` key is unwrapped
+/// (`unwrappingArguments(_:)`).
 /// `OperationTool` owns one resolver instance and consults it on every
 /// `call(arguments:)`.
 ///
-/// **Key-fit inference (^vm78pnz).** A payload with no usable `op` (absent,
-/// empty, or not a string) whose `inferOp` gives nothing is matched against
-/// each operation's parameters. An operation *fits* the payload when all of
-/// these hold:
+/// **Key-fit inference.** A payload with no usable `op` (absent, empty, or
+/// not a string) whose `inferOp` gives nothing is matched against each
+/// operation's parameters. An operation *fits* the payload when all of these
+/// hold:
 ///
 /// 1. the payload has at least one key other than `op`, so an empty payload
 ///    never runs an operation the caller did not name;
@@ -33,13 +34,19 @@ import FoundationModels
 ///    ignored);
 /// 3. the payload holds every required parameter of the operation.
 ///
-/// Exactly one fitting operation is the inferred op. Several fitting
-/// operations give `defaultOp` when it names one of them, and no op
-/// otherwise. No fitting operation gives no op. With no op, `OperationTool`
-/// answers "Unknown operation" with the list of valid operations, as it does
-/// for an op it cannot match. An explicit `op` is never replaced by an
-/// inferred one, even when it matches nothing. Value types are not read,
-/// only keys.
+/// Inference chooses only a fitting operation that declares
+/// `OperationDefinition.isInferable`, that is an operation that only reads.
+/// An operation with a side effect runs only when the call names it, also
+/// when it is the one operation that fits. Exactly one fitting inferable
+/// operation is the inferred op. Several give `defaultOp` when it names one
+/// of them, and no op otherwise. No fitting inferable operation gives no op.
+///
+/// With no op, `OperationTool` does not run an operation. It answers with
+/// `OperationError.unnamedOperation(fitting:valid:)`: the text tells the
+/// caller to name the operation in `op`, and lists each operation that fits
+/// the keys (inferable or not) and all valid operations. An explicit `op` is
+/// never replaced by an inferred one, even when it matches nothing. Value
+/// types are not read, only keys.
 public struct OperationResolver: Sendable {
     /// Inspects an op-less payload and proposes an op string to resolve, or
     /// `nil` if it can't infer one.
@@ -72,21 +79,31 @@ public struct OperationResolver: Sendable {
     /// Consulted when the payload has no usable `op` value, to propose one
     /// from the payload's other fields. `nil` by default — inference is
     /// opt-in per tool.
+    ///
+    /// The proposal is matched as an explicit `op` is, so the hook can give
+    /// any operation, also one that is not `isInferable`. The tool author
+    /// writes the hook and chooses its op, so the resolver does not check
+    /// the flag here.
+    ///
+    /// - Warning: An inferred call runs an operation that the caller did not
+    ///   name. Do not give an op that writes, removes or has another side
+    ///   effect, unless the tool author accepts that risk.
     public let inferOp: InferenceHook?
 
     /// The op that an op-less payload goes to when its keys fit several
-    /// operations and this op is one of them (see "Key-fit inference"
-    /// above). `nil` by default, so that a key set that fits several
-    /// operations stays an unknown operation.
+    /// inferable operations and this op is one of them (see "Key-fit
+    /// inference" above). `nil` by default, so that a key set that fits
+    /// several inferable operations runs no operation.
     ///
     /// The value is matched as an `op` string is, so `"use skill"` and
     /// `"use_skill"` name the same operation. It never applies to a payload
-    /// that fits one operation or none, and it never overrides an explicit
-    /// `op` or `inferOp`.
+    /// that fits one inferable operation or none, and it never overrides an
+    /// explicit `op` or `inferOp`.
     ///
-    /// An inferred call runs an operation the model did not name, and
-    /// operations declare no read-only flag that the resolver could check.
-    /// So name a read-only operation here, never a mutating one: the
+    /// An inferred call runs an operation the model did not name, so the
+    /// value must name an operation that declares
+    /// `OperationDefinition.isInferable`. A value that names an operation
+    /// without the flag is never used. For example, the
     /// FoundationModelsSkills `skills` tool names `use skill`, which fits
     /// `{"id": …}` together with `list resource`, and both only read.
     public let defaultOp: String?
@@ -109,8 +126,9 @@ public struct OperationResolver: Sendable {
     ///   - inferOp: An optional per-tool op-inference hook, consulted when
     ///     the payload has no usable `op` value. Defaults to `nil`.
     ///   - defaultOp: The op for an op-less payload whose keys fit several
-    ///     operations, when it is one of them. Name a read-only operation.
-    ///     Defaults to `nil`.
+    ///     inferable operations, when it is one of them. Name an operation
+    ///     that declares `OperationDefinition.isInferable`. Defaults to
+    ///     `nil`.
     public init(
         verbAliases: [String: String] = [:],
         nounAliases: [String: String] = [:],
@@ -141,13 +159,14 @@ extension OperationResolver {
     /// One registered operation's identity, as `matchOpString` and key-fit
     /// inference need it: its `verb`/`noun` pair to match against
     /// (independent of `Context`, unlike `AnyOperation`), the canonical
-    /// `opString` to return, and the declared `parameters` that a payload's
-    /// keys must fit.
+    /// `opString` to return, the declared `parameters` that a payload's
+    /// keys must fit, and whether key-fit inference can choose it.
     internal struct OpCandidate {
         internal let verb: String
         internal let noun: String
         internal let opString: String
         internal let parameters: [ParamMeta]
+        internal let isInferable: Bool
 
         /// Creates a candidate.
         ///
@@ -158,15 +177,36 @@ extension OperationResolver {
         ///   - parameters: The declared parameters. Defaults to none, which
         ///     only a payload with no keys could fit, and such a payload is
         ///     never inferred.
-        internal init(verb: String, noun: String, opString: String, parameters: [ParamMeta] = []) {
+        ///   - isInferable: Whether key-fit inference and `defaultOp` can
+        ///     choose the operation. Defaults to `false`, as
+        ///     `OperationDefinition.isInferable` does.
+        internal init(
+            verb: String, noun: String, opString: String, parameters: [ParamMeta] = [], isInferable: Bool = false
+        ) {
             self.verb = verb
             self.noun = noun
             self.opString = opString
             self.parameters = parameters
+            self.isInferable = isInferable
         }
     }
 
-    /// Finds the canonical op string of `content` among `candidates`.
+    /// What `matchedOp(for:among:)` found for a payload.
+    internal enum OpMatch: Equatable {
+        /// The canonical `opString` of the matched candidate.
+        case matched(String)
+
+        /// The payload names an op, as an explicit `op` or as the proposal
+        /// of `inferOp`, and that op matches no candidate.
+        case unknown
+
+        /// The payload names no op, and key-fit inference chose no
+        /// candidate. `fitting` holds the `opString` of each candidate whose
+        /// parameters fit the keys, inferable or not, in candidate order.
+        case unnamed(fitting: [String])
+    }
+
+    /// Finds the operation of `content` among `candidates`.
     ///
     /// The sources, first one present wins: the explicit `op` property when
     /// it is a non-empty string; else `inferOp`'s proposal; else key-fit
@@ -177,41 +217,60 @@ extension OperationResolver {
     /// - Parameters:
     ///   - content: The payload, already through `unwrappingArguments(_:)`.
     ///   - candidates: Every registered operation, with its parameters.
-    /// - Returns: The matching candidate's canonical `opString`, or `nil`
-    ///   when no source gives a match.
-    internal func matchedOpString(for content: GeneratedContent, among candidates: [OpCandidate]) -> String? {
+    /// - Returns: `.matched` with the canonical `opString` of the matching
+    ///   candidate; `.unknown` when the named op matches no candidate; or
+    ///   `.unnamed` with the fitting candidates when the payload names no op
+    ///   and key-fit inference chose none.
+    internal func matchedOp(for content: GeneratedContent, among candidates: [OpCandidate]) -> OpMatch {
         if let explicit = try? content.value(String.self, forProperty: OperationKeys.opFieldName),
             !explicit.isEmpty
         {
-            return matchOpString(explicit, against: candidates)
+            return matchOpString(explicit, against: candidates).map(OpMatch.matched) ?? .unknown
         }
         if let proposed = inferOp?(content) {
-            return matchOpString(proposed, against: candidates)
+            return matchOpString(proposed, against: candidates).map(OpMatch.matched) ?? .unknown
         }
-        return inferredOpString(fromKeysOf: content, among: candidates)
+        let fitting = fittingCandidates(for: content, among: candidates)
+        guard let inferred = inferredOpString(among: fitting) else {
+            return .unnamed(fitting: fitting.map(\.opString))
+        }
+        return .matched(inferred)
     }
 
-    /// Key-fit inference (^vm78pnz): the op of the one candidate whose
-    /// parameters `content`'s keys fit, or `defaultOp` when several fit and
-    /// it is one of them. The type's "Key-fit inference" states the rule.
+    /// The candidates whose parameters the keys of `content` fit, inferable
+    /// or not, in candidate order. The type's "Key-fit inference" states
+    /// what a fit is.
     ///
     /// - Parameters:
     ///   - content: The op-less payload.
     ///   - candidates: Every registered operation, with its parameters.
-    /// - Returns: The inferred canonical `opString`, or `nil` when no
-    ///   candidate fits, or several fit and `defaultOp` is not one of them.
-    private func inferredOpString(fromKeysOf content: GeneratedContent, among candidates: [OpCandidate]) -> String? {
+    /// - Returns: The fitting candidates. Empty when `content` has no key
+    ///   other than `op`.
+    private func fittingCandidates(for content: GeneratedContent, among candidates: [OpCandidate]) -> [OpCandidate] {
         let givenKeys = Self.nonOpKeys(of: content)
-        guard !givenKeys.isEmpty else { return nil }
-        let fitting = candidates.filter { candidate in
+        guard !givenKeys.isEmpty else { return [] }
+        return candidates.filter { candidate in
             let resolution = resolveParameters(content, matching: candidate.parameters)
             return resolution.missingRequired.isEmpty && givenKeys.isSubset(of: resolution.matchedKeys)
         }
-        if fitting.count == 1 {
-            return fitting[0].opString
+    }
+
+    /// Key-fit inference: the op of the one inferable candidate among
+    /// `fitting`, or `defaultOp` when several inferable candidates fit and
+    /// it is one of them. A candidate that is not inferable is never the
+    /// result, also when it is the only fit or `defaultOp` names it.
+    ///
+    /// - Parameter fitting: The candidates whose parameters the keys fit.
+    /// - Returns: The inferred canonical `opString`, or `nil` when no
+    ///   inferable candidate fits, or several fit and `defaultOp` is not one
+    ///   of them.
+    private func inferredOpString(among fitting: [OpCandidate]) -> String? {
+        let inferable = fitting.filter(\.isInferable)
+        if inferable.count == 1 {
+            return inferable[0].opString
         }
         guard let defaultOp else { return nil }
-        return matchOpString(defaultOp, against: fitting)
+        return matchOpString(defaultOp, against: inferable)
     }
 
     /// The keys of `content` other than the `op` key, compared normalized,

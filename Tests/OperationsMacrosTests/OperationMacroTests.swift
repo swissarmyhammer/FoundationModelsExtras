@@ -137,6 +137,64 @@ private let operationParamMacroSpecs: [String: MacroSpec] = [
         )
     }
 
+    // MARK: - Inferable
+
+    @Test func isInferableArgumentSynthesizesTheIsInferableStatic() {
+        assertMacroExpansion(
+            """
+            @Operation(verb: "get", noun: "job", description: "Get a job", isInferable: true)
+            struct GetJob {
+                @Guide(description: "The job name")
+                var name: String
+            }
+            """,
+            expandedSource: """
+                struct GetJob {
+                    @Guide(description: "The job name")
+                    var name: String
+                }
+
+                extension GetJob: OperationDefinition, HasCLICommand {
+                    static let verb: String = "get"
+                    static let noun: String = "job"
+                    static let operationDescription: String = "Get a job"
+                    static let parameterMetadata: [ParamMeta] = [
+                        ParamMeta(name: "name", type: .string, required: true, description: "The job name"),
+                    ]
+                    static let isInferable: Bool = true
+
+                    struct Command: AsyncParsableCommand, OperationCommand {
+                        static let configuration = CommandConfiguration(commandName: "get", abstract: "Get a job")
+
+                        @Option(help: "The job name")
+                        var name: String
+
+                        init() {
+                        }
+
+                        /// The canonical `op` + fields payload built from this command's
+                        /// parsed values, in the identical shape `AnyOperation.run`
+                        /// expects and the model path sends.
+                        func operationPayload() -> GeneratedContent {
+                            var payload: [(String, any ConvertibleToGeneratedContent)] = [("op", GetJob.opString)]
+                            payload.append(("name", name))
+                            return GeneratedContent(properties: payload, uniquingKeysWith: { _, new in
+                                    new
+                                })
+                        }
+
+                        mutating func run() async throws {
+                            print(operationPayload().jsonString)
+                        }
+                    }
+
+                    typealias CLICommand = Command
+                }
+                """,
+            macroSpecs: operationMacroSpecs
+        )
+    }
+
     // MARK: - Optional / array fields
 
     @Test func optionalAndArrayFieldsMapToNotRequiredAndArrayParamType() {

@@ -15,7 +15,7 @@ private struct SkillsMirrorOutput: Encodable, Sendable, Equatable {
     let id: String?
 }
 
-/// One operation of the skills mirror (^vm78pnz). A conforming type states
+/// One operation of the skills mirror. A conforming type states
 /// only its verb, noun, and parameters. This extension gives the rest: a
 /// decode that reads the optional `id`, and an `execute(in:)` that answers
 /// with the op string and that `id`.
@@ -55,9 +55,10 @@ extension SkillsMirrorOperation {
 }
 
 /// `search skill`: a required `query` and an optional `limit`, as
-/// FoundationModelsSkills declares it.
+/// FoundationModelsSkills declares it. It only reads, so it is inferable.
 private struct SearchSkillMirror: SkillsMirrorOperation {
     let id: String?
+    static let isInferable = true
     static let verb = "search"
     static let noun = "skill"
     static let parameterMetadata: [ParamMeta] = [
@@ -66,9 +67,11 @@ private struct SearchSkillMirror: SkillsMirrorOperation {
     ]
 }
 
-/// `list skill`: an optional `filter` only.
+/// `list skill`: an optional `filter` only. It only reads, so it is
+/// inferable.
 private struct ListSkillMirror: SkillsMirrorOperation {
     let id: String?
+    static let isInferable = true
     static let verb = "list"
     static let noun = "skill"
     static let parameterMetadata: [ParamMeta] = [
@@ -78,9 +81,11 @@ private struct ListSkillMirror: SkillsMirrorOperation {
 
 /// `use skill`: a required `id` and an optional `arguments` array. It
 /// declares a background mount, unlike the other mirrors, so a test can
-/// tell from the mount that this operation was the one found.
+/// tell from the mount that this operation was the one found. It only reads,
+/// so it is inferable.
 private struct UseSkillMirror: SkillsMirrorOperation {
     let id: String?
+    static let isInferable = true
     static let verb = "use"
     static let noun = "skill"
     static let mount = ToolMount(mode: .background)
@@ -91,9 +96,10 @@ private struct UseSkillMirror: SkillsMirrorOperation {
 }
 
 /// `list resource`: a required `id` only, so `{id}` fits it as well as
-/// `use skill`.
+/// `use skill`. It only reads, so it is inferable.
 private struct ListResourceMirror: SkillsMirrorOperation {
     let id: String?
+    static let isInferable = true
     static let verb = "list"
     static let noun = "resource"
     static let parameterMetadata: [ParamMeta] = [
@@ -102,9 +108,10 @@ private struct ListResourceMirror: SkillsMirrorOperation {
 }
 
 /// `read resource`: a required `id` and `path`, an optional `start` and
-/// `end`.
+/// `end`. It only reads, so it is inferable.
 private struct ReadResourceMirror: SkillsMirrorOperation {
     let id: String?
+    static let isInferable = true
     static let verb = "read"
     static let noun = "resource"
     static let parameterMetadata: [ParamMeta] = [
@@ -116,7 +123,7 @@ private struct ReadResourceMirror: SkillsMirrorOperation {
 }
 
 /// `run script`: a required `id` and `path`, an optional `arguments` array
-/// and `timeout`.
+/// and `timeout`. It starts a process, so it is not inferable.
 private struct RunScriptMirror: SkillsMirrorOperation {
     let id: String?
     static let verb = "run"
@@ -129,7 +136,7 @@ private struct RunScriptMirror: SkillsMirrorOperation {
     ]
 }
 
-/// The tolerant argument shapes of `OperationTool` (^vm78pnz): a lone
+/// The tolerant argument shapes of `OperationTool`: a lone
 /// `arguments` wrapper is unwrapped, and a missing `op` is inferred from the
 /// keys, over a fixture that mirrors the six operations of the real
 /// FoundationModelsSkills `skills` tool. The evidence shapes are the calls
@@ -138,6 +145,10 @@ private struct RunScriptMirror: SkillsMirrorOperation {
 struct OperationArgumentToleranceTests {
     /// The prefix of the "Unknown operation" corrective.
     private static let unknownOperationPrefix = "Unknown operation."
+
+    /// The prefix of the corrective for a call that names no operation and
+    /// infers none.
+    private static let unnamedOperationPrefix = "No operation is named."
 
     /// Makes the skills-mirror tool, in the operation order of the real tool.
     ///
@@ -176,12 +187,12 @@ struct OperationArgumentToleranceTests {
         #expect(json == answer("use skill", id: "kanban"))
     }
 
-    @Test func opLessIdThatFitsTwoOperationsStaysUnknownWithoutADefaultOp() async throws {
+    @Test func opLessIdThatFitsTwoOperationsIsNotInferredWithoutADefaultOp() async throws {
         let tool = try makeSkillsMirror(defaultOp: nil)
 
         let message = try await tool.call(arguments: GeneratedContent(properties: ["id": "kanban"]))
 
-        #expect(message.hasPrefix(Self.unknownOperationPrefix))
+        #expect(message.hasPrefix(Self.unnamedOperationPrefix))
     }
 
     @Test func opLessKeysThatFitExactlyOneOperationInferIt() async throws {
@@ -192,20 +203,37 @@ struct OperationArgumentToleranceTests {
         #expect(json == answer("search skill"))
     }
 
-    @Test func opLessKeysThatFitSeveralOperationsButNotTheDefaultOpStayUnknown() async throws {
-        let tool = try makeSkillsMirror()
+    @Test func opLessKeysThatFitSeveralOperationsButNotTheDefaultOpAreNotInferred() async throws {
+        let tool = try makeSkillsMirror(defaultOp: "search skill")
 
-        let message = try await tool.call(arguments: GeneratedContent(properties: ["id": "kanban", "path": "SKILL.md"]))
+        let message = try await tool.call(arguments: GeneratedContent(properties: ["id": "kanban"]))
 
-        #expect(message.hasPrefix(Self.unknownOperationPrefix))
+        #expect(message.hasPrefix(Self.unnamedOperationPrefix))
     }
 
-    @Test func opLessKeysThatFitNoOperationStayUnknown() async throws {
+    @Test func opLessKeysThatFitAnInferableAndANonInferableOperationRunTheInferableOne() async throws {
+        let tool = try makeSkillsMirror()
+
+        let json = try await tool.call(arguments: GeneratedContent(properties: ["id": "kanban", "path": "SKILL.md"]))
+
+        #expect(json == answer("read resource", id: "kanban"))
+    }
+
+    @Test func opLessKeysThatFitOnlyANonInferableOperationAreNotInferred() async throws {
+        let tool = try makeSkillsMirror()
+        let arguments = GeneratedContent(properties: ["id": "kanban", "path": "run.sh", "timeout": 5])
+
+        let message = try await tool.call(arguments: arguments)
+
+        #expect(message.hasPrefix(Self.unnamedOperationPrefix))
+    }
+
+    @Test func opLessKeysThatFitNoOperationAreNotInferred() async throws {
         let tool = try makeSkillsMirror()
 
         let message = try await tool.call(arguments: GeneratedContent(properties: ["skill": "kanban"]))
 
-        #expect(message.hasPrefix(Self.unknownOperationPrefix))
+        #expect(message.hasPrefix(Self.unnamedOperationPrefix))
     }
 
     @Test func emptyPayloadIsNotInferredToAnOperationWithNoRequiredParameter() async throws {
@@ -213,7 +241,7 @@ struct OperationArgumentToleranceTests {
 
         let message = try await tool.call(arguments: GeneratedContent(properties: [:]))
 
-        #expect(message.hasPrefix(Self.unknownOperationPrefix))
+        #expect(message.hasPrefix(Self.unnamedOperationPrefix))
     }
 
     @Test func emptyOpStringIsInferredFromTheKeys() async throws {
@@ -224,12 +252,13 @@ struct OperationArgumentToleranceTests {
         #expect(json == answer("use skill", id: "kanban"))
     }
 
-    @Test func unknownOperationMessageStillListsTheValidOperations() async throws {
+    @Test func unnamedOperationMessageListsTheFittingAndTheValidOperations() async throws {
         let tool = try makeSkillsMirror(defaultOp: nil)
 
         let message = try await tool.call(arguments: GeneratedContent(properties: ["id": "kanban"]))
 
-        #expect(message == OperationError.unknownOperation(valid: tool.operations.map(\.opString)).description)
+        let fitting = ["use skill", "list resource"]
+        #expect(message == OperationError.unnamedOperation(fitting: fitting, valid: tool.operations.map(\.opString)).description)
     }
 
     // MARK: - A lone `arguments` wrapper
@@ -267,7 +296,7 @@ struct OperationArgumentToleranceTests {
 
         let message = try await tool.call(arguments: arguments)
 
-        #expect(message.hasPrefix(Self.unknownOperationPrefix))
+        #expect(message.hasPrefix(Self.unnamedOperationPrefix))
     }
 
     // MARK: - Well-formed arguments

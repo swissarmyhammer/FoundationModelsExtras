@@ -27,6 +27,10 @@ public struct AnyOperation<Context: Sendable>: Sendable {
     /// How a call of this operation runs, from `OperationDefinition.mount`.
     public let mount: ToolMount
 
+    /// Whether key-fit inference and `OperationResolver.defaultOp` can
+    /// choose this operation, from `OperationDefinition.isInferable`.
+    public let isInferable: Bool
+
     /// The concrete `OperationDefinition` type this `AnyOperation` erases,
     /// type-erased in turn to `any OperationDefinition.Type`.
     ///
@@ -73,6 +77,7 @@ public struct AnyOperation<Context: Sendable>: Sendable {
         description = O.operationDescription
         parameters = O.parameterMetadata
         mount = O.mount
+        isInferable = O.isInferable
         definitionType = O.self
         commandType = (O.self as? any HasCLICommand.Type)?.commandType
         run = { content, context in

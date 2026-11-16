@@ -37,12 +37,19 @@ import FoundationModelsExtras
 ///   - mount: How a call of the operation runs. When it is present, the
 ///     macro emits it as the `mount` static. Defaults to
 ///     `ToolMount.synchronous`.
+///   - isInferable: Whether key-fit inference and
+///     `OperationResolver.defaultOp` can choose the operation for a call
+///     that does not name it. Set `true` only for an operation that only
+///     reads. When it is present, the macro emits it as the `isInferable`
+///     static. Defaults to `false`.
 @attached(
     extension, conformances: OperationDefinition, HasCLICommand,
     names: named(verb), named(noun), named(operationDescription), named(parameterMetadata), named(mount),
-        named(Command), named(CLICommand)
+        named(isInferable), named(Command), named(CLICommand)
 )
-public macro Operation(verb: String, noun: String, description: String, mount: ToolMount = .synchronous) =
+public macro Operation(
+    verb: String, noun: String, description: String, mount: ToolMount = .synchronous, isInferable: Bool = false
+) =
     #externalMacro(module: "OperationsMacros", type: "OperationMacro")
 
 /// Marks a stored property of an `@Operation` struct with CLI-facing

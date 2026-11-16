@@ -389,13 +389,13 @@ private func operationParamInfo(
 /// AsyncParsableCommand` (ArgumentParser leaf), built from that same
 /// property data, so the operation also runs from the command line.
 public struct OperationMacro: ExtensionMacro {
-    /// Expands `@Operation(verb:noun:description:mount:)` into an
+    /// Expands `@Operation(verb:noun:description:mount:isInferable:)` into an
     /// `OperationDefinition` conformance extension on the annotated struct.
     ///
     /// - Parameters:
     ///   - node: The `@Operation(...)` attribute syntax; its `verb`, `noun`,
-    ///     `description` and optional `mount` arguments seed the synthesized
-    ///     statics.
+    ///     `description` and optional `mount` and `isInferable` arguments
+    ///     seed the synthesized statics.
     ///   - declaration: The declaration the attribute is attached to. Must
     ///     be a `StructDeclSyntax`; otherwise `.requiresStruct` is diagnosed
     ///     and expansion produces no extension.
@@ -442,7 +442,10 @@ public struct OperationMacro: ExtensionMacro {
 
         let access = structDecl.modifiers.first(where: \.isNeededAccessLevelModifier)
         let accessText = access.map { "\($0.name.text) " } ?? ""
-        let mountText = mountStaticText(from: arguments, accessText: accessText)
+        let mountText = optionalStaticText(
+            from: arguments, label: "mount", type: "ToolMount", accessText: accessText)
+        let isInferableText = optionalStaticText(
+            from: arguments, label: "isInferable", type: "Bool", accessText: accessText)
 
         let commandText = commandStructText(
             accessText: accessText,
@@ -460,7 +463,7 @@ public struct OperationMacro: ExtensionMacro {
             \(accessText)static let verb: String = \(verbText)
             \(accessText)static let noun: String = \(nounText)
             \(accessText)static let operationDescription: String = \(descriptionText)
-            \(accessText)static let parameterMetadata: [ParamMeta] = \(parameterMetadataText)\(mountText)
+            \(accessText)static let parameterMetadata: [ParamMeta] = \(parameterMetadataText)\(mountText)\(isInferableText)
 
             \(commandText)
 
@@ -536,19 +539,25 @@ private func verbNounDescriptionText(
     return (verbText, nounText, descriptionText)
 }
 
-/// Builds the source text of the `mount` static from the `mount` argument of
-/// an `@Operation(...)` attribute, as a new line after `parameterMetadata`.
+/// Builds the source text of a static from the argument of an
+/// `@Operation(...)` attribute that has the same label, as a new line after
+/// `parameterMetadata`. The `mount` and `isInferable` arguments use it.
 ///
 /// - Parameters:
 ///   - arguments: The `@Operation(...)` attribute's argument list.
+///   - label: The argument label, which is also the name of the static.
+///   - type: The source text of the type of the static.
 ///   - accessText: The access-level modifier text of the static, or `""`.
-/// - Returns: The declaration text, or `""` when the attribute has no `mount`
-///   argument. Then the default of `OperationDefinition` stands.
-private func mountStaticText(from arguments: LabeledExprListSyntax, accessText: String) -> String {
-    guard let mountExpr = arguments.first(labeled: "mount")?.expression else {
+/// - Returns: The declaration text, or `""` when the attribute has no
+///   argument with `label`. Then the default of `OperationDefinition`
+///   stands.
+private func optionalStaticText(
+    from arguments: LabeledExprListSyntax, label: String, type: String, accessText: String
+) -> String {
+    guard let expression = arguments.first(labeled: label)?.expression else {
         return ""
     }
-    return "\n\(accessText)static let mount: ToolMount = \(mountExpr.trimmedDescription)"
+    return "\n\(accessText)static let \(label): \(type) = \(expression.trimmedDescription)"
 }
 
 /// Diagnoses `propertyName` (via `context`) as having an unsupported

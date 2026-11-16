@@ -44,6 +44,16 @@ public protocol OperationDefinition: Generable, Sendable {
     /// host for each call. Defaults to ``ToolMount/synchronous``.
     static var mount: ToolMount { get }
 
+    /// Whether `OperationResolver` can choose this operation for a call that
+    /// does not name an operation. Defaults to `false`.
+    ///
+    /// Set it to `true` only for an operation that has no side effect: it
+    /// only reads. Key-fit inference and `OperationResolver.defaultOp`
+    /// choose only an operation with this flag. An operation that writes,
+    /// removes, starts, sends or has another side effect keeps the default,
+    /// so that it runs only when the call names it in `op`.
+    static var isInferable: Bool { get }
+
     /// Runs the operation against the shared context.
     func execute(in context: Context) async throws -> Output
 }
@@ -60,4 +70,8 @@ extension OperationDefinition {
     /// The default `mount`: ``ToolMount/synchronous``, so a call answers
     /// with the real output of the operation.
     public static var mount: ToolMount { .synchronous }
+
+    /// The default `isInferable`: `false`, so that only a call that names
+    /// this operation runs it.
+    public static var isInferable: Bool { false }
 }

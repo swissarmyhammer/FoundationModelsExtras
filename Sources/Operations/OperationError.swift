@@ -12,6 +12,13 @@ public enum OperationError: Error, Sendable {
     /// `opString` the registry knows about.
     case unknownOperation(valid: [String])
 
+    /// The payload names no operation, and key-fit inference found no
+    /// operation that it can choose. `fitting` lists the `opString` of each
+    /// operation whose parameters fit the keys of the payload, also an
+    /// operation that is not inferable. `valid` lists every `opString` the
+    /// registry knows about.
+    case unnamedOperation(fitting: [String], valid: [String])
+
     /// One or more required parameters were absent from the payload.
     case missingRequired([String])
 
@@ -52,6 +59,8 @@ extension OperationError: Equatable {
         switch (lhs, rhs) {
         case (.unknownOperation(let lhsValid), .unknownOperation(let rhsValid)):
             return lhsValid == rhsValid
+        case (.unnamedOperation(let lhsFitting, let lhsValid), .unnamedOperation(let rhsFitting, let rhsValid)):
+            return lhsFitting == rhsFitting && lhsValid == rhsValid
         case (.missingRequired(let lhsNames), .missingRequired(let rhsNames)):
             return lhsNames == rhsNames
         case (.decodingFailed, .decodingFailed), (.encodingFailed, .encodingFailed):
@@ -59,7 +68,7 @@ extension OperationError: Equatable {
         case (.executionFailed(let lhsCause), .executionFailed(let rhsCause)):
             return type(of: lhsCause) == type(of: rhsCause)
                 && String(describing: lhsCause) == String(describing: rhsCause)
-        case (.unknownOperation, _), (.missingRequired, _), (.decodingFailed, _),
+        case (.unknownOperation, _), (.unnamedOperation, _), (.missingRequired, _), (.decodingFailed, _),
             (.encodingFailed, _), (.executionFailed, _):
             return false
         }
@@ -70,8 +79,9 @@ extension OperationError: CustomStringConvertible {
     /// A human-readable, model- and CLI-facing summary of the failure.
     ///
     /// `OperationTool.call(arguments:)` returns this text as its corrective
-    /// output for `.unknownOperation` and `.missingRequired` (values it
-    /// constructs itself from the resolver's outcome) and for
+    /// output for `.unknownOperation`, `.unnamedOperation` and
+    /// `.missingRequired` (values it constructs itself from the resolver's
+    /// outcome) and for
     /// `.decodingFailed` (caught from `AnyOperation.run`), so the model can
     /// correct its call within the turn. `.executionFailed` and
     /// `.encodingFailed` aren't part of that contract (`OperationTool`
@@ -81,7 +91,9 @@ extension OperationError: CustomStringConvertible {
     public var description: String {
         switch self {
         case .unknownOperation(let valid):
-            return "Unknown operation. Valid operations: \(valid.joined(separator: ", "))."
+            return "Unknown operation. \(Self.validOperationsText(valid))"
+        case .unnamedOperation(let fitting, let valid):
+            return Self.unnamedOperationText(fitting: fitting, valid: valid)
         case .missingRequired(let names):
             return "Missing required parameter(s): \(names.joined(separator: ", "))."
         case .decodingFailed:
@@ -91,5 +103,31 @@ extension OperationError: CustomStringConvertible {
         case .executionFailed(let cause):
             return "This operation failed while executing. Cause: \(cause)"
         }
+    }
+}
+
+extension OperationError {
+    /// The corrective text of `.unnamedOperation`. It tells the caller to
+    /// name the operation in `op`, then lists the operations that fit the
+    /// keys (when there are some), and then lists all valid operations.
+    ///
+    /// - Parameters:
+    ///   - fitting: The op strings of the operations that fit the keys.
+    ///   - valid: The op strings of all operations.
+    /// - Returns: The corrective text.
+    private static func unnamedOperationText(fitting: [String], valid: [String]) -> String {
+        let fittingText =
+            fitting.isEmpty
+            ? "" : "Operations whose parameters fit the given keys: \(fitting.joined(separator: ", ")). "
+        return "No operation is named. Name the operation in `op`. \(fittingText)\(validOperationsText(valid))"
+    }
+
+    /// The sentence that lists all valid operations, for the corrective text
+    /// of `.unknownOperation` and `.unnamedOperation`.
+    ///
+    /// - Parameter valid: The op strings of all operations.
+    /// - Returns: The sentence.
+    private static func validOperationsText(_ valid: [String]) -> String {
+        "Valid operations: \(valid.joined(separator: ", "))."
     }
 }
