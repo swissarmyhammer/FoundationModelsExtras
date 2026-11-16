@@ -44,6 +44,15 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
     /// question was asked, or `nil` when no relay set it.
     public let source: String?
 
+    /// Tells if the answer to this question holds a secret, for example the
+    /// token of a server.
+    ///
+    /// When `true`, a host must not write the content of the answer to a
+    /// transcript, a recording, a log or telemetry. The run that asked still
+    /// gets the full answer. The flag is for the whole question, not for each
+    /// field.
+    public let sensitive: Bool
+
     /// Creates a form-mode request.
     ///
     /// - Parameters:
@@ -54,13 +63,15 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
     ///     no agent.
     ///   - source: The tool of the run that asked the question. The default
     ///     is `nil`.
+    ///   - sensitive: Tells if the answer holds a secret. The default is
+    ///     `false`.
     public init(
         message: String, elicitationId: ULID, requestedSchema: ElicitationRequestedSchema, agentPath: [String] = [],
-        source: String? = nil
+        source: String? = nil, sensitive: Bool = false
     ) {
         self.init(
             mode: .form, message: message, elicitationId: elicitationId, requestedSchema: requestedSchema, url: nil,
-            agentPath: agentPath, source: source)
+            agentPath: agentPath, source: source, sensitive: sensitive)
     }
 
     /// Creates a URL-mode request.
@@ -73,17 +84,22 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
     ///     no agent.
     ///   - source: The tool of the run that asked the question. The default
     ///     is `nil`.
-    public init(message: String, elicitationId: ULID, url: URL, agentPath: [String] = [], source: String? = nil) {
+    ///   - sensitive: Tells if the answer holds a secret. The default is
+    ///     `false`.
+    public init(
+        message: String, elicitationId: ULID, url: URL, agentPath: [String] = [], source: String? = nil,
+        sensitive: Bool = false
+    ) {
         self.init(
             mode: .url, message: message, elicitationId: elicitationId, requestedSchema: nil, url: url,
-            agentPath: agentPath, source: source)
+            agentPath: agentPath, source: source, sensitive: sensitive)
     }
 
     /// The one memberwise entry point. Private, so the payload always
     /// matches the mode.
     private init(
         mode: ElicitationMode, message: String, elicitationId: ULID, requestedSchema: ElicitationRequestedSchema?,
-        url: URL?, agentPath: [String], source: String?
+        url: URL?, agentPath: [String], source: String?, sensitive: Bool
     ) {
         self.mode = mode
         self.message = message
@@ -92,6 +108,7 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
         self.url = url
         self.agentPath = agentPath
         self.source = source
+        self.sensitive = sensitive
     }
 
     /// This question as the parent of `agent` sends it to its own host.
@@ -100,7 +117,8 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
     /// the run that asked. Each relay puts its agent at the front of
     /// ``agentPath``, thus after the relays of all levels the path goes from
     /// the agent nearest the user to the agent that asked. The first relay
-    /// sets ``source``, and a later relay keeps it.
+    /// sets ``source``, and a later relay keeps it. The copy keeps
+    /// ``sensitive``.
     ///
     /// - Parameters:
     ///   - agent: The name of the agent whose question this is.
@@ -109,7 +127,7 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
     public func relayed(by agent: String, askedBy tool: String) -> ElicitationRequest {
         ElicitationRequest(
             mode: mode, message: message, elicitationId: elicitationId, requestedSchema: requestedSchema, url: url,
-            agentPath: [agent] + agentPath, source: source ?? tool)
+            agentPath: [agent] + agentPath, source: source ?? tool, sensitive: sensitive)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -120,12 +138,14 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
         case url
         case agentPath
         case source
+        case sensitive
     }
 
     /// Decodes a request. An omitted `mode` defaults to ``ElicitationMode/form``.
     /// The decoded mode's payload is required. An omitted `agentPath` decodes
-    /// as no agent, and an omitted `source` as `nil`, so a request that was
-    /// recorded before these keys existed still decodes.
+    /// as no agent, an omitted `source` as `nil`, and an omitted `sensitive`
+    /// as `false`, so a request that was recorded before these keys existed
+    /// still decodes.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let mode = try container.decodeIfPresent(ElicitationMode.self, forKey: .mode) ?? .form
@@ -142,11 +162,12 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
         }
         self.agentPath = try container.decodeIfPresent([String].self, forKey: .agentPath) ?? []
         self.source = try container.decodeIfPresent(String.self, forKey: .source)
+        self.sensitive = try container.decodeIfPresent(Bool.self, forKey: .sensitive) ?? false
     }
 
     /// Encodes this request with its mode explicit. The `agentPath` key is
-    /// present only when the path is not empty, and the `source` key only
-    /// when there is a source.
+    /// present only when the path is not empty, the `source` key only when
+    /// there is a source, and the `sensitive` key only when it is `true`.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(mode, forKey: .mode)
@@ -158,6 +179,9 @@ public struct ElicitationRequest: Codable, Sendable, Equatable {
             try container.encode(agentPath, forKey: .agentPath)
         }
         try container.encodeIfPresent(source, forKey: .source)
+        if sensitive {
+            try container.encode(sensitive, forKey: .sensitive)
+        }
     }
 }
 

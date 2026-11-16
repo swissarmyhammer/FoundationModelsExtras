@@ -391,6 +391,24 @@ struct ToolContextTests {
         #expect(posted.op == Self.demoToolName)
     }
 
+    @Test("elicit gives the sensitive flag of the request to the sink")
+    func elicitPostsTheSensitiveFlag() async throws {
+        let sink = RecordingSink()
+        let runPlane = RunPlane()
+        let context = Self.makeContext(sink: sink, runPlane: runPlane)
+        let request = ElicitationRequest(
+            message: "Your token?", elicitationId: ULID(),
+            requestedSchema: ElicitationRequestedSchema(properties: ["token": .string(ElicitationStringSchema())]),
+            sensitive: true)
+
+        let question = await Self.ask(request, through: context, postingTo: sink)
+        await runPlane.respond(elicitationId: request.elicitationId, .cancel)
+        _ = try await question.answer(on: runPlane)
+
+        let posted = try #require(await sink.events.first)
+        #expect(posted.elicitation?.sensitive == true)
+    }
+
     @Test("elicit resumes on decline, with no content")
     func elicitDeclineRoundTrip() async throws {
         let answer = try await Self.elicitAnswer(.decline)
