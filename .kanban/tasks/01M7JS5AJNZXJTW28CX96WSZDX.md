@@ -1,8 +1,20 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '80'
+comments:
+- actor: claude-code
+  id: 01m7mnrvh9cn80gp696afew0w3
+  text: |-
+    Ledger, iteration 1.
+
+    - Tests first: ToolContextAnswerValidationTests has a sensitive multi select test (the reason does not hold the item that is not allowed) and a test that is not sensitive (the reason stays the same). ElicitationValidationIssueTests has a sensitive sentence for each case. The build failed before the code change (red).
+    - Code: `ElicitationValidationIssue.failureText(sensitive:)` and `ElicitationRequestedSchema.validationFailure(of:sensitive:)` (default `false`). `ToolContext.elicit` gives `request.sensitive`. For a sensitive request, `itemNotAllowed` does not show the item, and `fieldNotInSchema` does not show the key of the answer. All other kinds show only schema data (field names of the schema, limits, patterns, allowed values), thus they stay the same.
+    - Docs: docs/REFERENCE.md tells the sensitive behavior.
+    - Commit a9541cb. Full `swift test`: 2722 tests in 251 suites pass, no warnings in the package sources.
+    - Review `2b8ee77..a9541cb`: 0 findings. Clean.
+  timestamp: 2026-11-17T11:55:11.273679+00:00
+position_column: done
+position_ordinal: ffef80
 title: 'Elicitation: the decline reason of a form answer that is not valid must not hold a value of the answer to a sensitive question'
 ---
 ## Why
