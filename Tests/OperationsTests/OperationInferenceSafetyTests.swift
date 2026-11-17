@@ -75,6 +75,16 @@ private struct ArchiveEntryFixture {
     var force: Bool?
 }
 
+/// `remove entry`: it has a side effect, so it keeps the default. Its verb
+/// `remove` is a key of the default verb-alias table, which maps it to
+/// `delete`.
+@Generable
+@Operation(verb: "remove", noun: "entry", description: "Remove one entry")
+private struct RemoveEntryFixture {
+    @Guide(description: "The entry name")
+    var name: String
+}
+
 /// One operation of the entry tool. A conforming type states only its verb,
 /// noun, and parameters. This extension gives the `execute(in:)` that records
 /// the run and answers with the op string.
@@ -101,6 +111,8 @@ extension DeleteEntryFixture: EntryOperation {}
 
 extension ArchiveEntryFixture: EntryOperation {}
 
+extension RemoveEntryFixture: EntryOperation {}
+
 /// Key-fit inference and `defaultOp` choose only an operation that declares
 /// `isInferable`. An op-less call that fits only other operations does not
 /// run, and it gets an error that tells the caller to name the operation.
@@ -111,15 +123,19 @@ struct OperationInferenceSafetyTests {
 
     /// Makes the entry tool over `context`.
     ///
-    /// - Parameter defaultOp: The default op of the resolver, or `nil` for
-    ///   none.
+    /// - Parameters:
+    ///   - operations: The operations of the tool, or `nil` for `get entry`,
+    ///     `list entry`, `delete entry`, and `archive entry`.
+    ///   - defaultOp: The default op of the resolver, or `nil` for none.
     /// - Returns: The fused tool.
-    private func makeEntryTool(defaultOp: String? = nil) throws -> OperationTool<EntryContext> {
+    private func makeEntryTool(
+        operations: [AnyOperation<EntryContext>]? = nil, defaultOp: String? = nil
+    ) throws -> OperationTool<EntryContext> {
         try OperationTool(
             name: "entries",
             description: "Reads and changes entries",
             context: context,
-            operations: [
+            operations: operations ?? [
                 AnyOperation(GetEntryFixture.self),
                 AnyOperation(ListEntryFixture.self),
                 AnyOperation(DeleteEntryFixture.self),
@@ -223,5 +239,41 @@ struct OperationInferenceSafetyTests {
         _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "delete entry", "name": "alpha"]))
 
         #expect(await context.log.runs == ["delete entry"])
+    }
+
+    @Test func explicitOpWithAVerbThatIsAnAliasKeyRunsTheOperationWithThatVerb() async throws {
+        let tool = try makeEntryTool(operations: [AnyOperation(RemoveEntryFixture.self)])
+
+        _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "remove entry", "name": "alpha"]))
+
+        #expect(await context.log.runs == ["remove entry"])
+    }
+
+    @Test(arguments: ["remove entry", "delete entry"])
+    func explicitOpRunsTheOperationItNamesWhenTheAliasTargetAlsoExists(op: String) async throws {
+        let tool = try makeEntryTool(
+            operations: [AnyOperation(RemoveEntryFixture.self), AnyOperation(DeleteEntryFixture.self)])
+
+        _ = try await tool.call(arguments: GeneratedContent(properties: ["op": op, "name": "alpha"]))
+
+        #expect(await context.log.runs == [op])
+    }
+
+    @Test func explicitOpWithAnAliasVerbRunsTheAliasTargetWhenNoOperationHasTheVerb() async throws {
+        let tool = try makeEntryTool()
+
+        _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "remove entry", "name": "alpha"]))
+
+        #expect(await context.log.runs == ["delete entry"])
+    }
+
+    @Test func opLessCallDoesNotRunAnOperationWhoseVerbIsAnAliasKey() async throws {
+        let tool = try makeEntryTool(operations: [AnyOperation(RemoveEntryFixture.self)])
+
+        let message = try await tool.call(arguments: GeneratedContent(properties: ["name": "alpha"]))
+
+        #expect(await context.log.runs.isEmpty)
+        #expect(
+            message == OperationError.unnamedOperation(fitting: ["remove entry"], valid: validOps(of: tool)).description)
     }
 }

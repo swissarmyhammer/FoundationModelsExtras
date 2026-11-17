@@ -55,7 +55,9 @@ forgivingly resolves a payload's `op` and parameter keys (case, `_`/`-`/space se
 or none in a multi-word verb or noun, `"noun verb"` reordering, verb aliases, noun
 aliases, an op of one word that names the verb or the noun of exactly one operation
 such as `read` for `read resource`, camelCase/snake_case key aliasing) to the
-matching operation and dispatches to it. It also accepts two shapes that tool callers
+matching operation and dispatches to it. The verb and the noun as given win over an
+alias: the default table maps `remove` to `delete`, but `{"op": "remove entry"}` runs
+`remove entry` when the tool has it, and runs `delete entry` only when it does not. It also accepts two shapes that tool callers
 send. A payload put whole into one `arguments` key (an object, or a JSON string of one)
 is unwrapped first. A payload with no `op` is matched by its keys: an operation fits when
 each key names one of its parameters and the payload holds all of its required ones.

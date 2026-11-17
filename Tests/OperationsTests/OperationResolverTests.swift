@@ -65,6 +65,16 @@ struct OperationResolverTests {
         #expect(resolver.matchOpString("look up callgraph", against: candidates) == "get callgraph")
     }
 
+    @Test func multiWordVerbAliasKeyMatchesTwoTokensByTheSeparatedCompare() {
+        let resolver = OperationResolver(verbAliases: ["look_up": "get"])
+        let colliding = [
+            OperationResolver.OpCandidate(verb: "get", noun: "type_definition", opString: "get type_definition"),
+            OperationResolver.OpCandidate(verb: "get", noun: "typedefinition", opString: "get typedefinition"),
+        ]
+
+        #expect(resolver.matchOpString("lookup typedefinition", against: colliding) == "get typedefinition")
+    }
+
     @Test func withoutANounAliasASingularNounDoesNotMatch() {
         let resolver = OperationResolver()
 
@@ -123,5 +133,76 @@ struct OperationResolverTests {
         let resolver = OperationResolver()
 
         #expect(resolver.matchOpString(opString, against: skillsCandidates) == nil)
+    }
+
+    /// An operation set with the verb `remove`, which is a key of the
+    /// default verb-alias table (`remove` -> `delete`).
+    private let removeCandidates = [
+        OperationResolver.OpCandidate(verb: "remove", noun: "entry", opString: "remove entry"),
+        OperationResolver.OpCandidate(verb: "list", noun: "entry", opString: "list entry"),
+    ]
+
+    /// The same operation set with `delete entry` in addition.
+    private let removeAndDeleteCandidates = [
+        OperationResolver.OpCandidate(verb: "remove", noun: "entry", opString: "remove entry"),
+        OperationResolver.OpCandidate(verb: "delete", noun: "entry", opString: "delete entry"),
+    ]
+
+    /// An operation set with `delete entry` and no `remove entry`.
+    private let deleteCandidates = [
+        OperationResolver.OpCandidate(verb: "delete", noun: "entry", opString: "delete entry"),
+        OperationResolver.OpCandidate(verb: "list", noun: "entry", opString: "list entry"),
+    ]
+
+    @Test(arguments: ["remove entry", "entry remove", "remove_entry", "Remove-Entry", "remove"])
+    func registeredVerbThatIsAnAliasKeyMatchesItsOwnOperation(opString: String) {
+        let resolver = OperationResolver()
+
+        #expect(resolver.matchOpString(opString, against: removeCandidates) == "remove entry")
+    }
+
+    @Test(arguments: ["remove entry", "entry remove", "remove_entry", "remove"])
+    func exactVerbWinsOverTheAliasWhenBothOperationsExist(opString: String) {
+        let resolver = OperationResolver()
+
+        #expect(resolver.matchOpString(opString, against: removeAndDeleteCandidates) == "remove entry")
+    }
+
+    @Test(arguments: ["delete entry", "entry delete", "delete_entry"])
+    func canonicalVerbStillMatchesWhenBothOperationsExist(opString: String) {
+        let resolver = OperationResolver()
+
+        #expect(resolver.matchOpString(opString, against: removeAndDeleteCandidates) == "delete entry")
+    }
+
+    @Test(arguments: ["remove entry", "entry remove", "remove_entry", "rm entry", "remove"])
+    func aliasStillAppliesWhenNoOperationHasTheVerbAsGiven(opString: String) {
+        let resolver = OperationResolver()
+
+        #expect(resolver.matchOpString(opString, against: deleteCandidates) == "delete entry")
+    }
+
+    @Test func exactNounWinsOverTheNounAlias() {
+        let resolver = OperationResolver(nounAliases: ["entries": "entry"])
+        let candidates = [
+            OperationResolver.OpCandidate(verb: "list", noun: "entries", opString: "list entries"),
+            OperationResolver.OpCandidate(verb: "list", noun: "entry", opString: "list entry"),
+            OperationResolver.OpCandidate(verb: "get", noun: "entry", opString: "get entry"),
+        ]
+
+        #expect(resolver.matchOpString("list entries", against: candidates) == "list entries")
+        #expect(resolver.matchOpString("list_entries", against: candidates) == "list entries")
+        #expect(resolver.matchOpString("get entries", against: candidates) == "get entry")
+    }
+
+    @Test func oneWordThatNamesSeveralOperationsAsGivenStaysAmbiguous() {
+        let resolver = OperationResolver()
+        let candidates = [
+            OperationResolver.OpCandidate(verb: "remove", noun: "entry", opString: "remove entry"),
+            OperationResolver.OpCandidate(verb: "remove", noun: "tag", opString: "remove tag"),
+            OperationResolver.OpCandidate(verb: "delete", noun: "board", opString: "delete board"),
+        ]
+
+        #expect(resolver.matchOpString("remove", against: candidates) == nil)
     }
 }
