@@ -27,6 +27,27 @@ struct ToolContextAnswerValidationTests {
         )
     }
 
+    /// The values of the multi select fixture.
+    private static let colors = ["red", "green"]
+
+    /// The item of the multi select answer that is not one of ``colors``.
+    private static let itemNotAllowed = "s3cr3t-blue"
+
+    /// A form question with one multi select, `colors`, whose values are
+    /// ``colors``.
+    ///
+    /// - Parameter sensitive: Tells if the answer holds a secret.
+    /// - Returns: The question.
+    private static func colorsRequest(sensitive: Bool) -> ElicitationRequest {
+        ElicitationRequest(
+            message: "Which colors?",
+            elicitationId: ULID(),
+            requestedSchema: ElicitationRequestedSchema(
+                properties: ["colors": .multiSelect(ElicitationMultiSelectSchema(values: colors))]),
+            sensitive: sensitive
+        )
+    }
+
     /// Asks `request` through a context whose sink gives `response` at once,
     /// and gives the answer that the run got.
     ///
@@ -58,6 +79,36 @@ struct ToolContextAnswerValidationTests {
         #expect(
             answer.reason
                 == #"the answer is not valid: the field "zip" does not match the pattern "^[0-9]{5}$""#)
+    }
+
+    @Test("for a sensitive question, the decline reason does not hold the item of the answer that is not allowed")
+    func aSensitiveDeclineHoldsNoValueOfTheAnswer() async throws {
+        let answer = try await Self.answer(
+            .accept(content: ["colors": .stringArray(["red", Self.itemNotAllowed])]),
+            to: Self.colorsRequest(sensitive: true))
+
+        #expect(answer.action == .decline)
+        #expect(answer.content == nil)
+        let reason = try #require(answer.reason)
+        #expect(!reason.contains(Self.itemNotAllowed))
+        #expect(
+            reason
+                == ElicitationRequestedSchema.invalidAnswerReasonPrefix
+                + #"the field "colors" has a value that is not one of these values: "red", "green""#)
+    }
+
+    @Test("for a question that is not sensitive, the decline reason names the item that is not allowed")
+    func aDeclineThatIsNotSensitiveNamesTheItem() async throws {
+        let answer = try await Self.answer(
+            .accept(content: ["colors": .stringArray(["red", Self.itemNotAllowed])]),
+            to: Self.colorsRequest(sensitive: false))
+
+        #expect(
+            answer
+                == .decline(
+                    reason: ElicitationRequestedSchema.invalidAnswerReasonPrefix
+                        + #"the field "colors" has the value "s3cr3t-blue", "#
+                        + #"which is not one of these values: "red", "green""#))
     }
 
     @Test("an accepted form answer with no content and a required field reaches the run as a decline")

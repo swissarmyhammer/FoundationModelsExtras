@@ -3,7 +3,7 @@ import Testing
 
 /// Holds the validation API that a host uses to the public surface: the
 /// `pattern` of ``ElicitationStringSchema``,
-/// ``ElicitationRequestedSchema/validationFailure(of:)`` and
+/// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)`` and
 /// ``ElicitationRequestedSchema/invalidAnswerReasonPrefix``.
 ///
 /// The import is plain, with no `@testable`. When a member loses `public`,

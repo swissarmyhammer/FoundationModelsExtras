@@ -4,8 +4,8 @@ extension ElicitationRequestedSchema {
     /// The start of the decline reason for an accepted form answer that is
     /// not valid.
     ///
-    /// A host that finds a failure with ``validationFailure(of:)`` makes the
-    /// reason of its decline as `invalidAnswerReasonPrefix + failure`.
+    /// A host that finds a failure with ``validationFailure(of:sensitive:)``
+    /// makes the reason of its decline as `invalidAnswerReasonPrefix + failure`.
     public static let invalidAnswerReasonPrefix = "the answer is not valid: "
 
     /// Tells why `content` is not a valid answer to this schema.
@@ -83,19 +83,27 @@ extension ElicitationRequestedSchema {
     /// in place of the accept. ``ToolContext/elicit(_:)`` does the same check
     /// before it gives an answer to a run.
     ///
-    /// - Parameter content: The content of an accepted form answer.
+    /// A host that asks a sensitive question (``ElicitationRequest/sensitive``)
+    /// gives `sensitive: true`. Then the sentence holds no key and no value
+    /// of the answer, thus a decline reason that goes to the model or to a
+    /// transcript does not show a part of the secret.
+    ///
+    /// - Parameters:
+    ///   - content: The content of an accepted form answer.
+    ///   - sensitive: Tells if the answer holds a secret. The default is
+    ///     `false`.
     /// - Returns: `nil` when the content is valid, or one sentence that names
     ///   the first field that failed and the rule that it broke. The sentence
-    ///   is the ``ElicitationValidationIssue/failureText`` of
+    ///   is the ``ElicitationValidationIssue/failureText(sensitive:)`` of
     ///   ``validationIssue(of:)``.
-    public func validationFailure(of content: [String: ElicitationValue]?) -> String? {
-        validationIssue(of: content)?.failureText
+    public func validationFailure(of content: [String: ElicitationValue]?, sensitive: Bool = false) -> String? {
+        validationIssue(of: content)?.failureText(sensitive: sensitive)
     }
 
     /// Tells why `content` is not a valid answer to this schema, as data that
     /// a UI can localize.
     ///
-    /// The function applies the rules of ``validationFailure(of:)`` in the
+    /// The function applies the rules of ``validationFailure(of:sensitive:)`` in the
     /// same order, and gives the same first failure.
     ///
     /// - Parameter content: The content of an accepted form answer.
@@ -215,9 +223,9 @@ extension ElicitationStringSchema {
 /// The text rules of an elicitation string field, for a client that checks
 /// a form field before it sends the answer.
 ///
-/// ``ElicitationRequestedSchema/validationFailure(of:)`` uses these
+/// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)`` uses these
 /// functions, thus a client that calls them gets the same result as the run
-/// plane. The doc of ``ElicitationRequestedSchema/validationFailure(of:)``
+/// plane. The doc of ``ElicitationRequestedSchema/validationFailure(of:sensitive:)``
 /// gives the full rules and the gaps that stay.
 public enum ElicitationValidation {
     /// Tells if the ECMA-262 regular expression `pattern` matches a part of
@@ -251,7 +259,7 @@ public enum ElicitationValidation {
 
 /// The search of an ECMA-262 pattern, on `NSRegularExpression`.
 ///
-/// ``ElicitationRequestedSchema/validationFailure(of:)`` tells which parts of
+/// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)`` tells which parts of
 /// the pattern get their ECMA-262 meaning, and which gaps stay.
 private enum ECMAPattern {
     /// The code points of ECMA-262 `\w`, for a character class.
@@ -291,7 +299,7 @@ private enum ECMAPattern {
     ///
     /// The translation reads the pattern one code point at a time, and it
     /// knows if it is in a character class. It changes only the parts that
-    /// the doc of ``ElicitationRequestedSchema/validationFailure(of:)`` names,
+    /// the doc of ``ElicitationRequestedSchema/validationFailure(of:sensitive:)`` names,
     /// and it copies each other part.
     ///
     /// - Parameter pattern: An ECMA-262 regular expression with the `u` flag only.

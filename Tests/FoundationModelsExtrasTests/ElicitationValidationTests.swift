@@ -72,7 +72,7 @@ struct ElicitationFieldCase: Sendable, CustomTestStringConvertible {
     var testDescription: String { label }
 }
 
-/// Exercises ``ElicitationRequestedSchema/validationFailure(of:)``: one valid
+/// Exercises ``ElicitationRequestedSchema/validationFailure(of:sensitive:)``: one valid
 /// and one invalid value for each rule, and the rules of the whole answer.
 @Suite("Elicitation validation: an accepted form answer against its requested schema")
 struct ElicitationValidationTests {

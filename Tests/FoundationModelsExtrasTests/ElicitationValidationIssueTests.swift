@@ -16,9 +16,36 @@ struct ElicitationIssueCase: Sendable, CustomTestStringConvertible {
     /// The issue that the validator must give.
     let issue: ElicitationValidationIssue
 
-    /// The sentence that ``ElicitationRequestedSchema/validationFailure(of:)``
+    /// The sentence that ``ElicitationRequestedSchema/validationFailure(of:sensitive:)``
     /// must give.
     let failure: String
+
+    /// The sentence that the validator must give for a sensitive question:
+    /// ``ElicitationValidationIssue/failureText(sensitive:)`` with `true`.
+    /// This sentence holds no key and no value of the answer.
+    let sensitiveFailure: String
+
+    /// Makes a case.
+    ///
+    /// - Parameters:
+    ///   - label: What the case shows.
+    ///   - schema: The requested schema.
+    ///   - content: The content of the answer.
+    ///   - issue: The issue that the validator must give.
+    ///   - failure: The sentence that the validator must give.
+    ///   - sensitiveFailure: The sentence for a sensitive question. The
+    ///     default is `failure`.
+    init(
+        label: String, schema: ElicitationRequestedSchema, content: [String: ElicitationValue]?,
+        issue: ElicitationValidationIssue, failure: String, sensitiveFailure: String? = nil
+    ) {
+        self.label = label
+        self.schema = schema
+        self.content = content
+        self.issue = issue
+        self.failure = failure
+        self.sensitiveFailure = sensitiveFailure ?? failure
+    }
 
     /// The name of the case in the test report.
     var testDescription: String { label }
@@ -32,13 +59,16 @@ struct ElicitationIssueCase: Sendable, CustomTestStringConvertible {
     ///   - value: The value in the answer.
     ///   - kind: The kind of issue that the validator must give.
     ///   - failure: The sentence that the validator must give.
+    ///   - sensitiveFailure: The sentence for a sensitive question. The
+    ///     default is `failure`.
     static func field(
         _ label: String, _ field: String, schema: ElicitationPrimitiveSchema, value: ElicitationValue,
-        kind: ElicitationValidationIssue.Kind, failure: String
+        kind: ElicitationValidationIssue.Kind, failure: String, sensitiveFailure: String? = nil
     ) -> ElicitationIssueCase {
         ElicitationIssueCase(
             label: label, schema: ElicitationRequestedSchema(properties: [field: schema]), content: [field: value],
-            issue: ElicitationValidationIssue(field: field, kind: kind), failure: failure)
+            issue: ElicitationValidationIssue(field: field, kind: kind), failure: failure,
+            sensitiveFailure: sensitiveFailure)
     }
 }
 
@@ -63,7 +93,8 @@ struct ElicitationValidationIssueTests {
             schema: ElicitationRequestedSchema(properties: ["name": .string(ElicitationStringSchema())]),
             content: ["nickname": .string("A")],
             issue: ElicitationValidationIssue(field: "nickname", kind: .fieldNotInSchema),
-            failure: #"the field "nickname" is not in the requested schema"#),
+            failure: #"the field "nickname" is not in the requested schema"#,
+            sensitiveFailure: "the answer has a field that is not in the requested schema"),
         .field(
             "a string field with a number", "name", schema: .string(ElicitationStringSchema()), value: .number(1),
             kind: .wrongType(expected: .string), failure: #"the field "name" must be a string"#),
@@ -137,7 +168,8 @@ struct ElicitationValidationIssueTests {
             "a multi select item that is not in the values", "toppings",
             schema: .multiSelect(ElicitationMultiSelectSchema(values: colors)), value: .stringArray(["red", "blue"]),
             kind: .itemNotAllowed(value: "blue", allowed: colors),
-            failure: #"the field "toppings" has the value "blue", which is not one of these values: "red", "green""#),
+            failure: #"the field "toppings" has the value "blue", which is not one of these values: "red", "green""#,
+            sensitiveFailure: #"the field "toppings" has a value that is not one of these values: "red", "green""#),
         .field(
             "a multi select with fewer items than the minimum", "toppings",
             schema: .multiSelect(ElicitationMultiSelectSchema(values: colors, minItems: 1)), value: .stringArray([]),
@@ -156,6 +188,19 @@ struct ElicitationValidationIssueTests {
         #expect(issue == issueCase.issue)
         #expect(issue?.failureText == issueCase.failure)
         #expect(issueCase.schema.validationFailure(of: issueCase.content) == issueCase.failure)
+    }
+
+    @Test(
+        "for a sensitive question, the failure of each issue holds no key and no value of the answer",
+        arguments: cases)
+    func aSensitiveFailureHoldsNoValueOfTheAnswer(_ issueCase: ElicitationIssueCase) {
+        let issue = issueCase.schema.validationIssue(of: issueCase.content)
+
+        #expect(issue?.failureText(sensitive: true) == issueCase.sensitiveFailure)
+        #expect(issue?.failureText(sensitive: false) == issueCase.failure)
+        #expect(
+            issueCase.schema.validationFailure(of: issueCase.content, sensitive: true) == issueCase.sensitiveFailure)
+        #expect(issueCase.schema.validationFailure(of: issueCase.content, sensitive: false) == issueCase.failure)
     }
 
     @Test("a valid answer gives no issue")
@@ -181,6 +226,7 @@ struct ElicitationValidationIssueTests {
         let issue = ElicitationValidationIssue(field: nil, kind: .fieldNotInSchema)
 
         #expect(issue.failureText == "the answer is not in the requested schema")
+        #expect(issue.failureText(sensitive: true) == "the answer is not in the requested schema")
     }
 }
 

@@ -4,8 +4,8 @@ import Foundation
 /// data that a UI can localize.
 ///
 /// ``ElicitationRequestedSchema/validationIssue(of:)`` gives this value.
-/// ``ElicitationRequestedSchema/validationFailure(of:)`` gives
-/// ``failureText``, the English sentence of the same issue.
+/// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)`` gives
+/// ``failureText(sensitive:)``, the English sentence of the same issue.
 public struct ElicitationValidationIssue: Sendable, Equatable {
     /// The type of value that a field takes.
     public enum ExpectedValue: Sendable, Equatable {
@@ -99,14 +99,39 @@ public struct ElicitationValidationIssue: Sendable, Equatable {
     }
 
     /// The English sentence of this issue, as
-    /// ``ElicitationRequestedSchema/validationFailure(of:)`` gives it.
+    /// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)`` gives
+    /// it for a question that is not sensitive.
     ///
     /// For example, `the field "zip" does not match the pattern "^[0-9]{5}$"`.
+    /// The sentence can hold a key or a value of the answer. For a sensitive
+    /// question, use ``failureText(sensitive:)`` with `true`.
     public var failureText: String {
+        failureText(sensitive: false)
+    }
+
+    /// The English sentence of this issue, as
+    /// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)`` gives
+    /// it.
+    ///
+    /// When `sensitive` is `false`, the sentence is ``failureText``. When
+    /// `sensitive` is `true`, the sentence holds no key and no value of the
+    /// answer: a key that is not in the requested schema, and an item of a
+    /// multi select that is not one of its values, do not show. The names,
+    /// limits, patterns and values that the requested schema declares
+    /// still show.
+    ///
+    /// - Parameter sensitive: Tells if the answer holds a secret, as
+    ///   ``ElicitationRequest/sensitive`` does.
+    /// - Returns: The sentence.
+    public func failureText(sensitive: Bool) -> String {
         let subject = field.map(FailureText.field) ?? FailureText.wholeAnswer
         switch kind {
         case .requiredFieldMissing:
             return "\(subject) is required, and the answer does not give it"
+        case .fieldNotInSchema where sensitive && field != nil:
+            // The name of the field is a key of the answer, not of the
+            // schema, thus it can hold a part of the secret.
+            return "\(FailureText.wholeAnswer) has a field that is not in the requested schema"
         case .fieldNotInSchema:
             return "\(subject) is not in the requested schema"
         case .wrongType(let expected):
@@ -127,6 +152,8 @@ public struct ElicitationValidationIssue: Sendable, Equatable {
             return "\(subject) must be \(FailureText.number(maximum)) or less"
         case .valueNotAllowed(let allowed):
             return "\(subject) must be one of these values: \(FailureText.quotedList(allowed))"
+        case .itemNotAllowed(_, let allowed) where sensitive:
+            return "\(subject) has a value that is not one of these values: \(FailureText.quotedList(allowed))"
         case .itemNotAllowed(let value, let allowed):
             return "\(subject) has the value \(FailureText.quoted(value)), "
                 + "which is not one of these values: \(FailureText.quotedList(allowed))"

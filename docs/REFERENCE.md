@@ -1249,21 +1249,26 @@ questions that those runs ask the user.
   never throws for an answer: a cancel is not an error.
 - The run gets no form content that is not valid. When the answer to a form
   question is an accept, `elicit(_:)` checks the content against the requested
-  schema with `ElicitationRequestedSchema.validationFailure(of:)`: the
+  schema with `ElicitationRequestedSchema.validationFailure(of:sensitive:)`: the
   required fields, keys that are not in the schema, the value types, the
   length, `pattern` (a match of the whole value), `format`, `minimum`,
   `maximum`, the select values and the item counts. Content that fails reaches
   the run as a decline with no content. Its reason is
   `ElicitationRequestedSchema.invalidAnswerReasonPrefix`
-  (`"the answer is not valid: "`) followed by the failure. A host that also
+  (`"the answer is not valid: "`) followed by the failure. When the request
+  is `sensitive`, the failure holds no key and no value of the answer: an item
+  of a multi select that is not one of its values, and a key that is not in
+  the schema, do not show. A request that is not sensitive keeps the full
+  failure. A host that also
   sends the accepted answer to a different place (for example, a router that
   posts it as mail to the model), or a UI that keeps a form open for a
-  correction, calls `validationFailure(of:)` before it sends the answer. A UI
+  correction, calls `validationFailure(of:sensitive:)` before it sends the
+  answer, with `sensitive: request.sensitive`. A UI
   that shows the failure in the language of the user calls
   `validationIssue(of:)` in its place: an `ElicitationValidationIssue` gives
   the field and the rule with its limit as data (for example
-  `.tooShort(minLength: 2)`), and its `failureText` is the same English
-  sentence.
+  `.tooShort(minLength: 2)`), and its `failureText(sensitive:)` is the same
+  English sentence.
 
 ```swift
 /// Runs the tests in the background. A call waits for the settle period of

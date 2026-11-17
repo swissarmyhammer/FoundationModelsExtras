@@ -19,7 +19,7 @@ struct CodePointLengthCase: Sendable, CustomTestStringConvertible {
 
 /// Exercises the public text rules of ``ElicitationValidation``, with a plain
 /// import: a client that checks a form field calls the same functions as
-/// ``ElicitationRequestedSchema/validationFailure(of:)``.
+/// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)``.
 @Suite("Elicitation validation: the public text rules")
 struct ElicitationValidationRulesTests {
     /// The name of the field of each schema check.

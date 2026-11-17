@@ -430,10 +430,12 @@ public struct ToolContext: Sendable {
     ///
     /// The run gets no content that is not valid. When the request is in form
     /// mode and the answer is an accept, this function checks the content with
-    /// ``ElicitationRequestedSchema/validationFailure(of:)``. When the check
-    /// finds a failure, the run gets a decline with no content, and its
-    /// reason is ``ElicitationRequestedSchema/invalidAnswerReasonPrefix``
-    /// followed by the failure. Each other answer, and each accept of a URL
+    /// ``ElicitationRequestedSchema/validationFailure(of:sensitive:)``. When
+    /// the check finds a failure, the run gets a decline with no content, and
+    /// its reason is ``ElicitationRequestedSchema/invalidAnswerReasonPrefix``
+    /// followed by the failure. When the request is
+    /// ``ElicitationRequest/sensitive``, the failure holds no key and no value
+    /// of the answer. Each other answer, and each accept of a URL
     /// question, reaches the run unchanged.
     ///
     /// - Parameter request: The question.
@@ -517,7 +519,7 @@ public struct ToolContext: Sendable {
     private static func checked(_ answer: ElicitationResponse, to request: ElicitationRequest) -> ElicitationResponse {
         guard request.mode == .form, answer.action == .accept,
             let schema = request.requestedSchema,
-            let failure = schema.validationFailure(of: answer.content)
+            let failure = schema.validationFailure(of: answer.content, sensitive: request.sensitive)
         else { return answer }
         return .decline(reason: ElicitationRequestedSchema.invalidAnswerReasonPrefix + failure)
     }
