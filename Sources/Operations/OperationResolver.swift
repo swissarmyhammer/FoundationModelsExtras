@@ -283,7 +283,7 @@ extension OperationResolver {
     /// so an empty `"op": ""` does not count as a key to fit. Empty when
     /// `content` is not an object.
     private static func nonOpKeys(of content: GeneratedContent) -> Set<String> {
-        guard case let .structure(properties, _) = content.kind else { return [] }
+        guard case .structure(let properties, _) = content.kind else { return [] }
         return Set(properties.keys.filter { OperationKeys.normalized($0) != OperationKeys.opFieldName })
     }
 
@@ -306,7 +306,7 @@ extension OperationResolver {
     /// - Parameter content: The payload the tool received.
     /// - Returns: The inner object, or `content` unchanged.
     internal static func unwrappingArguments(_ content: GeneratedContent) -> GeneratedContent {
-        guard case let .structure(properties, _) = content.kind,
+        guard case .structure(let properties, _) = content.kind,
             let (key, value) = soleElement(of: properties), OperationKeys.normalized(key) == argumentsWrapperKey
         else {
             return content
@@ -550,7 +550,7 @@ extension OperationResolver {
     ///   required parameter names.
     internal func resolveParameters(_ content: GeneratedContent, matching parameters: [ParamMeta]) -> ParameterResolution {
         let rawProperties: [String: GeneratedContent]
-        if case let .structure(properties, _) = content.kind {
+        if case .structure(let properties, _) = content.kind {
             rawProperties = properties
         } else {
             rawProperties = [:]
