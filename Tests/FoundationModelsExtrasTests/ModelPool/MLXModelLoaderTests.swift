@@ -3,6 +3,7 @@ import Foundation
 @testable import FoundationModelsExtras
 import HuggingFace
 import InMemoryTracing
+import MLXFoundationModels
 import MLXLMCommon
 import TelemetryTestSupport
 import Testing
@@ -76,6 +77,31 @@ struct MLXModelLoaderTests {
         let kept = try #require(loader.tokenizerLoader as? MarkedTokenizerLoader)
 
         #expect(kept.mark == Self.tokenizerLoaderMark)
+    }
+
+    @Test("a loader keeps the KV-cache configuration that its init gets")
+    func loaderKeepsTheGivenKVCache() throws {
+        let kvCache = try KVCacheFixture.eightBitAffine()
+
+        #expect(MLXModelLoader(kvCache: kvCache).kvCache == kvCache)
+    }
+
+    @Test("a loader that gets no KV-cache configuration keeps none")
+    func loaderKeepsNoKVCacheByDefault() {
+        #expect(MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent"))).kvCache == nil)
+    }
+
+    @Test("the language model that a loader makes runs under the KV-cache configuration of the loader")
+    func languageModelCarriesTheKVCache() throws {
+        let kvCache = try KVCacheFixture.eightBitAffine()
+        let loader = MLXModelLoader(
+            cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")), kvCache: kvCache)
+        let downloader = ProgressReportingDownloader(upstream: StepDownloader(steps: [])) { _ in }
+
+        let model = try loader.makeLanguageModel(
+            for: ModelPoolKey(ref: ModelRef(Self.repository), role: .llm), downloader: downloader)
+
+        #expect(model.kvCache == kvCache)
     }
 
     @Test("the footprint of a key is the sum of the weight files of the snapshot of the main revision")

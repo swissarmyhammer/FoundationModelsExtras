@@ -54,6 +54,11 @@ public struct MLXModelLoader: PooledModelLoader {
     /// and the registration of its drafter model types.
     private let drafterRegistration: MTPDrafterRegistration
 
+    /// The KV-cache configuration that each generation of each
+    /// `MLXLanguageModel` of the loader runs under, for example affine 8-bit
+    /// compression. `nil` keeps full-precision caches.
+    public let kvCache: KVCacheConfiguration?
+
     /// Makes a loader over a Hugging Face cache. The download writes to this
     /// cache, the load reads the weights from it, and the footprint measures
     /// the weights in it.
@@ -106,15 +111,19 @@ public struct MLXModelLoader: PooledModelLoader {
     ///     `HF_HUB_OFFLINE`: the mode is on for `1`, `true`, `yes` or `on`,
     ///     with no case. A test gives `true`, thus it sends no request and
     ///     does not change the environment of the process.
+    ///   - kvCache: The KV-cache configuration that each generation of each
+    ///     LLM runs under, for example affine 8-bit compression. `nil`, the
+    ///     default, keeps full-precision caches. An embedding model has no KV
+    ///     cache, thus it does not read this configuration.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
         tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text,
-        offline: Bool? = nil
+        offline: Bool? = nil, kvCache: KVCacheConfiguration? = nil
     ) {
         self.init(
             cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenProvider: tokenProvider,
             tokenizerLoader: tokenizerLoader, drafterRegistration: drafterRegistration,
-            offline: HubSource.isOffline(given: offline))
+            offline: HubSource.isOffline(given: offline), kvCache: kvCache)
     }
 
     /// Makes a loader over `cache`.
@@ -129,13 +138,17 @@ public struct MLXModelLoader: PooledModelLoader {
     ///   - drafterRegistration: The factory that loads an MTP drafter.
     ///   - offline: `true` to send no request to the Hub, and to load only
     ///     cached models.
+    ///   - kvCache: The KV-cache configuration of each LLM. `nil` keeps
+    ///     full-precision caches.
     init(
         cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil,
-        drafterRegistration: MTPDrafterRegistration = .qwen35Text, offline: Bool = false
+        drafterRegistration: MTPDrafterRegistration = .qwen35Text, offline: Bool = false,
+        kvCache: KVCacheConfiguration? = nil
     ) {
         hub = HubSource(cache: cache, tokenProvider: tokenProvider, offline: offline)
         self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
         self.drafterRegistration = drafterRegistration
+        self.kvCache = kvCache
     }
 
     /// Downloads the model of `key` when the cache does not hold it, and loads
@@ -170,19 +183,14 @@ public struct MLXModelLoader: PooledModelLoader {
         try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadMetalInstall) { _ in
             try MetalLibraryBootstrap.install()
         }
-        let configuration = Self.configuration(of: key.ref)
         let downloader = ProgressReportingDownloader(upstream: hub.downloader(), report: progressHandler)
         switch key.role {
         case .llm:
-            return try await Self.loadLanguageModel(
-                configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader,
-                speculativeDecoding: try speculativeDecoding(for: key),
-                weightsLocation: { [cache = hub.cache, folder = key.ref.localDirectory] id in
-                    folder ?? Self.weightsDirectory(of: id, in: cache)
-                })
+            return try await Self.preload(makeLanguageModel(for: key, downloader: downloader))
         case .embedding:
             return try await MLXEmbedding.load(
-                ref: key.ref, configuration: configuration, downloader: downloader, tokenizerLoader: tokenizerLoader)
+                ref: key.ref, configuration: Self.configuration(of: key.ref), downloader: downloader,
+                tokenizerLoader: tokenizerLoader)
         }
     }
 
@@ -322,38 +330,46 @@ public struct MLXModelLoader: PooledModelLoader {
         return size
     }
 
-    /// Makes an `MLXLanguageModel` with ``languageModelCapabilities`` and
-    /// loads its weights.
+    /// Makes the `MLXLanguageModel` of `key` with
+    /// ``languageModelCapabilities``, the MTP drafter of its reference and the
+    /// KV-cache configuration of the loader. Loads no weights: the load
+    /// closure of the model runs when the model preloads. The model loads its
+    /// drafter on its first generation.
     ///
-    /// The `preload()` of the model runs in a preload span. It calls the load
-    /// closure of the model, thus the weights span is inside the preload
-    /// span. A model that the model cache of MLX holds runs no load closure,
-    /// and gives no weights span.
+    /// The load closure runs in a weights span.
     ///
     /// - Parameters:
-    ///   - configuration: The model and its revision.
+    ///   - key: The model and its role.
     ///   - downloader: The downloader of the files of the model.
-    ///   - tokenizerLoader: The loader of the tokenizer of the model.
-    ///   - speculativeDecoding: The MTP drafter of the model, or `nil` for
-    ///     plain decode. The model loads the drafter on its first generation.
-    ///   - weightsLocation: Gives the folder of the weights of a model.
-    /// - Returns: The loaded model.
-    /// - Throws: The error of the download or of the load.
-    private static func loadLanguageModel(
-        configuration: ModelConfiguration, downloader: ProgressReportingDownloader,
-        tokenizerLoader: any TokenizerLoader, speculativeDecoding: MLXSpeculativeDecoding?,
-        weightsLocation: @escaping @Sendable (String) -> URL
-    ) async throws -> MLXLanguageModel {
-        let model = MLXLanguageModel(
-            configuration: configuration, capabilities: languageModelCapabilities,
-            speculativeDecoding: speculativeDecoding, weightsLocation: weightsLocation
-        ) { configuration, progress in
+    /// - Returns: The model, with no weights loaded.
+    /// - Throws: The error of `MLXSpeculativeDecoding` for a bad block size.
+    func makeLanguageModel(for key: ModelPoolKey, downloader: ProgressReportingDownloader) throws -> MLXLanguageModel {
+        MLXLanguageModel(
+            configuration: Self.configuration(of: key.ref), capabilities: Self.languageModelCapabilities,
+            speculativeDecoding: try speculativeDecoding(for: key), kvCache: kvCache,
+            weightsLocation: { [cache = hub.cache, folder = key.ref.localDirectory] id in
+                folder ?? Self.weightsDirectory(of: id, in: cache)
+            }
+        ) { [tokenizerLoader] configuration, progress in
             try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadWeights) { _ in
                 try await loadModelContainer(
                     from: downloader, using: tokenizerLoader,
-                    configuration: configuration, progressHandler: progress)
+                    configuration: configuration, progress: progress)
             }
         }
+    }
+
+    /// Loads the weights of `model` in a preload span.
+    ///
+    /// The `preload()` of the model calls its load closure, thus the weights
+    /// span is inside the preload span. A model that the model cache of MLX
+    /// holds runs no load closure, and gives no weights span.
+    ///
+    /// - Parameter model: A model that ``makeLanguageModel(for:downloader:)``
+    ///   made.
+    /// - Returns: The loaded model.
+    /// - Throws: The error of the download or of the load.
+    private static func preload(_ model: MLXLanguageModel) async throws -> MLXLanguageModel {
         try await ModelLoadTelemetry.tracePhase(ExtrasTelemetry.SpanName.modelLoadPreload) { _ in
             try await model.preload()
         }

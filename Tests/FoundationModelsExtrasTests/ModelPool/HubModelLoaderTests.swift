@@ -91,6 +91,27 @@ struct HubModelLoaderTests {
         #expect(HubModelFormat.detect(paths: ["my-mlpackage-notes.md", "mlpackage"]) == .mlx)
     }
 
+    // MARK: KV-cache configuration
+
+    @Test("a loader keeps the KV-cache configuration that its init gets")
+    func loaderKeepsTheGivenKVCache() throws {
+        let kvCache = try KVCacheFixture.eightBitAffine()
+
+        #expect(HubModelLoader(kvCache: kvCache).kvCache == kvCache)
+    }
+
+    @Test("a loader gives its KV-cache configuration to its MLX loader")
+    func loaderForwardsTheKVCacheToMLX() throws {
+        let kvCache = try KVCacheFixture.eightBitAffine()
+
+        #expect(HubModelLoader(kvCache: kvCache).mlx.kvCache == kvCache)
+    }
+
+    @Test("a loader that gets no KV-cache configuration keeps none")
+    func loaderKeepsNoKVCacheByDefault() {
+        #expect(HubModelLoader().kvCache == nil)
+    }
+
     // MARK: Format of a cached snapshot
 
     @Test("an embedding key whose cached snapshot holds a package is Core ML, with no network")

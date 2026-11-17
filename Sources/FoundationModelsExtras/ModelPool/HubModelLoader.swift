@@ -98,7 +98,7 @@ public struct HubModelLoader: PooledModelLoader {
     private let hub: HubSource
 
     /// The loader of a repository with `safetensors` weights.
-    private let mlx: MLXModelLoader
+    let mlx: MLXModelLoader
 
     /// The loader of a repository with a `.mlpackage` folder.
     private let coreML: CoreMLModelLoader
@@ -111,8 +111,14 @@ public struct HubModelLoader: PooledModelLoader {
     /// with no context.
     private let formats = FormatCache()
 
+    /// The KV-cache configuration that each generation of each MLX language
+    /// model of the loader runs under, for example affine 8-bit compression.
+    /// `nil` keeps full-precision caches. The Core ML and GGUF loaders do not
+    /// read it: a GGUF loader takes its own KV-cache type.
+    public let kvCache: KVCacheConfiguration?
+
     /// Makes a loader over a Hugging Face cache. See
-    /// ``MLXModelLoader/init(cacheDirectory:tokenProvider:tokenizerLoader:drafterRegistration:offline:)``
+    /// ``MLXModelLoader/init(cacheDirectory:tokenProvider:tokenizerLoader:drafterRegistration:offline:kvCache:)``
     /// for the meaning of each parameter.
     ///
     /// ```swift
@@ -141,20 +147,25 @@ public struct HubModelLoader: PooledModelLoader {
     ///     sends no request and does not change the environment of the
     ///     process. The GGUF loader has its own mode: give it a ``GGUFSource``
     ///     with the same value.
+    ///   - kvCache: The KV-cache configuration that each generation of each
+    ///     MLX language model runs under, for example affine 8-bit
+    ///     compression. `nil`, the default, keeps full-precision caches. The
+    ///     GGUF loader has its own KV-cache type.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
         tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text,
-        gguf: (any PooledModelLoader)? = nil, offline: Bool? = nil
+        gguf: (any PooledModelLoader)? = nil, offline: Bool? = nil, kvCache: KVCacheConfiguration? = nil
     ) {
         let cache = cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default
         let offline = HubSource.isOffline(given: offline)
         hub = HubSource(cache: cache, tokenProvider: tokenProvider, offline: offline)
         mlx = MLXModelLoader(
             cache: cache, tokenProvider: tokenProvider, tokenizerLoader: tokenizerLoader,
-            drafterRegistration: drafterRegistration, offline: offline)
+            drafterRegistration: drafterRegistration, offline: offline, kvCache: kvCache)
         coreML = CoreMLModelLoader(
             cache: cache, tokenProvider: tokenProvider, tokenizerLoader: tokenizerLoader, offline: offline)
         self.gguf = gguf
+        self.kvCache = kvCache
     }
 
     /// Loads the model of `key` with the loader of its format. Reports
