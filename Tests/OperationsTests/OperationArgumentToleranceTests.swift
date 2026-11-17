@@ -310,6 +310,23 @@ struct OperationArgumentToleranceTests {
         #expect(json == answer("list resource", id: "kanban"))
     }
 
+    @Test func explicitOpUnderAKeyThatNormalizesToOpRunsTheNamedOperation() async throws {
+        let tool = try makeSkillsMirror()
+
+        let json = try await tool.call(arguments: GeneratedContent(properties: ["OP": "list resource", "id": "kanban"]))
+
+        #expect(json == answer("list resource", id: "kanban"))
+    }
+
+    @Test func keyOpWinsOverAnotherKeyThatNormalizesToOp() async throws {
+        let tool = try makeSkillsMirror()
+
+        let json = try await tool.call(
+            arguments: GeneratedContent(properties: ["OP": "use skill", "op": "list resource", "id": "kanban"]))
+
+        #expect(json == answer("list resource", id: "kanban"))
+    }
+
     @Test func explicitUnknownOpIsNotReplacedByAnInferredOne() async throws {
         let tool = try makeSkillsMirror()
 

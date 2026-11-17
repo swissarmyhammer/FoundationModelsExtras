@@ -224,9 +224,7 @@ extension OperationResolver {
     ///   `.unnamed` with the fitting candidates when the payload names no op
     ///   and key-fit inference chose none.
     internal func matchedOp(for content: GeneratedContent, among candidates: [OpCandidate]) -> OpMatch {
-        if let explicit = try? content.value(String.self, forProperty: OperationKeys.opFieldName),
-            !explicit.isEmpty
-        {
+        if let explicit = Self.explicitOpString(of: content) {
             return matchOpString(explicit, against: candidates).map(OpMatch.matched) ?? .unknown
         }
         if let proposed = inferOp?(content) {
@@ -273,6 +271,38 @@ extension OperationResolver {
         }
         guard let defaultOp else { return nil }
         return matchOpString(defaultOp, against: inferable)
+    }
+
+    /// The non-empty string value of the `op` key of `content`, or `nil`.
+    ///
+    /// The key is compared normalized, as `nonOpKeys(of:)` compares it, so
+    /// `OP` and `Op` name the op too. Thus a key that is not one of the
+    /// keys to fit is always the key of the explicit op.
+    ///
+    /// When several keys normalize to `op`, the key `op` itself comes first,
+    /// and then the other keys in sorted order, so the result does not
+    /// depend on the order of the properties.
+    ///
+    /// - Parameter content: The payload.
+    /// - Returns: The first non-empty string value under a key that
+    ///   normalizes to `op`, or `nil` when there is none.
+    private static func explicitOpString(of content: GeneratedContent) -> String? {
+        guard case .structure(let properties, _) = content.kind else { return nil }
+        let opKeys = properties.keys
+            .filter { OperationKeys.normalized($0) == OperationKeys.opFieldName }
+            .sorted { (opKeyRank($0), $0) < (opKeyRank($1), $1) }
+        return opKeys
+            .compactMap { try? properties[$0]?.value(String.self) }
+            .first { !$0.isEmpty }
+    }
+
+    /// The sort rank of a key that normalizes to `op`: 0 for the key `op`
+    /// itself, 1 for any other spelling.
+    ///
+    /// - Parameter key: A key that normalizes to `op`.
+    /// - Returns: The rank of `key`.
+    private static func opKeyRank(_ key: String) -> Int {
+        key == OperationKeys.opFieldName ? 0 : 1
     }
 
     /// The keys of `content` other than the `op` key, compared normalized,

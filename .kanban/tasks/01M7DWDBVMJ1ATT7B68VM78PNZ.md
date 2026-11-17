@@ -4,8 +4,7 @@ assignees:
 comments:
 - actor: claude-code
   id: 01m7dxvqtehpt369kjmaa50cat
-  text: |-
-    Research: `op` is read in `OperationResolver.extractedOpString` (explicit non-empty `op`, else the `inferOp` hook), matched by `matchOpString`, and `OperationTool.resolve` throws `.unknownOperation(valid:)` on no match. Each op declares its parameters as `[ParamMeta]` (`OperationDefinition.parameterMetadata`, carried on `AnyOperation.parameters`). The real `skills` tool is in FoundationModelsSkills (`SkillsTool.swift`, `UseSkill`, `ListResource`, ...): six ops, and `{id}` fits both `use skill` and `list resource`, so unique-fit inference alone does not fix the evidence call. No op carries read-only metadata, and both fitting ops are read-only, so a read-only tie-break still ties. Chosen: a per-tool `OperationResolver(defaultOp:)`, used only among fitting ops, beside the existing per-tool `inferOp` hook. The skills tool must name `use skill` in FoundationModelsSkills `SkillsTool.makeResolver()` (follow-up).
+  text: 'Research: `op` is read in `OperationResolver.extractedOpString` (explicit non-empty `op`, else the `inferOp` hook), matched by `matchOpString`, and `OperationTool.resolve` throws `.unknownOperation(valid:)` on no match. Each op declares its parameters as `[ParamMeta]` (`OperationDefinition.parameterMetadata`, carried on `AnyOperation.parameters`). The real `skills` tool is in FoundationModelsSkills (`SkillsTool.swift`, `UseSkill`, `ListResource`, ...): six ops, and `{id}` fits both `use skill` and `list resource`, so unique-fit inference alone does not fix the evidence call. No op carries read-only metadata, and both fitting ops are read-only, so a read-only tie-break still ties. Chosen: a per-tool `OperationResolver(defaultOp:)`, used only among fitting ops, beside the existing per-tool `inferOp` hook. The skills tool must name `use skill` in FoundationModelsSkills `SkillsTool.makeResolver()` (follow-up).'
   timestamp: 2026-11-14T21:01:53.358058+00:00
 - actor: claude-code
   id: 01m7dxvqtfqrv9pzvbkkq71s9x
@@ -18,8 +17,18 @@ comments:
     - evidence: 5 files — Sources/Operations/OperationResolver.swift, Sources/Operations/OperationTool.swift, Tests/OperationsTests/OperationArgumentToleranceTests.swift (new, 16 tests), Tests/OperationsTests/OperationToolTests.swift (one test reshaped), docs/GUIDE.md. RED: 7 of 16 new tests failed for the missing feature; GREEN: 16 of 16. `swift build --build-tests`: no warnings in the changed code. `swift test`: 2547 tests in 7 runs, 0 failures.
     - next: review, then the FoundationModelsSkills follow-up (`defaultOp: "use skill"`, PlainTextOperations).
   timestamp: 2026-11-14T21:01:53.358058+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m7mt0nerv8qfah48e09jveys
+  text: |-
+    ### finish iteration 1 — clean
+    - review of fee9093: findings — Sources/Operations/OperationResolver.swift:221 (the explicit op key was read exactly, the keys to fit excluded it normalized)
+    - implement: changed — OperationResolver reads the explicit op under any key that normalizes to `op`; the key `op` wins over other spellings. Two new tests.
+    - test: green — swift test, 2737 passed in 7 runs
+    - commit: 6f62131
+    - review of 09d38f9..6f62131: clean — 0 findings
+  timestamp: 2026-11-17T13:09:21.496039+00:00
+position_column: done
+position_ordinal: fff180
 title: Be liberal in the operation arguments that OperationTool dispatches (unwrap a lone `arguments`, infer a missing `op`)
 ---
 ## What
@@ -48,5 +57,8 @@ The real `skills` tool (FoundationModelsSkills) has six operations: `search skil
 
 ## Follow-up
 FoundationModelsSkills `SkillsTool.makeResolver()` must pass `defaultOp: "use skill"` for case 1 to be fixed in the real tool, and `PlainTextOperations` must see the same inferred op so that the answer of an inferred `use skill` decodes to plain text.
+
+## Review Findings (2026-11-17 07:03)
+- [x] `Sources/Operations/OperationResolver.swift:221` `completeness/invariant-propagation` — The new `nonOpKeys(of:)` treats the op key case-insensitively, through `OperationKeys.normalized`, but the explicit `op` read in `matchedOpString(for:among:)` matches the key exactly. A payload such as `{"OP": "list resource", "id": "kanban"}` therefore gets no explicit op, and `defaultOp` runs `use skill`. Use one rule for the op key in both places. Add one test that feeds `"OP": "list resource"` and asserts that the named op runs or that the call returns unknown, but never `use skill`.
 
 #bug
