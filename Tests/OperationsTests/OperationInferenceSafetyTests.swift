@@ -123,36 +123,25 @@ struct OperationInferenceSafetyTests {
 
     /// Makes the entry tool over `context`.
     ///
-    /// - Parameter defaultOp: The default op of the resolver, or `nil` for
-    ///   none.
+    /// - Parameters:
+    ///   - operations: The operations of the tool, or `nil` for `get entry`,
+    ///     `list entry`, `delete entry`, and `archive entry`.
+    ///   - defaultOp: The default op of the resolver, or `nil` for none.
     /// - Returns: The fused tool.
-    private func makeEntryTool(defaultOp: String? = nil) throws -> OperationTool<EntryContext> {
+    private func makeEntryTool(
+        operations: [AnyOperation<EntryContext>]? = nil, defaultOp: String? = nil
+    ) throws -> OperationTool<EntryContext> {
         try OperationTool(
             name: "entries",
             description: "Reads and changes entries",
             context: context,
-            operations: [
+            operations: operations ?? [
                 AnyOperation(GetEntryFixture.self),
                 AnyOperation(ListEntryFixture.self),
                 AnyOperation(DeleteEntryFixture.self),
                 AnyOperation(ArchiveEntryFixture.self),
             ],
             resolver: OperationResolver(defaultOp: defaultOp)
-        )
-    }
-
-    /// Makes a tool over `context` with the default resolver and the given
-    /// operations.
-    ///
-    /// - Parameter operations: The operations of the tool.
-    /// - Returns: The fused tool.
-    private func makeTool(_ operations: [AnyOperation<EntryContext>]) throws -> OperationTool<EntryContext> {
-        try OperationTool(
-            name: "entries",
-            description: "Reads and changes entries",
-            context: context,
-            operations: operations,
-            resolver: OperationResolver()
         )
     }
 
@@ -253,7 +242,7 @@ struct OperationInferenceSafetyTests {
     }
 
     @Test func explicitOpWithAVerbThatIsAnAliasKeyRunsTheOperationWithThatVerb() async throws {
-        let tool = try makeTool([AnyOperation(RemoveEntryFixture.self)])
+        let tool = try makeEntryTool(operations: [AnyOperation(RemoveEntryFixture.self)])
 
         _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "remove entry", "name": "alpha"]))
 
@@ -262,7 +251,8 @@ struct OperationInferenceSafetyTests {
 
     @Test(arguments: ["remove entry", "delete entry"])
     func explicitOpRunsTheOperationItNamesWhenTheAliasTargetAlsoExists(op: String) async throws {
-        let tool = try makeTool([AnyOperation(RemoveEntryFixture.self), AnyOperation(DeleteEntryFixture.self)])
+        let tool = try makeEntryTool(
+            operations: [AnyOperation(RemoveEntryFixture.self), AnyOperation(DeleteEntryFixture.self)])
 
         _ = try await tool.call(arguments: GeneratedContent(properties: ["op": op, "name": "alpha"]))
 
@@ -278,11 +268,12 @@ struct OperationInferenceSafetyTests {
     }
 
     @Test func opLessCallDoesNotRunAnOperationWhoseVerbIsAnAliasKey() async throws {
-        let tool = try makeTool([AnyOperation(RemoveEntryFixture.self)])
+        let tool = try makeEntryTool(operations: [AnyOperation(RemoveEntryFixture.self)])
 
         let message = try await tool.call(arguments: GeneratedContent(properties: ["name": "alpha"]))
 
         #expect(await context.log.runs.isEmpty)
-        #expect(message == OperationError.unnamedOperation(fitting: ["remove entry"], valid: validOps(of: tool)).description)
+        #expect(
+            message == OperationError.unnamedOperation(fitting: ["remove entry"], valid: validOps(of: tool)).description)
     }
 }

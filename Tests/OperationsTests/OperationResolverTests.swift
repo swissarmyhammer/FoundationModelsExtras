@@ -65,6 +65,16 @@ struct OperationResolverTests {
         #expect(resolver.matchOpString("look up callgraph", against: candidates) == "get callgraph")
     }
 
+    @Test func multiWordVerbAliasKeyMatchesTwoTokensByTheSeparatedCompare() {
+        let resolver = OperationResolver(verbAliases: ["look_up": "get"])
+        let colliding = [
+            OperationResolver.OpCandidate(verb: "get", noun: "type_definition", opString: "get type_definition"),
+            OperationResolver.OpCandidate(verb: "get", noun: "typedefinition", opString: "get typedefinition"),
+        ]
+
+        #expect(resolver.matchOpString("lookup typedefinition", against: colliding) == "get typedefinition")
+    }
+
     @Test func withoutANounAliasASingularNounDoesNotMatch() {
         let resolver = OperationResolver()
 

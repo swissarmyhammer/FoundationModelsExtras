@@ -272,8 +272,8 @@ extension OperationResolver {
     ///   of them.
     private func inferredOpString(among fitting: [OpCandidate]) -> String? {
         let inferable = fitting.filter(\.isInferable)
-        if inferable.count == 1 {
-            return inferable[0].opString
+        if let only = Self.soleElement(of: inferable) {
+            return only.opString
         }
         guard let defaultOp else { return nil }
         return matchOpString(defaultOp, against: inferable)
@@ -306,8 +306,8 @@ extension OperationResolver {
     /// - Parameter content: The payload the tool received.
     /// - Returns: The inner object, or `content` unchanged.
     internal static func unwrappingArguments(_ content: GeneratedContent) -> GeneratedContent {
-        guard case let .structure(properties, _) = content.kind, properties.count == 1,
-            let (key, value) = properties.first, OperationKeys.normalized(key) == argumentsWrapperKey
+        guard case let .structure(properties, _) = content.kind,
+            let (key, value) = soleElement(of: properties), OperationKeys.normalized(key) == argumentsWrapperKey
         else {
             return content
         }
@@ -351,6 +351,10 @@ extension OperationResolver {
             ?? oneWordMatch(tokens, against: candidates)
     }
 
+    /// The number of tokens in an op of a verb and a noun, such as
+    /// `["remove", "entry"]`.
+    private static let verbAndNounTokenCount = 2
+
     /// The match of `tokens` with the separators that the caller gave.
     ///
     /// Two tokens are compared as (verb, noun) and then as (noun, verb)
@@ -368,20 +372,13 @@ extension OperationResolver {
     /// - Returns: The first registered matching candidate's `opString`, or
     ///   `nil` if none match.
     private func separatedMatch(_ tokens: [String], against candidates: [OpCandidate], aliased: Bool) -> String? {
-        guard tokens.count == 2 else {
+        guard tokens.count == Self.verbAndNounTokenCount, let first = tokens.first, let last = tokens.last else {
             guard !aliased else { return nil }
             let joined = tokens.joined(separator: " ")
             return candidates.first { Self.spaceSeparatedTokens($0.opString).joined(separator: " ") == joined }?
                 .opString
         }
-        for (verbToken, nounToken) in [(tokens[0], tokens[1]), (tokens[1], tokens[0])] {
-            let verb = aliased ? verbAliases[verbToken] ?? verbToken : verbToken
-            let noun = aliased ? compactNounAliases[nounToken] ?? nounToken : nounToken
-            if let match = candidates.first(where: { $0.verb == verb && $0.noun == noun }) {
-                return match.opString
-            }
-        }
-        return nil
+        return firstMatch(of: [(first, last), (last, first)], against: candidates, aliased: aliased) { $0 }
     }
 
     /// The fallback for an op of one word, such as `read` where the tool
@@ -403,7 +400,7 @@ extension OperationResolver {
     ///   `nil` when `tokens` is not one word, or the word names no candidate
     ///   or several.
     private func oneWordMatch(_ tokens: [String], against candidates: [OpCandidate]) -> String? {
-        guard tokens.count == 1, let word = tokens.first else { return nil }
+        guard let word = Self.soleElement(of: tokens) else { return nil }
         var named = Self.candidates(namedByVerb: word, orNoun: word, among: candidates)
         if named.isEmpty {
             named = Self.candidates(
@@ -412,8 +409,7 @@ extension OperationResolver {
                 among: candidates
             )
         }
-        guard named.count == 1 else { return nil }
-        return named[0].opString
+        return Self.soleElement(of: named)?.opString
     }
 
     /// The candidates whose compacted verb is equal to `verb` compacted, or
@@ -450,19 +446,52 @@ extension OperationResolver {
     /// - Returns: The first registered matching candidate's `opString` for
     ///   the first split and order that matches, or `nil` if none match.
     private func compactMatch(_ tokens: [String], against candidates: [OpCandidate], aliased: Bool) -> String? {
-        guard tokens.count >= 2 else { return nil }
-        for split in 1..<tokens.count {
+        let pairs = tokens.indices.dropFirst().flatMap { split -> [(String, String)] in
             let left = tokens[..<split].joined()
             let right = tokens[split...].joined()
-            for (verbWord, nounWord) in [(left, right), (right, left)] {
-                let verb = Self.compacted(aliased ? compactVerbAliases[verbWord] ?? verbWord : verbWord)
-                let noun = Self.compacted(aliased ? compactNounAliases[nounWord] ?? nounWord : nounWord)
-                if let match = candidates.first(where: { Self.compacted($0.verb) == verb && Self.compacted($0.noun) == noun }) {
-                    return match.opString
-                }
+            return [(left, right), (right, left)]
+        }
+        return firstMatch(of: pairs, against: candidates, aliased: aliased, comparing: Self.compacted)
+    }
+
+    /// The `opString` of the first candidate whose verb and noun are equal
+    /// to a (verb, noun) pair of `pairs`, in pair order and then in
+    /// candidate order.
+    ///
+    /// - Parameters:
+    ///   - pairs: The (verb, noun) words to try, in order.
+    ///   - candidates: Every registered operation's `verb`/`noun`/`opString`.
+    ///   - aliased: When `true`, the verb goes through `verbAliases` and the
+    ///     noun goes through `nounAliases`, both by compacted key. When
+    ///     `false`, the words are compared as given.
+    ///   - form: The form in which each word and each candidate's verb and
+    ///     noun are compared.
+    /// - Returns: The matching candidate's `opString`, or `nil` if none
+    ///   match.
+    private func firstMatch(
+        of pairs: [(verb: String, noun: String)],
+        against candidates: [OpCandidate],
+        aliased: Bool,
+        comparing form: (String) -> String
+    ) -> String? {
+        for pair in pairs {
+            let verb = form(aliased ? compactVerbAliases[pair.verb] ?? pair.verb : pair.verb)
+            let noun = form(aliased ? compactNounAliases[pair.noun] ?? pair.noun : pair.noun)
+            if let match = candidates.first(where: { form($0.verb) == verb && form($0.noun) == noun }) {
+                return match.opString
             }
         }
         return nil
+    }
+
+    /// The one element of `elements`, or `nil` when it has no element or
+    /// more than one.
+    ///
+    /// - Parameter elements: The collection to read.
+    /// - Returns: The sole element, or `nil`.
+    private static func soleElement<Elements: Collection>(of elements: Elements) -> Elements.Element? {
+        guard let first = elements.first, elements.dropFirst().isEmpty else { return nil }
+        return first
     }
 
     /// Lowercases `text` and removes each `_`, `-`, and whitespace
