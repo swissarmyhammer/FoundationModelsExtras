@@ -39,16 +39,16 @@ import FoundationModelsExtras
 ///     `ToolMount.synchronous`.
 ///   - isInferable: Whether key-fit inference and
 ///     `OperationResolver.defaultOp` can choose the operation for a call
-///     that does not name it. Set `true` only for an operation that only
-///     reads. When it is present, the macro emits it as the `isInferable`
-///     static. Defaults to `false`.
+///     that does not name it. Set `false` for an operation that must run
+///     only when the call names it. When it is present, the macro emits it
+///     as the `isInferable` static. Defaults to `true`.
 @attached(
     extension, conformances: OperationDefinition, HasCLICommand,
     names: named(verb), named(noun), named(operationDescription), named(parameterMetadata), named(mount),
         named(isInferable), named(Command), named(CLICommand)
 )
 public macro Operation(
-    verb: String, noun: String, description: String, mount: ToolMount = .synchronous, isInferable: Bool = false
+    verb: String, noun: String, description: String, mount: ToolMount = .synchronous, isInferable: Bool = true
 ) =
     #externalMacro(module: "OperationsMacros", type: "OperationMacro")
 

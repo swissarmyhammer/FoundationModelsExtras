@@ -28,8 +28,8 @@ private struct EntryRunOutput: Encodable, Sendable {
     let op: String
 }
 
-/// `get entry`: it only reads, so it declares with a static that key-fit
-/// inference can choose it.
+/// `get entry`: it declares with a static that key-fit inference can choose
+/// it.
 @Generable
 @Operation(verb: "get", noun: "entry", description: "Get one entry")
 private struct GetEntryFixture {
@@ -39,8 +39,8 @@ private struct GetEntryFixture {
     var name: String
 }
 
-/// `list entry`: it only reads, so it declares with the macro argument that
-/// key-fit inference can choose it.
+/// `list entry`: it declares with the macro argument that key-fit inference
+/// can choose it.
 @Generable
 @Operation(verb: "list", noun: "entry", description: "List the entries", isInferable: true)
 private struct ListEntryFixture {
@@ -48,10 +48,10 @@ private struct ListEntryFixture {
     var filter: String?
 }
 
-/// `delete entry`: it has a side effect, so it keeps the default and only an
-/// explicit `op` runs it. Only this operation has `reason`.
+/// `delete entry`: it declares that key-fit inference cannot choose it, so
+/// only an explicit `op` runs it. Only this operation has `reason`.
 @Generable
-@Operation(verb: "delete", noun: "entry", description: "Delete one entry")
+@Operation(verb: "delete", noun: "entry", description: "Delete one entry", isInferable: false)
 private struct DeleteEntryFixture {
     @Guide(description: "The entry name")
     var name: String
@@ -63,10 +63,10 @@ private struct DeleteEntryFixture {
     var force: Bool?
 }
 
-/// `archive entry`: it has a side effect, so it keeps the default. Its keys
-/// are a subset of the keys of `delete entry`.
+/// `archive entry`: it declares that key-fit inference cannot choose it. Its
+/// keys are a subset of the keys of `delete entry`.
 @Generable
-@Operation(verb: "archive", noun: "entry", description: "Archive one entry")
+@Operation(verb: "archive", noun: "entry", description: "Archive one entry", isInferable: false)
 private struct ArchiveEntryFixture {
     @Guide(description: "The entry name")
     var name: String
@@ -75,11 +75,11 @@ private struct ArchiveEntryFixture {
     var force: Bool?
 }
 
-/// `remove entry`: it has a side effect, so it keeps the default. Its verb
+/// `remove entry`: it declares that key-fit inference cannot choose it. Its verb
 /// `remove` is a key of the default verb-alias table, which maps it to
 /// `delete`.
 @Generable
-@Operation(verb: "remove", noun: "entry", description: "Remove one entry")
+@Operation(verb: "remove", noun: "entry", description: "Remove one entry", isInferable: false)
 private struct RemoveEntryFixture {
     @Guide(description: "The entry name")
     var name: String
@@ -113,10 +113,24 @@ extension ArchiveEntryFixture: EntryOperation {}
 
 extension RemoveEntryFixture: EntryOperation {}
 
-/// Key-fit inference and `defaultOp` choose only an operation that declares
-/// `isInferable`. An op-less call that fits only other operations does not
-/// run, and it gets an error that tells the caller to name the operation.
-@Suite("OperationTool inference safety")
+/// `rename entry`: it does not declare `isInferable`, so it has the default.
+@Generable
+@Operation(verb: "rename", noun: "entry", description: "Rename one entry")
+private struct RenameEntryFixture {
+    @Guide(description: "The entry name")
+    var name: String
+
+    @Guide(description: "The new title of the entry")
+    var title: String
+}
+
+extension RenameEntryFixture: EntryOperation {}
+
+/// Key-fit inference and `defaultOp` choose only an operation whose
+/// `isInferable` is `true`. An op-less call that fits only other operations
+/// does not run, and it gets an error that tells the caller to name the
+/// operation.
+@Suite("OperationTool inference: the isInferable flag")
 struct OperationInferenceSafetyTests {
     /// The context of the tool under test. Each test reads its run log.
     private let context = EntryContext()
@@ -152,8 +166,20 @@ struct OperationInferenceSafetyTests {
 
     // MARK: - The flag
 
-    @Test func operationIsNotInferableByDefault() {
+    @Test func operationIsInferableByDefault() {
+        #expect(RenameEntryFixture.isInferable)
+    }
+
+    @Test func operationThatDeclaresFalseIsNotInferable() {
         #expect(!ArchiveEntryFixture.isInferable)
+    }
+
+    @Test func opLessCallRunsTheOneFittingOperationWithTheDefaultFlag() async throws {
+        let tool = try makeEntryTool(operations: [AnyOperation(RenameEntryFixture.self)])
+
+        _ = try await tool.call(arguments: GeneratedContent(properties: ["name": "alpha", "title": "beta"]))
+
+        #expect(await context.log.runs == ["rename entry"])
     }
 
     @Test func anyOperationCarriesTheFlagOfItsOperation() {
@@ -162,7 +188,7 @@ struct OperationInferenceSafetyTests {
 
     // MARK: - Missing `op`
 
-    @Test func opLessCallThatFitsOnlyADestructiveOperationDoesNotRunIt() async throws {
+    @Test func opLessCallThatFitsOnlyANonInferableOperationDoesNotRunIt() async throws {
         let tool = try makeEntryTool()
 
         _ = try await tool.call(arguments: GeneratedContent(properties: ["name": "alpha", "reason": "old"]))
@@ -170,7 +196,7 @@ struct OperationInferenceSafetyTests {
         #expect(await context.log.runs.isEmpty)
     }
 
-    @Test func opLessCallThatFitsOnlyADestructiveOperationGetsTheErrorThatNamesIt() async throws {
+    @Test func opLessCallThatFitsOnlyANonInferableOperationGetsTheErrorThatNamesIt() async throws {
         let tool = try makeEntryTool()
 
         let message = try await tool.call(arguments: GeneratedContent(properties: ["name": "alpha", "reason": "old"]))
@@ -186,7 +212,7 @@ struct OperationInferenceSafetyTests {
         #expect(await context.log.runs == ["list entry"])
     }
 
-    @Test func opLessCallThatFitsAnInferableAndADestructiveOperationRunsTheInferableOne() async throws {
+    @Test func opLessCallThatFitsAnInferableAndANonInferableOperationRunsTheInferableOne() async throws {
         let tool = try makeEntryTool()
 
         _ = try await tool.call(arguments: GeneratedContent(properties: ["name": "alpha"]))
@@ -202,7 +228,7 @@ struct OperationInferenceSafetyTests {
         #expect(await context.log.runs.isEmpty)
     }
 
-    @Test func performThrowsTheErrorForAnOpLessCallThatFitsOnlyDestructiveOperations() async throws {
+    @Test func performThrowsTheErrorForAnOpLessCallThatFitsOnlyNonInferableOperations() async throws {
         let tool = try makeEntryTool()
         let fitting = ["delete entry", "archive entry"]
 
@@ -233,7 +259,7 @@ struct OperationInferenceSafetyTests {
 
     // MARK: - Explicit `op`
 
-    @Test func explicitOpOfADestructiveOperationRunsIt() async throws {
+    @Test func explicitOpOfANonInferableOperationRunsIt() async throws {
         let tool = try makeEntryTool()
 
         _ = try await tool.call(arguments: GeneratedContent(properties: ["op": "delete entry", "name": "alpha"]))

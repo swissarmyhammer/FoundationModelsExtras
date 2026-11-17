@@ -35,10 +35,10 @@ import FoundationModels
 ///    ignored);
 /// 3. the payload holds every required parameter of the operation.
 ///
-/// Inference chooses only a fitting operation that declares
-/// `OperationDefinition.isInferable`, that is an operation that only reads.
-/// An operation with a side effect runs only when the call names it, also
-/// when it is the one operation that fits. Exactly one fitting inferable
+/// Inference chooses only a fitting operation whose
+/// `OperationDefinition.isInferable` is `true`, which is the default. An
+/// operation that sets the flag to `false` runs only when the call names
+/// it, also when it is the one operation that fits. Exactly one fitting inferable
 /// operation is the inferred op. Several give `defaultOp` when it names one
 /// of them, and no op otherwise. No fitting inferable operation gives no op.
 ///
@@ -87,13 +87,9 @@ public struct OperationResolver: Sendable {
     /// opt-in per tool.
     ///
     /// The proposal is matched as an explicit `op` is, so the hook can give
-    /// any operation, also one that is not `isInferable`. The tool author
-    /// writes the hook and chooses its op, so the resolver does not check
-    /// the flag here.
-    ///
-    /// - Warning: An inferred call runs an operation that the caller did not
-    ///   name. Do not give an op that writes, removes or has another side
-    ///   effect, unless the tool author accepts that risk.
+    /// any operation, also one whose `isInferable` is `false`. The tool
+    /// author writes the hook and chooses its op, so the resolver does not
+    /// check the flag here.
     public let inferOp: InferenceHook?
 
     /// The op that an op-less payload goes to when its keys fit several
@@ -107,11 +103,11 @@ public struct OperationResolver: Sendable {
     /// explicit `op` or `inferOp`.
     ///
     /// An inferred call runs an operation the model did not name, so the
-    /// value must name an operation that declares
-    /// `OperationDefinition.isInferable`. A value that names an operation
-    /// without the flag is never used. For example, the
-    /// FoundationModelsSkills `skills` tool names `use skill`, which fits
-    /// `{"id": …}` together with `list resource`, and both only read.
+    /// value must name an operation whose `OperationDefinition.isInferable`
+    /// is `true`. A value that names an operation that sets the flag to
+    /// `false` is never used. For example, the FoundationModelsSkills
+    /// `skills` tool names `use skill`, which fits `{"id": …}` together with
+    /// `list resource`.
     public let defaultOp: String?
 
     /// `verbAliases` with each key compacted (see `compacted(_:)`), so that
@@ -133,7 +129,7 @@ public struct OperationResolver: Sendable {
     ///     the payload has no usable `op` value. Defaults to `nil`.
     ///   - defaultOp: The op for an op-less payload whose keys fit several
     ///     inferable operations, when it is one of them. Name an operation
-    ///     that declares `OperationDefinition.isInferable`. Defaults to
+    ///     whose `OperationDefinition.isInferable` is `true`. Defaults to
     ///     `nil`.
     public init(
         verbAliases: [String: String] = [:],
@@ -184,10 +180,10 @@ extension OperationResolver {
         ///     only a payload with no keys could fit, and such a payload is
         ///     never inferred.
         ///   - isInferable: Whether key-fit inference and `defaultOp` can
-        ///     choose the operation. Defaults to `false`, as
+        ///     choose the operation. Defaults to `true`, as
         ///     `OperationDefinition.isInferable` does.
         internal init(
-            verb: String, noun: String, opString: String, parameters: [ParamMeta] = [], isInferable: Bool = false
+            verb: String, noun: String, opString: String, parameters: [ParamMeta] = [], isInferable: Bool = true
         ) {
             self.verb = verb
             self.noun = noun

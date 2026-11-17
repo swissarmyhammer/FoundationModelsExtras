@@ -164,28 +164,28 @@ declared mount is synchronous, also when the host mounts the tool as background.
 
 ## Inferring an operation from the keys
 
-A call with no `op` runs an operation that the caller did not name. So key-fit inference
-and `OperationResolver(defaultOp:)` choose only an operation that declares
-`isInferable`. The default is `false`. Set it to `true` only for an operation that has no
-side effect: it only reads. An operation that writes, removes, starts, sends or has
-another side effect keeps the default, and it runs only when the call names it in `op`.
+A call with no `op` runs the one operation whose parameters fit its keys. Key-fit
+inference and `OperationResolver(defaultOp:)` choose only an operation whose
+`isInferable` is `true`, and `true` is the default. Set it to `false` for an operation
+that must run only when the call names it in `op`.
 
 Give the `isInferable` argument to `@Operation`:
 
 ```swift
 @Generable
-@Operation(verb: "list", noun: "agents", description: "List the agents", isInferable: true)
-struct ListAgents {
-    @Guide(description: "Text that a listed agent must hold")
-    var filter: String?
+@Operation(verb: "delete", noun: "agent", description: "Delete an agent", isInferable: false)
+struct DeleteAgent {
+    @Guide(description: "The name of the agent")
+    var name: String
 }
 ```
 
 A type that conforms to `OperationDefinition` by hand declares
-`static let isInferable = true`.
+`static let isInferable = false`.
 
 A call with no `op` that fits no inferable operation does not run. For example, when
-`{"name": "reviewer"}` fits only `delete agent`, the answer is:
+`{"name": "reviewer"}` fits only `delete agent`, and `delete agent` sets `isInferable` to
+`false`, the answer is:
 
 ```text
 No operation is named. Name the operation in `op`. Operations whose parameters fit the given keys: delete agent. Valid operations: list agents, add agent, delete agent.

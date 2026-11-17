@@ -123,9 +123,10 @@ private struct ReadResourceMirror: SkillsMirrorOperation {
 }
 
 /// `run script`: a required `id` and `path`, an optional `arguments` array
-/// and `timeout`. It starts a process, so it is not inferable.
+/// and `timeout`. It sets `isInferable` to `false`, so a call must name it.
 private struct RunScriptMirror: SkillsMirrorOperation {
     let id: String?
+    static let isInferable = false
     static let verb = "run"
     static let noun = "script"
     static let parameterMetadata: [ParamMeta] = [
