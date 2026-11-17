@@ -56,8 +56,24 @@ comments:
     - evidence: swift test on the uncommitted working tree, exit 0, 0 failures, 0 skipped; the six new kvCache tests (MLXModelLoader x3, HubModelLoader x3) passed; the only warning is the allowed "missing creator for mutated node ... mlx-swift_Cmlx.bundle"
     - next: review
   timestamp: 2026-11-17T14:51:18.139225+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m7mzxw2xpn6vc26grz2tkcck
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (dd3ee48) — 0 findings, 0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed; 5 files reviewed, 4 .kanban/ files excluded by .reviewignore
+    - next: task moved to done; message the Router session (foundationmodelsrouter-4c) with the pushed SHA per the task notes
+  timestamp: 2026-11-17T14:52:41.437902+00:00
+- actor: claude-code
+  id: 01m7mzy4h8d18svh06myhd60rb
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 0 failures, 0 skipped
+    - commit: dd3ee48
+    - review: clean — 0 findings
+  timestamp: 2026-11-17T14:52:50.088543+00:00
+position_column: done
+position_ordinal: fff180
 title: MLXModelLoader and HubModelLoader take a KV-cache configuration (kvCache)
 ---
 Requested by FoundationModelsRouter (Router card ^2fet0gs), so ACPAgent can set profile.kvBits for every model.
