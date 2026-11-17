@@ -30,6 +30,11 @@ import HuggingFace
 /// keeps one model for each context, and a resident model at a larger
 /// context serves a request for a smaller one.
 ///
+/// A model loads with the KV-cache type of the ``ModelPoolKey/kvCache`` of its
+/// key: `.bits8` loads a `Q8_0` cache, `.bits4` a `Q4_0` cache, and a key with
+/// none a 16-bit float cache. ``poolKey(for:)`` keeps it, thus the pool keeps
+/// one model for each KV-cache type.
+///
 /// The loader handles `.llm` keys. An `.embedding` key throws
 /// ``LlamaCppModelLoaderError/unsupportedRole(_:)``.
 ///
@@ -39,10 +44,11 @@ public struct LlamaCppModelLoader: PooledModelLoader {
     /// The source of the files of each model.
     private let source: GGUFSource
 
-    /// The options of each model: the type of the KV cache, the count of
-    /// live sequences, and speculative decoding. The context size of each
-    /// model comes from its key, and this context size is the default for a
-    /// key with none.
+    /// The options of each model: the count of live sequences and speculative
+    /// decoding. The context size of each model comes from its key, and this
+    /// context size is the default for a key with none. The KV-cache type of
+    /// each model comes from its key too: the loader does not read
+    /// ``LlamaLanguageModel/Options/kvCacheType`` of these options.
     public let options: LlamaLanguageModel.Options
 
     /// Makes a loader over a Hugging Face cache.
@@ -52,9 +58,10 @@ public struct LlamaCppModelLoader: PooledModelLoader {
     ///     Hugging Face cache. Give the cache of ``HubModelLoader``, thus both
     ///     read the same files.
     ///   - tokenProvider: The token provider of each download.
-    ///   - options: The options of each model: the type of the KV cache, the
-    ///     count of live sequences, and speculative decoding. Its context size
-    ///     is the context of a key with none.
+    ///   - options: The options of each model: the count of live sequences
+    ///     and speculative decoding. Its context size is the context of a key
+    ///     with none. The KV-cache type of each model comes from its key, not
+    ///     from these options.
     ///   - offline: The offline mode of the GGUF source of the loader. `true`
     ///     sends no request to the Hub: a model loads only from the cache,
     ///     and a model that is not in the cache throws
@@ -70,13 +77,15 @@ public struct LlamaCppModelLoader: PooledModelLoader {
         self.options = options
     }
 
-    /// The key of the model of `key` in the pool: `key` with its context, or
-    /// with the context of ``options`` when it has none.
+    /// The key of the model of `key` in the pool: `key` with its context and
+    /// its KV-cache quantization, or with the context of ``options`` when it
+    /// has none.
     ///
     /// - Parameter key: The key of a request.
     /// - Returns: The key, with a context size.
     public func poolKey(for key: ModelPoolKey) async throws -> ModelPoolKey {
-        ModelPoolKey(ref: key.ref, role: key.role, contextSize: key.contextSize ?? options.contextSize)
+        ModelPoolKey(
+            ref: key.ref, role: key.role, contextSize: key.contextSize ?? options.contextSize, kvCache: key.kvCache)
     }
 
     /// Loads the model of `key`. Reports nothing.
@@ -143,15 +152,29 @@ public struct LlamaCppModelLoader: PooledModelLoader {
                 gguf: files.model, projector: files.projector, drafter: drafter?.model, options: options(of: key)))
     }
 
-    /// The options of the model of `key`: ``options`` at the context of the
-    /// key.
+    /// The options of the model of `key`: ``options`` at the context and with
+    /// the KV-cache type of the key.
     ///
     /// - Parameter key: The model and its role.
     /// - Returns: The options of the load and of the measure.
     private func options(of key: ModelPoolKey) -> LlamaLanguageModel.Options {
         var options = options
         options.contextSize = key.contextSize ?? options.contextSize
+        options.kvCacheType = Self.cacheType(of: key.kvCache)
         return options
+    }
+
+    /// The llama.cpp KV-cache type of `quantization`.
+    ///
+    /// - Parameter quantization: The quantization of a key, or `nil`.
+    /// - Returns: `.quantized8` for `.bits8`, `.quantized4` for `.bits4`, and
+    ///   `.float16` for `nil`.
+    private static func cacheType(of quantization: KVCacheQuantization?) -> LlamaLanguageModel.KVCacheType {
+        switch quantization {
+        case .bits8: .quantized8
+        case .bits4: .quantized4
+        case nil: .float16
+        }
     }
 
     /// Checks that the loader handles `key`.

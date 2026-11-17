@@ -79,29 +79,18 @@ struct MLXModelLoaderTests {
         #expect(kept.mark == Self.tokenizerLoaderMark)
     }
 
-    @Test("a loader keeps the KV-cache configuration that its init gets")
-    func loaderKeepsTheGivenKVCache() throws {
-        let kvCache = try KVCacheFixture.eightBitAffine()
+    @Test(
+        "the language model of a quantized key runs under affine compression of the bits of the key",
+        arguments: [KVCacheQuantization.bits8, .bits4])
+    func languageModelCarriesTheKVCacheOfTheKey(quantization: KVCacheQuantization) throws {
+        let model = try Self.makeLanguageModel(kvCache: quantization)
 
-        #expect(MLXModelLoader(kvCache: kvCache).kvCache == kvCache)
+        #expect(model.kvCache == (try KVCacheFixture.affine(bits: quantization.bits)))
     }
 
-    @Test("a loader that gets no KV-cache configuration keeps none")
-    func loaderKeepsNoKVCacheByDefault() {
-        #expect(MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent"))).kvCache == nil)
-    }
-
-    @Test("the language model that a loader makes runs under the KV-cache configuration of the loader")
-    func languageModelCarriesTheKVCache() throws {
-        let kvCache = try KVCacheFixture.eightBitAffine()
-        let loader = MLXModelLoader(
-            cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")), kvCache: kvCache)
-        let downloader = ProgressReportingDownloader(upstream: StepDownloader(steps: [])) { _ in }
-
-        let model = try loader.makeLanguageModel(
-            for: ModelPoolKey(ref: ModelRef(Self.repository), role: .llm), downloader: downloader)
-
-        #expect(model.kvCache == kvCache)
+    @Test("the language model of a key with no quantization keeps full-precision caches")
+    func languageModelOfAFullPrecisionKeyHasNoKVCache() throws {
+        #expect(try Self.makeLanguageModel(kvCache: nil).kvCache == nil)
     }
 
     @Test("the footprint of a key is the sum of the weight files of the snapshot of the main revision")
@@ -378,6 +367,19 @@ struct MLXModelLoaderTests {
             span.attributes.get(ExtrasTelemetry.AttributeKey.downloadBytes)
                 == .int64(SnapshotStep.partOfFirstFile.completedBytes))
         #expect(span.status?.code == .error)
+    }
+
+    /// Makes the language model of an LLM key of ``repository`` with the KV
+    /// cache `kvCache`, over a cache that holds nothing. Loads no weights.
+    ///
+    /// - Parameter kvCache: The KV-cache quantization of the key, or `nil`.
+    /// - Returns: The model, with no weights loaded.
+    /// - Throws: The error of ``MLXModelLoader/makeLanguageModel(for:downloader:)``.
+    private static func makeLanguageModel(kvCache: KVCacheQuantization?) throws -> MLXLanguageModel {
+        let loader = MLXModelLoader(cache: HubCache(cacheDirectory: URL(fileURLWithPath: "/nonexistent")))
+        let downloader = ProgressReportingDownloader(upstream: StepDownloader(steps: [])) { _ in }
+        return try loader.makeLanguageModel(
+            for: ModelPoolKey(ref: ModelRef(repository), role: .llm, kvCache: kvCache), downloader: downloader)
     }
 
     /// Downloads with a ``ProgressReportingDownloader`` over `upstream`

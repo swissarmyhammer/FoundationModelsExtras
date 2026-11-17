@@ -827,8 +827,8 @@ least the context of a request serves that request: the smallest such. A
 request for a larger context loads a new model, and the pool never loads a
 resident model again at a larger context. `ModelHold.key`, and
 `PooledModel.loadedKey()`, give the key of the resident model, thus the context
-that it loaded at. `LlamaCppModelLoader.options` gives the KV cache type and
-the count of live sequences of each model.
+that it loaded at. `LlamaCppModelLoader.options` gives the count of live
+sequences of each model.
 
 ```swift
 let pool = ModelPool(loader: HubModelLoader(gguf: LlamaCppModelLoader()))
@@ -836,6 +836,25 @@ let large = PooledModel(ref: "ggml-org/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf"
 let small = PooledModel(ref: "ggml-org/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf", pool: pool, contextSize: 8192)
 _ = try await large.loadedKey()                     // loads at 32768
 let context = try await small.loadedKey().contextSize   // 32768: the resident model serves it
+```
+
+The quantization of the KV cache of a generation model is part of its key too:
+`ModelPoolKey(ref:role:contextSize:kvCache:)` with a `KVCacheQuantization`,
+`.bits8` or `.bits4`, or `nil` for full-precision caches. Only the KV cache is
+quantized, and each loader maps the key to the cache type of its engine:
+`MLXModelLoader` (and `HubModelLoader` for safetensors weights) runs each
+generation with affine compression of the bits of the key in groups of 64, and
+`LlamaCppModelLoader` loads a `Q8_0` cache for `.bits8`, a `Q4_0` cache for
+`.bits4`, and a 16-bit float cache for `nil`, whatever the `kvCacheType` of its
+options. Each loader keeps the quantization in `poolKey(for:)`, and a resident
+model serves only a request of the same quantization, thus two keys of one
+model with another quantization never share one resident model:
+
+```swift
+let pool = ModelPool(loader: HubModelLoader(gguf: LlamaCppModelLoader()))
+let ref: ModelRef = "ggml-org/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q8_0.gguf"
+let compact = try await pool.acquire(ModelPoolKey(ref: ref, role: .llm, kvCache: .bits8))
+let full = try await pool.acquire(ModelPoolKey(ref: ref, role: .llm))   // a second model
 ```
 
 `CoreMLModelLoader` downloads the files of the package and the tokenizer, and

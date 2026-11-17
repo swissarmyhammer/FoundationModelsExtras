@@ -120,6 +120,28 @@ struct ModelPoolContextTests {
         #expect(loader.loads.values == [32768])
     }
 
+    @Test("a loader that ignores the context keeps one model for each KV-cache quantization")
+    func defaultLoaderKeepsTheQuantization() async throws {
+        let log = Recorder<String>()
+        let pool = ModelPool(loader: RecordingLoader(name: "A", log: log))
+
+        let quantized = try await pool.acquire(ModelPoolKey(ref: Self.ref, role: .llm, kvCache: .bits8))
+        let full = try await pool.acquire(ModelPoolKey(ref: Self.ref, role: .llm))
+
+        #expect(quantized.key != full.key)
+    }
+
+    @Test("a resident load of a larger context and another KV-cache quantization does not serve a request")
+    func anotherQuantizationLoadsAgain() async throws {
+        let loader = ContextLoader()
+        let pool = ModelPool(loader: loader)
+        _ = try await pool.acquire(ModelPoolKey(ref: Self.ref, role: .llm, contextSize: 32768, kvCache: .bits8))
+
+        _ = try await pool.acquire(Self.key(8192))
+
+        #expect(loader.loads.values == [32768, 8192])
+    }
+
     // MARK: Helpers
 
     /// The key of ``ref`` as an LLM at `contextSize`.

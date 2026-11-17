@@ -18,6 +18,10 @@ import Tokenizers
 /// `LanguageModel` with guided output, tool calls and a reasoning trace. An
 /// `.embedding` key gives a ``PooledEmbedding``.
 ///
+/// The ``ModelPoolKey/kvCache`` of an `.llm` key sets the KV cache of each
+/// generation of its model: affine compression of the bits of the key in
+/// groups of ``kvCacheGroupSize``, or full precision for a key with none.
+///
 /// ```swift
 /// let pool = ModelPool()   // loads with MLXModelLoader()
 /// let hold = try await pool.acquire(ModelPoolKey(ref: "mlx-community/Qwen3-4B-4bit", role: .llm))
@@ -36,6 +40,10 @@ public struct MLXModelLoader: PooledModelLoader {
     /// flags, thus `*` also matches a `/`.
     static let downloadPatterns = ["*.\(weightFileExtension)", "*.json", "*.jinja"]
 
+    /// The count of values of a quantized KV cache that share one scale and
+    /// one bias.
+    static let kvCacheGroupSize = 64
+
     /// The capabilities of each `MLXLanguageModel` that the loader makes: the
     /// capabilities that the FoundationModelsRouter declares for each LLM.
     /// ``PooledModel`` declares them too when you give no capabilities.
@@ -53,11 +61,6 @@ public struct MLXModelLoader: PooledModelLoader {
     /// The factory that loads the MTP drafter of a reference that names one,
     /// and the registration of its drafter model types.
     private let drafterRegistration: MTPDrafterRegistration
-
-    /// The KV-cache configuration that each generation of each
-    /// `MLXLanguageModel` of the loader runs under, for example affine 8-bit
-    /// compression. `nil` keeps full-precision caches.
-    public let kvCache: KVCacheConfiguration?
 
     /// Makes a loader over a Hugging Face cache. The download writes to this
     /// cache, the load reads the weights from it, and the footprint measures
@@ -111,19 +114,15 @@ public struct MLXModelLoader: PooledModelLoader {
     ///     `HF_HUB_OFFLINE`: the mode is on for `1`, `true`, `yes` or `on`,
     ///     with no case. A test gives `true`, thus it sends no request and
     ///     does not change the environment of the process.
-    ///   - kvCache: The KV-cache configuration that each generation of each
-    ///     LLM runs under, for example affine 8-bit compression. `nil`, the
-    ///     default, keeps full-precision caches. An embedding model has no KV
-    ///     cache, thus it does not read this configuration.
     public init(
         cacheDirectory: URL? = nil, tokenProvider: TokenProvider = .environment,
         tokenizerLoader: (any TokenizerLoader)? = nil, drafterRegistration: MTPDrafterRegistration = .qwen35Text,
-        offline: Bool? = nil, kvCache: KVCacheConfiguration? = nil
+        offline: Bool? = nil
     ) {
         self.init(
             cache: cacheDirectory.map { HubCache(cacheDirectory: $0) } ?? .default, tokenProvider: tokenProvider,
             tokenizerLoader: tokenizerLoader, drafterRegistration: drafterRegistration,
-            offline: HubSource.isOffline(given: offline), kvCache: kvCache)
+            offline: HubSource.isOffline(given: offline))
     }
 
     /// Makes a loader over `cache`.
@@ -138,17 +137,13 @@ public struct MLXModelLoader: PooledModelLoader {
     ///   - drafterRegistration: The factory that loads an MTP drafter.
     ///   - offline: `true` to send no request to the Hub, and to load only
     ///     cached models.
-    ///   - kvCache: The KV-cache configuration of each LLM. `nil` keeps
-    ///     full-precision caches.
     init(
         cache: HubCache, tokenProvider: TokenProvider = .environment, tokenizerLoader: (any TokenizerLoader)? = nil,
-        drafterRegistration: MTPDrafterRegistration = .qwen35Text, offline: Bool = false,
-        kvCache: KVCacheConfiguration? = nil
+        drafterRegistration: MTPDrafterRegistration = .qwen35Text, offline: Bool = false
     ) {
         hub = HubSource(cache: cache, tokenProvider: tokenProvider, offline: offline)
         self.tokenizerLoader = tokenizerLoader ?? #huggingFaceTokenizerLoader()
         self.drafterRegistration = drafterRegistration
-        self.kvCache = kvCache
     }
 
     /// Downloads the model of `key` when the cache does not hold it, and loads
@@ -332,9 +327,9 @@ public struct MLXModelLoader: PooledModelLoader {
 
     /// Makes the `MLXLanguageModel` of `key` with
     /// ``languageModelCapabilities``, the MTP drafter of its reference and the
-    /// KV-cache configuration of the loader. Loads no weights: the load
-    /// closure of the model runs when the model preloads. The model loads its
-    /// drafter on its first generation.
+    /// KV-cache configuration of its ``ModelPoolKey/kvCache``. Loads no
+    /// weights: the load closure of the model runs when the model preloads.
+    /// The model loads its drafter on its first generation.
     ///
     /// The load closure runs in a weights span.
     ///
@@ -342,11 +337,13 @@ public struct MLXModelLoader: PooledModelLoader {
     ///   - key: The model and its role.
     ///   - downloader: The downloader of the files of the model.
     /// - Returns: The model, with no weights loaded.
-    /// - Throws: The error of `MLXSpeculativeDecoding` for a bad block size.
+    /// - Throws: The error of `MLXSpeculativeDecoding` for a bad block size,
+    ///   or of `AffineKVCacheConfiguration` for bits that it does not support.
     func makeLanguageModel(for key: ModelPoolKey, downloader: ProgressReportingDownloader) throws -> MLXLanguageModel {
         MLXLanguageModel(
             configuration: Self.configuration(of: key.ref), capabilities: Self.languageModelCapabilities,
-            speculativeDecoding: try speculativeDecoding(for: key), kvCache: kvCache,
+            speculativeDecoding: try speculativeDecoding(for: key),
+            kvCache: try Self.kvCacheConfiguration(of: key.kvCache),
             weightsLocation: { [cache = hub.cache, folder = key.ref.localDirectory] id in
                 folder ?? Self.weightsDirectory(of: id, in: cache)
             }
@@ -356,6 +353,20 @@ public struct MLXModelLoader: PooledModelLoader {
                     from: downloader, using: tokenizerLoader,
                     configuration: configuration, progress: progress)
             }
+        }
+    }
+
+    /// The KV-cache configuration of `quantization`: affine compression of
+    /// its bits in groups of ``kvCacheGroupSize``.
+    ///
+    /// - Parameter quantization: The quantization of a key, or `nil`.
+    /// - Returns: The configuration, or `nil` for full-precision caches.
+    /// - Throws: The error of `AffineKVCacheConfiguration` for bits that it
+    ///   does not support.
+    static func kvCacheConfiguration(of quantization: KVCacheQuantization?) throws -> KVCacheConfiguration? {
+        try quantization.map { quantization in
+            KVCacheConfiguration(
+                strategy: .affine(try AffineKVCacheConfiguration(bits: quantization.bits, groupSize: kvCacheGroupSize)))
         }
     }
 

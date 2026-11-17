@@ -84,6 +84,35 @@ struct LlamaCppModelLoaderTests {
         #expect(loader.options.contextSize == 8192)
     }
 
+    @Test("the pool key keeps the KV-cache quantization of the key")
+    func poolKeyKeepsTheQuantization() async throws {
+        let key = ModelPoolKey(ref: "org/model-GGUF", role: .llm, kvCache: .bits8)
+
+        #expect(try await LlamaCppModelLoader().poolKey(for: key).kvCache == .bits8)
+    }
+
+    @Test(
+        "a key loads with the cache type of its KV-cache quantization, not the type of the options",
+        arguments: [
+            (KVCacheQuantization?.some(.bits8), LlamaLanguageModel.KVCacheType.quantized8),
+            (.bits4, .quantized4),
+            (nil, .float16),
+        ])
+    func loadsWithTheCacheTypeOfTheKey(
+        kvCache: KVCacheQuantization?, cacheType: LlamaLanguageModel.KVCacheType
+    ) async throws {
+        let root = try TemporaryDirectory.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = try Self.copyVocabulary(to: root, as: "model.gguf")
+        let options = LlamaLanguageModel.Options(kvCacheType: Self.otherCacheType(than: cacheType))
+        let expected = try LlamaLanguageModel(gguf: model, options: LlamaLanguageModel.Options(kvCacheType: cacheType))
+
+        let container = try await LlamaCppModelLoader(cacheDirectory: root, options: options)
+            .load(ModelPoolKey(ref: ModelRef(model.path), role: .llm, kvCache: kvCache))
+
+        #expect((container as? LlamaLanguageModel)?.executorConfiguration == expected.executorConfiguration)
+    }
+
     @Test("a key with a context loads and measures at that context")
     func loadsAtTheContextOfTheKey() async throws {
         let root = try TemporaryDirectory.make()
@@ -164,6 +193,17 @@ struct LlamaCppModelLoaderTests {
     /// The key of the reference `text` in `role`.
     private static func key(_ text: String, _ role: ModelRole) -> ModelPoolKey {
         ModelPoolKey(ref: ModelRef(text), role: role)
+    }
+
+    /// A cache type that is not `cacheType`: the type of the options of a
+    /// loader whose key must decide the type.
+    ///
+    /// - Parameter cacheType: The type that the key gives.
+    /// - Returns: Another type.
+    private static func otherCacheType(
+        than cacheType: LlamaLanguageModel.KVCacheType
+    ) -> LlamaLanguageModel.KVCacheType {
+        cacheType == .float16 ? .quantized8 : .float16
     }
 
     /// Copies the vocab-only GGUF file to `folder` with the name `name`.

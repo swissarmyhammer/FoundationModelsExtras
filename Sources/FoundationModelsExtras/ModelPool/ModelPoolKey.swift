@@ -6,9 +6,12 @@ public enum ModelRole: Hashable, Sendable { case llm, embedding }
 /// The context size is part of the key only for a loader that loads a model
 /// at a fixed context, such as the GGUF loader: the pool asks the loader for
 /// the key with ``PooledModelLoader/poolKey(for:)`` at each acquire, and the
-/// default drops the context. A resident model of the same reference and role
-/// whose context is at least the context of a request gives the hold of that
-/// request.
+/// default drops the context. A resident model of the same reference, role and
+/// KV-cache quantization whose context is at least the context of a request
+/// gives the hold of that request.
+///
+/// The quantization of the KV cache is part of the key for each loader: two
+/// keys of one model with another ``kvCache`` never share one resident model.
 public struct ModelPoolKey: Hashable, Sendable {
     /// The model.
     public let ref: ModelRef
@@ -17,6 +20,9 @@ public struct ModelPoolKey: Hashable, Sendable {
     /// The context size, in tokens, that the model loads at, or `nil` for the
     /// default of the loader.
     public let contextSize: Int?
+    /// The quantization of the KV cache that the model loads with, or `nil`
+    /// for full-precision caches.
+    public let kvCache: KVCacheQuantization?
 
     /// Makes the key of `ref` in the role `role`.
     ///
@@ -25,24 +31,27 @@ public struct ModelPoolKey: Hashable, Sendable {
     ///   - role: What the model does.
     ///   - contextSize: The context size, in tokens, that the model loads at,
     ///     or `nil`, the default, for the default of the loader.
-    public init(ref: ModelRef, role: ModelRole, contextSize: Int? = nil) {
+    ///   - kvCache: The quantization of the KV cache that the model loads
+    ///     with, or `nil`, the default, for full-precision caches.
+    public init(ref: ModelRef, role: ModelRole, contextSize: Int? = nil, kvCache: KVCacheQuantization? = nil) {
         self.ref = ref
         self.role = role
         self.contextSize = contextSize
+        self.kvCache = kvCache
     }
 
-    /// The key with no context size.
-    public var withoutContext: ModelPoolKey { ModelPoolKey(ref: ref, role: role) }
+    /// The key with no context size. It keeps the quantization of the KV cache.
+    public var withoutContext: ModelPoolKey { ModelPoolKey(ref: ref, role: role, kvCache: kvCache) }
 
     /// Whether a model resident under this key can give the hold of
-    /// `request`: the same key, or the same reference and role at a context
-    /// at least as large.
+    /// `request`: the same key, or the same reference, role and quantization
+    /// of the KV cache at a context at least as large.
     ///
     /// - Parameter request: The key of a request.
     /// - Returns: `true` when this key serves the request.
     func serves(_ request: ModelPoolKey) -> Bool {
         guard self != request else { return true }
-        guard ref == request.ref, role == request.role,
+        guard ref == request.ref, role == request.role, kvCache == request.kvCache,
             let contextSize, let requested = request.contextSize
         else { return false }
         return contextSize >= requested
