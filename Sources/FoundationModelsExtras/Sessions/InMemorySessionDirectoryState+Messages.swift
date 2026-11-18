@@ -85,7 +85,7 @@ extension InMemorySessionDirectoryState {
         case .agent(let agentID, let folder):
             return [try sendToAgent(agentID, in: folder, message, chainDepth: chainDepth, at: now)]
         case .folder(let folder):
-            guard let target = newestLiveRoot(agentID: nil, in: folder) else {
+            guard let target = newestLiveRoot(in: folder) else {
                 return [Self.refused(.noSessionInTheFolder)]
             }
             return [deliver(message, chainDepth: chainDepth, to: target, at: now)]
@@ -132,8 +132,10 @@ extension InMemorySessionDirectoryState {
         chainDepth > loopGuards.chainDepthLimit ? .chainTooDeep : nil
     }
 
-    /// Delivers the message to the newest live root session of the agent,
-    /// or starts one with origin ``SessionDirectoryOrigin/message``.
+    /// Starts a new root session of the agent with origin
+    /// ``SessionDirectoryOrigin/message``, and delivers the message to it.
+    /// Each send starts a new session, also when the agent has a live root
+    /// session in the folder.
     ///
     /// - Parameters:
     ///   - agentID: The agent id of the address.
@@ -151,13 +153,9 @@ extension InMemorySessionDirectoryState {
         chainDepth: Int,
         at now: Date
     ) throws -> SessionSendReceipt {
-        let wantedFolder = folder ?? workingFolder(of: message.from)
-        if let target = newestLiveRoot(agentID: agentID, in: wantedFolder) {
-            return deliver(message, chainDepth: chainDepth, to: target, at: now)
-        }
         let request = SessionStartRequest(
             agentID: agentID,
-            workingDirectory: wantedFolder,
+            workingDirectory: folder ?? workingFolder(of: message.from),
             firstMessage: message.text,
             startedBy: Self.sessionID(of: message.from),
             origin: .message)
@@ -263,15 +261,12 @@ extension InMemorySessionDirectoryState {
         return delivered
     }
 
-    /// The newest live root session, of the agent when it is given, in the
-    /// folder when it is given.
+    /// The newest live root session in the folder, of any agent.
     ///
-    /// - Parameters:
-    ///   - agentID: The agent id, or `nil` for any agent.
-    ///   - folder: The folder, or `nil` for any folder.
+    /// - Parameter folder: The folder.
     /// - Returns: The summary of the session, or `nil` when none matches.
-    private func newestLiveRoot(agentID: String?, in folder: URL?) -> SessionSummary? {
-        summaries(matching: SessionQuery(workingDirectory: folder, agentID: agentID, kind: .root, limit: 1)).first
+    private func newestLiveRoot(in folder: URL) -> SessionSummary? {
+        summaries(matching: SessionQuery(workingDirectory: folder, kind: .root, limit: 1)).first
     }
 
     /// The working folder of a session sender, or `nil` for a UI sender.

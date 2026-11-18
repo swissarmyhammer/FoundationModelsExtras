@@ -262,19 +262,34 @@ struct InMemorySessionDirectoryDeliveryTests {
         #expect(try await directory.inbox(of: started.id, markRead: false).map(\.text) == ["Build it."])
     }
 
-    @Test("an agent address gives the newest live root session of the agent in the folder")
-    func anAgentAddressGivesTheNewestLiveRoot() async throws {
+    @Test("an agent address starts a new root session when the agent has a live root session in the folder")
+    func anAgentAddressStartsANewRootBesideALiveRoot() async throws {
         let directory = Fixtures.makeDirectory()
-        _ = try await Fixtures.startIdleSession(in: directory)
-        let newest = try await Fixtures.startIdleSession(in: directory)
+        let live = try await Fixtures.startIdleSession(in: directory)
 
         let receipts = try await directory.send(
             OutgoingSessionMessage(
                 from: Fixtures.user, to: .agent(id: Fixtures.reviewerAgentID, folder: Fixtures.projectFolder),
                 text: "Review again."))
 
-        #expect(receipts.map(\.target) == [newest])
-        #expect(receipts.map(\.outcome) == [.delivered])
+        let target = try #require(receipts.first?.target)
+        #expect(receipts.map(\.outcome) == [.started])
+        #expect(target != live)
+        #expect(try await directory.inbox(of: live, markRead: false).isEmpty)
+    }
+
+    @Test("a second send to the same agent address starts a second root session")
+    func aSecondSendToAnAgentAddressStartsASecondRoot() async throws {
+        let directory = Fixtures.makeDirectory()
+        let address = SessionAddress.agent(id: Fixtures.reviewerAgentID, folder: Fixtures.projectFolder)
+        _ = try await directory.send(OutgoingSessionMessage(from: Fixtures.user, to: address, text: "Review."))
+
+        _ = try await directory.send(OutgoingSessionMessage(from: Fixtures.user, to: address, text: "Review again."))
+
+        let roots = try await directory.sessions(
+            matching: SessionQuery(
+                workingDirectory: Fixtures.projectFolder, agentID: Fixtures.reviewerAgentID, kind: .root))
+        #expect(roots.count == 2)
     }
 
     @Test("an agent address in an other folder starts a new session there")
