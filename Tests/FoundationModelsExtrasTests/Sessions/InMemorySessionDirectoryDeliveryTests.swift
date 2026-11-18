@@ -79,6 +79,7 @@ struct InMemorySessionDirectoryDeliveryTests {
         let target = try await Fixtures.startWorkingSession(in: directory).id
         _ = try await directory.send(
             OutgoingSessionMessage(from: Fixtures.user, to: .session(target), text: "Next step."))
+        let queued = try #require(try await directory.inbox(of: target, markRead: false).first)
         let stream = directory.events()
 
         try directory.finishTurn(of: target, lastSummary: "First step done.")
@@ -87,6 +88,7 @@ struct InMemorySessionDirectoryDeliveryTests {
         #expect(
             events == [
                 .stateChanged(id: target, state: .idle, lastSummary: "First step done."),
+                .messageDelivered(queued),
                 .stateChanged(id: target, state: .working, lastSummary: nil),
             ])
     }

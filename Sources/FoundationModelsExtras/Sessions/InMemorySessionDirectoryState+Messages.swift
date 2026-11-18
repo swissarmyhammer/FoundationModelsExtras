@@ -36,6 +36,11 @@ extension InMemorySessionDirectoryState {
     /// The messages to a session that are not read, and with `markRead`,
     /// marks them read, thus no queued message starts a turn later.
     ///
+    /// With `markRead`, the read is how the target takes each queued
+    /// message, thus the read sends `messageDelivered` for each of them, one
+    /// time, in the order of the sends. A message that the target took
+    /// before gives no second event.
+    ///
     /// - Parameters:
     ///   - id: The session id.
     ///   - markRead: True to mark the messages read.
@@ -45,10 +50,8 @@ extension InMemorySessionDirectoryState {
         _ = try entry(id)
         let unread = deliveries[id, default: []].map(\.message).filter { !$0.isRead }
         if markRead {
-            updateDeliveries(of: id) { delivery in
-                delivery.message.isRead = true
-                delivery.isQueued = false
-            }
+            _ = takeQueuedMessages(of: id)
+            updateDeliveries(of: id) { $0.message.isRead = true }
         }
         return unread
     }
@@ -160,7 +163,7 @@ extension InMemorySessionDirectoryState {
             startedBy: Self.sessionID(of: message.from),
             origin: .message)
         let id = try launch(request, at: now)
-        let delivered = record(message, chainDepth: chainDepth, to: id, isQueued: false, at: now)
+        let delivered = record(message, chainDepth: chainDepth, to: id, at: now)
         beginTurn(of: id, chainDepth: chainDepth, at: now)
         return SessionSendReceipt(messageID: delivered.id, target: id, outcome: .started)
     }
@@ -196,12 +199,18 @@ extension InMemorySessionDirectoryState {
     /// archived target refuses it, a recorded target gets it in its inbox, an
     /// idle target starts a turn, and a working target queues it.
     ///
+    /// `messageDelivered` tells that the target took the message. An idle
+    /// target takes it at once, thus the event comes before the state of
+    /// its turn. A working target takes it later, thus the send sends no
+    /// event: the event comes when the turn of the message starts
+    /// (``finishTurn(of:lastSummary:at:)``), or when an inbox read marks the
+    /// message read (``inbox(of:markRead:)``).
+    ///
     /// A recorded target that is not live gets the message in its inbox, for
     /// a session sender and for a user sender, also when the directory has no
     /// launcher. The directory does not restore the session and starts no
-    /// turn. The receipt is `sent`, and the directory sends no event:
-    /// `messageDelivered` tells that the target recorded the message, and a
-    /// recorded target records it only when a host opens it.
+    /// turn. The receipt is `sent`, and the directory sends no event: a
+    /// recorded target takes the message only when a host opens it.
     ///
     /// - Parameters:
     ///   - message: The message.
@@ -220,37 +229,38 @@ extension InMemorySessionDirectoryState {
             let stored = store(message, chainDepth: chainDepth, to: target.id, isQueued: false, at: now)
             return SessionSendReceipt(messageID: stored.id, target: target.id, outcome: .sent)
         }
-        let isIdle = target.state == .idle
-        let delivered = record(message, chainDepth: chainDepth, to: target.id, isQueued: !isIdle, at: now)
-        guard isIdle else {
-            return SessionSendReceipt(messageID: delivered.id, target: target.id, outcome: .queued)
+        guard target.state == .idle else {
+            let queued = store(message, chainDepth: chainDepth, to: target.id, isQueued: true, at: now)
+            return SessionSendReceipt(messageID: queued.id, target: target.id, outcome: .queued)
         }
+        let delivered = record(message, chainDepth: chainDepth, to: target.id, at: now)
         beginTurn(of: target.id, chainDepth: chainDepth, at: now)
         return SessionSendReceipt(messageID: delivered.id, target: target.id, outcome: .delivered)
     }
 
-    /// Records a message to a live session, and sends `messageDelivered`.
+    /// Records a message that a live session takes now, and sends
+    /// `messageDelivered`. The caller starts the turn of the message next.
     ///
     /// - Parameters:
     ///   - message: The message.
     ///   - chainDepth: The chain depth of the message.
     ///   - id: The target session id.
-    ///   - isQueued: True when the message waits for the end of the turn.
     ///   - now: The time of the delivery.
     /// - Returns: The delivered message.
     private mutating func record(
         _ message: OutgoingSessionMessage,
         chainDepth: Int,
         to id: ULID,
-        isQueued: Bool,
         at now: Date
     ) -> SessionMessage {
-        let delivered = store(message, chainDepth: chainDepth, to: id, isQueued: isQueued, at: now)
+        let delivered = store(message, chainDepth: chainDepth, to: id, isQueued: false, at: now)
         emit(.messageDelivered(delivered))
         return delivered
     }
 
-    /// Puts a message in the inbox of a session, and sends no event.
+    /// Puts a message in the inbox of a session, and sends no event. A
+    /// queued message sends `messageDelivered` later, when the target takes
+    /// it.
     ///
     /// - Parameters:
     ///   - message: The message.

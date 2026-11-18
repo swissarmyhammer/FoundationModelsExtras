@@ -42,8 +42,10 @@ extension InMemorySessionDirectory {
 
     /// Ends the current turn of the session `id`: the state becomes idle,
     /// with the last summary, and the directory sends `stateChanged`. Then
-    /// the queued messages that are not read start the next turn. An
-    /// archived session stays as it is.
+    /// the queued messages that are not read start the next turn: the
+    /// directory sends `messageDelivered` for each of them, in the order of
+    /// the sends, and then `stateChanged` of the new turn. An archived
+    /// session stays as it is.
     ///
     /// - Parameters:
     ///   - id: The session id.

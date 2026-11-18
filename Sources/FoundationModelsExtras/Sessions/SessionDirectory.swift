@@ -99,6 +99,12 @@ public protocol SessionDirectory: Sendable {
     /// id, the source session, `inReplyTo`, the chain depth and the read flag
     /// in its own record of the message.
     ///
+    /// The send does not wait for the target to take the message. The
+    /// ``SessionDirectoryEvent/messageDelivered(_:)`` event of the message
+    /// comes when the target takes it: at once for an idle target, when the
+    /// turn of the message starts for a queued message, and when a host
+    /// opens a recorded target.
+    ///
     /// - Parameter message: The sender, the address, the text, the reply id
     ///   and the source session of the message.
     /// - Returns: One receipt for each target session.
@@ -106,6 +112,11 @@ public protocol SessionDirectory: Sendable {
 
     /// The messages to `id` that are not read. With `markRead`, they become
     /// read, and a queued message does not start a turn later.
+    ///
+    /// With `markRead`, the read is how the target takes each message that
+    /// is still queued, thus the read sends
+    /// ``SessionDirectoryEvent/messageDelivered(_:)`` for it, one time. A
+    /// message that the target took before gives no second event.
     ///
     /// - Parameters:
     ///   - id: The session id.

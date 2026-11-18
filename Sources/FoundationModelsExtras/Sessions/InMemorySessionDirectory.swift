@@ -22,7 +22,11 @@ import ULID
 ///   are not archived.
 /// - **Delivery (section 10.2):** an idle target gets `delivered`, and the
 ///   message starts a turn. A working target, or one that needs input, gets
-///   `queued`. An archived target gets `refused` with the reason "archived".
+///   `queued`. A message to an idle target sends `messageDelivered` at
+///   once. A queued message sends `messageDelivered` when the turn for it
+///   starts, or when ``inbox(of:markRead:)`` marks it read, one time. A
+///   queued message of a session that is archived sends no event. An
+///   archived target gets `refused` with the reason "archived".
 ///   A recorded target that is not live gets `sent`: the message goes into
 ///   its inbox, for a session sender and for a user sender. The directory
 ///   does not restore the session, starts no turn, and sends no
@@ -42,7 +46,8 @@ import ULID
 /// No model runs a turn. A delivery to an idle session starts a turn, and
 /// the test hooks start and end the other turns: ``startUserTurn(of:)``,
 /// ``requestInput(of:)`` and ``finishTurn(of:lastSummary:)``. When a turn
-/// ends, the queued messages that are not read start the next turn.
+/// ends, the queued messages that are not read send `messageDelivered`, in
+/// the order of the sends, and then start the next turn.
 public final class InMemorySessionDirectory: SessionDirectory {
     /// The most events that one stream of ``events()`` buffers. A slow
     /// reader loses the old events, not the new ones.
@@ -205,7 +210,10 @@ public final class InMemorySessionDirectory: SessionDirectory {
 
     /// Sends a message to each session that the address names, with the
     /// loop guards and the delivery rules of session.md sections 9, 10.2 and
-    /// 10.3. Each delivery sends `messageDelivered`.
+    /// 10.3. A delivery to an idle target sends `messageDelivered` at once.
+    /// A queued message sends it later, when the target takes the message:
+    /// when the turn for the message starts (``finishTurn(of:lastSummary:)``)
+    /// or when ``inbox(of:markRead:)`` marks it read.
     ///
     /// - Parameter message: The sender, the address, the text and the reply
     ///   id of the message.
@@ -224,7 +232,9 @@ public final class InMemorySessionDirectory: SessionDirectory {
     }
 
     /// The messages to `id` that are not read. With `markRead`, they become
-    /// read, and a queued message does not start a turn later.
+    /// read, and a queued message does not start a turn later. With
+    /// `markRead`, each message that is still queued sends
+    /// `messageDelivered`, one time, because the read takes it.
     ///
     /// - Parameters:
     ///   - id: The session id.
@@ -250,6 +260,7 @@ public final class InMemorySessionDirectory: SessionDirectory {
 
     /// Archives the session `id` (ROUTER-11): it stops its turn, leaves the
     /// live list, takes no more message, and the directory sends `archived`.
+    /// Its queued messages send no `messageDelivered`.
     ///
     /// - Parameters:
     ///   - id: The session id.

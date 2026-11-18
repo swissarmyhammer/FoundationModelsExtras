@@ -285,8 +285,10 @@ extension InMemorySessionDirectoryState {
     }
 
     /// Archives a session: its state becomes archived, it leaves the live
-    /// list, and the directory sends `archived`. A session that is archived
-    /// already stays as it is, with no event.
+    /// list, and the directory sends `archived`. Its queued messages leave
+    /// the queue with no `messageDelivered`, because the target never takes
+    /// them. A session that is archived already stays as it is, with no
+    /// event.
     ///
     /// - Parameters:
     ///   - id: The session id.
@@ -300,6 +302,7 @@ extension InMemorySessionDirectoryState {
         summary.isLive = false
         summary.updatedAt = now
         entries[id]?.summary = summary
+        updateDeliveries(of: id) { $0.isQueued = false }
         emit(.archived(id: id))
         return summary
     }
@@ -399,7 +402,9 @@ extension InMemorySessionDirectoryState {
 
     /// Ends the current turn of a session: the state becomes idle, with the
     /// last summary. Then the queued messages that are not read start the
-    /// next turn, at the deepest chain depth among them. An archived session
+    /// next turn, at the deepest chain depth among them. The target takes
+    /// them now, thus each of them sends `messageDelivered`, in the order of
+    /// the sends, before the state of the new turn. An archived session
     /// stays as it is.
     ///
     /// - Parameters:
@@ -410,10 +415,23 @@ extension InMemorySessionDirectoryState {
     mutating func finishTurn(of id: ULID, lastSummary: String?, at now: Date) throws {
         guard try isActive(id) else { return }
         changeState(of: id, to: .idle, lastSummary: lastSummary, at: now)
-        let queuedDepths = deliveries[id, default: []].filter(\.isQueued).map(\.message.chainDepth)
-        guard let chainDepth = queuedDepths.max() else { return }
-        updateDeliveries(of: id) { $0.isQueued = false }
+        guard let chainDepth = takeQueuedMessages(of: id).map(\.chainDepth).max() else { return }
         beginTurn(of: id, chainDepth: chainDepth, at: now)
+    }
+
+    /// Takes the queued messages of a session out of the queue, and sends
+    /// `messageDelivered` for each of them, in the order of the sends. The
+    /// target took them, thus a later take sends no second event.
+    ///
+    /// - Parameter id: The session id.
+    /// - Returns: The messages that were queued, the oldest first.
+    mutating func takeQueuedMessages(of id: ULID) -> [SessionMessage] {
+        let queued = deliveries[id, default: []].filter(\.isQueued).map(\.message)
+        updateDeliveries(of: id) { $0.isQueued = false }
+        for message in queued {
+            emit(.messageDelivered(message))
+        }
+        return queued
     }
 
     /// True when the session is not archived, thus a turn can change it.
