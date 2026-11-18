@@ -6,9 +6,10 @@ public enum SessionAddress: Sendable, Codable, Hashable {
     /// One session, by its id.
     case session(ULID)
 
-    /// The newest live root session of the agent, in `folder` when it is
-    /// given, else in the folder of the sender. If there is none, the
-    /// directory starts one (origin ``SessionDirectoryOrigin/message``).
+    /// A new root session of the agent, in `folder` when it is given, else
+    /// in the folder of the sender. The directory starts the session (origin
+    /// ``SessionDirectoryOrigin/message``). `@<agent name>` is the slug of
+    /// the session of that agent.
     case agent(id: String, folder: URL?)
 
     /// The newest live root session with this working folder, of any agent.

@@ -48,4 +48,56 @@ struct SessionMessageTests {
         #expect(message.isRead == false)
         #expect(message.inReplyTo == nil)
     }
+
+    @Test("an outgoing message from a user survives a JSON round trip with its source session")
+    func anOutgoingSourceSessionSurvivesARoundTrip() throws {
+        let message = OutgoingSessionMessage(
+            from: .user(clientID: "testudo-window-1"), to: .session(ULID()), text: "Look at this.",
+            sourceSession: ULID())
+
+        #expect(try SessionFixtures.roundTrip(message) == message)
+    }
+
+    @Test("an outgoing message in JSON with no source session key decodes with no source session")
+    func anOutgoingMessageWithNoSourceSessionKeyDecodes() throws {
+        let message = OutgoingSessionMessage(
+            from: .user(clientID: "testudo-window-1"), to: .session(ULID()), text: "Look at this.",
+            sourceSession: ULID())
+
+        let decoded = try SessionFixtures.decodeWithout(key: "sourceSession", from: message)
+
+        #expect(decoded.sourceSession == nil)
+    }
+
+    @Test("a delivered message from a user survives a JSON round trip with its source session")
+    func aDeliveredSourceSessionSurvivesARoundTrip() throws {
+        let message = Self.deliveredFromUser(sourceSession: ULID())
+
+        #expect(try SessionFixtures.roundTrip(message) == message)
+    }
+
+    @Test("a delivered message in JSON with no source session key decodes with no source session")
+    func aDeliveredMessageWithNoSourceSessionKeyDecodes() throws {
+        let message = Self.deliveredFromUser(sourceSession: ULID())
+
+        let decoded = try SessionFixtures.decodeWithout(key: "sourceSession", from: message)
+
+        #expect(decoded.sourceSession == nil)
+    }
+
+    /// A delivered message from a user, in the session `sourceSession`.
+    ///
+    /// - Parameter sourceSession: The session in which the user wrote the
+    ///   message.
+    /// - Returns: The delivered message.
+    private static func deliveredFromUser(sourceSession: ULID) -> SessionMessage {
+        SessionMessage(
+            id: MailID(),
+            from: .user(clientID: "testudo-window-1"),
+            to: ULID(),
+            text: "Look at this.",
+            sourceSession: sourceSession,
+            sentAt: SessionFixtures.createdAt,
+            chainDepth: 1)
+    }
 }

@@ -255,6 +255,7 @@ extension InMemorySessionDirectoryState {
             to: id,
             text: message.text,
             inReplyTo: message.inReplyTo,
+            sourceSession: message.sourceSession,
             sentAt: now,
             chainDepth: chainDepth)
         deliveries[id, default: []].append(Delivery(message: delivered, isQueued: isQueued))

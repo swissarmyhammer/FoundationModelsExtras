@@ -33,6 +33,20 @@ struct InMemorySessionDirectoryDeliveryTests {
         #expect(try await directory.summary(of: target)?.state == .working)
     }
 
+    @Test("the delivered message of a user carries the source session of the user")
+    func theDeliveredMessageCarriesTheSourceSession() async throws {
+        let directory = Fixtures.makeDirectory()
+        let source = try await Fixtures.startIdleSession(in: directory)
+        let target = try await Fixtures.startIdleSession(in: directory)
+
+        _ = try await directory.send(
+            OutgoingSessionMessage(
+                from: Fixtures.user, to: .session(target), text: "Look at this.", sourceSession: source))
+
+        let delivered = try await directory.inbox(of: target, markRead: false)
+        #expect(delivered.map(\.sourceSession) == [source])
+    }
+
     @Test("a message to a working session is queued")
     func aWorkingTargetGetsQueued() async throws {
         let directory = Fixtures.makeDirectory()

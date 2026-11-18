@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 import ULID
 
 @testable import FoundationModelsExtras
@@ -30,6 +31,23 @@ enum SessionFixtures {
     /// - Returns: The decoded value.
     static func roundTrip<Value: Codable>(_ value: Value) throws -> Value {
         try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(value))
+    }
+
+    /// Encodes `value` as JSON, removes one top-level key, and decodes the
+    /// result. The JSON is the same as the JSON of a version that did not
+    /// have the field of that key. The encoded JSON must hold the key, thus
+    /// the value must set that field.
+    ///
+    /// - Parameters:
+    ///   - key: The top-level key to remove.
+    ///   - value: The value to send through JSON.
+    /// - Returns: The value decoded from the JSON with no `key`.
+    static func decodeWithout<Value: Codable>(key: String, from value: Value) throws -> Value {
+        let encoded = try JSONEncoder().encode(value)
+        var object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        try #require(object.removeValue(forKey: key) != nil)
+        let reduced = try JSONSerialization.data(withJSONObject: object)
+        return try JSONDecoder().decode(Value.self, from: reduced)
     }
 
     /// A summary that sets every field, the optional ones too.

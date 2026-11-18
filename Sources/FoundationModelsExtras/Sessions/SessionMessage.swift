@@ -19,6 +19,13 @@ public struct SessionMessage: Sendable, Codable, Equatable, Identifiable {
     /// message that answers none.
     public let inReplyTo: MailID?
 
+    /// The session in which the user wrote the message, or `nil` when the
+    /// user wrote it in no session. Only a user sender
+    /// (``SessionMessageSender/user(clientID:)``) uses this field. The host
+    /// of the target uses it to show where the message comes from. JSON with
+    /// no `sourceSession` key decodes as `nil`.
+    public let sourceSession: ULID?
+
     /// The time the directory delivered the message.
     public let sentAt: Date
 
@@ -39,6 +46,8 @@ public struct SessionMessage: Sendable, Codable, Equatable, Identifiable {
     ///   - text: The text of the message.
     ///   - inReplyTo: The id of the message that this message answers. The
     ///     default is `nil`.
+    ///   - sourceSession: The session in which the user wrote the message.
+    ///     Only a user sender uses it. The default is `nil`.
     ///   - sentAt: The time the directory delivered the message.
     ///   - chainDepth: The depth of the message in its chain.
     ///   - isRead: True when the target read the message. The default is
@@ -49,6 +58,7 @@ public struct SessionMessage: Sendable, Codable, Equatable, Identifiable {
         to: ULID,
         text: String,
         inReplyTo: MailID? = nil,
+        sourceSession: ULID? = nil,
         sentAt: Date,
         chainDepth: Int,
         isRead: Bool = false
@@ -58,6 +68,7 @@ public struct SessionMessage: Sendable, Codable, Equatable, Identifiable {
         self.to = to
         self.text = text
         self.inReplyTo = inReplyTo
+        self.sourceSession = sourceSession
         self.sentAt = sentAt
         self.chainDepth = chainDepth
         self.isRead = isRead

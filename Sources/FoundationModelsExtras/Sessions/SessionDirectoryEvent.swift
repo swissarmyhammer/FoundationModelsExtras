@@ -19,7 +19,9 @@ public enum SessionDirectoryEvent: Sendable, Codable, Equatable {
     case stateChanged(id: ULID, state: SessionState, lastSummary: String?)
 
     /// The directory put a message in the queue of the target, and the
-    /// target recorded it.
+    /// target recorded it. The message holds the sender, the source session
+    /// and the text. The host of the target uses this event to show the
+    /// message.
     case messageDelivered(SessionMessage)
 
     /// The session is archived (ROUTER-11).

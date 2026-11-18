@@ -84,13 +84,23 @@ public protocol SessionDirectory: Sendable {
     ///   is input of the user.
     ///
     /// ``Mail`` and ``MailBody`` get no field for the details of the sender.
-    /// The directory renders a sender header (the title, the agent and the
-    /// folder of the session, or "the user") into the content, and keeps the
-    /// client id, `inReplyTo`, the chain depth and the read flag in its own
-    /// record of the message.
+    /// The directory renders a sender header into the content:
     ///
-    /// - Parameter message: The sender, the address, the text and the reply
-    ///   id of the message.
+    /// - A session sender gets a header with the title, the agent and the
+    ///   folder of the sender session.
+    /// - A user sender with no ``OutgoingSessionMessage/sourceSession`` gets
+    ///   no header.
+    /// - A user sender with a source session gets a header that names the
+    ///   source session ("From the user, in <title> (<folder>)"). The body
+    ///   stays a user message.
+    ///
+    /// A recorded target that is not live gets the message in its inbox, for
+    /// a session sender and for a user sender. The directory keeps the client
+    /// id, the source session, `inReplyTo`, the chain depth and the read flag
+    /// in its own record of the message.
+    ///
+    /// - Parameter message: The sender, the address, the text, the reply id
+    ///   and the source session of the message.
     /// - Returns: One receipt for each target session.
     func send(_ message: OutgoingSessionMessage) async throws -> [SessionSendReceipt]
 
