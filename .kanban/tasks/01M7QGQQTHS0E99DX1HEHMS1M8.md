@@ -30,6 +30,31 @@ comments:
     - evidence: 5 files — Sources/FoundationModelsExtras/GraphQL/ResolverRewrites.swift (new), Sources/FoundationModelsExtras/GraphQL/GraphQLRun.swift, Sources/FoundationModelsExtras/GraphQL/GraphQLResponse.swift, Sources/FoundationModelsExtras/GraphQL/NameRewrite.swift, Tests/FoundationModelsExtrasTests/GraphQL/ResolverRewritesTests.swift (new, 7 tests). `swift test --filter FoundationModelsExtrasTests`: 2032 tests in 194 suites passed, no warnings in the changed files.
     - next: /review
   timestamp: 2026-11-18T14:29:53.284230+00:00
+- actor: claude-code
+  id: 01m7qh4jgtrrnjbdchjgwyhq6y
+  text: |-
+    ### review — findings
+    - evidence: review sha 4cda00c~1..4cda00c; 1 finding (1 confirmed, 0 refuted) — Sources/FoundationModelsExtras/GraphQL/GraphQLRun.swift:83
+    - next: implement the open item in "Review Findings (2026-11-18 08:30)", then review again.
+  timestamp: 2026-11-18T14:31:55.674573+00:00
+- actor: claude-code
+  id: 01m7qheahpz2axt74kxvwf1bax
+  text: |-
+    Correction of the finding GraphQLRun.swift `completeness/invariant-propagation`.
+
+    - `answerParseFailure` now takes `(GraphQLError, [NameRewrite])` and gives `rewrites + resolverRewrites.list`. The rewrite-failure catch gives `[]`. The execution-failure catch gives `rewritten.rewrites`.
+    - The other response paths of the file keep the name rewrites already: the success path gives `rewritten.rewrites + resolverRewrites.list`, and the subscription `encode` gives `rewritten.rewrites`. The subscription parse failure has no name rewrite.
+    - Discovery: a validation failure does NOT reach the catch. `graphql()` returns validation errors in the `GraphQLResult`, and `execute` catches all errors of the run. Only a parse failure of the rewritten text throws a `GraphQLError` from `result(of:)`. Thus a test with a validation failure passes before the correction and does not prove it.
+    - The new test uses a root container with the response key prefix `no?parse`. The rewrite moves `label` into `shelf` as `no?parse0: shelf { label }`, and that text does not parse. A first try with the prefix `no parse` parsed as two fields and gave a validation failure, so the lexer must see a character that it does not accept.
+    - Test: `failureAfterTheNameRewriteKeepsTheNameRewrite` in ResolverRewritesTests.swift. RED before the correction (no `extensions.rewrites`), GREEN after.
+  timestamp: 2026-11-18T14:37:15.190479+00:00
+- actor: claude-code
+  id: 01m7qheck6t106h174ffxa2zza
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Sources/FoundationModelsExtras/GraphQL/GraphQLRun.swift, Tests/FoundationModelsExtrasTests/GraphQL/ResolverRewritesTests.swift; `swift test --filter FoundationModelsExtrasTests`: 2033 tests in 194 suites passed, no warnings in these files
+    - next: review
+  timestamp: 2026-11-18T14:37:17.286931+00:00
 position_column: doing
 position_ordinal: '80'
 title: A resolver can add a rewrite report to extensions.rewrites
@@ -66,3 +91,12 @@ Request from FoundationModelsMultitool (its task ^gxqmxj6). The `sendMessage` mu
 ## Acceptance
 - All tests pass. No conforming type in another package has to change.
 - When this is on origin/main, send the sha to foundationmodelsmultitool-89 (task ^gxqmxj6). #at-sessions
+
+## Review Findings (2026-11-18 08:30)
+
+> Scope: `review sha 4cda00c~1..4cda00c` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsExtras/GraphQL/GraphQLRun.swift:83` `completeness/invariant-propagation` — The shared `answerParseFailure` closure builds `extensions.rewrites` from `resolverRewrites.list` only. When `result(of:)` throws a GraphQLError after the name rewrite has already succeeded (the catch at line 104-105), the name-rewrite changes in `rewritten.rewrites` are dropped. The response then lists resolver rewrites with no name-rewrite changes before them, which breaks the order contract in the doc comment (lines 47-50: name-rewrite changes first, then resolver rewrites, also when the run gives GraphQL errors). The same closure is also used at line 96, where the name rewrite failed and has no changes, so the closure needs the name-rewrite changes passed in as a parameter. Give `answerParseFailure` a `rewrites: [NameRewrite]` parameter. Pass `[]` from the rewrite-failure catch (line 96) and `rewritten.rewrites` from the execution-failure catch (line 105). In both cases append `resolverRewrites.list` so the order is kept. Add a test where a name-rewritten document (for example `addr`) fails validation after the rewrite, and assert that `extensions.rewrites` still starts with `addr→address`.

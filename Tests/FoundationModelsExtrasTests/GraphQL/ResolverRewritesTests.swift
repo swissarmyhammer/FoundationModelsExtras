@@ -24,6 +24,26 @@ struct ResolverRewritesTests {
         )
     }
 
+    /// Runs one document through the schema of the tests with rules that move `label` into the container `shelf`
+    /// under a response key that does not parse. Thus the text after the name rewrite does not parse, and the run
+    /// throws after the name rewrite.
+    ///
+    /// - Parameter document: The GraphQL document.
+    /// - Returns: The response as JSON text.
+    /// - Throws: An error that is not a GraphQL error.
+    static func respondWithRewriteThatDoesNotParse(to document: String) async throws -> String {
+        let rules = GraphQLNameRules(
+            aliases: rules.aliases,
+            rootContainer: GraphQLRootContainer(field: "shelf", responseKeyPrefix: "no?parse")
+        )
+        return try await RewriteAPI().respond(
+            to: document,
+            rules: rules,
+            formattedWith: .sortedKeys,
+            context: RewriteContext()
+        )
+    }
+
     @Test("a resolver that adds one rewrite gives it in extensions.rewrites")
     func resolverRewriteIsInTheResponse() async throws {
         let response = try await Self.respond(to: #"{ address(to: "@Agent") }"#)
@@ -36,6 +56,13 @@ struct ResolverRewritesTests {
         let response = try await Self.respond(to: #"{ addr(to: "@Agent") }"#)
 
         #expect(try ResponseJSON.rewrites(response) == ["addr→address", "@Agent→@agent"])
+    }
+
+    @Test("a run that fails after the name rewrite gives the name rewrite first")
+    func failureAfterTheNameRewriteKeepsTheNameRewrite() async throws {
+        let response = try await Self.respondWithRewriteThatDoesNotParse(to: #"{ addr(to: "@Agent") label }"#)
+
+        #expect(try ResponseJSON.rewrites(response).first == "addr→address")
     }
 
     @Test("two adds of the same rewrite give one item")
@@ -113,6 +140,13 @@ struct RewriteAddress: Codable, Sendable {
     }
 }
 
+/// The root container of the schema of the tests. A root query field that the query type does not have can move
+/// into it.
+struct RewriteShelf: Codable, Sendable {
+    /// The label of the shelf.
+    let label: String
+}
+
 /// The root resolver of the schema of the tests.
 struct RewriteResolver: Sendable {
     /// Gives the canonical form of an address, in lowercase, and adds a rewrite when the caller wrote another form.
@@ -138,6 +172,11 @@ struct RewriteResolver: Sendable {
     func addresses(context _: RewriteContext, arguments: AddressesArguments) -> [RewriteAddress] {
         arguments.to.map { written in RewriteAddress(written: written) }
     }
+
+    /// Resolves `Query.shelf`.
+    func shelf(context _: RewriteContext, arguments _: NoArguments) -> RewriteShelf {
+        RewriteShelf(label: "shelf")
+    }
 }
 
 /// The Graphiti engine of the tests.
@@ -153,6 +192,10 @@ struct RewriteAPI: API {
                     Field("canonical", at: RewriteAddress.canonical).description("The canonical form.")
                 }
                 .description("One address.")
+                Type(RewriteShelf.self, as: "Shelf") {
+                    Field("label", at: \.label).description("The label.")
+                }
+                .description("The root container.")
             }
             .addQuery {
                 Field("address", at: RewriteResolver.address) {
@@ -163,6 +206,7 @@ struct RewriteAPI: API {
                     Argument("to", at: \.to).description("The addresses.")
                 }
                 .description("Gives each address.")
+                Field("shelf", at: RewriteResolver.shelf).description("Gives the root container.")
             }
             .build()
     }

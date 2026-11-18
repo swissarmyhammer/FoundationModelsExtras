@@ -77,10 +77,10 @@ extension API where ContextType: GraphQLRunContext {
         context: ContextType
     ) async throws -> String {
         let resolverRewrites = ResolverRewrites()
-        let answerParseFailure: (GraphQLError) async throws -> String = { error in
+        let answerParseFailure: (GraphQLError, [NameRewrite]) async throws -> String = { error, rewrites in
             try GraphQLResponse(
                 result: GraphQLResult(errors: [error.codedAsParseFailure()]),
-                rewrites: resolverRewrites.list,
+                rewrites: rewrites + resolverRewrites.list,
                 warnings: await context.warnings.list,
                 extensions: await context.responseExtensions()
             ).json(formattedWith: formatting)
@@ -93,7 +93,7 @@ extension API where ContextType: GraphQLRunContext {
                 operationName: operationName
             )
         } catch let error as GraphQLError {
-            return try await answerParseFailure(error)
+            return try await answerParseFailure(error, [])
         }
         await context.warnings.add(contentsOf: rewritten.warnings)
         let result: GraphQLResult
@@ -102,7 +102,7 @@ extension API where ContextType: GraphQLRunContext {
                 try await self.result(of: rewritten, operationName: operationName, context: context)
             }
         } catch let error as GraphQLError {
-            return try await answerParseFailure(error)
+            return try await answerParseFailure(error, rewritten.rewrites)
         }
         return try GraphQLResponse(
             result: result,
