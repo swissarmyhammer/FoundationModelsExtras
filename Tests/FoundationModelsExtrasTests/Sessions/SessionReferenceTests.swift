@@ -144,6 +144,17 @@ struct SessionReferenceTests {
         #expect(result == .session(local))
     }
 
+    @Test("a short id in an other folder wins over the same text as a slug in the source folder")
+    func aShortIDInAnOtherFolderWinsOverASlugInTheSourceFolder() {
+        let elsewhere = Self.session(folder: Self.otherFolder)
+        let local = Self.session(title: elsewhere.shortID)
+
+        let result = SessionReference.resolve(
+            elsewhere.shortID, sourceFolder: SessionFixtures.folder, among: [local, elsewhere])
+
+        #expect(result == .session(elsewhere))
+    }
+
     @Test("the same slug two times in the source folder gives ambiguous")
     func aSlugTwoTimesInTheSourceFolderIsAmbiguous() {
         let first = Self.session(title: "Fix the build")

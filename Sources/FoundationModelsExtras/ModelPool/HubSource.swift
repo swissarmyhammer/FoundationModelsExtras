@@ -177,7 +177,7 @@ struct HubSource: Sendable {
     /// - Parameter folder: The folder.
     /// - Returns: The paths, or none when the folder cannot be read.
     static func relativePaths(in folder: URL) -> [String] {
-        let root = folder.resolvingSymlinksInPath().standardizedFileURL.path
+        let root = folder.comparablePath
         guard let enumerator = FileManager.default.enumerator(atPath: root) else { return [] }
         return enumerator.compactMap { $0 as? String }.filter { relative in
             var isFolder: ObjCBool = false

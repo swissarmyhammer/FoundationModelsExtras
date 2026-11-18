@@ -250,15 +250,14 @@ extension InMemorySessionDirectoryState {
     }
 
     /// True when two URLs name the same folder, after the symbolic links
-    /// are resolved and a trailing `/` is removed (session.md section 9).
+    /// are resolved and a trailing `/` is removed.
     ///
     /// - Parameters:
     ///   - first: A folder.
     ///   - second: An other folder.
     /// - Returns: True for the same folder.
     static func isSameFolder(_ first: URL, _ second: URL) -> Bool {
-        first.resolvingSymlinksInPath().standardizedFileURL.path
-            == second.resolvingSymlinksInPath().standardizedFileURL.path
+        first.comparablePath == second.comparablePath
     }
 
     /// Changes the facts of a session, and sends `factsChanged` when they

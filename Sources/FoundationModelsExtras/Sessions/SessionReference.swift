@@ -27,6 +27,8 @@ public enum SessionReference {
     ///   sessions whose working folder is `sourceFolder`. It compares the
     ///   folders with symbolic links resolved and with no trailing `/`. When
     ///   no session there matches, it looks at all the sessions.
+    /// - The kind (full id, short id, slug) comes before the folder scope:
+    ///   a short id in an other folder wins over a slug in `sourceFolder`.
     /// - Two or more matches in the first scope that has a match give
     ///   ``SessionReferenceResolution/ambiguous(_:)``, in the order of
     ///   `summaries`.
@@ -84,19 +86,9 @@ public enum SessionReference {
         sourceFolder: URL?
     ) -> [[SessionSummary]] {
         guard let sourceFolder else { return [candidates] }
-        let sourcePath = comparablePath(of: sourceFolder)
-        let local = candidates.filter { comparablePath(of: $0.workingDirectory) == sourcePath }
+        let sourcePath = sourceFolder.comparablePath
+        let local = candidates.filter { $0.workingDirectory.comparablePath == sourcePath }
         return [local, candidates]
-    }
-
-    /// Gives the path of `folder` with symbolic links resolved. The `path`
-    /// of a file URL has no trailing `/`, thus `/a/b/` and `/a/b` give the
-    /// same path.
-    ///
-    /// - Parameter folder: A folder.
-    /// - Returns: The path to compare.
-    private static func comparablePath(of folder: URL) -> String {
-        folder.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     /// Gives the resolution for the sessions that match.

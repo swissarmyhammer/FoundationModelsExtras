@@ -67,8 +67,15 @@ comments:
     - evidence: 2 files (not committed) — Sources/FoundationModelsExtras/Sessions/SessionSenderHeader.swift, Tests/FoundationModelsExtrasTests/Sessions/InMemorySessionDirectoryMailTests.swift (+1 test). Formatted with a temporary configuration (4 spaces, lineLength 120). `swift test --filter FoundationModelsExtrasTests`: 1987 tests in 190 suites passed. No warnings in the changed files. Finding of 2026-11-18 07:13 is checked.
     - next: /review
   timestamp: 2026-11-18T13:18:54.807361+00:00
-position_column: doing
-position_ordinal: '8580'
+- actor: claude-code
+  id: 01m7qd0yyjgkmnm3c1g7gks88c
+  text: |-
+    ### review — clean
+    - evidence: review sha 90a8646~1..90a8646. 0 findings, 0 confirmed, 2 refuted. 2 files reviewed. All prior findings are checked.
+    - next: The task is in done.
+  timestamp: 2026-11-18T13:20:03.026730+00:00
+position_column: done
+position_ordinal: fff580
 title: Source session on an outgoing and a delivered message, and the send contract doc
 ---
 D199. The brief is `swissarmyhammer/.briefs/at-sessions/extras-brief-at-sessions.md`, items 3 and 5. The Router and ACPAgent (ACPA-6) use these fields.
