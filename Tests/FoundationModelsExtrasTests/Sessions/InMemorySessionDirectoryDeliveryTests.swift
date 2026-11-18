@@ -142,8 +142,8 @@ struct InMemorySessionDirectoryDeliveryTests {
         }
     }
 
-    @Test("a message to an archived session is refused with the reason archived, and is not delivered")
-    func anArchivedTargetIsRefused() async throws {
+    @Test("a message to an archived session goes to its inbox with the note archived, and starts no turn")
+    func anArchivedTargetGetsTheMessageInItsInbox() async throws {
         let directory = Fixtures.makeDirectory()
         let target = try await Fixtures.startIdleSession(in: directory)
         _ = try await directory.archive(target, by: Fixtures.user)
@@ -152,10 +152,13 @@ struct InMemorySessionDirectoryDeliveryTests {
         let receipts = try await directory.send(
             OutgoingSessionMessage(from: Fixtures.user, to: .session(target), text: "Are you there?"))
         let events = await Fixtures.drain(stream, of: directory)
+        let inbox = try await directory.inbox(of: target, markRead: false)
 
-        #expect(receipts == [SessionSendReceipt(target: target, outcome: .refused, reason: "archived")])
-        #expect(events.isEmpty)
-        #expect(try await directory.inbox(of: target, markRead: false).isEmpty)
+        #expect(receipts.map(\.outcome) == [.sent])
+        #expect(receipts.map(\.reason) == ["archived"])
+        #expect(events.map(Self.kind(of:)) == ["messageQueued"])
+        #expect(inbox.map(\.id) == receipts.map(\.messageID))
+        #expect(try await directory.summary(of: target)?.state == .archived)
     }
 
     @Test("an archived session with a queued message starts no turn, and no hook changes its state")
@@ -417,6 +420,7 @@ struct InMemorySessionDirectoryDeliveryTests {
         case .messageQueued: "messageQueued"
         case .messageDelivered: "messageDelivered"
         case .archived: "archived"
+        case .unarchived: "unarchived"
         }
     }
 

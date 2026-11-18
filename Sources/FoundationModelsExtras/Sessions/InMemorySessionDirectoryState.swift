@@ -284,11 +284,12 @@ extension InMemorySessionDirectoryState {
         return after
     }
 
-    /// Archives a session: its state becomes archived, it leaves the live
+    /// Archives a session: its state becomes archived with the time `now`,
+    /// it leaves the live
     /// list, and the directory sends `archived`. Its queued messages leave
-    /// the queue with no `messageDelivered`, because the target never takes
-    /// them. A session that is archived already stays as it is, with no
-    /// event.
+    /// the queue with no `messageDelivered`, but they stay in its inbox as
+    /// messages that are not read. A session that is archived already stays
+    /// as it is, with no event.
     ///
     /// - Parameters:
     ///   - id: The session id.
@@ -301,9 +302,34 @@ extension InMemorySessionDirectoryState {
         summary.state = .archived
         summary.isLive = false
         summary.updatedAt = now
+        summary.archivedAt = now
         entries[id]?.summary = summary
         updateDeliveries(of: id) { $0.isQueued = false }
         emit(.archived(id: id))
+        return summary
+    }
+
+    /// Unarchives a session: its state becomes idle, the archive time is
+    /// cleared, it stays off the live
+    /// list as a recorded session, and the directory sends `stateChanged`
+    /// with `idle` and then `unarchived`. Its inbox does not change. A
+    /// session that is not archived stays as it is, with no event.
+    ///
+    /// - Parameters:
+    ///   - id: The session id.
+    ///   - now: The time of the unarchive.
+    /// - Returns: The summary of the session after the call.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)``.
+    mutating func unarchive(_ id: ULID, at now: Date) throws -> SessionSummary {
+        var summary = try entry(id).summary
+        guard summary.state == .archived else { return summary }
+        summary.state = .idle
+        summary.isLive = false
+        summary.updatedAt = now
+        summary.archivedAt = nil
+        entries[id]?.summary = summary
+        emit(.stateChanged(id: id, state: .idle, lastSummary: summary.lastSummary))
+        emit(.unarchived(id: id))
         return summary
     }
 

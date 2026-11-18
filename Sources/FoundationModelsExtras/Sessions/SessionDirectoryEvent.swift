@@ -19,7 +19,7 @@ public enum SessionDirectoryEvent: Sendable, Codable, Equatable {
     case stateChanged(id: ULID, state: SessionState, lastSummary: String?)
 
     /// The directory put a message in the queue of a working target, or in
-    /// the inbox of a recorded target. The target did not take the message
+    /// the inbox of a recorded or archived target. The target did not take the message
     /// yet. The message holds the sender, the source session and the text.
     /// A host uses this event to show the count of the messages that are not
     /// read.
@@ -50,9 +50,14 @@ public enum SessionDirectoryEvent: Sendable, Codable, Equatable {
     ///
     /// A refused, cancelled or lost message gives no event. A queued message
     /// of a session that closes or is archived before it takes the message
-    /// gives no `messageDelivered`.
+    /// gives no `messageDelivered` then. The message stays in the inbox of
+    /// the session, and the event comes when the session takes it later.
     case messageDelivered(SessionMessage)
 
     /// The session is archived (ROUTER-11).
     case archived(id: ULID)
+
+    /// The session is not archived now. It is a recorded session that is
+    /// not live, and `stateChanged` with `idle` comes before this event.
+    case unarchived(id: ULID)
 }

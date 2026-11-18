@@ -196,8 +196,8 @@ extension InMemorySessionDirectoryState {
     }
 
     /// Delivers the message to one session (session.md section 10.2): an
-    /// archived target refuses it, a recorded target gets it in its inbox, an
-    /// idle target starts a turn, and a working target queues it.
+    /// archived or recorded target gets it in its inbox, an idle target
+    /// starts a turn, and a working target queues it.
     ///
     /// `messageDelivered` tells that the target took the message. An idle
     /// target takes it at once, thus the event comes before the state of
@@ -213,6 +213,10 @@ extension InMemorySessionDirectoryState {
     /// and no `messageDelivered`: a recorded target takes the message only
     /// when a host opens it.
     ///
+    /// An archived target gets the message in its inbox in the same way, and
+    /// it stays archived. The receipt is `sent`, with the note "archived" as
+    /// its reason.
+    ///
     /// - Parameters:
     ///   - message: The message.
     ///   - chainDepth: The chain depth of the message.
@@ -225,10 +229,10 @@ extension InMemorySessionDirectoryState {
         to target: SessionSummary,
         at now: Date
     ) -> SessionSendReceipt {
-        guard target.state != .archived else { return Self.refused(.archived, target: target.id) }
         guard target.isLive else {
             let stored = enqueue(message, chainDepth: chainDepth, to: target.id, isQueued: false, at: now)
-            return SessionSendReceipt(messageID: stored.id, target: target.id, outcome: .sent)
+            let note = target.state == .archived ? Self.archivedNote : nil
+            return SessionSendReceipt(messageID: stored.id, target: target.id, outcome: .sent, reason: note)
         }
         guard target.state == .idle else {
             let queued = enqueue(message, chainDepth: chainDepth, to: target.id, isQueued: true, at: now)
@@ -335,6 +339,9 @@ extension InMemorySessionDirectoryState {
     private static func sessionID(of sender: SessionMessageSender) -> ULID? {
         if case .session(let id) = sender { id } else { nil }
     }
+
+    /// The note of a `sent` receipt to an archived target.
+    static let archivedNote = "archived"
 
     /// A `refused` receipt.
     ///

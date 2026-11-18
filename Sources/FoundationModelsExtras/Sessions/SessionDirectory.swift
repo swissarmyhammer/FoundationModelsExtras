@@ -143,14 +143,41 @@ public protocol SessionDirectory: Sendable {
     ///   has the id or the message went to another session.
     func message(_ id: MailID, to recipient: ULID) async throws -> SessionMessage?
 
-    /// Ends the session `id` (D68): stops a running turn, removes it from the
+    /// Archives the session `id`: stops a running turn, removes it from the
     /// live list, marks it archived in its facts, and sends `archived`.
+    ///
+    /// An archive hides the session. It is not final, and it deletes
+    /// nothing: the transcripts, the facts, the pin and the inbox stay. Each
+    /// message that waits in the queue of the session stays in its inbox as
+    /// a message that is not read. A later message to the session goes to
+    /// its inbox, and the session stays archived.
+    /// ``unarchive(_:by:)`` is the inverse.
     ///
     /// - Parameters:
     ///   - id: The session id.
     ///   - archiver: The session or the user that archives it, for the audit.
     /// - Returns: The summary of the archived session.
     func archive(_ id: ULID, by archiver: SessionMessageSender) async throws -> SessionSummary
+
+    /// Removes the archive mark from the facts of the session `id`. This is
+    /// the inverse of ``archive(_:by:)``.
+    ///
+    /// After the call, the session is a recorded session that is not live,
+    /// with the state ``SessionState/idle``. The directory sends
+    /// `stateChanged` with `idle`, and then `unarchived`. A host opens the
+    /// session as it opens each recorded session, and the session then takes
+    /// the messages of its inbox.
+    ///
+    /// A session that is not archived stays as it is: the call gives its
+    /// summary and sends no event. The host tells the caller that the
+    /// session was not archived.
+    ///
+    /// - Parameters:
+    ///   - id: The session id.
+    ///   - unarchiver: The session or the user that unarchives it, for the
+    ///     audit.
+    /// - Returns: The summary of the session after the call.
+    func unarchive(_ id: ULID, by unarchiver: SessionMessageSender) async throws -> SessionSummary
 
     /// A new stream for each call. Each stream gets each event after the
     /// call.

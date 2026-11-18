@@ -26,8 +26,10 @@ import ULID
 ///   once. A queued message sends `messageQueued` at the send, and
 ///   `messageDelivered` when the turn for it starts, or when
 ///   ``inbox(of:markRead:)`` marks it read, one time. A queued message of a
-///   session that is archived sends no `messageDelivered`. An archived
-///   target gets `refused` with the reason "archived".
+///   session that is archived sends no `messageDelivered`, and it stays in
+///   the inbox as a message that is not read. An archived target gets
+///   `sent` with the note "archived": the message goes into its inbox, as
+///   for a recorded target, and the session stays archived.
 ///   A recorded target that is not live gets `sent`: the message goes into
 ///   its inbox, for a session sender and for a user sender. The directory
 ///   does not restore the session, starts no turn, sends `messageQueued`,
@@ -35,7 +37,9 @@ import ULID
 ///   new root session (origin ``SessionDirectoryOrigin/message``). A folder
 ///   with no match is refused.
 /// - **Loop guards (section 10.3):** the ``LoopGuards``.
-/// - **Archive (ROUTER-11):** an archived session takes no message.
+/// - **Archive (ROUTER-11):** an archived session starts no turn. It keeps
+///   its inbox. ``unarchive(_:by:)`` makes it a recorded session again,
+///   with the state idle.
 /// - **Events (section 7):** each ``events()`` call is a new stream with the
 ///   `.bufferingNewest(256)` policy, and `started` comes before the first
 ///   `stateChanged` of a session.
@@ -262,8 +266,9 @@ public final class InMemorySessionDirectory: SessionDirectory {
     }
 
     /// Archives the session `id` (ROUTER-11): it stops its turn, leaves the
-    /// live list, takes no more message, and the directory sends `archived`.
-    /// Its queued messages send no `messageDelivered`.
+    /// live list, starts no more turn, and the directory sends `archived`.
+    /// Its queued messages send no `messageDelivered`, and they stay in its
+    /// inbox as messages that are not read.
     ///
     /// - Parameters:
     ///   - id: The session id.
@@ -274,6 +279,22 @@ public final class InMemorySessionDirectory: SessionDirectory {
     public func archive(_ id: ULID, by archiver: SessionMessageSender) async throws -> SessionSummary {
         let time = now()
         return try state.withLock { try $0.archive(id, at: time) }
+    }
+
+    /// Unarchives the session `id`: its state becomes idle, it stays off the
+    /// live list as a recorded session, and the directory sends
+    /// `stateChanged` with `idle` and then `unarchived`. A session that is
+    /// not archived gives its summary, with no event.
+    ///
+    /// - Parameters:
+    ///   - id: The session id.
+    ///   - unarchiver: The session or the user that unarchives it. The test
+    ///     double keeps no audit, thus it reads no field of it.
+    /// - Returns: The summary of the session after the call.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)``.
+    public func unarchive(_ id: ULID, by unarchiver: SessionMessageSender) async throws -> SessionSummary {
+        let time = now()
+        return try state.withLock { try $0.unarchive(id, at: time) }
     }
 
     /// A new stream with the `.bufferingNewest(256)` policy. It gets each

@@ -2,9 +2,6 @@ extension InMemorySessionDirectory {
     /// The reason of each `refused` receipt of the test double. The raw value
     /// is the text of ``SessionSendReceipt/reason``.
     public enum Refusal: String, Sendable, CaseIterable {
-        /// The target is archived (session.md section 10.2).
-        case archived
-
         /// No live root session works in the folder of a folder address
         /// (session.md section 9).
         case noSessionInTheFolder = "Name an agent: @agent:/path."

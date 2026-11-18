@@ -62,6 +62,12 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     /// this time, the newest first.
     public var lastUsedAt: Date?
 
+    /// The time that the session was archived, or `nil` when it is not
+    /// archived. An archive sets it, and an unarchive clears it. The
+    /// Archived list shows the sessions in the order of this time, the
+    /// newest first.
+    public var archivedAt: Date?
+
     /// True when the session is pinned, that is, it has a ``pinnedAt``.
     public var isPinned: Bool { pinnedAt != nil }
 
@@ -106,6 +112,8 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     ///     is not pinned.
     ///   - lastUsedAt: The time of the last use. The default is `nil`: no
     ///     client used the session.
+    ///   - archivedAt: The time of the archive. The default is `nil`: the
+    ///     session is not archived.
     public init(
         id: ULID,
         agentID: String,
@@ -123,7 +131,8 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         lastSummary: String? = nil,
         isLive: Bool,
         pinnedAt: Date? = nil,
-        lastUsedAt: Date? = nil
+        lastUsedAt: Date? = nil,
+        archivedAt: Date? = nil
     ) {
         self.id = id
         self.agentID = agentID
@@ -142,5 +151,6 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         self.isLive = isLive
         self.pinnedAt = pinnedAt
         self.lastUsedAt = lastUsedAt
+        self.archivedAt = archivedAt
     }
 }

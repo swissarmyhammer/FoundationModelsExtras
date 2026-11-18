@@ -51,6 +51,10 @@ struct SessionDirectoryDefaultsTests {
             try await base.archive(id, by: archiver)
         }
 
+        func unarchive(_ id: ULID, by unarchiver: SessionMessageSender) async throws -> SessionSummary {
+            try await base.unarchive(id, by: unarchiver)
+        }
+
         func events() -> AsyncStream<SessionDirectoryEvent> { base.events() }
     }
 

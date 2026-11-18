@@ -17,6 +17,7 @@ struct SessionDirectoryEventTests {
             .messageQueued(SessionFixtures.message()),
             .messageDelivered(SessionFixtures.message()),
             .archived(id: ULID()),
+            .unarchived(id: ULID()),
         ])
     func eachEventSurvivesARoundTrip(event: SessionDirectoryEvent) throws {
         #expect(try SessionFixtures.roundTrip(event) == event)

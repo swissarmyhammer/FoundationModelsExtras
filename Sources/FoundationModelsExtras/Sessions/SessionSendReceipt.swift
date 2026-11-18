@@ -14,12 +14,13 @@ public struct SessionSendReceipt: Sendable, Codable, Equatable {
         /// An agent address started a new root session.
         case started
 
-        /// A loop guard, an archived target or no match refused the message.
+        /// A loop guard or no match refused the message.
         case refused
 
         /// The message is written where the target reads it, but it is not in
         /// the queue of the target yet. The send does not tell if the target
-        /// starts a turn. A later delivery event tells that.
+        /// starts a turn. A later delivery event tells that. A message to an
+        /// archived target gets this outcome, with the reason "archived".
         case sent
     }
 
@@ -33,7 +34,9 @@ public struct SessionSendReceipt: Sendable, Codable, Equatable {
     /// What happened to the message.
     public let outcome: Outcome
 
-    /// Why the message was refused, or `nil` when it was not.
+    /// Why the message was refused, or a note of a `sent` receipt, for
+    /// example "archived" for an archived target. `nil` when there is no
+    /// reason and no note.
     public let reason: String?
 
     /// Makes a receipt.
@@ -43,7 +46,8 @@ public struct SessionSendReceipt: Sendable, Codable, Equatable {
     ///     default is `nil`.
     ///   - target: The target session. The default is `nil`.
     ///   - outcome: What happened to the message.
-    ///   - reason: Why the message was refused. The default is `nil`.
+    ///   - reason: Why the message was refused, or a note of a `sent`
+    ///     receipt. The default is `nil`.
     public init(messageID: MailID? = nil, target: ULID? = nil, outcome: Outcome, reason: String? = nil) {
         self.messageID = messageID
         self.target = target
