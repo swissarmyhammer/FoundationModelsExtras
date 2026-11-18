@@ -103,7 +103,11 @@ public protocol SessionDirectory: Sendable {
     /// ``SessionDirectoryEvent/messageDelivered(_:)`` event of the message
     /// comes when the target takes it: at once for an idle target, when the
     /// turn of the message starts for a queued message, and when a host
-    /// opens a recorded target.
+    /// opens a recorded target. A message that the target does not take at
+    /// once gives ``SessionDirectoryEvent/messageQueued(_:)`` at the send,
+    /// before the send returns: a `queued` receipt and a `sent` receipt.
+    /// A `delivered` receipt and a `started` receipt give no
+    /// `messageQueued`.
     ///
     /// - Parameter message: The sender, the address, the text, the reply id
     ///   and the source session of the message.
@@ -164,6 +168,10 @@ public protocol SessionDirectory: Sendable {
     ///    ``SessionKind/subagent``.
     /// 5. An event holds no message text that is longer than the message
     ///    length limit (ROUTER-5).
+    /// 6. A message that the target does not take at once gives
+    ///    ``SessionDirectoryEvent/messageQueued(_:)`` at the send, and
+    ///    ``SessionDirectoryEvent/messageDelivered(_:)`` later, when the
+    ///    target takes it.
     ///
     /// - Returns: A stream of the changes in the directory.
     func events() -> AsyncStream<SessionDirectoryEvent>

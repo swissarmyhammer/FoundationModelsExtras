@@ -1,9 +1,35 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m7qmzwyp5c9nwcy5bpw9sjk1
+  text: |-
+    Research done.
+    - SessionDirectoryEvent uses the synthesized Codable. A new case does not change the JSON of the old cases.
+    - InMemorySessionDirectoryState.deliver(_:chainDepth:to:at:) is the one place that makes a `.queued` and a `.sent` receipt (sendToTag also calls it). A `.delivered` and a `.started` receipt go through record(_:chainDepth:to:at:), which sends messageDelivered.
+    - Exhaustive switches in this package: Tests/FoundationModelsExtrasTests/Sessions/InMemorySessionDirectoryDeliveryTests.swift kind(of:). No switch in Sources.
+    - Existing tests that expect the old behavior: InMemorySessionDirectoryDeliveryTests "a message to a recorded session sends no event and leaves the session recorded" and InMemorySessionDirectoryDeliveredEventTests "a send to a working session sends no messageDelivered at the send" (it expects no event at all).
+    - Sibling switches: FoundationModelsMultitool/Sources/FoundationModelsMultitool/Capabilities/Sessions/SessionsGraphChanges.swift:52 (exhaustive, no default). FoundationModelsRouter/Tests/FoundationModelsRouterTests/RouterSessionDirectoryLauncherTests.swift:90 has `default:`, thus it compiles with the new case. TestudoApp has no switch on the event.
+  timestamp: 2026-11-18T15:39:16.822809+00:00
+- actor: claude-code
+  id: 01m7qn7kxef1qx234sgzqh3mb1
+  text: |-
+    Implementation landed.
+    - RED: the three behavior tests failed with the case added and no emission (recorded target, needs-input target, queued then delivered). The JSON tests and the idle test passed at once: the synthesized Codable keeps the old JSON, and an idle send never queued.
+    - GREEN: InMemorySessionDirectoryState.deliver calls a new `enqueue` helper for the `sent` and `queued` paths. It stores the message and sends `messageQueued` before the receipt returns. `record` (delivered, started) is not changed.
+    - Two old tests changed their expectation: the recorded-target test now expects `[.messageQueued(m)]`; "a send to a working session sends no messageDelivered at the send" now checks only for no messageDelivered.
+    - Sibling exhaustive switches (not changed): FoundationModelsMultitool/Sources/FoundationModelsMultitool/Capabilities/Sessions/SessionsGraphChanges.swift:52. RouterSessionDirectoryLauncherTests.swift:90 has `default:`. No other switch in TestudoApp, Router or Multitool.
+    - Multitool SessionsGraphChangesTests.swift:234 ("send to a working session"): the send now gives one event, messageQueued with `to` == target. A map to (message.to, .changed) gives one change of the target before the marker, thus the test can pass again.
+    - The Router directory does not send messageQueued yet. That is the work of the Router package.
+
+    ### implement — changed
+    - evidence: swift test --filter FoundationModelsExtrasTests: 2043 tests in 196 suites passed, 0 warnings in changed files. Files: SessionDirectoryEvent.swift, SessionDirectory.swift, InMemorySessionDirectory.swift, InMemorySessionDirectoryState+Messages.swift, SessionDirectoryEventTests.swift, InMemorySessionDirectoryDeliveryTests.swift, InMemorySessionDirectoryDeliveredEventTests.swift, new InMemorySessionDirectoryQueuedEventTests.swift.
+    - next: /review
+  timestamp: 2026-11-18T15:43:29.710918+00:00
 depends_on:
 - 01M7QMF55YT8NFT48ZCTNXK1WD
-position_column: todo
+position_column: doing
 position_ordinal: '80'
 title: A directory event for a message that goes into the queue or the inbox of a session
 ---
@@ -19,10 +45,10 @@ Request from TestudoApp. Since the Router changed (709d82c5), `messageDelivered`
 4. Change each exhaustive `switch` on `SessionDirectoryEvent` in this package.
 
 ## Tests (Swift Testing)
-- [ ] A send to a working target gives `messageQueued` at the send, then `messageDelivered` when its turn starts.
-- [ ] A send to a recorded target gives `messageQueued` and no `messageDelivered`.
-- [ ] A send to an idle target gives no `messageQueued`.
-- [ ] `messageQueued` round-trips through JSON, and the old cases still decode.
+- [x] A send to a working target gives `messageQueued` at the send, then `messageDelivered` when its turn starts.
+- [x] A send to a recorded target gives `messageQueued` and no `messageDelivered`.
+- [x] A send to an idle target gives no `messageQueued`.
+- [x] `messageQueued` round-trips through JSON, and the old cases still decode.
 
 ## Acceptance
 - All tests pass.

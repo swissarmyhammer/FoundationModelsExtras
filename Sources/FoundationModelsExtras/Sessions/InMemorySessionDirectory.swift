@@ -23,16 +23,17 @@ import ULID
 /// - **Delivery (section 10.2):** an idle target gets `delivered`, and the
 ///   message starts a turn. A working target, or one that needs input, gets
 ///   `queued`. A message to an idle target sends `messageDelivered` at
-///   once. A queued message sends `messageDelivered` when the turn for it
-///   starts, or when ``inbox(of:markRead:)`` marks it read, one time. A
-///   queued message of a session that is archived sends no event. An
-///   archived target gets `refused` with the reason "archived".
+///   once. A queued message sends `messageQueued` at the send, and
+///   `messageDelivered` when the turn for it starts, or when
+///   ``inbox(of:markRead:)`` marks it read, one time. A queued message of a
+///   session that is archived sends no `messageDelivered`. An archived
+///   target gets `refused` with the reason "archived".
 ///   A recorded target that is not live gets `sent`: the message goes into
 ///   its inbox, for a session sender and for a user sender. The directory
-///   does not restore the session, starts no turn, and sends no
-///   `messageDelivered`. Each send to an agent address starts a new root
-///   session (origin ``SessionDirectoryOrigin/message``). A folder with no
-///   match is refused.
+///   does not restore the session, starts no turn, sends `messageQueued`,
+///   and sends no `messageDelivered`. Each send to an agent address starts a
+///   new root session (origin ``SessionDirectoryOrigin/message``). A folder
+///   with no match is refused.
 /// - **Loop guards (section 10.3):** the ``LoopGuards``.
 /// - **Archive (ROUTER-11):** an archived session takes no message.
 /// - **Events (section 7):** each ``events()`` call is a new stream with the
@@ -211,7 +212,9 @@ public final class InMemorySessionDirectory: SessionDirectory {
     /// Sends a message to each session that the address names, with the
     /// loop guards and the delivery rules of session.md sections 9, 10.2 and
     /// 10.3. A delivery to an idle target sends `messageDelivered` at once.
-    /// A queued message sends it later, when the target takes the message:
+    /// A message to a working target or to a recorded target sends
+    /// `messageQueued` before the send returns. A queued message sends
+    /// `messageDelivered` later, when the target takes the message:
     /// when the turn for the message starts (``finishTurn(of:lastSummary:)``)
     /// or when ``inbox(of:markRead:)`` marks it read.
     ///

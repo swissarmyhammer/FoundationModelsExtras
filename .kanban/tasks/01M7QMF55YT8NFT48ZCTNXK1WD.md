@@ -30,8 +30,15 @@ comments:
     - evidence: 8 files — Sources/FoundationModelsExtras/Sessions/{SessionDirectoryEvent,SessionDirectory,InMemorySessionDirectory,InMemorySessionDirectory+TestHooks,InMemorySessionDirectoryState,InMemorySessionDirectoryState+Messages}.swift, Tests/FoundationModelsExtrasTests/Sessions/{InMemorySessionDirectoryDeliveredEventTests (new),InMemorySessionDirectoryDeliveryTests}.swift. `swift test --filter FoundationModelsExtrasTests`: 2039 tests in 195 suites passed, no warnings in changed files. Dependent test not changed: FoundationModelsMultitool/Tests/FoundationModelsMultitoolTests/SessionsGraphChangesTests.swift:234 (assertion :271).
     - next: /review
   timestamp: 2026-11-18T15:35:42.538033+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m7qmw98w7rshp3d1rcatehzk
+  text: |-
+    ### review — clean
+    - evidence: review sha 92660bf..95cf7ad: 0 findings, 0 confirmed, 0 refuted (7 attempted, 0 failed). 8 files reviewed. 4 .kanban files not reviewed (.reviewignore).
+    - next: The task is in done. No work is open.
+  timestamp: 2026-11-18T15:37:18.364074+00:00
+position_column: done
+position_ordinal: fff980
 title: messageDelivered comes when the target takes the message, not when the message goes into the queue
 ---
 The Router (origin/main 709d82c5) now sends `SessionDirectoryEvent.messageDelivered` when the target takes the message. A queued message gives the event when its turn starts, before the first model output. The Router does not send the event when the message goes into the queue. The Extras doc and the in-memory double must agree with the Router.

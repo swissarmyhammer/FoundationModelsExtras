@@ -251,17 +251,18 @@ struct InMemorySessionDirectoryDeliveryTests {
         #expect(try await directory.inbox(of: recorded, markRead: false).map(\.text) == ["Resume."])
     }
 
-    @Test("a message to a recorded session sends no event and leaves the session recorded")
-    func aMessageToARecordedTargetSendsNoEvent() async throws {
+    @Test("a message to a recorded session sends only messageQueued and leaves the session recorded")
+    func aMessageToARecordedTargetSendsOnlyQueued() async throws {
         let directory = Fixtures.makeDirectory()
         let recorded = Self.registerRecordedSession(in: directory)
         let stream = directory.events()
 
         _ = try await directory.send(
             OutgoingSessionMessage(from: Fixtures.user, to: .session(recorded), text: "Resume."))
+        let queued = try #require(try await directory.inbox(of: recorded, markRead: false).first)
         let events = await Fixtures.drain(stream, of: directory)
 
-        #expect(events.isEmpty)
+        #expect(events == [.messageQueued(queued)])
         #expect(try await directory.summary(of: recorded)?.isLive == false)
     }
 
@@ -413,6 +414,7 @@ struct InMemorySessionDirectoryDeliveryTests {
         case .started: "started"
         case .factsChanged: "factsChanged"
         case .stateChanged: "stateChanged"
+        case .messageQueued: "messageQueued"
         case .messageDelivered: "messageDelivered"
         case .archived: "archived"
         }

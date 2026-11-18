@@ -201,16 +201,17 @@ extension InMemorySessionDirectoryState {
     ///
     /// `messageDelivered` tells that the target took the message. An idle
     /// target takes it at once, thus the event comes before the state of
-    /// its turn. A working target takes it later, thus the send sends no
-    /// event: the event comes when the turn of the message starts
-    /// (``finishTurn(of:lastSummary:at:)``), or when an inbox read marks the
-    /// message read (``inbox(of:markRead:)``).
+    /// its turn. A working target takes it later, thus the send sends
+    /// `messageQueued`, and `messageDelivered` comes when the turn of the
+    /// message starts (``finishTurn(of:lastSummary:at:)``), or when an inbox
+    /// read marks the message read (``inbox(of:markRead:)``).
     ///
     /// A recorded target that is not live gets the message in its inbox, for
     /// a session sender and for a user sender, also when the directory has no
     /// launcher. The directory does not restore the session and starts no
-    /// turn. The receipt is `sent`, and the directory sends no event: a
-    /// recorded target takes the message only when a host opens it.
+    /// turn. The receipt is `sent`, and the directory sends `messageQueued`
+    /// and no `messageDelivered`: a recorded target takes the message only
+    /// when a host opens it.
     ///
     /// - Parameters:
     ///   - message: The message.
@@ -226,11 +227,11 @@ extension InMemorySessionDirectoryState {
     ) -> SessionSendReceipt {
         guard target.state != .archived else { return Self.refused(.archived, target: target.id) }
         guard target.isLive else {
-            let stored = store(message, chainDepth: chainDepth, to: target.id, isQueued: false, at: now)
+            let stored = enqueue(message, chainDepth: chainDepth, to: target.id, isQueued: false, at: now)
             return SessionSendReceipt(messageID: stored.id, target: target.id, outcome: .sent)
         }
         guard target.state == .idle else {
-            let queued = store(message, chainDepth: chainDepth, to: target.id, isQueued: true, at: now)
+            let queued = enqueue(message, chainDepth: chainDepth, to: target.id, isQueued: true, at: now)
             return SessionSendReceipt(messageID: queued.id, target: target.id, outcome: .queued)
         }
         let delivered = record(message, chainDepth: chainDepth, to: target.id, at: now)
@@ -258,9 +259,31 @@ extension InMemorySessionDirectoryState {
         return delivered
     }
 
-    /// Puts a message in the inbox of a session, and sends no event. A
-    /// queued message sends `messageDelivered` later, when the target takes
-    /// it.
+    /// Puts a message that the target does not take now in the inbox of a
+    /// session, and sends `messageQueued`. The target takes the message
+    /// later, and then the directory sends `messageDelivered`.
+    ///
+    /// - Parameters:
+    ///   - message: The message.
+    ///   - chainDepth: The chain depth of the message.
+    ///   - id: The target session id.
+    ///   - isQueued: True when the message waits for the end of the turn.
+    ///   - now: The time of the send.
+    /// - Returns: The stored message.
+    private mutating func enqueue(
+        _ message: OutgoingSessionMessage,
+        chainDepth: Int,
+        to id: ULID,
+        isQueued: Bool,
+        at now: Date
+    ) -> SessionMessage {
+        let stored = store(message, chainDepth: chainDepth, to: id, isQueued: isQueued, at: now)
+        emit(.messageQueued(stored))
+        return stored
+    }
+
+    /// Puts a message in the inbox of a session, and sends no event. The
+    /// caller sends the event of the message.
     ///
     /// - Parameters:
     ///   - message: The message.

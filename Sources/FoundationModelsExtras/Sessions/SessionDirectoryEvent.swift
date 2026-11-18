@@ -18,6 +18,18 @@ public enum SessionDirectoryEvent: Sendable, Codable, Equatable {
     /// final message of the session, when the state is idle.
     case stateChanged(id: ULID, state: SessionState, lastSummary: String?)
 
+    /// The directory put a message in the queue of a working target, or in
+    /// the inbox of a recorded target. The target did not take the message
+    /// yet. The message holds the sender, the source session and the text.
+    /// A host uses this event to show the count of the messages that are not
+    /// read.
+    ///
+    /// The event comes at the send, before the send returns its receipt.
+    /// `messageDelivered` of the same message comes later, when the target
+    /// takes it. A message to an idle target starts its turn at once, thus
+    /// it gives only `messageDelivered`. A refused message gives no event.
+    case messageQueued(SessionMessage)
+
     /// The target took a message. The message holds the sender, the source
     /// session and the text. The host of the target uses this event to show
     /// the message.
@@ -26,19 +38,19 @@ public enum SessionDirectoryEvent: Sendable, Codable, Equatable {
     ///
     /// - A message to an idle target gives it at once, when the turn of the
     ///   message starts.
-    /// - A queued message gives no event at the send. It gives the event
-    ///   when the turn for that message starts, before the first model
-    ///   output of the turn.
+    /// - A queued message gives `messageQueued` at the send, not this
+    ///   event. It gives this event when the turn for that message starts,
+    ///   before the first model output of the turn.
     /// - An inbox read with `markRead` of a message that is still queued
     ///   takes it, thus the read gives the event. A later turn gives no
     ///   second event for that message.
     /// - A send to a recorded session that is not live puts the message in
-    ///   its inbox and gives no event. The event comes when the target takes
-    ///   the message.
+    ///   its inbox and gives `messageQueued`. This event comes when the
+    ///   target takes the message.
     ///
     /// A refused, cancelled or lost message gives no event. A queued message
     /// of a session that closes or is archived before it takes the message
-    /// gives no event.
+    /// gives no `messageDelivered`.
     case messageDelivered(SessionMessage)
 
     /// The session is archived (ROUTER-11).

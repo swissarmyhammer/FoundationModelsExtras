@@ -28,7 +28,7 @@ struct InMemorySessionDirectoryDeliveredEventTests {
         _ = try await Self.send(Self.firstText, to: target, in: directory)
         let events = await Fixtures.drain(stream, of: directory)
 
-        #expect(events.isEmpty)
+        #expect(events.compactMap(Self.deliveredText(of:)).isEmpty)
     }
 
     @Test("two queued messages send two messageDelivered events in the order of the sends")
