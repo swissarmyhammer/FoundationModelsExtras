@@ -53,6 +53,11 @@ struct InMemorySessionDirectoryState {
     /// The messages to each session, by session id, the oldest first.
     var deliveries: [ULID: [Delivery]] = [:]
 
+    /// The request of each fork, by the id of the fork. The test double
+    /// copies no history, thus the tests read the cut and the first prompt
+    /// here.
+    var forkRequests: [ULID: SessionForkRequest] = [:]
+
     /// The continuation of each open event stream, by subscriber id.
     private var subscribers: [Int: AsyncStream<SessionDirectoryEvent>.Continuation] = [:]
 
@@ -165,7 +170,7 @@ extension InMemorySessionDirectoryState {
     /// - Parameters:
     ///   - summary: The summary of the session.
     ///   - requestedByClient: The UI client that asked for the start.
-    private mutating func insert(_ summary: SessionSummary, requestedByClient: String?) {
+    mutating func insert(_ summary: SessionSummary, requestedByClient: String?) {
         if entries[summary.id] == nil {
             startOrder.append(summary.id)
         }
@@ -334,11 +339,11 @@ extension InMemorySessionDirectoryState {
     }
 
     /// The slugs of the sessions in a folder that are not archived. A new
-    /// session with no title gets a default name outside these.
+    /// session with no title, and a fork, get a default name outside these.
     ///
     /// - Parameter folder: The working folder.
     /// - Returns: The slugs.
-    private func usedNames(in folder: URL) -> Set<String> {
+    func usedNames(in folder: URL) -> Set<String> {
         Set(
             entries.values.lazy.map(\.summary)
                 .filter { $0.state != .archived && Self.isSameFolder($0.workingDirectory, folder) }

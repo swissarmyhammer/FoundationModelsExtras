@@ -1,15 +1,17 @@
 import Foundation
-@testable import FoundationModelsExtras
 import Testing
 import ULID
 
-/// The defaults of ``SessionDirectory/setPinned(_:of:)`` and
-/// ``SessionDirectory/markUsed(_:)`` keep a directory that does not implement
-/// them compiling. They change nothing.
-@Suite("SessionDirectory: the defaults of the pin and the last use")
+@testable import FoundationModelsExtras
+
+/// The defaults of ``SessionDirectory/setPinned(_:of:)``,
+/// ``SessionDirectory/markUsed(_:)`` and ``SessionDirectory/fork(_:)`` keep a
+/// directory that does not implement them compiling. The defaults of the pin
+/// and the last use change nothing. The default of the fork throws.
+@Suite("SessionDirectory: the defaults of the pin, the last use and the fork")
 struct SessionDirectoryDefaultsTests {
-    /// A directory that implements no pin and no last use. It forwards each
-    /// other call to an in-memory directory.
+    /// A directory that implements no pin, no last use and no fork. It
+    /// forwards each other call to an in-memory directory.
     private struct DirectoryWithNoPins: SessionDirectory {
         let base: InMemorySessionDirectory
 
@@ -85,6 +87,19 @@ struct SessionDirectoryDefaultsTests {
         }
         await #expect(throws: SessionDirectoryError.unknownSession(id)) {
             try await directory.markUsed(id)
+        }
+    }
+
+    @Test("the default fork throws forkUnsupported")
+    func theDefaultForkThrows() async throws {
+        let base = InMemorySessionDirectoryFixtures.makeDirectory()
+        let directory = DirectoryWithNoPins(base: base)
+        let source = try await InMemorySessionDirectoryFixtures.startIdleSession(in: base)
+        let request = SessionForkRequest(
+            sourceID: source, cut: .lastCompletedTurn, forker: InMemorySessionDirectoryFixtures.user)
+
+        await #expect(throws: SessionDirectoryError.forkUnsupported) {
+            _ = try await directory.fork(request)
         }
     }
 }

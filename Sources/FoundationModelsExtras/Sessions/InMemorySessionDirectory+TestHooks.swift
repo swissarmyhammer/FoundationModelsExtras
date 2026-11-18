@@ -56,6 +56,16 @@ extension InMemorySessionDirectory {
         try state.withLock { try $0.finishTurn(of: id, lastSummary: lastSummary, at: time) }
     }
 
+    /// The request that made the fork `id`. The test double copies no
+    /// history, thus a test reads the cut and the first prompt of a fork
+    /// here.
+    ///
+    /// - Parameter id: The id of the fork.
+    /// - Returns: The request, or `nil` when no fork has this id.
+    public func forkRequest(of id: ULID) -> SessionForkRequest? {
+        state.withLock { $0.forkRequests[id] }
+    }
+
     /// Finishes each open event stream. A reader then reads the events that
     /// the stream holds, and its loop ends. A test reads a stream this way
     /// with no clock.

@@ -1,7 +1,8 @@
 import Foundation
-@testable import FoundationModelsExtras
 import Testing
 import ULID
+
+@testable import FoundationModelsExtras
 
 /// ``SessionDirectoryError`` names each failure of the directory.
 @Suite("SessionDirectoryError: the failures of the directory")
@@ -11,6 +12,9 @@ struct SessionDirectoryErrorTests {
 
     /// A length limit of a message, for the test.
     private static let lengthLimit = 4000
+
+    /// A position before the start of a history, for the cut error.
+    private static let positionBeforeHistory = -1
 
     @Test(
         "each error survives a JSON round trip",
@@ -23,6 +27,9 @@ struct SessionDirectoryErrorTests {
             .messageTooLong(limit: lengthLimit),
             .invalidTag("two words"),
             .noLauncher,
+            .archivedSession(ULID()),
+            .forkCutOutOfRange(.historyPosition(positionBeforeHistory)),
+            .forkUnsupported,
         ])
     func eachErrorSurvivesARoundTrip(error: SessionDirectoryError) throws {
         #expect(try SessionFixtures.roundTrip(error) == error)

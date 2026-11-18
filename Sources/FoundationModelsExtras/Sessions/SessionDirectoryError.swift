@@ -26,4 +26,17 @@ public enum SessionDirectoryError: Error, Sendable, Codable, Equatable {
 
     /// The directory has no launcher, thus it cannot start a session.
     case noLauncher
+
+    /// The session is archived, thus the operation cannot use it. For
+    /// example, a fork of an archived session throws this error.
+    case archivedSession(ULID)
+
+    /// The cut of a fork is not in the history of the source: a position
+    /// before the start or after the end of the history, or
+    /// ``SessionForkCut/callingToolCall`` when the source has no open tool
+    /// call.
+    case forkCutOutOfRange(SessionForkCut)
+
+    /// The directory cannot fork a session.
+    case forkUnsupported
 }

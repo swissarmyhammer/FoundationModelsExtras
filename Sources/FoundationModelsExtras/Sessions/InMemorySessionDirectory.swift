@@ -20,6 +20,11 @@ import ULID
 ///   session with no title gets ``SessionName/default(agentName:usedNames:)``
 ///   of its agent id, outside the slugs of the sessions in its folder that
 ///   are not archived.
+/// - **Fork:** a fork is a live session of kind `fork`, in the folder of its
+///   source, with the agent of its source and the name
+///   ``SessionName/fork(sourceName:usedNames:)``. It needs no launcher. The
+///   directory keeps no history, thus it copies none. It records the request
+///   for the tests: ``forkRequest(of:)``.
 /// - **Delivery (section 10.2):** an idle target gets `delivered`, and the
 ///   message starts a turn. A working target, or one that needs input, gets
 ///   `queued`. A message to an idle target sends `messageDelivered` at
@@ -113,6 +118,25 @@ public final class InMemorySessionDirectory: SessionDirectory {
     public func start(_ request: SessionStartRequest) async throws -> SessionSummary {
         let time = now()
         return try state.withLock { try $0.start(request, at: time) }
+    }
+
+    /// Forks a session, and sends `started` with the kind `fork` and the
+    /// source as the parent. A first prompt starts a turn, thus the fork
+    /// works. The directory keeps no history, thus it checks the cut with a
+    /// simple rule: ``SessionForkCut/callingToolCall`` needs a source that
+    /// works, and ``SessionForkCut/historyPosition(_:)`` needs a position of
+    /// 0 or more.
+    ///
+    /// - Parameter request: The source, the cut, the first prompt, the client
+    ///   and the forker. The test double keeps no audit, thus it reads no
+    ///   field of the forker.
+    /// - Returns: The summary of the fork.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)``,
+    ///   ``SessionDirectoryError/archivedSession(_:)`` and
+    ///   ``SessionDirectoryError/forkCutOutOfRange(_:)``.
+    public func fork(_ request: SessionForkRequest) async throws -> SessionSummary {
+        let time = now()
+        return try state.withLock { try $0.fork(request, at: time) }
     }
 
     /// Adds tags to the session `id` and sends `factsChanged`.

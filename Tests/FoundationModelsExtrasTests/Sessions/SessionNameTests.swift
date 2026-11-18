@@ -55,4 +55,29 @@ struct SessionNameTests {
     func aUsedNameWithAnEmptySlugIsIgnored() {
         #expect(SessionName.default(agentName: "claude-code", usedNames: ["!!!"]) == "claude-code")
     }
+
+    @Test("with no used name, the fork name is the slug of the source name with -fork")
+    func noUsedNameGivesTheSourceSlugWithFork() {
+        #expect(SessionName.fork(sourceName: "Fix the Build", usedNames: []) == "fix-the-build-fork")
+    }
+
+    @Test("when the fork name is used, the fork name ends with -fork-2")
+    func aUsedForkNameGivesForkTwo() {
+        #expect(
+            SessionName.fork(sourceName: "fix-the-build", usedNames: ["fix-the-build", "fix-the-build-fork"])
+                == "fix-the-build-fork-2")
+    }
+
+    @Test("when -fork and -fork-2 are used, the fork name ends with -fork-3")
+    func twoUsedForkNamesGiveForkThree() {
+        #expect(
+            SessionName.fork(
+                sourceName: "fix-the-build", usedNames: ["fix-the-build-fork", "Fix the build fork 2"])
+                == "fix-the-build-fork-3")
+    }
+
+    @Test("a source name with an empty slug gives the fork name session-fork")
+    func anEmptySourceSlugGivesSessionFork() {
+        #expect(SessionName.fork(sourceName: "!!!", usedNames: []) == "session-fork")
+    }
 }

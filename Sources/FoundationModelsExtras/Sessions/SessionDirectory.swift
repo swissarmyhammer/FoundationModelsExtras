@@ -25,6 +25,30 @@ public protocol SessionDirectory: Sendable {
     /// - Returns: The summary of the new session.
     func start(_ request: SessionStartRequest) async throws -> SessionSummary
 
+    /// Forks a session and sends `started`.
+    ///
+    /// The fork is a new top-level session of kind ``SessionKind/fork``, with
+    /// the origin ``SessionDirectoryOrigin/fork``. It works in the folder of
+    /// its source, with the agent of its source, and its
+    /// ``SessionSummary/parentID`` is the source. It gets a copy of the
+    /// history of the source up to the cut of the request. Its name is
+    /// ``SessionName/fork(sourceName:usedNames:)`` of the slug of the source,
+    /// outside the names of the sessions in that folder that are not
+    /// archived. The `started` event has the kind `fork` and the parent. A
+    /// first prompt starts the first turn of the fork, as the first message
+    /// of a start does.
+    ///
+    /// - Parameter request: The source, the cut, the first prompt, the client
+    ///   and the forker.
+    /// - Returns: The summary of the fork.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)`` for an unknown
+    ///   source, ``SessionDirectoryError/archivedSession(_:)`` for an
+    ///   archived source, ``SessionDirectoryError/forkCutOutOfRange(_:)`` for
+    ///   a cut that is not in the history of the source, and
+    ///   ``SessionDirectoryError/forkUnsupported`` from a directory that
+    ///   cannot fork.
+    func fork(_ request: SessionForkRequest) async throws -> SessionSummary
+
     /// Adds tags to the session `id` and sends `factsChanged`.
     ///
     /// - Parameters:
@@ -245,5 +269,18 @@ extension SessionDirectory {
             throw SessionDirectoryError.unknownSession(id)
         }
         return summary
+    }
+}
+
+/// The default of the fork, for a directory that cannot fork yet.
+extension SessionDirectory {
+    /// The default cannot fork: it changes nothing and sends no event. A
+    /// directory must implement this method for forks to work.
+    ///
+    /// - Parameter request: The fork request. The default ignores it.
+    /// - Returns: No value. The default always throws.
+    /// - Throws: ``SessionDirectoryError/forkUnsupported``.
+    public func fork(_ request: SessionForkRequest) async throws -> SessionSummary {
+        throw SessionDirectoryError.forkUnsupported
     }
 }
