@@ -36,10 +36,17 @@ comments:
     - evidence: swift test --filter FoundationModelsExtrasTests: 2020 tests in 192 suites passed, no warnings in the changed files; files: Sources/FoundationModelsExtras/URL+ComparablePath.swift (new), Sources/FoundationModelsExtras/Sessions/SessionReference.swift, Sources/FoundationModelsExtras/Sessions/InMemorySessionDirectoryState.swift, Sources/FoundationModelsExtras/ModelPool/HubSource.swift, Tests/FoundationModelsExtrasTests/URLComparablePathTests.swift (new), Tests/FoundationModelsExtrasTests/Sessions/SessionReferenceTests.swift
     - next: review
   timestamp: 2026-11-18T13:38:07.781405+00:00
+- actor: claude-code
+  id: 01m7qe4qzsk9yktg7nxnx4vcwc
+  text: |-
+    ### review — clean
+    - evidence: review sha b9d57d4~1..b9d57d4 gave 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). The engine reviewed 6 files. It did not review 6 files in .kanban/ because .reviewignore excludes them. The prior finding at SessionReference.swift:99 is checked.
+    - next: none. The task is in done.
+  timestamp: 2026-11-18T13:39:35.545897+00:00
 depends_on:
 - 01M7NQMD2D1N7W7WXV4ZX2NJ0A
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fff780
 title: 'SessionReference.resolve: one pure resolver for @id, @short id and @slug'
 ---
 D199 (e): an agent IS a session. The brief is `swissarmyhammer/.briefs/at-sessions/extras-brief-at-sessions.md`, item 2. The composer of the app and the `send` of the Multitool `sessions` tool use this resolver.
