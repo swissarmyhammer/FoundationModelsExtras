@@ -253,4 +253,61 @@ struct InMemorySessionDirectoryForkTests {
 
         #expect(try await directory.summary(of: source) == before)
     }
+    @Test(
+        "a turn cut of an idle source with one turn gives a fork when the turn exists",
+        arguments: [SessionForkCut.beforeTurn(0), .afterTurn(0)])
+    func aTurnCutOfAnExistingTurnGivesAFork(cut: SessionForkCut) async throws {
+        let directory = Fixtures.makeDirectory()
+        let source = try await Fixtures.startIdleSession(in: directory)
+
+        let fork = try await directory.fork(Self.request(of: source, cut: cut))
+
+        #expect(fork.parentID == source)
+        #expect(directory.forkRequest(of: fork.id)?.cut == cut)
+    }
+
+    @Test(
+        "a turn cut of an idle source with one turn throws forkCutOutOfRange for a turn that does not exist",
+        arguments: [SessionForkCut.beforeTurn(1), .afterTurn(1), .beforeTurn(-1), .afterTurn(-1)])
+    func aTurnCutOfAMissingTurnThrows(cut: SessionForkCut) async throws {
+        let directory = Fixtures.makeDirectory()
+        let source = try await Fixtures.startIdleSession(in: directory)
+
+        await #expect(throws: SessionDirectoryError.forkCutOutOfRange(cut)) {
+            _ = try await directory.fork(Self.request(of: source, cut: cut))
+        }
+    }
+
+    @Test("a cut after the turn that still runs throws forkCutOutOfRange")
+    func aCutAfterTheRunningTurnThrows() async throws {
+        let directory = Fixtures.makeDirectory()
+        let source = try await Fixtures.startWorkingSession(in: directory).id
+        let cut = SessionForkCut.afterTurn(0)
+
+        await #expect(throws: SessionDirectoryError.forkCutOutOfRange(cut)) {
+            _ = try await directory.fork(Self.request(of: source, cut: cut))
+        }
+    }
+
+    @Test("a cut before the turn that still runs gives a fork")
+    func aCutBeforeTheRunningTurnGivesAFork() async throws {
+        let directory = Fixtures.makeDirectory()
+        let source = try await Fixtures.startWorkingSession(in: directory).id
+
+        let fork = try await directory.fork(Self.request(of: source, cut: .beforeTurn(0)))
+
+        #expect(fork.parentID == source)
+    }
+
+    @Test("each turn of the source counts: after a second turn, a cut after turn 1 gives a fork")
+    func eachTurnCounts() async throws {
+        let directory = Fixtures.makeDirectory()
+        let source = try await Fixtures.startIdleSession(in: directory)
+        try directory.startUserTurn(of: source)
+        try directory.finishTurn(of: source, lastSummary: nil)
+
+        let fork = try await directory.fork(Self.request(of: source, cut: .afterTurn(1)))
+
+        #expect(fork.parentID == source)
+    }
 }

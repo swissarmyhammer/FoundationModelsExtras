@@ -1,5 +1,17 @@
 /// The point in the history of a source session where a fork cuts it. The
 /// fork gets a copy of the history up to this point.
+///
+/// ## Turns
+///
+/// ``afterTurn(_:)`` and ``beforeTurn(_:)`` count turns in the recorded
+/// history of the source. A turn is one `prompt` entry and all the entries
+/// after it, up to the next `prompt` entry. A `prompt` entry is a user
+/// message, or a delivered message that starts an answer: a message from
+/// another session, or a delivered inbox message. The index is 0-based:
+/// turn 0 is the first prompt after the instructions.
+///
+/// An index that does not exist is out of range. ``afterTurn(_:)`` of a turn
+/// that still runs is out of range too.
 public enum SessionForkCut: Sendable, Codable, Equatable {
     /// The history up to the end of the last completed turn. The fork does
     /// not get a turn that runs.
@@ -12,4 +24,12 @@ public enum SessionForkCut: Sendable, Codable, Equatable {
     /// A position in the history of the source, as the directory counts it.
     /// The ACP agent maps an ACP message id to it.
     case historyPosition(Int)
+
+    /// The history up to the end of the turn with this index. The turn must
+    /// be complete.
+    case afterTurn(Int)
+
+    /// The history up to the `prompt` entry of the turn with this index, but
+    /// not that entry.
+    case beforeTurn(Int)
 }

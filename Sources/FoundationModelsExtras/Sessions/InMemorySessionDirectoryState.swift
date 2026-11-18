@@ -20,6 +20,11 @@ struct InMemorySessionDirectoryState {
 
         /// The sends that the current turn made.
         var sendsInTurn = 0
+
+        /// The number of turns that the session started. The test double
+        /// keeps no history, thus a fork cut that names a turn is checked
+        /// with this count.
+        var turnCount = 0
     }
 
     /// One message that the directory delivered to a session.
@@ -404,6 +409,7 @@ extension InMemorySessionDirectoryState {
     mutating func beginTurn(of id: ULID, chainDepth: Int, at now: Date) {
         entries[id]?.turnChainDepth = chainDepth
         entries[id]?.sendsInTurn = 0
+        entries[id]?.turnCount += 1
         changeState(of: id, to: .working, lastSummary: nil, at: now)
     }
 

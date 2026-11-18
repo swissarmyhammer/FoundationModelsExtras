@@ -17,6 +17,8 @@ struct SessionForkRequestTests {
             SessionForkCut.lastCompletedTurn,
             .callingToolCall,
             .historyPosition(historyPosition),
+            .afterTurn(0),
+            .beforeTurn(2),
         ])
     func eachCutSurvivesARoundTrip(cut: SessionForkCut) throws {
         #expect(try SessionFixtures.roundTrip(cut) == cut)

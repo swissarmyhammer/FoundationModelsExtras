@@ -21,7 +21,7 @@ extension InMemorySessionDirectoryState {
     mutating func fork(_ request: SessionForkRequest, at now: Date) throws -> SessionSummary {
         let source = try entry(request.sourceID).summary
         guard source.state != .archived else { throw SessionDirectoryError.archivedSession(source.id) }
-        try Self.check(request.cut, of: source)
+        try Self.check(request.cut, of: source, turnCount: try entry(source.id).turnCount)
         let fork = SessionSummary(
             id: ULID(),
             agentID: source.agentID,
@@ -52,13 +52,20 @@ extension InMemorySessionDirectoryState {
     ///   works, because only a turn that runs can call a tool.
     /// - ``SessionForkCut/historyPosition(_:)`` is in range when the position
     ///   is 0 or more.
+    /// - ``SessionForkCut/beforeTurn(_:)`` is in range when the source started
+    ///   the turn with that index. Each turn that the directory starts counts:
+    ///   a first message, a delivered message, and a user turn.
+    /// - ``SessionForkCut/afterTurn(_:)`` is in range when the source started
+    ///   the turn with that index, and the turn is complete. The last turn
+    ///   of a source that works or that needs input still runs.
     ///
     /// - Parameters:
     ///   - cut: The cut of the fork.
     ///   - source: The summary of the source session.
+    ///   - turnCount: The number of turns that the source started.
     /// - Throws: ``SessionDirectoryError/forkCutOutOfRange(_:)`` for a cut
     ///   that is not in range.
-    private static func check(_ cut: SessionForkCut, of source: SessionSummary) throws {
+    private static func check(_ cut: SessionForkCut, of source: SessionSummary, turnCount: Int) throws {
         let isInRange: Bool
         switch cut {
         case .lastCompletedTurn:
@@ -67,6 +74,12 @@ extension InMemorySessionDirectoryState {
             isInRange = source.state == .working
         case .historyPosition(let position):
             isInRange = position >= 0
+        case .beforeTurn(let index):
+            isInRange = (0..<turnCount).contains(index)
+        case .afterTurn(let index):
+            let lastTurnRuns = source.state == .working || source.state == .needsInput
+            let completeTurns = lastTurnRuns ? turnCount - 1 : turnCount
+            isInRange = (0..<max(completeTurns, 0)).contains(index)
         }
         guard isInRange else { throw SessionDirectoryError.forkCutOutOfRange(cut) }
     }
