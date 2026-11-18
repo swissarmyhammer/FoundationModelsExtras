@@ -79,8 +79,15 @@ comments:
     - evidence: 1 file — Tests/FoundationModelsExtrasTests/GraphQL/ResolverRewritesTests.swift; `swift test --filter FoundationModelsExtrasTests`: 2033 tests in 194 suites passed, no warnings in this file
     - next: review
   timestamp: 2026-11-18T14:41:36.228372+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m7qhrk6kmy0411ka89r8mgra
+  text: |-
+    ### review — clean
+    - evidence: review sha 60019d2~1..60019d2 gave 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). All earlier review items have a check mark.
+    - next: The task is in done. When the change is on origin/main, send the sha to foundationmodelsmultitool-89 (task ^gxqmxj6).
+  timestamp: 2026-11-18T14:42:51.731177+00:00
+position_column: done
+position_ordinal: fff880
 title: A resolver can add a rewrite report to extensions.rewrites
 ---
 Request from FoundationModelsMultitool (its task ^gxqmxj6). The `sendMessage` mutation of the sessions endpoint must report an address alias in `extensions.rewrites`. Examples: `@agent:/path` reads as `@agent` with the lookup folder `/path`. A folder path alone names the newest root session in that folder. The tool answer already shows this, but the GraphQL endpoint cannot.
