@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '80'
+position_column: done
+position_ordinal: fffb80
 title: Unarchive on the session directory, and the inbox for an archived target
 ---
 Archive of a session is not final. An archive hides the session. It does not delete it.
