@@ -102,4 +102,19 @@ struct InMemorySessionDirectoryMailTests {
         let content = "From the session \(sender.shortID), agent default (/tmp/project)\n\nDone."
         #expect(mail.body == .agentMessage(from: sender.id, content: content))
     }
+
+    @Test("the header of a sender with an empty agent name names its agent id")
+    func aSenderWithAnEmptyAgentNameHasAnAgentIDHeader() {
+        let directory = Fixtures.makeDirectory()
+        var sender = SessionFixtures.summary()
+        sender.agentName = ""
+        directory.register(sender)
+        let message = SessionMessage(
+            id: MailID(), from: .session(sender.id), to: ULID(), text: "Done.", sentAt: Fixtures.now, chainDepth: 2)
+
+        let mail = directory.mail(carrying: message)
+
+        let content = "From the session Fix the build, agent default (/tmp/project)\n\nDone."
+        #expect(mail.body == .agentMessage(from: sender.id, content: content))
+    }
 }

@@ -13,12 +13,12 @@ import ULID
 /// - A user sender with no source session: no header. The content is the
 ///   text of the message.
 ///
-/// `<title>` is the title of the session, or its short id when it has no
-/// title. `<agent>` is the display name of the agent, or the agent id when
-/// the agent has no name. `<folder>` is the path of the working folder. When
-/// the directory does not know the session, the header names only the
-/// session id: `From the session <id>`, or `From the user, in the session
-/// <id>`.
+/// `<title>` is the title of the session, or its short id when the title is
+/// missing or empty. `<agent>` is the display name of the agent, or the agent
+/// id when the name is missing or empty. `<folder>` is the path of the
+/// working folder. When the directory does not know the session, the header
+/// names only the session id: `From the session <id>`, or `From the user, in
+/// the session <id>`.
 enum SessionSenderHeader {
     /// The text between the header line and the text of the message.
     private static let separator = "\n\n"
@@ -79,13 +79,14 @@ enum SessionSenderHeader {
         return title
     }
 
-    /// The display name of the agent, or the agent id when the agent has no
-    /// name.
+    /// The display name of the agent, or the agent id when the name is
+    /// missing or empty.
     ///
     /// - Parameter summary: The summary of the session.
     /// - Returns: The agent that the header shows.
     private static func agent(of summary: SessionSummary) -> String {
-        summary.agentName ?? summary.agentID
+        guard let name = summary.agentName, !name.isEmpty else { return summary.agentID }
+        return name
     }
 
     /// The path of the working folder of the session.

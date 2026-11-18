@@ -45,8 +45,30 @@ comments:
     - evidence: 5 files (not committed) — Sources/FoundationModelsExtras/Sessions/SessionSenderHeader.swift (new), Sessions/InMemorySessionDirectory+Mail.swift, Sessions/InMemorySessionDirectory.swift (doc), Tests/FoundationModelsExtrasTests/Sessions/InMemorySessionDirectoryMailTests.swift (new, 6 tests), InMemorySessionDirectoryDeliveryTests.swift (old static-mail test removed). RED: 5 of 6 new tests failed before the header code. `swift build --build-tests`: no errors, no warnings. `swift test --filter FoundationModelsExtrasTests`: 1985 tests in 190 suites passed. Dependent uses of `InMemorySessionDirectory.mail(carrying:` in sibling packages: none. Finding of 2026-11-18 07:05 is checked.
     - next: /review
   timestamp: 2026-11-18T13:12:42.984241+00:00
+- actor: claude-code
+  id: 01m7qcqv2pexrab3d4g7fc6rbn
+  text: |-
+    ### review — findings
+    - evidence: review sha 875ace0~1..875ace0; 1 finding (1 confirmed, 0 refuted) — Sources/FoundationModelsExtras/Sessions/SessionSenderHeader.swift:88
+    - next: treat an empty agentName as missing in SessionSenderHeader, as the title rule does, and add a test with an empty agentName. Then run the review again.
+  timestamp: 2026-11-18T13:15:04.150450+00:00
+- actor: claude-code
+  id: 01m7qcyt9v979mag8wya6fcwb3
+  text: |-
+    Discoveries for the 07:13 finding:
+    - The cause is a fallback that tests only for nil and not for an empty string. I checked each fallback in SessionSenderHeader: `name(of:)` already treats an empty title as missing; `agent(of:)` now treats an empty agent name as missing; `folder(of:)` and `namedSession(of:)` have no optional fallback. The type doc and the doc of `agent(of:)` now say "missing or empty".
+    - RED: the new test with agentName "" failed (the header read "agent  (/tmp/project)"). GREEN after the change.
+    - `swift build --build-tests` gives one warning, "missing creator for mutated node" on the mlx-swift_Cmlx bundle. It comes from the build system for a dependency, not from the changed files.
+  timestamp: 2026-11-18T13:18:52.731358+00:00
+- actor: claude-code
+  id: 01m7qcywaqh20edzp0av77xjms
+  text: |-
+    ### implement — changed
+    - evidence: 2 files (not committed) — Sources/FoundationModelsExtras/Sessions/SessionSenderHeader.swift, Tests/FoundationModelsExtrasTests/Sessions/InMemorySessionDirectoryMailTests.swift (+1 test). Formatted with a temporary configuration (4 spaces, lineLength 120). `swift test --filter FoundationModelsExtrasTests`: 1987 tests in 190 suites passed. No warnings in the changed files. Finding of 2026-11-18 07:13 is checked.
+    - next: /review
+  timestamp: 2026-11-18T13:18:54.807361+00:00
 position_column: doing
-position_ordinal: '8380'
+position_ordinal: '8580'
 title: Source session on an outgoing and a delivered message, and the send contract doc
 ---
 D199. The brief is `swissarmyhammer/.briefs/at-sessions/extras-brief-at-sessions.md`, items 3 and 5. The Router and ACPAgent (ACPA-6) use these fields.
@@ -77,3 +99,12 @@ D199. The brief is `swissarmyhammer/.briefs/at-sessions/extras-brief-at-sessions
 > Scope: `review sha 6a42870~1..6a42870` — reviewed the diffs only — lines this change added or modified. 9 file(s) reviewed, 0 not reviewed.
 
 - [x] `Sources/FoundationModelsExtras/Sessions/SessionDirectory.swift:93` `completeness/invariant-propagation` — The doc of send says a user sender with a source session gets a sender header that names the source session. No code in the change renders this header. The Mail code that builds the mail body was not changed. So a message with a source session is delivered with no header, and the documented rule is not applied. Render the header in the mail builder for a user sender with a source session, and for a session sender. Add a test that reads the mail body and asserts the header. If the header is not wanted in this change, remove the header rules from the send doc.
+
+## Review Findings (2026-11-18 07:13)
+
+> Scope: `review sha 875ace0~1..875ace0` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 12 not reviewed.
+
+> 12 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 12 file(s)
+
+- [x] `Sources/FoundationModelsExtras/Sessions/SessionSenderHeader.swift:88` `completeness/invariant-propagation` — The agent name falls back to the agent id only when agentName is nil. An empty agentName is shown as is, so the header reads 'agent  (folder)'. The title rule at line 78 treats an empty value as missing (`!title.isEmpty`), so the two name fallbacks do not follow the same rule. Treat an empty agentName as missing, as the title does. For example: `guard let name = summary.agentName, !name.isEmpty else { return summary.agentID }`. Add a test with agentName set to an empty string, next to the nil-name test in InMemorySessionDirectoryMailTests.swift.

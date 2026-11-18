@@ -9,8 +9,8 @@ comments:
 depends_on:
 - 01M7NQMD2D1N7W7WXV4ZX2NJ0A
 - 01M7NQN30QZVJ438F3S3XNX0WV
-position_column: todo
-position_ordinal: '8380'
+position_column: doing
+position_ordinal: '8680'
 title: InMemorySessionDirectory follows the D199 send contract and gives default names
 ---
 D199. The brief is `swissarmyhammer/.briefs/at-sessions/extras-brief-at-sessions.md`, item 4. Consumers test against this double, so it must follow the new contract of `SessionDirectory.send`.
