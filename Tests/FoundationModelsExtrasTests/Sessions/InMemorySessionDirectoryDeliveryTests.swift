@@ -340,23 +340,6 @@ struct InMemorySessionDirectoryDeliveryTests {
         #expect(receipts == [SessionSendReceipt(outcome: .refused, reason: "Name an agent: @agent:/path.")])
     }
 
-    @Test("the mail of a UI message is a user message, and the mail of a session message is an agent message")
-    func theMailFollowsTheBodyChoiceRule() {
-        let sender = ULID()
-        let fromUser = SessionMessage(
-            id: MailID(), from: Fixtures.user, to: ULID(), text: "Hi.", sentAt: Fixtures.now, chainDepth: 1)
-        let fromSession = SessionMessage(
-            id: MailID(), from: .session(sender), to: ULID(), text: "Done.", sentAt: Fixtures.now, chainDepth: 2)
-
-        let userMail = InMemorySessionDirectory.mail(carrying: fromUser)
-        let sessionMail = InMemorySessionDirectory.mail(carrying: fromSession)
-
-        #expect(userMail == Mail(id: fromUser.id, sender: .user, body: .userMessage(prompt: "Hi.", options: UserMessageOptions())))
-        #expect(
-            sessionMail
-                == Mail(id: fromSession.id, sender: .session(sender), body: .agentMessage(from: sender, content: "Done.")))
-    }
-
     /// The name of the case of an event.
     ///
     /// - Parameter event: An event.

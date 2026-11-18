@@ -17,8 +17,15 @@ comments:
     - evidence: 2 files — Sources/FoundationModelsExtras/Sessions/SessionName.swift, Tests/FoundationModelsExtrasTests/Sessions/SessionNameTests.swift; `swift test --filter FoundationModelsExtrasTests`: 1975 tests in 189 suites passed, 0 failures, no warnings in the changed files
     - next: /review
   timestamp: 2026-11-18T13:05:02.630417+00:00
-position_column: doing
-position_ordinal: '8380'
+- actor: claude-code
+  id: 01m7qc8y8bcd5cmcess7b9wxgj
+  text: |-
+    ### review — clean
+    - evidence: review sha 5b0d5e5~1..5b0d5e5; 0 findings, 0 confirmed, 0 refuted; 7 attempted, 0 failed. The two .kanban files are excluded by .reviewignore.
+    - next: none. The task is in done.
+  timestamp: 2026-11-18T13:06:55.883727+00:00
+position_column: done
+position_ordinal: fff380
 title: 'SessionName.default: a fallback name when the agent name gives an empty slug'
 ---
 ## Current behavior

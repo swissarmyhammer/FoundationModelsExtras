@@ -27,8 +27,16 @@ comments:
     - evidence: 7 files — Sources/FoundationModelsExtras/Sessions/SessionSlug.swift (new), Sources/FoundationModelsExtras/Sessions/SessionName.swift (new), Sources/FoundationModelsExtras/Sessions/SessionSummary.swift, Tests/FoundationModelsExtrasTests/Sessions/SessionSlugTests.swift (new), Tests/FoundationModelsExtrasTests/Sessions/SessionNameTests.swift (new), Tests/FoundationModelsExtrasTests/Sessions/SessionSummaryTests.swift, Tests/FoundationModelsExtrasTests/Sessions/SessionFixtures.swift. 13 new tests. `swift test`: exit 0, 0 failures, 0 compiler warnings (main run 1971 tests in 189 suites passed).
     - next: review
   timestamp: 2026-11-18T12:59:49.764617+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m7qc0anbpjcj8cgg0dvvq04m
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (f40b6c0). 7 files reviewed, 10 .kanban files ignored. Counts: 0 findings, 0 confirmed, 1 refuted, 0 failed.
+    - open point (not an engine finding): `SessionName.default(agentName: "!!!", usedNames: [])` returns "". This agrees with the task text ("the result is the slug of the agent name") and with the doc of `SessionSlug.make`. But the doc of `SessionName.default` does not say that the result can be empty. Also, when the agent slug is empty and a used name also has an empty slug (for example "!!!" or ""), the result is "-2". "-2" starts with a hyphen, thus it is not a slug, and the doc says "Returns: The default name, as a slug". A person must decide if this needs a follow-up task.
+    - next: none.
+  timestamp: 2026-11-18T13:02:13.675045+00:00
+position_column: done
+position_ordinal: fff280
 title: 'Session names: shortID, slug and the default-name rule'
 ---
 D199 (b). The TestudoApp brief is `swissarmyhammer/.briefs/at-sessions/extras-brief-at-sessions.md`, item 1. Multitool, Router and the app use these types.

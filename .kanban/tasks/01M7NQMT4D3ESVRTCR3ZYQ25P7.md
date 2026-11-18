@@ -6,10 +6,14 @@ comments:
   id: 01m7nqq5znzhcpwn8jphd0rnmr
   text: 'Notify on landing: when this task, ^zx2nj0a and ^3xnx0wv are all on origin/main, send the commit sha with SendMessage to foundationmodelsmultitool-89, foundationmodelsrouter-f1 and testudoapp-9a.'
   timestamp: 2026-11-17T21:48:28.021183+00:00
+- actor: claude-code
+  id: 01m7qbzbh1g24c6hg95zj98e0y
+  text: 'Research: the worktree did not have f40b6c0, thus I cherry-picked it (SessionSummary.shortID, SessionSummary.slug, SessionSlug.make). SessionSummary has var title, var workingDirectory and var state, thus a test can change a SessionFixtures.summary(id:). ULID(ulidString:) parses the text of an id; the resolver makes the text upper case before it parses it. The rule for the scopes: for each kind (short id, then slug), the resolver looks first in the source folder, then in all sessions. The new code goes in Sessions/SessionReference.swift and Sessions/SessionReferenceResolution.swift; the tests go in Sessions/SessionReferenceTests.swift.'
+  timestamp: 2026-11-18T13:01:41.793955+00:00
 depends_on:
 - 01M7NQMD2D1N7W7WXV4ZX2NJ0A
-position_column: todo
-position_ordinal: '8180'
+position_column: doing
+position_ordinal: '8280'
 title: 'SessionReference.resolve: one pure resolver for @id, @short id and @slug'
 ---
 D199 (e): an agent IS a session. The brief is `swissarmyhammer/.briefs/at-sessions/extras-brief-at-sessions.md`, item 2. The composer of the app and the `send` of the Multitool `sessions` tool use this resolver.

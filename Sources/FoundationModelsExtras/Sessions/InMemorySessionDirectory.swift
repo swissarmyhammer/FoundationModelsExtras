@@ -28,9 +28,9 @@ import ULID
 ///   `.bufferingNewest(256)` policy, and `started` comes before the first
 ///   `stateChanged` of a session.
 ///
-/// The body-choice rule of ``SessionDirectory/send(_:)`` holds for each
-/// message: ``mail(carrying:)`` gives the mail that carries it. The test
-/// double keeps no mail queue.
+/// The body-choice rule and the sender-header rule of
+/// ``SessionDirectory/send(_:)`` hold for each message: ``mail(carrying:)``
+/// gives the mail that carries it. The test double keeps no mail queue.
 ///
 /// No model runs a turn. A delivery to an idle session starts a turn, and
 /// the test hooks start and end the other turns: ``startUserTurn(of:)``,

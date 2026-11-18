@@ -1,6 +1,11 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m7qc93f3tqnz4z5mjkp90frs
+  text: 'Scope change: work item 3 (the header in the mail of a user message with a source session) moved to ^3xnx0wv, because the review of ^3xnx0wv requires the header for the send doc. Before you start this task, read the ^3xnx0wv commit. Do only the work items that remain: the default name at launch, and the inbox for a recorded target.'
+  timestamp: 2026-11-18T13:07:01.219145+00:00
 depends_on:
 - 01M7NQMD2D1N7W7WXV4ZX2NJ0A
 - 01M7NQN30QZVJ438F3S3XNX0WV
