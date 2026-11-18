@@ -1,7 +1,8 @@
 import GraphQL
 
-/// A GraphQL response, with the changes of the name rewrite in `extensions.rewrites`, the warnings of the run in
-/// `extensions.warnings`, and more `extensions` keys that an endpoint adds, for example `txn`.
+/// A GraphQL response, with the changes of the name rewrite and the rewrites of the resolvers in
+/// `extensions.rewrites`, the warnings of the run in `extensions.warnings`, and more `extensions` keys that an endpoint
+/// adds, for example `txn`.
 ///
 /// `GraphQLResult` encodes only `data` and `errors`, so this type encodes the same two keys in the same way, and adds
 /// `extensions` when it has one or more keys.
@@ -17,7 +18,7 @@ public struct GraphQLResponse: Encodable, Sendable {
         /// The key of the extensions of the response.
         static let extensions = Key(stringValue: "extensions")
 
-        /// The key of the changes of the name rewrite.
+        /// The key of the changes of the name rewrite and of the rewrites of the resolvers.
         static let rewrites = Key(stringValue: "rewrites")
 
         /// The key of the warnings of the run.
@@ -47,7 +48,8 @@ public struct GraphQLResponse: Encodable, Sendable {
     /// The result of the document, already in the form of the document that the caller wrote.
     public let result: GraphQLResult
 
-    /// The changes of the name rewrite. An empty list gives no `extensions.rewrites` key.
+    /// The items of `extensions.rewrites`: first the changes of the name rewrite, then the rewrites that the resolvers
+    /// added to ``ResolverRewrites``, in the order of the adds. An empty list gives no `extensions.rewrites` key.
     public let rewrites: [NameRewrite]
 
     /// The warnings of the run, in the order that the run added them. An empty list gives no `extensions.warnings`
@@ -62,7 +64,7 @@ public struct GraphQLResponse: Encodable, Sendable {
     ///
     /// - Parameters:
     ///   - result: The result, already in the form of the document that the caller wrote.
-    ///   - rewrites: The changes of the name rewrite.
+    ///   - rewrites: The changes of the name rewrite, then the rewrites of the resolvers.
     ///   - warnings: The warnings of the run.
     ///   - extensions: More keys of `extensions`.
     public init(

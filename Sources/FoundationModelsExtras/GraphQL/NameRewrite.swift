@@ -1,29 +1,34 @@
 import GraphQL
 import OrderedCollections
 
-/// One change of the name rewrite: an item of `extensions.rewrites` in the response.
+/// One item of `extensions.rewrites` in the response: a change of the name rewrite, or a rewrite that a resolver added
+/// to ``ResolverRewrites`` when it read a value in a different form than the canonical form.
 ///
-/// The agent reads these items to learn the canonical names.
+/// The agent reads these items to learn the canonical names and forms. For a resolver item, ``from`` is the text that
+/// the caller wrote, ``to`` is the canonical form, and ``path`` is the path of the value, for example
+/// `["sendMessage", "input", "to"]`.
 public struct NameRewrite: Encodable, Hashable, Sendable {
-    /// The name that the caller wrote, for example `taskAdd`.
+    /// The name that the caller wrote, for example `taskAdd`. For a resolver item, the text of the value that the caller
+    /// wrote.
     public let from: String
 
     /// The canonical name, for example `addTask`. For a root query field that the rewrite moved into the root
-    /// container, the name has the container prefix, for example `board.tasks`.
+    /// container, the name has the container prefix, for example `board.tasks`. For a resolver item, the canonical form
+    /// of the value.
     public let to: String
 
     /// The path to the name in the document: the response key of each field from the root, then the names of the
     /// argument and of each `input` field, as the caller wrote them. A name in a fragment definition starts with the
     /// name of the fragment. A key in the value of a variable starts with the `$` name of the variable, then the keys
-    /// as the caller wrote them, for example `["$input", "name"]`.
+    /// as the caller wrote them, for example `["$input", "name"]`. For a resolver item, the path of the value.
     public let path: [String]
 
-    /// Makes one change of the rewrite.
+    /// Makes one change of the rewrite, or one rewrite of a resolver.
     ///
     /// - Parameters:
-    ///   - from: The name that the caller wrote.
-    ///   - to: The canonical name.
-    ///   - path: The path to the name in the document.
+    ///   - from: The name or the text of the value that the caller wrote.
+    ///   - to: The canonical name or the canonical form of the value.
+    ///   - path: The path to the name or to the value in the document.
     public init(from: String, to: String, path: [String]) {
         self.from = from
         self.to = to

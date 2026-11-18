@@ -44,6 +44,11 @@ extension API where ContextType: GraphQLRunContext {
     /// and the response has each change in `extensions.rewrites`. A name that matches two or more names gives an
     /// error, and the document does not run.
     ///
+    /// A resolver that reads a value in a different form than the canonical form adds a rewrite to
+    /// ``ResolverRewrites/current``. These rewrites come in `extensions.rewrites` after the changes of the name
+    /// rewrite, in the order of the adds, also when the run gives GraphQL errors. A document that does not parse has
+    /// no resolver rewrites.
+    ///
     /// The rewrite forgives more mistakes of a model, each with a warning. A raw line break in a quoted string reads
     /// as `\n` (``RawNewlineRepair``), the definition of a declared variable that the operation never reads goes out
     /// (``DocumentRewriter/unreadVariableWarningCode``), and a variable declared `String` whose every read is an `ID`
@@ -71,9 +76,11 @@ extension API where ContextType: GraphQLRunContext {
         formattedWith formatting: GraphQLJSONEncoder.OutputFormatting = [],
         context: ContextType
     ) async throws -> String {
+        let resolverRewrites = ResolverRewrites()
         let answerParseFailure: (GraphQLError) async throws -> String = { error in
             try GraphQLResponse(
                 result: GraphQLResult(errors: [error.codedAsParseFailure()]),
+                rewrites: resolverRewrites.list,
                 warnings: await context.warnings.list,
                 extensions: await context.responseExtensions()
             ).json(formattedWith: formatting)
@@ -91,13 +98,15 @@ extension API where ContextType: GraphQLRunContext {
         await context.warnings.add(contentsOf: rewritten.warnings)
         let result: GraphQLResult
         do {
-            result = try await self.result(of: rewritten, operationName: operationName, context: context)
+            result = try await ResolverRewrites.$current.withValue(resolverRewrites) {
+                try await self.result(of: rewritten, operationName: operationName, context: context)
+            }
         } catch let error as GraphQLError {
             return try await answerParseFailure(error)
         }
         return try GraphQLResponse(
             result: result,
-            rewrites: rewritten.rewrites,
+            rewrites: rewritten.rewrites + resolverRewrites.list,
             warnings: await context.warnings.list,
             extensions: await context.responseExtensions()
         ).json(formattedWith: formatting)
@@ -111,7 +120,9 @@ extension API where ContextType: GraphQLRunContext {
     /// example the `RESYNC_REQUIRED` of a ``ChangeLog``, gives one last response with that error and its
     /// `extensions.code`, and the stream then ends.
     ///
-    /// The warnings list is for a call: a response of a subscription has no `extensions.warnings`.
+    /// The warnings list is for a call: a response of a subscription has no `extensions.warnings`. A response of a
+    /// subscription has only the changes of the name rewrite in `extensions.rewrites`: the rewrites that a resolver
+    /// adds to ``ResolverRewrites/current`` are for a call, and a subscription binds no collector.
     ///
     /// - Parameters:
     ///   - document: The subscription document.
