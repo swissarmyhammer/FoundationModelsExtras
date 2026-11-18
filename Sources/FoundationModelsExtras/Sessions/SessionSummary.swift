@@ -65,6 +65,23 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     /// True when the session is pinned, that is, it has a ``pinnedAt``.
     public var isPinned: Bool { pinnedAt != nil }
 
+    /// The number of characters of ``shortID``.
+    private static let shortIDLength = 7
+
+    /// The short id of the session: the last 7 characters of the text of
+    /// ``id``, in lower case. A person can type it to find the session.
+    public var shortID: String {
+        String(id.ulidString.suffix(Self.shortIDLength)).lowercased()
+    }
+
+    /// The slug of the session: the slug of ``title`` that
+    /// ``SessionSlug/make(from:)`` makes. When that slug is empty, for
+    /// example when the session has no title, the slug is ``shortID``.
+    public var slug: String {
+        let titleSlug = SessionSlug.make(from: title ?? "")
+        return titleSlug.isEmpty ? shortID : titleSlug
+    }
+
     /// Makes a summary.
     ///
     /// - Parameters:

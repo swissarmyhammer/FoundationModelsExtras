@@ -1,6 +1,7 @@
 import Foundation
-@testable import FoundationModelsExtras
 import ULID
+
+@testable import FoundationModelsExtras
 
 /// Values and a JSON round trip that the tests of the session directory
 /// types share.
@@ -32,9 +33,12 @@ enum SessionFixtures {
     }
 
     /// A summary that sets every field, the optional ones too.
-    static func summary() -> SessionSummary {
+    ///
+    /// - Parameter id: The session id. The default is a new id.
+    /// - Returns: The summary.
+    static func summary(id: ULID = ULID()) -> SessionSummary {
         SessionSummary(
-            id: ULID(),
+            id: id,
             agentID: "default",
             agentName: "Default agent",
             workingDirectory: folder,

@@ -1,7 +1,8 @@
 import Foundation
-@testable import FoundationModelsExtras
 import Testing
 import ULID
+
+@testable import FoundationModelsExtras
 
 /// ``SessionSummary`` holds the facts of one session.
 @Suite("SessionSummary: the facts of one session")
@@ -59,5 +60,33 @@ struct SessionSummaryTests {
     @Test("a summary with a pin time is pinned")
     func aPinTimeMeansPinned() {
         #expect(SessionFixtures.summary().isPinned)
+    }
+
+    @Test("the short id is the last seven characters of the id in lower case")
+    func theShortIDIsTheLowerCaseTail() throws {
+        let id = try #require(ULID(ulidString: "01M7NQMD2D1N7W7WXV4ZX2NJ0A"))
+
+        #expect(SessionFixtures.summary(id: id).shortID == "zx2nj0a")
+    }
+
+    @Test("the slug of a summary is the slug of its title")
+    func theSlugIsTheSlugOfTheTitle() {
+        #expect(SessionFixtures.summary().slug == "fix-the-build")
+    }
+
+    @Test("a title with no letter and no digit gives the short id as the slug")
+    func aTitleWithNoLetterGivesTheShortID() {
+        var summary = SessionFixtures.summary()
+        summary.title = "!!!"
+
+        #expect(summary.slug == summary.shortID)
+    }
+
+    @Test("a summary with no title gives the short id as the slug")
+    func noTitleGivesTheShortID() {
+        var summary = SessionFixtures.summary()
+        summary.title = nil
+
+        #expect(summary.slug == summary.shortID)
     }
 }
