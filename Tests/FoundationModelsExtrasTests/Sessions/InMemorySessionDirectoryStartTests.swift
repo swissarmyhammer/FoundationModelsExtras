@@ -130,4 +130,72 @@ struct InMemorySessionDirectoryStartTests {
 
         #expect(try await directory.summary(of: ULID()) == nil)
     }
+
+    @Test("a start with no title in an empty folder gets the slug of the agent as its title")
+    func aStartWithNoTitleGetsTheAgentSlug() async throws {
+        let directory = Fixtures.makeDirectory()
+
+        let summary = try await Self.startClaudeCode(in: Fixtures.projectFolder, of: directory)
+
+        #expect(summary.title == "claude-code")
+    }
+
+    @Test("a second start with no title in the same folder gets the next free number")
+    func aSecondStartInTheSameFolderGetsTheNextNumber() async throws {
+        let directory = Fixtures.makeDirectory()
+        _ = try await Self.startClaudeCode(in: Fixtures.projectFolder, of: directory)
+
+        let summary = try await Self.startClaudeCode(in: Fixtures.projectFolder, of: directory)
+
+        #expect(summary.title == "claude-code-2")
+    }
+
+    @Test("a start with no title in another folder does not count the names of the first folder")
+    func aStartInAnotherFolderGetsTheAgentSlug() async throws {
+        let directory = Fixtures.makeDirectory()
+        _ = try await Self.startClaudeCode(in: Fixtures.projectFolder, of: directory)
+
+        let summary = try await Self.startClaudeCode(in: Fixtures.otherFolder, of: directory)
+
+        #expect(summary.title == "claude-code")
+    }
+
+    @Test("an archived session does not count as a used name")
+    func anArchivedSessionDoesNotCount() async throws {
+        let directory = Fixtures.makeDirectory()
+        let archived = try await Self.startClaudeCode(in: Fixtures.projectFolder, of: directory)
+        _ = try await directory.archive(archived.id, by: Fixtures.user)
+
+        let summary = try await Self.startClaudeCode(in: Fixtures.projectFolder, of: directory)
+
+        #expect(summary.title == "claude-code")
+    }
+
+    @Test("the title of a start counts as a used name for a later start with no title")
+    func aGivenTitleCountsAsAUsedName() async throws {
+        let directory = Fixtures.makeDirectory()
+        _ = try await directory.start(
+            SessionStartRequest(
+                agentID: Fixtures.reviewerAgentID, workingDirectory: Fixtures.projectFolder,
+                firstMessage: "Hi.", title: "Claude Code", origin: .client))
+
+        let summary = try await Self.startClaudeCode(in: Fixtures.projectFolder, of: directory)
+
+        #expect(summary.title == "claude-code-2")
+    }
+
+    /// Starts a session of the `claude-code` agent with no title.
+    ///
+    /// - Parameters:
+    ///   - folder: The working folder of the session.
+    ///   - directory: The directory to start it in.
+    /// - Returns: The summary of the new session.
+    private static func startClaudeCode(
+        in folder: URL,
+        of directory: InMemorySessionDirectory
+    ) async throws -> SessionSummary {
+        try await directory.start(
+            SessionStartRequest(
+                agentID: Fixtures.claudeCodeAgentID, workingDirectory: folder, firstMessage: "Hi.", origin: .client))
+    }
 }

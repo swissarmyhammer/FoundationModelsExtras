@@ -8,8 +8,11 @@ enum InMemorySessionDirectoryFixtures {
     /// The id of the agent that the tests start most of the time.
     static let reviewerAgentID = "reviewer"
 
+    /// The id of the agent that the tests of the default session name start.
+    static let claudeCodeAgentID = "claude-code"
+
     /// The agent ids that the fake launcher knows.
-    static let knownAgentIDs = [reviewerAgentID, "builder", "planner"]
+    static let knownAgentIDs = [reviewerAgentID, "builder", "planner", claudeCodeAgentID]
 
     /// The folder that a start with no folder and no starter gets.
     static let defaultFolder = URL(fileURLWithPath: "/tmp/agents", isDirectory: true)

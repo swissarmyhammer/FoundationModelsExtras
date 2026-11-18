@@ -193,8 +193,15 @@ extension InMemorySessionDirectoryState {
     }
 
     /// Delivers the message to one session (session.md section 10.2): an
-    /// archived target refuses it, a recorded target is restored first, an
+    /// archived target refuses it, a recorded target gets it in its inbox, an
     /// idle target starts a turn, and a working target queues it.
+    ///
+    /// A recorded target that is not live gets the message in its inbox, for
+    /// a session sender and for a user sender, also when the directory has no
+    /// launcher. The directory does not restore the session and starts no
+    /// turn. The receipt is `sent`, and the directory sends no event:
+    /// `messageDelivered` tells that the target recorded the message, and a
+    /// recorded target records it only when a host opens it.
     ///
     /// - Parameters:
     ///   - message: The message.
@@ -209,9 +216,9 @@ extension InMemorySessionDirectoryState {
         at now: Date
     ) -> SessionSendReceipt {
         guard target.state != .archived else { return Self.refused(.archived, target: target.id) }
-        if !target.isLive {
-            guard launcher != nil else { return Self.refused(.noLauncher, target: target.id) }
-            restore(target.id)
+        guard target.isLive else {
+            let stored = store(message, chainDepth: chainDepth, to: target.id, isQueued: false, at: now)
+            return SessionSendReceipt(messageID: stored.id, target: target.id, outcome: .sent)
         }
         let isIdle = target.state == .idle
         let delivered = record(message, chainDepth: chainDepth, to: target.id, isQueued: !isIdle, at: now)
@@ -222,16 +229,7 @@ extension InMemorySessionDirectoryState {
         return SessionSendReceipt(messageID: delivered.id, target: target.id, outcome: .delivered)
     }
 
-    /// Makes a recorded session live again, and sends `started`.
-    ///
-    /// - Parameter id: The session id. The session exists.
-    private mutating func restore(_ id: ULID) {
-        entries[id]?.summary.isLive = true
-        guard let summary = entries[id]?.summary else { return }
-        emit(.started(summary, requestedByClient: nil))
-    }
-
-    /// Records a message to a session, and sends `messageDelivered`.
+    /// Records a message to a live session, and sends `messageDelivered`.
     ///
     /// - Parameters:
     ///   - message: The message.
@@ -247,7 +245,28 @@ extension InMemorySessionDirectoryState {
         isQueued: Bool,
         at now: Date
     ) -> SessionMessage {
-        let delivered = SessionMessage(
+        let delivered = store(message, chainDepth: chainDepth, to: id, isQueued: isQueued, at: now)
+        emit(.messageDelivered(delivered))
+        return delivered
+    }
+
+    /// Puts a message in the inbox of a session, and sends no event.
+    ///
+    /// - Parameters:
+    ///   - message: The message.
+    ///   - chainDepth: The chain depth of the message.
+    ///   - id: The target session id.
+    ///   - isQueued: True when the message waits for the end of the turn.
+    ///   - now: The time of the send.
+    /// - Returns: The stored message.
+    private mutating func store(
+        _ message: OutgoingSessionMessage,
+        chainDepth: Int,
+        to id: ULID,
+        isQueued: Bool,
+        at now: Date
+    ) -> SessionMessage {
+        let stored = SessionMessage(
             id: MailID(),
             from: message.from,
             to: id,
@@ -256,9 +275,8 @@ extension InMemorySessionDirectoryState {
             sourceSession: message.sourceSession,
             sentAt: now,
             chainDepth: chainDepth)
-        deliveries[id, default: []].append(Delivery(message: delivered, isQueued: isQueued))
-        emit(.messageDelivered(delivered))
-        return delivered
+        deliveries[id, default: []].append(Delivery(message: stored, isQueued: isQueued))
+        return stored
     }
 
     /// The newest live root session in the folder, of any agent.

@@ -21,7 +21,9 @@ public enum SessionDirectoryEvent: Sendable, Codable, Equatable {
     /// The directory put a message in the queue of the target, and the
     /// target recorded it. The message holds the sender, the source session
     /// and the text. The host of the target uses this event to show the
-    /// message.
+    /// message. A send to a recorded session that is not live puts the
+    /// message in its inbox and sends no event; the event comes when the
+    /// target records the message.
     case messageDelivered(SessionMessage)
 
     /// The session is archived (ROUTER-11).

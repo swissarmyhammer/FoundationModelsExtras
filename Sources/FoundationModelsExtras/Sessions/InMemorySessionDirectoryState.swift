@@ -101,6 +101,10 @@ extension InMemorySessionDirectoryState {
     /// Resolves a start request through the launcher, adds the idle
     /// session, and sends `started`.
     ///
+    /// A request with no title gets the default name of the agent
+    /// (``SessionName/default(agentName:usedNames:)``). The fake launcher
+    /// gives no agent name, thus the name comes from the resolved agent id.
+    ///
     /// - Parameters:
     ///   - request: The start request.
     ///   - now: The time of the start.
@@ -110,11 +114,13 @@ extension InMemorySessionDirectoryState {
     mutating func launch(_ request: SessionStartRequest, at now: Date) throws -> ULID {
         guard let launcher else { throw SessionDirectoryError.noLauncher }
         try Self.validate(request.tags)
+        let agentID = try launcher.resolveAgent(request.agentID)
+        let folder = try resolveFolder(of: request, launcher: launcher)
         let summary = SessionSummary(
             id: ULID(),
-            agentID: try launcher.resolveAgent(request.agentID),
-            workingDirectory: try resolveFolder(of: request, launcher: launcher),
-            title: request.title,
+            agentID: agentID,
+            workingDirectory: folder,
+            title: request.title ?? SessionName.default(agentName: agentID, usedNames: usedNames(in: folder)),
             tags: request.tags,
             kind: .root,
             state: .idle,
@@ -297,6 +303,18 @@ extension InMemorySessionDirectoryState {
         entries[id]?.summary = summary
         emit(.archived(id: id))
         return summary
+    }
+
+    /// The slugs of the sessions in a folder that are not archived. A new
+    /// session with no title gets a default name outside these.
+    ///
+    /// - Parameter folder: The working folder.
+    /// - Returns: The slugs.
+    private func usedNames(in folder: URL) -> Set<String> {
+        Set(
+            entries.values.lazy.map(\.summary)
+                .filter { $0.state != .archived && Self.isSameFolder($0.workingDirectory, folder) }
+                .map(\.slug))
     }
 
     /// The working folder of a start: the folder of the request, else the

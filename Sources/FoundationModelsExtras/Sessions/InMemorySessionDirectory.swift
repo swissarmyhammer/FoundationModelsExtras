@@ -16,12 +16,19 @@ import ULID
 /// - **Start (section 6):** a fake ``Launcher`` knows a list of agent ids. A
 ///   nil agent is the default agent, and a nil folder is the folder of
 ///   `startedBy`. An unknown id throws `unknownAgent` with the near names.
-///   With no launcher, `start` and an agent send throw `noLauncher`.
+///   With no launcher, `start` and an agent send throw `noLauncher`. A new
+///   session with no title gets ``SessionName/default(agentName:usedNames:)``
+///   of its agent id, outside the slugs of the sessions in its folder that
+///   are not archived.
 /// - **Delivery (section 10.2):** an idle target gets `delivered`, and the
 ///   message starts a turn. A working target, or one that needs input, gets
 ///   `queued`. An archived target gets `refused` with the reason "archived".
-///   An agent address with no live root session starts one (origin
-///   ``SessionDirectoryOrigin/message``). A folder with no match is refused.
+///   A recorded target that is not live gets `sent`: the message goes into
+///   its inbox, for a session sender and for a user sender. The directory
+///   does not restore the session, starts no turn, and sends no
+///   `messageDelivered`. Each send to an agent address starts a new root
+///   session (origin ``SessionDirectoryOrigin/message``). A folder with no
+///   match is refused.
 /// - **Loop guards (section 10.3):** the ``LoopGuards``.
 /// - **Archive (ROUTER-11):** an archived session takes no message.
 /// - **Events (section 7):** each ``events()`` call is a new stream with the

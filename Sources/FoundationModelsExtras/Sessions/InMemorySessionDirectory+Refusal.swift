@@ -21,9 +21,5 @@ extension InMemorySessionDirectory {
 
         /// The turn of the sender made the most sends that one turn can make.
         case tooManySends = "The turn sent the most messages that one turn can send."
-
-        /// The target is recorded and not live, and the directory has no
-        /// launcher to restore it.
-        case noLauncher = "The directory has no launcher to restore the session."
     }
 }

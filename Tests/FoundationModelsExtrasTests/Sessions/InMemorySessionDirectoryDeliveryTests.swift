@@ -199,45 +199,79 @@ struct InMemorySessionDirectoryDeliveryTests {
         }
     }
 
-    @Test("a message to a recorded session restores it, then delivers")
-    func aRecordedTargetIsRestoredThenDelivered() async throws {
+    @Test("a user message with a source session to a recorded session is sent, not refused")
+    func aUserMessageToARecordedTargetIsSent() async throws {
         let directory = Fixtures.makeDirectory()
-        let recorded = SessionSummary(
-            id: ULID(), agentID: Fixtures.reviewerAgentID, workingDirectory: Fixtures.projectFolder,
-            tags: [], kind: .root, state: .idle, origin: .client,
-            createdAt: Fixtures.now, updatedAt: Fixtures.now, isLive: false)
-        directory.register(recorded)
-        let stream = directory.events()
+        let source = try await Fixtures.startIdleSession(in: directory)
+        let recorded = Self.registerRecordedSession(in: directory)
 
         let receipts = try await directory.send(
-            OutgoingSessionMessage(from: Fixtures.user, to: .session(recorded.id), text: "Resume."))
-        let events = await Fixtures.drain(stream, of: directory)
+            OutgoingSessionMessage(
+                from: Fixtures.user, to: .session(recorded), text: "Resume.", sourceSession: source))
 
-        var restored = recorded
-        restored.isLive = true
-        #expect(receipts.map(\.outcome) == [.delivered])
-        #expect(events.first == .started(restored, requestedByClient: nil))
-        #expect(try await directory.summary(of: recorded.id)?.isLive == true)
+        #expect(receipts.map(\.outcome) == [.sent])
     }
 
-    @Test("a message to a recorded session with no launcher is refused")
-    func aRecordedTargetWithNoLauncherIsRefused() async throws {
-        let directory = InMemorySessionDirectory()
-        let recorded = SessionSummary(
-            id: ULID(), agentID: Fixtures.reviewerAgentID, workingDirectory: Fixtures.projectFolder,
-            tags: [], kind: .root, state: .idle, origin: .client,
-            createdAt: Fixtures.now, updatedAt: Fixtures.now, isLive: false)
-        directory.register(recorded)
+    @Test("a user message with a source session to a recorded session is in its inbox")
+    func aUserMessageToARecordedTargetIsInTheInbox() async throws {
+        let directory = Fixtures.makeDirectory()
+        let source = try await Fixtures.startIdleSession(in: directory)
+        let recorded = Self.registerRecordedSession(in: directory)
+
+        _ = try await directory.send(
+            OutgoingSessionMessage(
+                from: Fixtures.user, to: .session(recorded), text: "Resume.", sourceSession: source))
+
+        #expect(try await directory.inbox(of: recorded, markRead: false).map(\.text) == ["Resume."])
+    }
+
+    @Test("a session message to a recorded session is sent, not refused")
+    func aSessionMessageToARecordedTargetIsSent() async throws {
+        let directory = Fixtures.makeDirectory()
+        let sender = try await Fixtures.startWorkingSession(in: directory)
+        let recorded = Self.registerRecordedSession(in: directory)
 
         let receipts = try await directory.send(
-            OutgoingSessionMessage(from: Fixtures.user, to: .session(recorded.id), text: "Resume."))
+            OutgoingSessionMessage(from: .session(sender.id), to: .session(recorded), text: "Resume."))
 
-        #expect(
-            receipts == [
-                SessionSendReceipt(
-                    target: recorded.id, outcome: .refused,
-                    reason: InMemorySessionDirectory.Refusal.noLauncher.rawValue)
-            ])
+        #expect(receipts.map(\.outcome) == [.sent])
+    }
+
+    @Test("a session message to a recorded session is in its inbox")
+    func aSessionMessageToARecordedTargetIsInTheInbox() async throws {
+        let directory = Fixtures.makeDirectory()
+        let sender = try await Fixtures.startWorkingSession(in: directory)
+        let recorded = Self.registerRecordedSession(in: directory)
+
+        _ = try await directory.send(
+            OutgoingSessionMessage(from: .session(sender.id), to: .session(recorded), text: "Resume."))
+
+        #expect(try await directory.inbox(of: recorded, markRead: false).map(\.text) == ["Resume."])
+    }
+
+    @Test("a message to a recorded session sends no event and leaves the session recorded")
+    func aMessageToARecordedTargetSendsNoEvent() async throws {
+        let directory = Fixtures.makeDirectory()
+        let recorded = Self.registerRecordedSession(in: directory)
+        let stream = directory.events()
+
+        _ = try await directory.send(
+            OutgoingSessionMessage(from: Fixtures.user, to: .session(recorded), text: "Resume."))
+        let events = await Fixtures.drain(stream, of: directory)
+
+        #expect(events.isEmpty)
+        #expect(try await directory.summary(of: recorded)?.isLive == false)
+    }
+
+    @Test("a message to a recorded session is in its inbox also with no launcher")
+    func aRecordedTargetWithNoLauncherGetsTheMessage() async throws {
+        let directory = InMemorySessionDirectory()
+        let recorded = Self.registerRecordedSession(in: directory)
+
+        let receipts = try await directory.send(
+            OutgoingSessionMessage(from: Fixtures.user, to: .session(recorded), text: "Resume."))
+
+        #expect(receipts.map(\.outcome) == [.sent])
     }
 
     @Test("an agent address with no live root session starts one with origin message")
@@ -260,6 +294,19 @@ struct InMemorySessionDirectoryDeliveryTests {
         #expect(started.state == .working)
         #expect(events.map(Self.kind) == ["started", "messageDelivered", "stateChanged"])
         #expect(try await directory.inbox(of: started.id, markRead: false).map(\.text) == ["Build it."])
+    }
+
+    @Test("an agent address starts a session that gets the default name of the agent")
+    func anAgentAddressStartsASessionWithTheDefaultName() async throws {
+        let directory = Fixtures.makeDirectory()
+
+        let receipts = try await directory.send(
+            OutgoingSessionMessage(
+                from: Fixtures.user, to: .agent(id: Fixtures.claudeCodeAgentID, folder: Fixtures.projectFolder),
+                text: "Hi."))
+
+        let target = try #require(receipts.first?.target)
+        #expect(try await directory.summary(of: target)?.title == "claude-code")
     }
 
     @Test("an agent address starts a new root session when the agent has a live root session in the folder")
@@ -367,5 +414,19 @@ struct InMemorySessionDirectoryDeliveryTests {
         case .messageDelivered: "messageDelivered"
         case .archived: "archived"
         }
+    }
+
+    /// Adds an idle session of the reviewer agent that is recorded and not
+    /// live.
+    ///
+    /// - Parameter directory: The directory to add it to.
+    /// - Returns: The id of the recorded session.
+    private static func registerRecordedSession(in directory: InMemorySessionDirectory) -> ULID {
+        let recorded = SessionSummary(
+            id: ULID(), agentID: Fixtures.reviewerAgentID, workingDirectory: Fixtures.projectFolder,
+            tags: [], kind: .root, state: .idle, origin: .client,
+            createdAt: Fixtures.now, updatedAt: Fixtures.now, isLive: false)
+        directory.register(recorded)
+        return recorded.id
     }
 }
