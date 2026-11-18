@@ -35,4 +35,24 @@ struct SessionNameTests {
             SessionName.default(agentName: "claude-code", usedNames: ["Claude Code"])
                 == "claude-code-2")
     }
+
+    @Test("an agent name with an empty slug gives the default name session")
+    func anEmptyAgentSlugGivesSession() {
+        #expect(SessionName.default(agentName: "!!!", usedNames: []) == "session")
+    }
+
+    @Test("when session is used, an agent name with an empty slug gives session-2")
+    func anEmptyAgentSlugWithSessionUsedGivesSessionTwo() {
+        #expect(SessionName.default(agentName: "!!!", usedNames: ["session"]) == "session-2")
+    }
+
+    @Test("a used name with an empty slug does not change the fallback name")
+    func usedNamesWithEmptySlugsAreIgnoredForTheFallback() {
+        #expect(SessionName.default(agentName: "!!!", usedNames: ["", "???"]) == "session")
+    }
+
+    @Test("a used name with an empty slug does not change the agent slug")
+    func aUsedNameWithAnEmptySlugIsIgnored() {
+        #expect(SessionName.default(agentName: "claude-code", usedNames: ["!!!"]) == "claude-code")
+    }
 }
