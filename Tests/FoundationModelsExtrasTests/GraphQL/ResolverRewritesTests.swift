@@ -10,33 +10,22 @@ struct ResolverRewritesTests {
     /// The rules of the tests: `addr` is an alias of the root field `address`.
     static let rules = GraphQLNameRules(aliases: GraphQLAliasTable(everywhere: ["address": ["addr"]]))
 
+    /// The rules of the tests, and a rule that moves `label` into the container `shelf` under a response key that
+    /// does not parse. Thus the text after the name rewrite does not parse, and the run throws after the name rewrite.
+    static let rulesWithKeyThatDoesNotParse = GraphQLNameRules(
+        aliases: rules.aliases,
+        rootContainer: GraphQLRootContainer(field: "shelf", responseKeyPrefix: "no?parse")
+    )
+
     /// Runs one document through the schema of the tests.
     ///
-    /// - Parameter document: The GraphQL document.
+    /// - Parameters:
+    ///   - document: The GraphQL document.
+    ///   - rules: The name rules of the run.
     /// - Returns: The response as JSON text.
     /// - Throws: An error that is not a GraphQL error.
-    static func respond(to document: String) async throws -> String {
+    static func respond(to document: String, rules: GraphQLNameRules = Self.rules) async throws -> String {
         try await RewriteAPI().respond(
-            to: document,
-            rules: rules,
-            formattedWith: .sortedKeys,
-            context: RewriteContext()
-        )
-    }
-
-    /// Runs one document through the schema of the tests with rules that move `label` into the container `shelf`
-    /// under a response key that does not parse. Thus the text after the name rewrite does not parse, and the run
-    /// throws after the name rewrite.
-    ///
-    /// - Parameter document: The GraphQL document.
-    /// - Returns: The response as JSON text.
-    /// - Throws: An error that is not a GraphQL error.
-    static func respondWithRewriteThatDoesNotParse(to document: String) async throws -> String {
-        let rules = GraphQLNameRules(
-            aliases: rules.aliases,
-            rootContainer: GraphQLRootContainer(field: "shelf", responseKeyPrefix: "no?parse")
-        )
-        return try await RewriteAPI().respond(
             to: document,
             rules: rules,
             formattedWith: .sortedKeys,
@@ -60,7 +49,10 @@ struct ResolverRewritesTests {
 
     @Test("a run that fails after the name rewrite gives the name rewrite first")
     func failureAfterTheNameRewriteKeepsTheNameRewrite() async throws {
-        let response = try await Self.respondWithRewriteThatDoesNotParse(to: #"{ addr(to: "@Agent") label }"#)
+        let response = try await Self.respond(
+            to: #"{ addr(to: "@Agent") label }"#,
+            rules: Self.rulesWithKeyThatDoesNotParse
+        )
 
         #expect(try ResponseJSON.rewrites(response).first == "addr→address")
     }

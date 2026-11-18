@@ -55,6 +55,30 @@ comments:
     - evidence: 2 files — Sources/FoundationModelsExtras/GraphQL/GraphQLRun.swift, Tests/FoundationModelsExtrasTests/GraphQL/ResolverRewritesTests.swift; `swift test --filter FoundationModelsExtrasTests`: 2033 tests in 194 suites passed, no warnings in these files
     - next: review
   timestamp: 2026-11-18T14:37:17.286931+00:00
+- actor: claude-code
+  id: 01m7qhhsbe4wb9dakdb9v28azb
+  text: |-
+    ### review — findings
+    - evidence: review sha abc916c~1..abc916c — 1 finding (1 confirmed, 2 refuted): Tests/FoundationModelsExtrasTests/GraphQL/ResolverRewritesTests.swift:34 (reuse/reuse)
+    - next: Add a `rules` parameter with a default value to the existing `respond(to:)` test helper. Delete `respondWithRewriteThatDoesNotParse`. The test that does not parse then calls `Self.respond(to:rules:)`. Then do the review again.
+  timestamp: 2026-11-18T14:39:08.654694+00:00
+- actor: claude-code
+  id: 01m7qhp7msrjpwamq22g8ydhbe
+  text: |-
+    Correction of the finding ResolverRewritesTests.swift `reuse/reuse`.
+    - `respond(to:)` now has the parameter `rules: GraphQLNameRules = Self.rules`, with a doc entry for it.
+    - `respondWithRewriteThatDoesNotParse` is deleted. Its rules are now the documented static property `rulesWithKeyThatDoesNotParse` (prefix `no?parse`, container `shelf`).
+    - `failureAfterTheNameRewriteKeepsTheNameRewrite` calls `Self.respond(to:rules:)` with those rules.
+    - The file has no other repeat of the body: `RewriteAPI().respond(` occurs only in `respond(to:rules:)`. All other tests call `Self.respond`.
+    - Format: the temporary swift-format configuration (4 spaces, lineLength 120) gives no diff for the file.
+  timestamp: 2026-11-18T14:41:34.361481+00:00
+- actor: claude-code
+  id: 01m7qhp9f4jqr6915bz8z3j006
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsExtrasTests/GraphQL/ResolverRewritesTests.swift; `swift test --filter FoundationModelsExtrasTests`: 2033 tests in 194 suites passed, no warnings in this file
+    - next: review
+  timestamp: 2026-11-18T14:41:36.228372+00:00
 position_column: doing
 position_ordinal: '80'
 title: A resolver can add a rewrite report to extensions.rewrites
@@ -100,3 +124,12 @@ Request from FoundationModelsMultitool (its task ^gxqmxj6). The `sendMessage` mu
 > - `.kanban/ (from .reviewignore)` — 2 file(s)
 
 - [x] `Sources/FoundationModelsExtras/GraphQL/GraphQLRun.swift:83` `completeness/invariant-propagation` — The shared `answerParseFailure` closure builds `extensions.rewrites` from `resolverRewrites.list` only. When `result(of:)` throws a GraphQLError after the name rewrite has already succeeded (the catch at line 104-105), the name-rewrite changes in `rewritten.rewrites` are dropped. The response then lists resolver rewrites with no name-rewrite changes before them, which breaks the order contract in the doc comment (lines 47-50: name-rewrite changes first, then resolver rewrites, also when the run gives GraphQL errors). The same closure is also used at line 96, where the name rewrite failed and has no changes, so the closure needs the name-rewrite changes passed in as a parameter. Give `answerParseFailure` a `rewrites: [NameRewrite]` parameter. Pass `[]` from the rewrite-failure catch (line 96) and `rewritten.rewrites` from the execution-failure catch (line 105). In both cases append `resolverRewrites.list` so the order is kept. Add a test where a name-rewritten document (for example `addr`) fails validation after the rewrite, and assert that `extensions.rewrites` still starts with `addr→address`.
+
+## Review Findings (2026-11-18 08:37)
+
+> Scope: `review sha abc916c~1..abc916c` — reviewed the diffs only — lines this change added or modified. 2 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsExtrasTests/GraphQL/ResolverRewritesTests.swift:34` `reuse/reuse` — The new function respondWithRewriteThatDoesNotParse repeats the body of the existing static respond(to:) helper: it builds RewriteAPI(), calls respond(to:rules:formattedWith:context:) with .sortedKeys and a new RewriteContext(). The only difference is the rules argument. The existing helper hardcodes rules, so the near-match was not extended with a rules parameter. Add a parameter `rules: GraphQLNameRules = Self.rules` to the existing respond(to:) helper, and delete respondWithRewriteThatDoesNotParse. The failing test then calls Self.respond(to:rules:) with the rules that move `label` into the shelf container.
