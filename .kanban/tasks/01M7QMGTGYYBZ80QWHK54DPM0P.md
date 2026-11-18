@@ -27,10 +27,17 @@ comments:
     - evidence: swift test --filter FoundationModelsExtrasTests: 2043 tests in 196 suites passed, 0 warnings in changed files. Files: SessionDirectoryEvent.swift, SessionDirectory.swift, InMemorySessionDirectory.swift, InMemorySessionDirectoryState+Messages.swift, SessionDirectoryEventTests.swift, InMemorySessionDirectoryDeliveryTests.swift, InMemorySessionDirectoryDeliveredEventTests.swift, new InMemorySessionDirectoryQueuedEventTests.swift.
     - next: /review
   timestamp: 2026-11-18T15:43:29.710918+00:00
+- actor: claude-code
+  id: 01m7qnbjys6yc2zpr1d55mywzd
+  text: |-
+    ### review — clean
+    - evidence: review sha ef25070~1..ef25070 — 0 findings, 0 confirmed, 1 refuted (7 attempted, 0 failed). 8 files reviewed. The 4 .kanban files were not reviewed (.reviewignore).
+    - next: The task is in done. Do the remaining acceptance steps: push to origin/main, then send the sha and the decision to foundationmodelsrouter-f1, foundationmodelsmultitool-89 and testudoapp-9a.
+  timestamp: 2026-11-18T15:45:39.801118+00:00
 depends_on:
 - 01M7QMF55YT8NFT48ZCTNXK1WD
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fffa80
 title: A directory event for a message that goes into the queue or the inbox of a session
 ---
 Request from TestudoApp. Since the Router changed (709d82c5), `messageDelivered` comes only when the target takes the message. The Router writes the queue ledger (a working target) or the inbox file (a recorded target, receipt `sent`) at the send, and no directory event tells this. Thus `Session.unreadCount` of Multitool (it reads `inbox(of:markRead: false).count`) changes, and the `sessions` change feed gets no `changed` entry until the turn starts or the session opens.
