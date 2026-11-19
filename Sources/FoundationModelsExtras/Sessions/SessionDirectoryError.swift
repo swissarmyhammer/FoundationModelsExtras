@@ -39,4 +39,7 @@ public enum SessionDirectoryError: Error, Sendable, Codable, Equatable {
 
     /// The directory cannot fork a session.
     case forkUnsupported
+
+    /// The directory cannot import a session.
+    case importUnsupported
 }

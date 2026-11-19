@@ -1,3 +1,4 @@
+import FoundationModels
 import ULID
 
 /// The session directory: find, start, tag and message sessions.
@@ -48,6 +49,26 @@ public protocol SessionDirectory: Sendable {
     ///   ``SessionDirectoryError/forkUnsupported`` from a directory that
     ///   cannot fork.
     func fork(_ request: SessionForkRequest) async throws -> SessionSummary
+
+    /// Imports a session that another agent recorded.
+    ///
+    /// The import makes a new root session that is recorded and not live,
+    /// with the state ``SessionState/idle``, the origin
+    /// ``SessionDirectoryOrigin/import``, and the provenance of the request
+    /// in ``SessionSummary/importedFrom``. Its history is `transcript`. Its
+    /// name is the title of the request, with the next free number when a
+    /// session in the folder that is not archived already has that name. A
+    /// host opens it as it opens each recorded session.
+    ///
+    /// - Parameters:
+    ///   - request: The agent, the folder, the title, the provenance and the
+    ///     session that asks.
+    ///   - transcript: The history of the imported session.
+    /// - Returns: The summary of the imported session.
+    /// - Throws: ``SessionDirectoryError/importUnsupported`` from a
+    ///   directory that cannot import, and the errors of the agent and the
+    ///   folder.
+    func importSession(_ request: SessionImportRequest, transcript: Transcript) async throws -> SessionSummary
 
     /// Adds tags to the session `id` and sends `factsChanged`.
     ///
@@ -282,5 +303,20 @@ extension SessionDirectory {
     /// - Throws: ``SessionDirectoryError/forkUnsupported``.
     public func fork(_ request: SessionForkRequest) async throws -> SessionSummary {
         throw SessionDirectoryError.forkUnsupported
+    }
+}
+
+/// The default of the import, for a directory that cannot import yet.
+extension SessionDirectory {
+    /// The default cannot import: it changes nothing and sends no event. A
+    /// directory must implement this method for imports to work.
+    ///
+    /// - Parameters:
+    ///   - request: The import request. The default ignores it.
+    ///   - transcript: The history. The default ignores it.
+    /// - Returns: No value. The default always throws.
+    /// - Throws: ``SessionDirectoryError/importUnsupported``.
+    public func importSession(_ request: SessionImportRequest, transcript: Transcript) async throws -> SessionSummary {
+        throw SessionDirectoryError.importUnsupported
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import ULID
 
 /// The sessions, the messages and the event streams of one
@@ -62,6 +63,10 @@ struct InMemorySessionDirectoryState {
     /// copies no history, thus the tests read the cut and the first prompt
     /// here.
     var forkRequests: [ULID: SessionForkRequest] = [:]
+
+    /// The history of each imported session, by session id. The test double
+    /// keeps no other history, thus a test reads the imported history here.
+    var importedTranscripts: [ULID: Transcript] = [:]
 
     /// The continuation of each open event stream, by subscriber id.
     private var subscribers: [Int: AsyncStream<SessionDirectoryEvent>.Continuation] = [:]

@@ -18,4 +18,8 @@ public enum SessionDirectoryOrigin: String, Sendable, Codable {
 
     /// A user forked another session.
     case fork
+
+    /// The session came from the record of another agent, for example
+    /// Claude Code or Codex.
+    case `import`
 }

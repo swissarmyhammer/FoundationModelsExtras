@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import Synchronization
 import ULID
 
@@ -124,8 +125,9 @@ public final class InMemorySessionDirectory: SessionDirectory {
     /// source as the parent. A first prompt starts a turn, thus the fork
     /// works. The directory keeps no history, thus it checks the cut with a
     /// simple rule: ``SessionForkCut/callingToolCall`` needs a source that
-    /// works, and ``SessionForkCut/historyPosition(_:)`` needs a position of
-    /// 0 or more.
+    /// works, ``SessionForkCut/historyPosition(_:)`` needs a position of 0
+    /// or more, and a turn cut needs a turn that the source started (and,
+    /// for ``SessionForkCut/afterTurn(_:)``, a turn that is complete).
     ///
     /// - Parameter request: The source, the cut, the first prompt, the client
     ///   and the forker. The test double keeps no audit, thus it reads no
@@ -137,6 +139,25 @@ public final class InMemorySessionDirectory: SessionDirectory {
     public func fork(_ request: SessionForkRequest) async throws -> SessionSummary {
         let time = now()
         return try state.withLock { try $0.fork(request, at: time) }
+    }
+
+    /// Imports a session that another agent recorded: an idle root session
+    /// that is recorded and not live, with the origin `import`, the agent
+    /// that the launcher resolves, and the provenance of the request. The
+    /// directory keeps the history, and ``importedTranscript(of:)`` gives it
+    /// to a test. The import sends no event, because the session is not
+    /// live.
+    ///
+    /// - Parameters:
+    ///   - request: The agent, the folder, the title, the provenance and the
+    ///     session that asks.
+    ///   - transcript: The history of the imported session.
+    /// - Returns: The summary of the imported session.
+    /// - Throws: ``SessionDirectoryError/noLauncher`` and
+    ///   ``SessionDirectoryError/unknownAgent(_:nearNames:)``.
+    public func importSession(_ request: SessionImportRequest, transcript: Transcript) async throws -> SessionSummary {
+        let time = now()
+        return try state.withLock { try $0.importSession(request, transcript: transcript, at: time) }
     }
 
     /// Adds tags to the session `id` and sends `factsChanged`.

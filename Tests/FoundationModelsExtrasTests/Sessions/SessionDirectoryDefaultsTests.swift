@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import Testing
 import ULID
 
@@ -100,6 +101,21 @@ struct SessionDirectoryDefaultsTests {
 
         await #expect(throws: SessionDirectoryError.forkUnsupported) {
             _ = try await directory.fork(request)
+        }
+    }
+
+    @Test("the default import throws importUnsupported")
+    func theDefaultImportThrows() async throws {
+        let directory = DirectoryWithNoPins(base: InMemorySessionDirectoryFixtures.makeDirectory())
+        let request = SessionImportRequest(
+            workingDirectory: InMemorySessionDirectoryFixtures.projectFolder,
+            title: "Old work",
+            provenance: SessionImportProvenance(
+                agent: "codex", sourceID: "abc", sourcePath: "/tmp/abc.jsonl",
+                importedAt: InMemorySessionDirectoryFixtures.now))
+
+        await #expect(throws: SessionDirectoryError.importUnsupported) {
+            _ = try await directory.importSession(request, transcript: Transcript())
         }
     }
 }

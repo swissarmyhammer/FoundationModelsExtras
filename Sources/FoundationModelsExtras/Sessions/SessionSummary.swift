@@ -78,6 +78,11 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     /// session has no recap.
     public var recapAt: Date?
 
+    /// Where an imported session came from, or `nil` when the session was
+    /// not imported. An imported session has the origin
+    /// ``SessionDirectoryOrigin/import``.
+    public var importedFrom: SessionImportProvenance?
+
     /// True when the session is pinned, that is, it has a ``pinnedAt``.
     public var isPinned: Bool { pinnedAt != nil }
 
@@ -127,6 +132,8 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     ///   - recap: The recap of the session. The default is `nil`: the
     ///     session has no recap.
     ///   - recapAt: The time of the recap. The default is `nil`.
+    ///   - importedFrom: Where an imported session came from. The default is
+    ///     `nil`: the session was not imported.
     public init(
         id: ULID,
         agentID: String,
@@ -147,7 +154,8 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         lastUsedAt: Date? = nil,
         archivedAt: Date? = nil,
         recap: String? = nil,
-        recapAt: Date? = nil
+        recapAt: Date? = nil,
+        importedFrom: SessionImportProvenance? = nil
     ) {
         self.id = id
         self.agentID = agentID
@@ -169,5 +177,6 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         self.archivedAt = archivedAt
         self.recap = recap
         self.recapAt = recapAt
+        self.importedFrom = importedFrom
     }
 }

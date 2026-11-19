@@ -18,10 +18,16 @@ struct SessionEnumTests {
     @Test(
         "each directory origin survives a JSON round trip",
         arguments: [
-            SessionDirectoryOrigin.client, .tool, .message, .trigger, .fork,
+            SessionDirectoryOrigin.client, .tool, .message, .trigger, .fork, .import,
         ])
     func eachOriginSurvivesARoundTrip(origin: SessionDirectoryOrigin) throws {
         #expect(try SessionFixtures.roundTrip(origin) == origin)
+    }
+
+    @Test("the import origin has the raw value import")
+    func theImportOriginHasItsRawValue() {
+        #expect(SessionDirectoryOrigin.import.rawValue == "import")
+        #expect(SessionDirectoryOrigin(rawValue: "import") == .import)
     }
 
     @Test(

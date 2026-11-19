@@ -30,6 +30,7 @@ struct SessionDirectoryErrorTests {
             .archivedSession(ULID()),
             .forkCutOutOfRange(.historyPosition(positionBeforeHistory)),
             .forkUnsupported,
+            .importUnsupported,
         ])
     func eachErrorSurvivesARoundTrip(error: SessionDirectoryError) throws {
         #expect(try SessionFixtures.roundTrip(error) == error)

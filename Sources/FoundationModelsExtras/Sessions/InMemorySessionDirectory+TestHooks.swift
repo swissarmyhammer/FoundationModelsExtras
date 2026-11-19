@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import ULID
 
 /// The test hooks of the test double: they drive the state of a session the
@@ -86,6 +87,15 @@ extension InMemorySessionDirectory {
     /// - Returns: The request, or `nil` when no fork has this id.
     public func forkRequest(of id: ULID) -> SessionForkRequest? {
         state.withLock { $0.forkRequests[id] }
+    }
+
+    /// The history of the imported session `id`.
+    ///
+    /// - Parameter id: The id of the imported session.
+    /// - Returns: The history, or `nil` when no imported session has this
+    ///   id.
+    public func importedTranscript(of id: ULID) -> Transcript? {
+        state.withLock { $0.importedTranscripts[id] }
     }
 
     /// Finishes each open event stream. A reader then reads the events that
