@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '80'
+position_column: done
+position_ordinal: fffe80
 title: The recap of a session on SessionSummary
 ---
 Add `SessionSummary.recap: String?` and `recapAt: Date?`, with the default `nil` in the initializer. No new event: a new recap goes out as `factsChanged`. `lastSummary` and `stateChanged` stay as they are.
