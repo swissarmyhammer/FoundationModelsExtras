@@ -39,6 +39,22 @@ struct InMemorySessionDirectoryRecapTests {
         #expect(events == [.factsChanged(summary)])
     }
 
+    @Test("setRecap with nil removes the recap and its time, and sends one factsChanged")
+    func setRecapWithNilRemovesTheRecap() async throws {
+        let directory = Fixtures.makeDirectory()
+        let id = try await Fixtures.startIdleSession(in: directory)
+        try directory.setRecap(of: id, Self.recap, at: Self.recapAt)
+        let stream = directory.events()
+
+        try directory.setRecap(of: id, nil, at: nil)
+        let events = await Fixtures.drain(stream, of: directory)
+        let summary = try #require(try await directory.summary(of: id))
+
+        #expect(summary.recap == nil)
+        #expect(summary.recapAt == nil)
+        #expect(events == [.factsChanged(summary)])
+    }
+
     @Test("the same recap a second time sends no event")
     func theSameRecapSendsNoEvent() async throws {
         let directory = Fixtures.makeDirectory()
