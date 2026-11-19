@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '80'
+position_column: done
+position_ordinal: ffff80
 title: 'Import a session from another agent: origin, provenance and the directory port'
 ---
 An imported session is a recorded root session with the origin `import` and the provenance of its source.
