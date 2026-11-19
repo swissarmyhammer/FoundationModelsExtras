@@ -145,7 +145,8 @@ public final class InMemorySessionDirectory: SessionDirectory {
     /// that is recorded and not live, with the origin `import`, the agent
     /// that the launcher resolves, and the provenance of the request. The
     /// directory keeps the history, and ``importedTranscript(of:)`` gives it
-    /// to a test. The import sends no event, because the session is not
+    /// to a test. The import sends one `factsChanged` with the summary of
+    /// the imported session, and no `started`, because the session is not
     /// live.
     ///
     /// - Parameters:

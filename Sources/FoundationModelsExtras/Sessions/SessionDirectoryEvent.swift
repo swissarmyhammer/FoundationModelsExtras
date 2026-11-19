@@ -11,7 +11,8 @@ public enum SessionDirectoryEvent: Sendable, Codable, Equatable {
     /// the UI client that asked for the start, for the tab rule.
     case started(SessionSummary, requestedByClient: String?)
 
-    /// Tags, title, pin or last use changed.
+    /// Tags, title, pin or last use changed, or the directory imported a
+    /// session that is recorded and not live.
     case factsChanged(SessionSummary)
 
     /// The work state of the session changed. `lastSummary` is the last

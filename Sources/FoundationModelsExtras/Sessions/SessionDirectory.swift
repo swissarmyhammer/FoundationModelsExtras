@@ -60,6 +60,10 @@ public protocol SessionDirectory: Sendable {
     /// session in the folder that is not archived already has that name. A
     /// host opens it as it opens each recorded session.
     ///
+    /// After the directory keeps the session, it sends `factsChanged` with
+    /// the summary of the imported session, one time. It sends no
+    /// `started`, because the session is not live.
+    ///
     /// - Parameters:
     ///   - request: The agent, the folder, the title, the provenance and the
     ///     session that asks.

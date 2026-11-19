@@ -8,7 +8,8 @@ extension InMemorySessionDirectoryState {
     /// Imports a session: adds an idle root session that is recorded and not
     /// live, with the origin `import` and the provenance of the request, and
     /// keeps its history. A session that is not live sends no `started`,
-    /// thus the import sends no event.
+    /// thus the import sends one `factsChanged` with the new summary, so a
+    /// host learns of the session.
     ///
     /// The name is the title of the request when no session in the folder
     /// that is not archived has its slug. Else it is the slug of the title
@@ -45,6 +46,7 @@ extension InMemorySessionDirectoryState {
             importedFrom: request.provenance)
         importedTranscripts[summary.id] = transcript
         insert(summary, requestedByClient: nil)
+        emit(.factsChanged(summary))
         return summary
     }
 

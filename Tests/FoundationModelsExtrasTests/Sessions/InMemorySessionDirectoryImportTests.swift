@@ -57,7 +57,7 @@ struct InMemorySessionDirectoryImportTests {
         #expect(try await directory.summary(of: summary.id) == summary)
     }
 
-    @Test("an import keeps the history, and sends no event")
+    @Test("an import keeps the history, and sends one factsChanged with the summary")
     func anImportKeepsTheHistory() async throws {
         let directory = Fixtures.makeDirectory()
         let stream = directory.events()
@@ -66,7 +66,7 @@ struct InMemorySessionDirectoryImportTests {
         let events = await Fixtures.drain(stream, of: directory)
 
         #expect(directory.importedTranscript(of: summary.id) == Self.transcript)
-        #expect(events.isEmpty)
+        #expect(events == [.factsChanged(summary)])
     }
 
     @Test("a second import with the same title gets the next free number")
