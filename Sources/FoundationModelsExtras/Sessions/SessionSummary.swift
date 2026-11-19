@@ -68,6 +68,16 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     /// newest first.
     public var archivedAt: Date?
 
+    /// One sentence of at most 200 characters that tells what the session
+    /// did and where it stands now, or `nil` when the session has none. A
+    /// model makes it after a turn. It does not change the name of the
+    /// session. A new recap goes out as `factsChanged`.
+    public var recap: String?
+
+    /// The time that the directory made ``recap``, or `nil` when the
+    /// session has no recap.
+    public var recapAt: Date?
+
     /// True when the session is pinned, that is, it has a ``pinnedAt``.
     public var isPinned: Bool { pinnedAt != nil }
 
@@ -114,6 +124,9 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
     ///     client used the session.
     ///   - archivedAt: The time of the archive. The default is `nil`: the
     ///     session is not archived.
+    ///   - recap: The recap of the session. The default is `nil`: the
+    ///     session has no recap.
+    ///   - recapAt: The time of the recap. The default is `nil`.
     public init(
         id: ULID,
         agentID: String,
@@ -132,7 +145,9 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         isLive: Bool,
         pinnedAt: Date? = nil,
         lastUsedAt: Date? = nil,
-        archivedAt: Date? = nil
+        archivedAt: Date? = nil,
+        recap: String? = nil,
+        recapAt: Date? = nil
     ) {
         self.id = id
         self.agentID = agentID
@@ -152,5 +167,7 @@ public struct SessionSummary: Sendable, Codable, Equatable, Identifiable {
         self.pinnedAt = pinnedAt
         self.lastUsedAt = lastUsedAt
         self.archivedAt = archivedAt
+        self.recap = recap
+        self.recapAt = recapAt
     }
 }

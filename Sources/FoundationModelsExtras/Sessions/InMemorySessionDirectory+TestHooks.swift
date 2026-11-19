@@ -1,3 +1,4 @@
+import Foundation
 import ULID
 
 /// The test hooks of the test double: they drive the state of a session the
@@ -54,6 +55,27 @@ extension InMemorySessionDirectory {
     public func finishTurn(of id: ULID, lastSummary: String?) throws {
         let time = now()
         try state.withLock { try $0.finishTurn(of: id, lastSummary: lastSummary, at: time) }
+    }
+
+    /// Sets the recap of the session `id` and its time, and sends
+    /// `factsChanged` with the new summary. A recap that is the same as the
+    /// current one, with the same time, changes nothing and sends no event.
+    /// An archived session takes the recap too, because an archive keeps
+    /// the facts.
+    ///
+    /// - Parameters:
+    ///   - id: The session id.
+    ///   - recap: The recap, or `nil` to remove it.
+    ///   - time: The time of the recap, or `nil` with no recap.
+    /// - Throws: ``SessionDirectoryError/unknownSession(_:)``.
+    public func setRecap(of id: ULID, _ recap: String?, at time: Date?) throws {
+        let changeTime = now()
+        _ = try state.withLock {
+            try $0.changeFacts(of: id, at: changeTime) { summary in
+                summary.recap = recap
+                summary.recapAt = time
+            }
+        }
     }
 
     /// The request that made the fork `id`. The test double copies no
