@@ -13,7 +13,6 @@ struct SessionAddressTests {
             SessionAddress.session(ULID()),
             .agent(id: "reviewer", folder: SessionFixtures.folder),
             .agent(id: "reviewer", folder: nil),
-            .folder(SessionFixtures.folder),
             .tag("build"),
         ])
     func eachAddressSurvivesARoundTrip(address: SessionAddress) throws {

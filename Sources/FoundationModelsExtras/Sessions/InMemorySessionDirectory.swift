@@ -40,8 +40,7 @@ import ULID
 ///   its inbox, for a session sender and for a user sender. The directory
 ///   does not restore the session, starts no turn, sends `messageQueued`,
 ///   and sends no `messageDelivered`. Each send to an agent address starts a
-///   new root session (origin ``SessionDirectoryOrigin/message``). A folder
-///   with no match is refused.
+///   new root session (origin ``SessionDirectoryOrigin/message``).
 /// - **Loop guards (section 10.3):** the ``LoopGuards``.
 /// - **Archive (ROUTER-11):** an archived session starts no turn. It keeps
 ///   its inbox. ``unarchive(_:by:)`` makes it a recorded session again,

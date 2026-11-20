@@ -87,11 +87,6 @@ extension InMemorySessionDirectoryState {
             return [deliver(message, chainDepth: chainDepth, to: try entry(id).summary, at: now)]
         case .agent(let agentID, let folder):
             return [try sendToAgent(agentID, in: folder, message, chainDepth: chainDepth, at: now)]
-        case .folder(let folder):
-            guard let target = newestLiveRoot(in: folder) else {
-                return [Self.refused(.noSessionInTheFolder)]
-            }
-            return [deliver(message, chainDepth: chainDepth, to: target, at: now)]
         case .tag(let tag):
             return sendToTag(tag, message, chainDepth: chainDepth, at: now)
         }
@@ -314,14 +309,6 @@ extension InMemorySessionDirectoryState {
             chainDepth: chainDepth)
         deliveries[id, default: []].append(Delivery(message: stored, isQueued: isQueued))
         return stored
-    }
-
-    /// The newest live root session in the folder, of any agent.
-    ///
-    /// - Parameter folder: The folder.
-    /// - Returns: The summary of the session, or `nil` when none matches.
-    private func newestLiveRoot(in folder: URL) -> SessionSummary? {
-        summaries(matching: SessionQuery(workingDirectory: folder, kind: .root, limit: 1)).first
     }
 
     /// The working folder of a session sender, or `nil` for a UI sender.

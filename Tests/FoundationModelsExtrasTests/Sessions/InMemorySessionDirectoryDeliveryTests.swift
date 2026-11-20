@@ -381,33 +381,6 @@ struct InMemorySessionDirectoryDeliveryTests {
         }
     }
 
-    @Test("a folder address gives the newest live root session of any agent in the folder")
-    func aFolderAddressGivesTheNewestLiveRoot() async throws {
-        let directory = Fixtures.makeDirectory()
-        let target = try await Fixtures.startIdleSession(in: directory)
-        let subagent = SessionSummary(
-            id: ULID(), agentID: Fixtures.reviewerAgentID, workingDirectory: Fixtures.projectFolder,
-            tags: [], kind: .subagent, state: .idle, parentID: target, origin: .tool,
-            createdAt: Fixtures.now, updatedAt: Fixtures.now, isLive: true)
-        directory.register(subagent)
-
-        let receipts = try await directory.send(
-            OutgoingSessionMessage(from: Fixtures.user, to: .folder(Fixtures.projectFolder), text: "Status?"))
-
-        #expect(receipts.map(\.target) == [target])
-        #expect(receipts.map(\.outcome) == [.delivered])
-    }
-
-    @Test("a folder address with no live root session is refused with the hint")
-    func aFolderAddressWithNoMatchIsRefused() async throws {
-        let directory = Fixtures.makeDirectory()
-
-        let receipts = try await directory.send(
-            OutgoingSessionMessage(from: Fixtures.user, to: .folder(Fixtures.otherFolder), text: "Status?"))
-
-        #expect(receipts == [SessionSendReceipt(outcome: .refused, reason: "Name an agent: @agent:/path.")])
-    }
-
     /// The name of the case of an event.
     ///
     /// - Parameter event: An event.
