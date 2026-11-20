@@ -28,6 +28,7 @@ struct InMemorySessionDirectoryImportTests {
         agent: "claude-code",
         sourceID: "5f1c2a9e",
         sourcePath: "/Users/someone/.claude/projects/p/5f1c2a9e.jsonl",
+        sourceTitle: "Parser fails on empty input",
         sourceLastDate: sourceLastDate,
         importedAt: Fixtures.now,
         skippedRecordCount: 2)
@@ -96,6 +97,32 @@ struct InMemorySessionDirectoryImportTests {
     @Test("the provenance survives a JSON round trip")
     func theProvenanceSurvivesARoundTrip() throws {
         #expect(try SessionFixtures.roundTrip(Self.provenance) == Self.provenance)
+    }
+
+    @Test("a provenance has no source title by default")
+    func aProvenanceHasNoSourceTitleByDefault() {
+        let provenance = SessionImportProvenance(
+            agent: "codex", sourceID: "abc", sourcePath: "/tmp/abc.jsonl", importedAt: Fixtures.now)
+
+        #expect(provenance.sourceTitle == nil)
+    }
+
+    @Test("a provenance from JSON with no sourceTitle has no source title")
+    func aProvenanceWithNoSourceTitleDecodes() throws {
+        let decoded = try SessionFixtures.decodeWithout(key: "sourceTitle", from: Self.provenance)
+
+        #expect(decoded.sourceTitle == nil)
+        #expect(decoded.sourceID == Self.provenance.sourceID)
+    }
+
+    @Test("the imported session keeps the source title in its provenance")
+    func theImportedSessionKeepsTheSourceTitle() async throws {
+        let directory = Fixtures.makeDirectory()
+
+        let summary = try await directory.importSession(Self.request, transcript: Self.transcript)
+        let stored = try #require(try await directory.summary(of: summary.id))
+
+        #expect(stored.importedFrom?.sourceTitle == "Parser fails on empty input")
     }
 
     @Test("the import request survives a JSON round trip")
