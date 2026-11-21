@@ -12,6 +12,12 @@ import HuggingFace
 /// attempt. After the retry limit of the policy, a stall throws
 /// ``ModelDownloadError/stalled(repository:file:attempts:)``.
 ///
+/// An attempt that fails with a transient network error, for example a lost
+/// connection, also gets a new attempt after the backoff, from the bytes that
+/// the blob holds. When the attempt wrote new bytes before the error, the
+/// count of these retries starts again from zero. After the network retry
+/// limit of the policy, the download throws the network error.
+///
 /// The bytes of the blob do not decrease over a retry after a stall. The blob
 /// starts again from zero in two cases: the server refuses the range, or the
 /// server ignores the range and sends the whole file again. The `written`
@@ -49,7 +55,8 @@ struct ResumableFileDownload: Sendable {
     ///     exists, are the start of the file.
     ///   - written: Gets the bytes of the blob after each write.
     /// - Throws: ``ModelDownloadError/stalled(repository:file:attempts:)``
-    ///   when each attempt stalls, `CancellationError` when the task is
+    ///   when each attempt stalls, the transient network error after the
+    ///   network retry limit, `CancellationError` when the task is
     ///   cancelled, or the error of the token, of the read of the size of the
     ///   blob, of a request or of a write.
     func download(
@@ -58,7 +65,9 @@ struct ResumableFileDownload: Sendable {
     ) async throws {
         let request = try await request(of: path, in: repo, at: commit)
         var retry = 0
+        var networkRetry = 0
         while true {
+            let bytesBefore = try HubSource.bytesOnDisk(of: blob)
             do {
                 try await attempt(request, into: blob, written: written)
                 return
@@ -70,6 +79,12 @@ struct ResumableFileDownload: Sendable {
                 }
                 retry += 1
                 try await policy.sleep(policy.backoff(beforeRetry: retry))
+            } catch let error as URLError where DownloadRetryPolicy.isTransient(error) {
+                if try HubSource.bytesOnDisk(of: blob) > bytesBefore { networkRetry = 0 }
+                guard networkRetry < policy.networkRetryLimit else { throw error }
+                networkRetry += 1
+                PoolTelemetry.logDownloadRetry(after: error)
+                try await policy.sleep(policy.backoff(beforeRetry: networkRetry))
             }
         }
     }

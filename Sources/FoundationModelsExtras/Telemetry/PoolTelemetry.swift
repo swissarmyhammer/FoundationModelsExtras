@@ -131,6 +131,16 @@ enum PoolTelemetry {
         logFailure(ExtrasTelemetry.PoolLogMessage.blobCloseFailed, error: error, level: .warning, metadata: [:])
     }
 
+    /// Writes one warning record for a file transfer that failed with a
+    /// transient network error, before the download tries the file again.
+    /// The record holds the type of `error`, never the description of
+    /// `error` or the path of the blob.
+    ///
+    /// - Parameter error: The network error of the transfer.
+    static func logDownloadRetry(after error: any Error) {
+        logFailure(ExtrasTelemetry.PoolLogMessage.downloadRetry, error: error, level: .warning, metadata: [:])
+    }
+
     /// Writes one error record with `message`, the type of `error` and the
     /// model ref. The record never holds the description of `error`.
     ///

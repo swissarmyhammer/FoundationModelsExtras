@@ -31,6 +31,9 @@ final class StallClock: Sendable {
     /// The retry limit of the policy.
     private let retryLimit: Int
 
+    /// The network retry limit of the policy.
+    private let networkRetryLimit: Int
+
     /// The duration of each backoff, in order.
     private let recordedBackoffs = Mutex<[Duration]>([])
 
@@ -39,9 +42,12 @@ final class StallClock: Sendable {
     /// - Parameters:
     ///   - stub: The stub whose stalls end the watches.
     ///   - retryLimit: The retry limit of the policy.
-    init(stub: HubStub, retryLimit: Int) {
+    ///   - networkRetryLimit: The network retry limit of the policy. The
+    ///     default is the limit of the default policy.
+    init(stub: HubStub, retryLimit: Int, networkRetryLimit: Int = DownloadRetryPolicy.defaultNetworkRetryLimit) {
         self.stub = stub
         self.retryLimit = retryLimit
+        self.networkRetryLimit = networkRetryLimit
     }
 
     /// The duration of each backoff, in order.
@@ -52,7 +58,8 @@ final class StallClock: Sendable {
     /// The retry policy whose sleeps go to this clock.
     var policy: DownloadRetryPolicy {
         DownloadRetryPolicy(
-            stallInterval: Self.stallInterval, initialBackoff: Self.initialBackoff, retryLimit: retryLimit
+            stallInterval: Self.stallInterval, initialBackoff: Self.initialBackoff, retryLimit: retryLimit,
+            networkRetryLimit: networkRetryLimit
         ) { [self] duration in
             try await sleep(for: duration)
         }

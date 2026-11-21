@@ -470,6 +470,13 @@ enum ExtrasTelemetry {
         /// last answer are not changed.
         static let blobCloseFailed =
             "the .incomplete blob of a file did not close; the transfer gives the outcome of its answer"
+
+        /// The message of the record that a download writes when a file
+        /// transfer fails with a transient network error, for example a lost
+        /// connection. The download waits for the backoff and asks for the
+        /// bytes after the bytes that the blob holds.
+        static let downloadRetry =
+            "a file transfer failed with a transient network error; the download tries again from the written bytes"
     }
 
     /// The carrier keys of the W3C trace context: the fields that carry the

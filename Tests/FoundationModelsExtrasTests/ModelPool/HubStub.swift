@@ -46,8 +46,14 @@ final class HubStub: Sendable {
         /// When `ignoresRange` is `true`, a `GET` with a `Range` header gets
         /// the whole file with the HTTP status of success, as a server that
         /// ignores the range sends it.
+        ///
+        /// When `dropsWith` is not `nil`, each entry of `stalls` is a dropped
+        /// connection, not a stall: the `GET` sends its bytes and then fails
+        /// with a `URLError` of that code. A drop does not end the watch of a
+        /// ``StallClock``.
         case repository(
-            commit: String, files: [TreeFile], stalls: [Int] = [], redirect: URL? = nil, ignoresRange: Bool = false)
+            commit: String, files: [TreeFile], stalls: [Int] = [], redirect: URL? = nil, ignoresRange: Bool = false,
+            dropsWith: URLError.Code? = nil)
     }
 
     /// The state of a wait for a stall when the wait starts.
@@ -282,6 +288,23 @@ final class HubStub: Sendable {
         resumeReachedWaiters { $0.writtenBytes = max($0.writtenBytes, bytes) }
     }
 
+    /// Waits until the download wrote the bytes of the answer of the last
+    /// `GET` request of a file up to `end`. A dropped connection fails only
+    /// after this wait: the URL session gives no bytes to the download that
+    /// arrive just before the error of the task.
+    ///
+    /// - Parameter end: The end of the bytes that the request sent, as an
+    ///   offset in its file.
+    func waitForWritten(upTo end: Int64) async {
+        while stallState.withLock({ $0.writtenBytes }) < end, !Task.isCancelled {
+            try? await Task.sleep(for: Self.writtenPollInterval)
+        }
+    }
+
+    /// The time between two reads of the written bytes in
+    /// ``waitForWritten(upTo:)``.
+    private static let writtenPollInterval = Duration.milliseconds(1)
+
     /// Changes the stall state, and ends the wait of each task whose stall
     /// the change reached.
     ///
@@ -334,6 +357,10 @@ private struct FileServing {
 
     /// Whether a `GET` with a `Range` header gets the whole file.
     let ignoresRange: Bool
+
+    /// The code of the `URLError` of a dropped connection, or `nil` when
+    /// each entry of ``stalls`` is a stall.
+    let dropsWith: URLError.Code?
 }
 
 /// The URL protocol of ``HubStub``: it answers each request from the stub that
@@ -401,11 +428,12 @@ final class HubStubProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
         case .tree(let files):
             answer(url: url, body: files.map(\.json))
-        case .repository(let commit, let files, let stalls, let redirect, let ignoresRange):
+        case .repository(let commit, let files, let stalls, let redirect, let ignoresRange, let dropsWith):
             if let target = Self.redirectTarget(of: request, under: redirect) {
                 answerRedirect(to: target)
             } else {
-                let serving = FileServing(commit: commit, stalls: stalls, ignoresRange: ignoresRange)
+                let serving = FileServing(
+                    commit: commit, stalls: stalls, ignoresRange: ignoresRange, dropsWith: dropsWith)
                 answerRepository(url: url, files: files, serving: serving, stub: stub)
             }
         }
@@ -477,7 +505,8 @@ final class HubStubProtocol: URLProtocol {
     /// status of a range that the server cannot give when the range starts
     /// at the end of the file or after it. When the stub ignores the range,
     /// the `GET` gets the whole file with the HTTP status of success. A `GET`
-    /// that stalls sends its first bytes and then nothing more.
+    /// that stalls sends its first bytes and then nothing more. A `GET` that
+    /// drops sends its first bytes and then fails with a `URLError`.
     ///
     /// - Parameters:
     ///   - url: The URL of the request.
@@ -509,6 +538,15 @@ final class HubStubProtocol: URLProtocol {
         }
         let sent = body.prefix(stall)
         startAnswer(url: url, status: status, headers: headers, body: sent)
+        if let code = serving.dropsWith {
+            let end = Int64(start + sent.count)
+            let connection = DroppedConnection(urlProtocol: self, code: code)
+            Task {
+                await stub.waitForWritten(upTo: end)
+                connection.fail()
+            }
+            return
+        }
         stub.recordStall(end: Int64(start + sent.count))
     }
 
@@ -564,5 +602,20 @@ final class HubStubProtocol: URLProtocol {
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)
         if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
         client?.urlProtocol(self, didLoad: body)
+    }
+}
+
+/// A connection of ``HubStubProtocol`` that fails with a `URLError` after
+/// the download wrote its bytes.
+private struct DroppedConnection: @unchecked Sendable {
+    /// The protocol of the request. Only ``fail()`` uses it, one time.
+    let urlProtocol: URLProtocol
+
+    /// The code of the error of the drop.
+    let code: URLError.Code
+
+    /// Fails the request with the error of the drop.
+    func fail() {
+        urlProtocol.client?.urlProtocol(urlProtocol, didFailWithError: URLError(code))
     }
 }
