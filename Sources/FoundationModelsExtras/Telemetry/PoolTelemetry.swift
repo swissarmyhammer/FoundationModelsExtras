@@ -128,7 +128,7 @@ enum PoolTelemetry {
     ///
     /// - Parameter error: The error of the close.
     static func logBlobCloseFailure(_ error: any Error) {
-        logFailure(ExtrasTelemetry.PoolLogMessage.blobCloseFailed, error: error, level: .warning, metadata: [:])
+        logWarning(ExtrasTelemetry.PoolLogMessage.blobCloseFailed, error: error)
     }
 
     /// Writes one warning record for a file transfer that failed with a
@@ -138,7 +138,19 @@ enum PoolTelemetry {
     ///
     /// - Parameter error: The network error of the transfer.
     static func logDownloadRetry(after error: any Error) {
-        logFailure(ExtrasTelemetry.PoolLogMessage.downloadRetry, error: error, level: .warning, metadata: [:])
+        logWarning(ExtrasTelemetry.PoolLogMessage.downloadRetry, error: error)
+    }
+
+    /// Writes one warning record with `message` and the type of `error`,
+    /// with no other entry. The record never holds the description of
+    /// `error`.
+    ///
+    /// - Parameters:
+    ///   - message: The message of the record, from
+    ///     ``ExtrasTelemetry/PoolLogMessage``.
+    ///   - error: The error of the operation.
+    private static func logWarning(_ message: String, error: any Error) {
+        logFailure(message, error: error, level: .warning, metadata: [:])
     }
 
     /// Writes one error record with `message`, the type of `error` and the

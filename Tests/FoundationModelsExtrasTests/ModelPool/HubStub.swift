@@ -288,22 +288,11 @@ final class HubStub: Sendable {
         resumeReachedWaiters { $0.writtenBytes = max($0.writtenBytes, bytes) }
     }
 
-    /// Waits until the download wrote the bytes of the answer of the last
-    /// `GET` request of a file up to `end`. A dropped connection fails only
-    /// after this wait: the URL session gives no bytes to the download that
-    /// arrive just before the error of the task.
-    ///
-    /// - Parameter end: The end of the bytes that the request sent, as an
-    ///   offset in its file.
-    func waitForWritten(upTo end: Int64) async {
-        while stallState.withLock({ $0.writtenBytes }) < end, !Task.isCancelled {
-            try? await Task.sleep(for: Self.writtenPollInterval)
-        }
+    /// The bytes that the download wrote in the answer of the last `GET`
+    /// request of a file, as the test last saw them.
+    var writtenBytes: Int64 {
+        stallState.withLock { $0.writtenBytes }
     }
-
-    /// The time between two reads of the written bytes in
-    /// ``waitForWritten(upTo:)``.
-    private static let writtenPollInterval = Duration.milliseconds(1)
 
     /// Changes the stall state, and ends the wait of each task whose stall
     /// the change reached.
@@ -366,8 +355,26 @@ private struct FileServing {
 /// The URL protocol of ``HubStub``: it answers each request from the stub that
 /// the ``HubStub/header`` header names.
 final class HubStubProtocol: URLProtocol {
+    /// A dropped connection that waits until the download wrote the bytes
+    /// of its request.
+    private struct PendingDrop {
+        /// The stub that records the written bytes.
+        let stub: HubStub
+        /// The end of the bytes that the request sent, as an offset in its
+        /// file.
+        let end: Int64
+        /// The code of the error of the drop.
+        let code: URLError.Code
+    }
+
+    /// The seconds between two checks of a dropped connection.
+    private static let dropCheckInterval: TimeInterval = 0.001
+
     /// The HTTP status of an answer.
     private static let okStatus = 200
+
+    /// The dropped connection of this request that waits, or `nil`.
+    private var pendingDrop: PendingDrop?
 
     /// The HTTP status of a request for a file that the repository does not
     /// hold.
@@ -539,12 +546,8 @@ final class HubStubProtocol: URLProtocol {
         let sent = body.prefix(stall)
         startAnswer(url: url, status: status, headers: headers, body: sent)
         if let code = serving.dropsWith {
-            let end = Int64(start + sent.count)
-            let connection = DroppedConnection(urlProtocol: self, code: code)
-            Task {
-                await stub.waitForWritten(upTo: end)
-                connection.fail()
-            }
+            pendingDrop = PendingDrop(stub: stub, end: Int64(start + sent.count), code: code)
+            failDropWhenWritten()
             return
         }
         stub.recordStall(end: Int64(start + sent.count))
@@ -560,9 +563,29 @@ final class HubStubProtocol: URLProtocol {
         return Int(range.dropFirst(rangePrefix.count).dropLast())
     }
 
-    /// Does nothing: a complete answer is over when ``startLoading()``
-    /// returns, and a stalled answer sends nothing more.
-    override func stopLoading() {}
+    /// Stops the check of a dropped connection. A complete answer is over
+    /// when ``startLoading()`` returns, and a stalled answer sends nothing
+    /// more.
+    override func stopLoading() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self)
+        pendingDrop = nil
+    }
+
+    /// Fails the request with the error of its drop when the download wrote
+    /// each byte that the request sent, else checks again after
+    /// ``dropCheckInterval``. The URL session gives no bytes to the download
+    /// that arrive just before the error of the task, thus the drop waits
+    /// for them. Each check runs on the thread of ``startLoading()``, as the
+    /// client of the protocol requires.
+    @objc private func failDropWhenWritten() {
+        guard let drop = pendingDrop else { return }
+        guard drop.stub.writtenBytes >= drop.end else {
+            perform(#selector(failDropWhenWritten), with: nil, afterDelay: Self.dropCheckInterval)
+            return
+        }
+        pendingDrop = nil
+        client?.urlProtocol(self, didFailWithError: URLError(drop.code))
+    }
 
     /// Sends a JSON body with the HTTP status of success.
     ///
@@ -602,20 +625,5 @@ final class HubStubProtocol: URLProtocol {
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)
         if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
         client?.urlProtocol(self, didLoad: body)
-    }
-}
-
-/// A connection of ``HubStubProtocol`` that fails with a `URLError` after
-/// the download wrote its bytes.
-private struct DroppedConnection: @unchecked Sendable {
-    /// The protocol of the request. Only ``fail()`` uses it, one time.
-    let urlProtocol: URLProtocol
-
-    /// The code of the error of the drop.
-    let code: URLError.Code
-
-    /// Fails the request with the error of the drop.
-    func fail() {
-        urlProtocol.client?.urlProtocol(urlProtocol, didFailWithError: URLError(code))
     }
 }

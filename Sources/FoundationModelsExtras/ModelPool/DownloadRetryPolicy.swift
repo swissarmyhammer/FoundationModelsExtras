@@ -35,8 +35,11 @@ struct DownloadRetryPolicy: Sendable {
     /// total.
     static let defaultNetworkRetryLimit = 12
 
+    /// The seconds of the maximum backoff of the default policy.
+    private static let defaultMaximumBackoffSeconds = 60
+
     /// The maximum backoff of the default policy.
-    static let defaultMaximumBackoff = Duration.seconds(60)
+    static let defaultMaximumBackoff = Duration.seconds(defaultMaximumBackoffSeconds)
 
     /// The codes of the network errors that a new request can correct: a
     /// time-out, a host that cannot be found or reached, a lost connection,
